@@ -51,7 +51,14 @@ def diff_vault(vault: Path) -> list[Change]:
     changes: list[Change] = []
     present: set[str] = set()
     for f in sorted(vault.rglob("*")):
-        if not f.is_file() or ".git" in f.parts:
+        if ".git" in f.parts:
+            continue
+        # Symlinks never cross the tenant boundary (same invariant as the
+        # compiler): a client-planted link would otherwise leak its TARGET
+        # bytes into master. Skipping links also means a baseline path that
+        # is now a symlink falls through to the delete pass below — the real
+        # file is gone.
+        if f.is_symlink() or not f.is_file():
             continue
         rel = str(f.relative_to(vault))
         if rel in generated:
@@ -91,14 +98,24 @@ def apply_writeback(
         if c.kind == "delete":
             target.unlink(missing_ok=True)
         else:
+            src = vault / c.path
+            if src.is_symlink():
+                # Defense in depth: diff_vault never emits symlinks, so this
+                # only fires if the vault changed between diff and apply.
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes((vault / c.path).read_bytes())
+            target.write_bytes(src.read_bytes())
 
     _git(master, "add", "-A")
-    _git(
-        master,
-        "-c", f"user.name={person.name}",
-        "-c", f"user.email={person.id}@brain.local",
-        "commit", "-m", f"writeback: {person.id} ({len(changes)} change(s))",
-    )
+    # The change set can net to zero delta against master's current state
+    # (e.g. last-write-wins converged: vault bytes already equal master's,
+    # or a delete of a file master no longer has). git commit exits 1 on an
+    # empty index, so only commit when something is actually staged.
+    if _git(master, "status", "--porcelain").stdout.strip():
+        _git(
+            master,
+            "-c", f"user.name={person.name}",
+            "-c", f"user.email={person.id}@brain.local",
+            "commit", "-m", f"writeback: {person.id} ({len(changes)} change(s))",
+        )
     return WritebackResult(applied=changes)
