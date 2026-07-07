@@ -19,7 +19,8 @@ def test_compiles_only_readable_spaces(master: Path, tmp_path: Path):
     assert not (out / "People/alice").exists()
     assert not (out / "_meta").exists()
     # Master-root files (server chief-of-staff protocol) are never copied
-    assert "AGENTS.md" not in {p.name for p in out.iterdir()}
+    # verbatim — any AGENTS.md present is Task 5's generated context file.
+    assert "Chief-of-staff protocol (server only)" not in (out / "AGENTS.md").read_text()
     assert "Company/Home.md" in result.files
 
 
