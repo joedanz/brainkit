@@ -44,6 +44,14 @@ def _validate_subject(subject: str, rule_path: str) -> None:
         raise SchemaError(f"rule {rule_path!r}: {{name}} requires a wildcard path")
 
 
+def _string_list(value: object, owner: str, field: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise SchemaError(f"{owner}: {field} must be a list")
+    return tuple(value)
+
+
 def load_org(path: Path) -> Org:
     data = yaml.safe_load(path.read_text()) or {}
     people_raw = data.get("people")
@@ -52,11 +60,13 @@ def load_org(path: Path) -> Org:
     people: dict[str, Person] = {}
     for pid, attrs in people_raw.items():
         attrs = attrs or {}
+        if not isinstance(attrs, dict):
+            raise SchemaError(f"person {pid!r}: value must be a mapping")
         people[pid] = Person(
             id=pid,
             name=attrs.get("name", pid),
-            roles=tuple(attrs.get("roles", ())),
-            teams=tuple(attrs.get("teams", ())),
+            roles=_string_list(attrs.get("roles"), f"person {pid!r}", "roles"),
+            teams=_string_list(attrs.get("teams"), f"person {pid!r}", "teams"),
         )
     return Org(people=people)
 
@@ -69,14 +79,16 @@ def load_spaces(path: Path) -> tuple[SpaceRule, ...]:
     rules: list[SpaceRule] = []
     seen: set[str] = set()
     for entry in entries:
+        if not isinstance(entry, dict):
+            raise SchemaError(f"spaces entry {entry!r}: must be a mapping")
         rule_path = entry.get("path")
         if not rule_path:
             raise SchemaError("every spaces entry needs a 'path'")
         if rule_path in seen:
             raise SchemaError(f"duplicate rule path {rule_path!r}")
         seen.add(rule_path)
-        read = tuple(entry.get("read", ()))
-        write = tuple(entry.get("write", ()))
+        read = _string_list(entry.get("read"), f"rule {rule_path!r}", "read")
+        write = _string_list(entry.get("write"), f"rule {rule_path!r}", "write")
         for subject in (*read, *write):
             _validate_subject(subject, rule_path)
         rules.append(SpaceRule(path=rule_path, read=read, write=write))
