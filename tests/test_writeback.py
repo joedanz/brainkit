@@ -46,6 +46,27 @@ def test_out_of_scope_change_rejects_everything(master: Path, tmp_path: Path):
     assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"
 
 
+def test_out_of_scope_delete_rejects_everything(master: Path, tmp_path: Path):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Memory.md").write_text("legit change\n")
+    # Bob can read Company but not write it — deleting the file from his
+    # vault copy must be rejected server-side like any other change.
+    (vault / "Company/Decisions/Big Deal Decision.md").unlink()
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert result.applied == []
+    assert any(
+        "delete" in v and "Company/Decisions/Big Deal Decision.md" in v
+        for v in result.violations
+    )
+    # Master untouched: the read-only file survives with original content,
+    # and the legit edit is NOT applied either.
+    master_file = master / "Company/Decisions/Big Deal Decision.md"
+    assert master_file.read_text() == "We chose option A.\n"
+    assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"
+
+
 def test_valid_writeback_applies_and_commits(master: Path, tmp_path: Path):
     setup_master_git(master)
     vault = tmp_path / "bob"
