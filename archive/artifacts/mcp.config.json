@@ -1,0 +1,58 @@
+{
+  "_format_note": "Hermes stores MCP servers as YAML under `mcp_servers:` in ~/.hermes/config.yaml. This JSON maps key-for-key to that YAML (use `hermes mcp add`/`configure` to manage, or paste the YAML equivalent). Secrets use ${VAR} interpolation resolved from ~/.hermes/.env. Tool whitelists deliberately exclude booking/sending actions so the agent drafts and a human commits (human-in-the-loop). Drop this _format_note key before converting to YAML.",
+  "mcp_servers": {
+    "luxe_crm": {
+      "command": "npx",
+      "args": ["-y", "@hubspot/mcp-server"],
+      "env": { "HUBSPOT_ACCESS_TOKEN": "${HUBSPOT_ACCESS_TOKEN}" },
+      "tools": {
+        "include": ["crm_get_contact", "crm_search_contacts", "crm_list_deals", "crm_get_deal", "crm_create_note"],
+        "prompts": false,
+        "resources": false
+      },
+      "enabled": true,
+      "supports_parallel_tool_calls": true
+    },
+    "gds_amadeus": {
+      "command": "uvx",
+      "args": ["luxe-gds-mcp"],
+      "env": {
+        "AMADEUS_CLIENT_ID": "${AMADEUS_CLIENT_ID}",
+        "AMADEUS_CLIENT_SECRET": "${AMADEUS_CLIENT_SECRET}",
+        "AMADEUS_ENV": "production"
+      },
+      "tools": { "exclude": ["create_order", "issue_ticket", "cancel_order"] },
+      "enabled": true,
+      "supports_parallel_tool_calls": true
+    },
+    "email_gmail": {
+      "command": "uvx",
+      "args": ["workspace-mcp", "--tools", "gmail"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
+        "USER_GOOGLE_EMAIL": "${DESK_GMAIL_ADDRESS}"
+      },
+      "tools": { "include": ["search_gmail_messages", "get_gmail_message_content", "draft_gmail_message"] },
+      "enabled": true
+    },
+    "calendar_google": {
+      "command": "uvx",
+      "args": ["workspace-mcp", "--tools", "calendar"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
+        "USER_GOOGLE_EMAIL": "${DESK_GMAIL_ADDRESS}"
+      },
+      "tools": { "include": ["list_events", "get_event", "create_event", "modify_event"] },
+      "enabled": true
+    },
+    "web_search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": { "BRAVE_API_KEY": "${BRAVE_API_KEY}" },
+      "enabled": true,
+      "supports_parallel_tool_calls": true
+    }
+  }
+}

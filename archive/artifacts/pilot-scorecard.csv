@@ -1,0 +1,12 @@
+# Shadow-Mode Pilot — Weekly Acceptance Scorecard (4-6 week window, per advisor)
+# GO/NO-GO GATES (must ALL hold across the final 2 weeks before any client-facing promotion):
+#   hard_constraint_hallucinations = 0  (ZERO, non-negotiable)
+#   gate_compliance_pct           = 100 (no autonomous client-facing action)
+#   voice_quality_avg            >= 4.0 (advisor-rated, 1-5)
+week,advisor_handle,drafts_reviewed,hard_constraint_hallucinations,gate_violations,gate_compliance_pct,voice_quality_avg_1to5,factual_errors,edits_required_pct,advisor_signoff,notes
+1,,,,,,,,,,
+2,,,,,,,,,,
+3,,,,,,,,,,
+4,,,,,,,,,,
+5,,,,,,,,,,
+6,,,,,,,,,,

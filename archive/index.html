@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI & Personal Agents for Luxury Travel — Engagement Package</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+<style>
+  .cover{min-height:92vh; display:flex; flex-direction:column; justify-content:center; padding:90px clamp(20px,5vw,56px) 60px;
+    background:radial-gradient(120% 80% at 82% 4%,rgba(198,161,91,.18),transparent 52%),
+      radial-gradient(70% 60% at 6% 100%,rgba(115,178,156,.08),transparent 60%),var(--ink)}
+  .cover .wrap{max-width:1100px;margin:0 auto;width:100%}
+  .cover .eyebrow{font-size:.72rem;letter-spacing:.34em;text-transform:uppercase;color:var(--gold);display:inline-flex;align-items:center;gap:12px;margin-bottom:24px}
+  .cover .eyebrow::before{content:'';width:40px;height:1px;background:var(--gold);opacity:.6}
+  .cover h1{font-size:clamp(2.8rem,7vw,5.6rem);line-height:1.0;color:var(--cream);margin-bottom:24px;letter-spacing:-.01em}
+  .cover h1 em{font-style:italic;color:var(--gold-l)}
+  .cover .sub{font-size:clamp(1.05rem,1.8vw,1.32rem);color:var(--muted);max-width:64ch;font-weight:300}
+  .cover .meta{display:flex;gap:30px;flex-wrap:wrap;margin-top:34px;border-top:1px solid var(--line);padding-top:22px;font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted2);max-width:760px}
+  .cover .meta b{display:block;color:var(--gold);font-family:'Cormorant Garamond',serif;font-size:1.4rem;letter-spacing:0;font-weight:600;text-transform:none;margin-top:4px}
+  .thesisband{background:#0a0d11;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:46px clamp(20px,5vw,56px)}
+  .thesisband .wrap{max-width:1100px;margin:0 auto}
+  .thesisband p{font-family:'Cormorant Garamond',serif;font-size:clamp(1.4rem,2.6vw,2.1rem);line-height:1.4;color:var(--cream);max-width:none}
+  .thesisband p em{color:var(--gold-l);font-style:italic}
+  .docs{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-top:44px}
+  @media(max-width:820px){.docs{grid-template-columns:1fr}}
+  .dcard{display:flex;flex-direction:column;background:var(--ink2);border:1px solid var(--line);border-radius:15px;
+    padding:30px;text-decoration:none;position:relative;overflow:hidden;transition:transform .35s,border-color .35s;border-top:2px solid var(--tc)}
+  .dcard:hover{transform:translateY(-6px);border-color:var(--tc)}
+  .dcard .no{position:absolute;top:22px;right:28px;font-family:'Cormorant Garamond',serif;font-size:2.6rem;color:var(--tc);opacity:.35}
+  .dcard .tagrow{display:flex;gap:8px;margin-bottom:14px}
+  .dcard .typ{font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--tc);border:1px solid var(--tc);padding:4px 10px;border-radius:20px;opacity:.85}
+  .dcard h3{font-size:1.6rem;color:var(--cream);margin:0 0 10px;line-height:1.12}
+  .dcard p{color:var(--muted);font-size:.92rem;margin:0 0 16px;flex:1}
+  .dcard .for{font-size:.74rem;color:var(--muted2);border-top:1px solid var(--line);padding-top:12px}
+  .dcard .for b{color:var(--gold-l);font-weight:500}
+  .dcard .open{margin-top:14px;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+  .dcard .open::after{content:' →';transition:margin .2s}
+  .dcard:hover .open::after{margin-left:5px}
+  .artgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:34px}
+  @media(max-width:820px){.artgrid{grid-template-columns:1fr}}
+  .art{display:flex;align-items:center;gap:16px;background:var(--ink2);border:1px solid var(--line);border-radius:11px;padding:18px 20px;text-decoration:none;transition:border-color .25s,transform .25s}
+  .art:hover{border-color:var(--gold-d);transform:translateX(4px)}
+  .art .ext{font-family:'SF Mono',monospace;font-size:.62rem;letter-spacing:.06em;color:var(--ink);background:var(--gold);padding:5px 8px;border-radius:6px;font-weight:700;flex:none}
+  .art .ad{flex:1}
+  .art .an{color:var(--cream);font-size:.92rem;font-weight:500}
+  .art .ai{color:var(--muted2);font-size:.78rem}
+  .path{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px;align-items:center;font-size:.8rem;color:var(--muted)}
+  .path .step{background:var(--ink3);border:1px solid var(--line);border-radius:30px;padding:8px 15px;color:var(--muted)}
+  .path .arr{color:var(--gold-d)}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<nav id="nav">
+  <div class="brand">Hermes <b>×</b> Atelier Voyage</div>
+  <div class="navlinks">
+    <a href="#docs">Documents</a>
+    <a href="#artifacts">Artifacts</a>
+    <a href="#how">Method</a>
+  </div>
+</nav>
+
+<header class="cover">
+  <div class="wrap">
+    <div class="eyebrow">Engagement Package · Confidential</div>
+    <h1>AI &amp; personal agents for <em>bespoke luxury travel</em>.</h1>
+    <p class="sub">A complete evaluation and build plan for putting Hermes-orchestrated AI behind a network of independent luxury advisors — research, opportunity map, ownership architecture, economics, governance, and the technical build, in six linked documents.</p>
+    <div class="meta">
+      <div>Opportunities<b>18</b></div>
+      <div>Documents<b>6</b></div>
+      <div>Config artifacts<b>5</b></div>
+      <div>Model<b>1099 / host ICs</b></div>
+      <div>3-yr ROI<b>~2.7×</b></div>
+    </div>
+  </div>
+</header>
+
+<div class="thesisband">
+  <div class="wrap">
+    <p>The play is not “buy an AI tool.” It is Hermes as a memory-rich <em>second brain on top of your stack</em> — drafting, monitoring, and reconciling, with a human sending every client word. Default everything to <em>advisor-owned</em>; make the agency earn each act of sharing.</p>
+  </div>
+</div>
+
+<section class="doc-sec" id="docs">
+  <div class="wrap">
+    <div class="kicker"><span class="secnum">01</span>The documents</div>
+    <h2 class="title">Six documents, one argument.</h2>
+    <p class="lead">Read top to bottom for the full case, or jump to what you need. Each opens in its own view.</p>
+    <div class="path">
+      <span class="step">1 · The opportunities</span><span class="arr">→</span>
+      <span class="step">2 · Who owns what</span><span class="arr">→</span>
+      <span class="step">3 · The owner's case</span><span class="arr">→</span>
+      <span class="step">4 · The economics</span><span class="arr">→</span>
+      <span class="step">5 · How we build it</span><span class="arr">→</span>
+      <span class="step">6 · How we keep it safe</span>
+    </div>
+    <div class="docs">
+      <a class="dcard" href="luxury-travel-ai-opportunities.html" style="--tc:#c6a15b">
+        <div class="no">01</div>
+        <div class="tagrow"><span class="typ">Interactive deck</span></div>
+        <h3>The Opportunity Brief</h3>
+        <p>All 18 AI opportunities across six themes, with an impact/effort map, filterable cards, a phased roadmap, and the honest Hermes-vs-alternatives verdict with a recommended stack.</p>
+        <div class="for"><b>Start here.</b> The full landscape of what's possible.</div>
+        <div class="open">Open the deck</div>
+      </a>
+      <a class="dcard" href="agency-vs-personal.html" style="--tc:#73b29c">
+        <div class="no">02</div>
+        <div class="tagrow"><span class="typ">Decision brief</span></div>
+        <h3>Agency vs Personal Agents</h3>
+        <p>Which agents belong to the network and which to the individual advisor — the agency↔personal spectrum, the four-plane architecture, key-person risk, and the archetype-by-archetype defaults.</p>
+        <div class="for"><b>The architecture decision.</b> Ownership, tiers, and trust.</div>
+        <div class="open">Open the brief</div>
+      </a>
+      <a class="dcard" href="one-pager.html" style="--tc:#c6a15b">
+        <div class="no">03</div>
+        <div class="tagrow"><span class="typ">Executive one-pager</span></div>
+        <h3>The Owner's Brief</h3>
+        <p>The whole case on a page for the host-network operator: the leaks with dollar figures, the first 60 days, the investment and return, the guardrails, and the decision. Print-friendly.</p>
+        <div class="for"><b>For the principal.</b> Non-technical, skimmable, decisive.</div>
+        <div class="open">Open the one-pager</div>
+      </a>
+      <a class="dcard" href="roi-model.html" style="--tc:#c6a15b">
+        <div class="no">04</div>
+        <div class="tagrow"><span class="typ">Interactive model</span></div>
+        <h3>The ROI Model</h3>
+        <p>Per-opportunity benefit, payback, and portfolio ROI — with sliders for advisors, trip value, commission, leakage, and build rate. Defaults reproduce the research model; make it yours.</p>
+        <div class="for"><b>The economics.</b> Modeled, adjustable, honest about haircuts.</div>
+        <div class="open">Open the model</div>
+      </a>
+      <a class="dcard" href="build-plan.html" style="--tc:#8fa9c9">
+        <div class="no">05</div>
+        <div class="tagrow"><span class="typ">Technical build plan</span></div>
+        <h3>The Phase-1 Build Plan</h3>
+        <p>The hands-on spec: the four-plane Hermes architecture, the dossier schema, per-tenant encryption, the shadow-mode pilot gate, per-quick-win build steps, and a 60-day sequence.</p>
+        <div class="for"><b>For the implementer.</b> Real Hermes config, cron, MCP.</div>
+        <div class="open">Open the build plan</div>
+      </a>
+      <a class="dcard" href="governance-playbook.html" style="--tc:#cf8a6b">
+        <div class="no">06</div>
+        <div class="tagrow"><span class="typ">Governance playbook</span></div>
+        <h3>Trust &amp; Data-Governance</h3>
+        <p>The doc you show a security-conscious family office: data classification, redaction, audit, the escalation matrix and incident runbook, IC ownership &amp; portability, and 1099-status preservation.</p>
+        <div class="for"><b>The trust foundation.</b> Audit-ready, IC-aware.</div>
+        <div class="open">Open the playbook</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="doc-sec" id="artifacts">
+  <div class="wrap">
+    <div class="kicker"><span class="secnum">02</span>Copy-paste artifacts</div>
+    <h2 class="title">Real, runnable starter files.</h2>
+    <p class="lead">Production-quality starting points grounded in Hermes' actual formats — the dossier database, the house voice, the scheduled jobs, the tool wiring, and the pilot scorecard.</p>
+    <div class="artgrid">
+      <a class="art" href="artifacts/dossier-schema.sql"><span class="ext">.sql</span><div class="ad"><div class="an">dossier-schema.sql</div><div class="ai">Structured client memory DB + audit triggers + 1099 multi-tenant ownership addendum</div></div></a>
+      <a class="art" href="artifacts/SOUL.md"><span class="ext">.md</span><div class="ad"><div class="an">SOUL.md</div><div class="ai">The discreet luxury house voice — Hermes identity / system-prompt slot</div></div></a>
+      <a class="art" href="artifacts/hermes-cron.sh"><span class="ext">.sh</span><div class="ad"><div class="an">hermes-cron.sh</div><div class="ai">The 8 Phase-1 scheduled jobs in Hermes' natural-language + CLI cron form</div></div></a>
+      <a class="art" href="artifacts/mcp.config.json"><span class="ext">.json</span><div class="ad"><div class="an">mcp.config.json</div><div class="ai">MCP server wiring (CRM, GDS, Gmail, Calendar, search) — booking/send tools excluded</div></div></a>
+      <a class="art" href="artifacts/pilot-scorecard.csv"><span class="ext">.csv</span><div class="ad"><div class="an">pilot-scorecard.csv</div><div class="ai">Shadow-mode weekly scorecard with the go/no-go acceptance gates</div></div></a>
+    </div>
+  </div>
+</section>
+
+<section class="doc-sec" id="how">
+  <div class="wrap">
+    <div class="kicker"><span class="secnum">03</span>How this was built</div>
+    <h2 class="title">Researched, ideated, and adversarially pressure-tested.</h2>
+    <div class="grid3">
+      <div class="card"><h3>Grounded</h3><p>Hermes capabilities pulled from its live docs; luxury-agency operations and the AI-tooling landscape researched from the field — so the ideas are real, not generic.</p></div>
+      <div class="card"><h3>Ideated &amp; ranked</h3><p>Opportunities generated across four value lenses, then deduped, scored on impact × effort, and sequenced by blast radius into a phased roadmap.</p></div>
+      <div class="card"><h3>Pressure-tested</h3><p>A 20-year-agency-owner + CISO critic killed the overhyped, flagged every boundary leak, and forced the ownership model — so what survived is what holds.</p></div>
+    </div>
+    <div class="callout warn">Every figure here is modeled from industry benchmarks, not measured from a specific agency's books. Before committing budget, instrument real baselines — trips/yr, blended commission, commission-leakage rate, admin hours, conversion — and re-run the ROI model on your own numbers.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="fb">Hermes × Atelier Voyage</div>
+  <div>AI &amp; personal-agent engagement package for bespoke luxury travel — built for a host network of 1099 independent advisors.</div>
+</footer>
+<script>
+const nav=document.getElementById('nav'),prog=document.getElementById('progress');
+addEventListener('scroll',()=>{const sc=scrollY,h=document.body.scrollHeight-innerHeight;
+  prog.style.width=(sc/h*100)+'%';nav.classList.toggle('scrolled',sc>40);},{passive:true});
+</script>
+</body>
+</html>

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Interactive ROI Model — Luxury Travel AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+<style>
+  :root{--agency:#8fa9c9;--hybrid:#c6a15b;--split:#cf8a6b}
+  .roiwrap{display:grid; grid-template-columns:340px 1fr; gap:34px; align-items:start; margin-top:40px}
+  @media(max-width:900px){.roiwrap{grid-template-columns:1fr}}
+  .panel{background:var(--ink2); border:1px solid var(--line); border-radius:14px; padding:24px; position:sticky; top:90px}
+  @media(max-width:900px){.panel{position:static}}
+  .panel h3{font-size:1.3rem; color:var(--cream); margin:0 0 4px}
+  .panel .ph{font-size:.74rem; color:var(--muted2); margin-bottom:18px}
+  .ctrl{margin-bottom:17px}
+  .ctrl label{display:flex; justify-content:space-between; align-items:baseline; font-size:.8rem; color:var(--muted); margin-bottom:7px}
+  .ctrl label b{color:var(--gold-l); font-family:'Cormorant Garamond',serif; font-size:1.05rem; font-weight:600}
+  .ctrl input[type=range]{width:100%; -webkit-appearance:none; height:4px; border-radius:4px; background:var(--ink3); outline:none}
+  .ctrl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+    background:var(--gold); cursor:pointer; border:2px solid var(--ink); box-shadow:0 0 0 1px var(--gold-d)}
+  .ctrl input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--gold);cursor:pointer;border:2px solid var(--ink)}
+  .ctrl .hint{font-size:.66rem; color:var(--muted2); margin-top:4px}
+  .resetbtn{width:100%; margin-top:6px; background:transparent; border:1px solid var(--gold-d); color:var(--gold-l);
+    font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; padding:11px; border-radius:8px; cursor:pointer; transition:all .2s}
+  .resetbtn:hover{background:var(--gold); color:var(--ink)}
+  .headstats{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:8px}
+  @media(max-width:780px){.headstats{grid-template-columns:repeat(2,1fr)}}
+  .hs{background:linear-gradient(160deg,var(--ink3),var(--ink2)); border:1px solid var(--line); border-top:2px solid var(--gold); border-radius:13px; padding:20px}
+  .hs b{display:block; font-family:'Cormorant Garamond',serif; font-size:2rem; color:var(--gold-l); line-height:1; font-weight:600}
+  .hs.neg b{color:var(--split)} .hs.pos b{color:var(--emerald)}
+  .hs span{display:block; margin-top:7px; font-size:.66rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted)}
+  .seg{display:flex; gap:8px; margin:24px 0 12px}
+  .seg button{flex:1; background:var(--ink2); border:1px solid var(--line); color:var(--muted); font-size:.74rem;
+    letter-spacing:.08em; text-transform:uppercase; padding:10px; border-radius:8px; cursor:pointer; transition:all .2s}
+  .seg button.active{background:var(--gold); color:var(--ink); border-color:var(--gold); font-weight:600}
+  table.roi{width:100%; border-collapse:collapse; font-size:.82rem}
+  table.roi th{text-align:right; font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted2);
+    padding:10px 8px; border-bottom:1px solid var(--gold-d); font-weight:600}
+  table.roi th.l,table.roi td.l{text-align:left}
+  table.roi td{padding:11px 8px; border-bottom:1px solid var(--line); color:var(--muted); text-align:right}
+  table.roi tr:hover td{background:rgba(198,161,91,.04)}
+  table.roi tr.qw td.l::after{content:'⚡'; margin-left:6px; font-size:.7rem}
+  .tbadge{display:inline-block; width:18px; height:18px; border-radius:5px; font-size:.58rem; font-weight:700; color:var(--ink);
+    text-align:center; line-height:18px; margin-right:8px; vertical-align:middle}
+  .tbadge.A{background:var(--agency)} .tbadge.H{background:var(--hybrid)} .tbadge.S{background:var(--split)}
+  td.b{color:var(--gold-l); font-weight:500} td.pos{color:var(--emerald)} td.neg{color:var(--split)}
+  .conf{font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; padding:2px 7px; border-radius:20px}
+  .conf.High{background:rgba(115,178,156,.15); color:var(--emerald)}
+  .conf.Medium{background:rgba(198,161,91,.13); color:var(--gold-l)}
+  .conf.Low{background:rgba(201,123,107,.13); color:var(--split)}
+  tfoot td{border-top:2px solid var(--gold-d); border-bottom:none; padding-top:14px; color:var(--text); font-weight:500}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<nav id="nav">
+  <div class="brand">Hermes <b>×</b> Atelier Voyage</div>
+  <div class="navlinks">
+    <a href="#model">Model</a>
+    <a href="index.html" class="backlink">← Package</a>
+  </div>
+</nav>
+
+<header class="dochero">
+  <div class="wrap">
+    <div class="eyebrow">Interactive Model · Unit Economics</div>
+    <h1>The numbers, on <em>your</em> assumptions.</h1>
+    <p class="sub">Every figure below is modeled, not measured — so make it yours. Move the sliders to your real volume, commission, and rates, and the per-opportunity benefit, payback, and portfolio ROI recompute live. Defaults reproduce the research model: ~$240K gross benefit, 2.7× three-year ROI.</p>
+  </div>
+</header>
+
+<section class="doc-sec" id="model">
+  <div class="wrap">
+    <div class="kicker"><span class="secnum">01</span>Your assumptions</div>
+    <h2 class="title">Tune it to your books.</h2>
+    <p class="lead">Per-advisor figures scale linearly across the network — set the advisor count to your roster. These drivers are the only inputs; everything on the right is derived.</p>
+    <div class="roiwrap">
+      <div class="panel">
+        <h3>Inputs</h3>
+        <div class="ph">Drag to model your agency</div>
+        <div id="controls"></div>
+        <button class="resetbtn" id="reset">Reset to model defaults</button>
+      </div>
+      <div>
+        <div class="headstats" id="headstats"></div>
+        <p class="lead" style="font-size:.82rem;margin-top:14px" id="derived"></p>
+        <div class="seg">
+          <button data-v="all" class="active">All 18 opportunities</button>
+          <button data-v="qw">Quick wins only (8)</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="roi" id="roitable"></table>
+        </div>
+        <div class="callout warn" style="margin-top:26px"><strong>Honest math.</strong> These are modeled top-down from industry benchmarks (luxury trip value $10–40K, 10–25% commissions, 15–25% commission leakage, Claude API rates, $30–60/mo infra, $800–2,000/day build), <strong>not this agency's books</strong>. Benefits are <strong>not additive</strong> — multiple ideas claim the same advisor hours and the same incremental bookings — so a realization haircut (default 65%) is applied to the portfolio. The real cost is the one-time build (~$158K for all 18), not tokens (~$4.6K/yr); a small roster should phase the build, quick-wins first. Re-run this on measured baselines before committing budget.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="fb">Hermes × Atelier Voyage</div>
+  <div>Interactive ROI model — drag the assumptions to your reality.</div>
+  <div style="margin-top:8px;color:var(--muted2)">Calibrated to reproduce the research workflow's figures at default assumptions. Modeled estimates, not measured results.</div>
+</footer>
+
+<script>
+// effort -> build days
+const DAYS={2:4,3:8,4:14,5:20};
+// category scaling: TIME=(T/80)*(hr/85), REV=(T/80)*(rev/5300), COMM=(commBase/364000)*(leak/7), RISK=(A/2), VOL=(T/80)
+const IDEAS=[
+ {t:"Living Client Dossier",tier:"H",qw:false,cat:"TIME",lo:9,mid:14.5,hi:20,eff:4,run:333,conf:"Medium"},
+ {t:"Discretion & Privacy Guardian",tier:"A",qw:false,cat:"RISK",lo:5,mid:10,hi:15,eff:5,run:483,conf:"Low"},
+ {t:"Shadow-Mode Pilot & Voice QA",tier:"H",qw:true,cat:"RISK",lo:3,mid:5.5,hi:8,eff:2,run:167,conf:"Medium"},
+ {t:"Escalation & Incident Protocol",tier:"A",qw:true,cat:"RISK",lo:2.5,mid:4.75,hi:7,eff:2,run:117,conf:"Medium"},
+ {t:"Omni-Channel Lead Capture",tier:"H",qw:false,cat:"REV",lo:10,mid:16,hi:22,eff:3,run:183,conf:"Medium"},
+ {t:"Proposal Buying-Signal Radar",tier:"H",qw:false,cat:"REV",lo:8,mid:13,hi:18,eff:3,run:183,conf:"Medium"},
+ {t:"Referral-Ask Timing Prompter",tier:"H",qw:true,cat:"REV",lo:8,mid:13,hi:18,eff:2,run:67,conf:"Medium"},
+ {t:"Bespoke Research Assistant",tier:"H",qw:false,cat:"TIME",lo:12,mid:18,hi:24,eff:4,run:533,conf:"Medium"},
+ {t:"House-Voice Proposal Generator",tier:"H",qw:false,cat:"TIME",lo:14,mid:21,hi:28,eff:3,run:183,conf:"Medium"},
+ {t:"Client Lifecycle & Retention Engine",tier:"H",qw:true,cat:"REV",lo:9,mid:14.5,hi:20,eff:2,run:167,conf:"Medium"},
+ {t:"Occasion & Surprise-Prep Prompter",tier:"H",qw:true,cat:"REV",lo:5,mid:9.5,hi:14,eff:2,run:117,conf:"Low"},
+ {t:"Confirmation-to-CRM Auto-Capture",tier:"H",qw:true,cat:"TIME",lo:9,mid:13.5,hi:18,eff:3,run:283,conf:"High"},
+ {t:"Supplier & DMC Command Center",tier:"S",qw:false,cat:"TIME",lo:8,mid:13,hi:18,eff:4,run:333,conf:"Medium"},
+ {t:"Pre-Trip Green-Light Sweep",tier:"H",qw:false,cat:"VOL",lo:10,mid:17,hi:24,eff:4,run:333,conf:"Medium"},
+ {t:"Passport & Entry-Requirement Flagger",tier:"H",qw:true,cat:"VOL",lo:5,mid:9.5,hi:14,eff:2,run:167,conf:"High"},
+ {t:"Flight & Disruption Sentinel",tier:"H",qw:false,cat:"VOL",lo:6,mid:10.5,hi:15,eff:3,run:333,conf:"Medium"},
+ {t:"Commission Reconciliation Watchdog",tier:"H",qw:false,cat:"COMM",lo:14,mid:25,hi:36,eff:4,run:433,conf:"High"},
+ {t:"Proactive Daily Operations Brief",tier:"H",qw:true,cat:"TIME",lo:7,mid:11.5,hi:16,eff:2,run:217,conf:"Medium"}
+];
+const CONTROLS=[
+ {k:"advisors",label:"Advisors in the network",min:1,max:50,step:1,def:2,fmt:v=>v,hint:"1099 ICs on the platform. Per-advisor figures scale linearly."},
+ {k:"tpa",label:"Bespoke trips / advisor / yr",min:10,max:120,step:5,def:40,fmt:v=>v,hint:"Luxury advisors average ~40 high-touch trips/yr."},
+ {k:"V",label:"Avg trip sell value",min:5000,max:120000,step:1000,def:35000,fmt:v=>'$'+(v/1000)+'K',hint:"Bespoke luxury commonly $10–40K."},
+ {k:"c",label:"Blended net commission",min:5,max:25,step:0.5,def:13,fmt:v=>v+'%',hint:"Hotels 15–25%, DMC 15–35%, flights ~0."},
+ {k:"f",label:"Planning fee / trip",min:0,max:3000,step:50,def:750,fmt:v=>'$'+v,hint:"78% of advisors now charge; $600–1,500 typical."},
+ {k:"hr",label:"Advisor value / hour",min:40,max:250,step:5,def:85,fmt:v=>'$'+v,hint:"Loaded cost + opportunity cost of an hour."},
+ {k:"leak",label:"Commission leakage recovered",min:1,max:20,step:1,def:7,fmt:v=>v+'%',hint:"Industry loses 15–25%; watchdog recovers a slice."},
+ {k:"haircut",label:"Realization haircut",min:30,max:100,step:5,def:65,fmt:v=>v+'%',hint:"Benefits overlap; only a fraction is truly additive."},
+ {k:"rate",label:"Build contractor day-rate",min:500,max:2500,step:100,def:1000,fmt:v=>'$'+v,hint:"Mid-senior automation contractor: $800–2,000."},
+ {k:"yrs",label:"Build amortization",min:1,max:5,step:1,def:3,fmt:v=>v+' yr',hint:"Spread one-time build over its useful life."}
+];
+const S={}; CONTROLS.forEach(c=>S[c.k]=c.def);
+let view="all";
+
+const $=s=>document.querySelector(s),el=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e;};
+const money=n=>{const a=Math.abs(n); const s=n<0?'−':''; if(a>=1000) return s+'$'+(a/1000).toFixed(a>=10000?0:1)+'K'; return s+'$'+Math.round(a);};
+
+// build controls
+const cc=$('#controls');
+CONTROLS.forEach(c=>{
+  const w=el('div','ctrl');
+  w.innerHTML=`<label for="c_${c.k}">${c.label}<b id="v_${c.k}"></b></label>
+    <input type="range" id="c_${c.k}" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.def}">
+    <div class="hint">${c.hint}</div>`;
+  cc.appendChild(w);
+  w.querySelector('input').addEventListener('input',e=>{S[c.k]=parseFloat(e.target.value); recompute();});
+});
+
+function compute(){
+  const A=S.advisors, T=A*S.tpa, rev=S.V*S.c/100+S.f, commBase=T*S.V*S.c/100, hc=S.haircut/100;
+  const f={TIME:(T/80)*(S.hr/85), REV:(T/80)*(rev/5300), COMM:(commBase/364000)*(S.leak/7), RISK:(A/2), VOL:(T/80)};
+  const rows=IDEAS.map(d=>{
+    const factor=f[d.cat];
+    const mid=d.mid*1000*factor, lo=d.lo*1000*factor, hi=d.hi*1000*factor;
+    const buildCost=DAYS[d.eff]*S.rate;
+    const annualCost=buildCost/S.yrs + d.run;
+    const realized=mid*hc;
+    const payback=mid>0?buildCost/mid*12:999;
+    return {...d, mid, lo, hi, buildCost, annualCost, realized, payback};
+  });
+  return {rows, T, rev, commBase, hc, A};
+}
+function recompute(){
+  CONTROLS.forEach(c=>$('#v_'+c.k).textContent=c.fmt(S[c.k]));
+  const {rows,T,rev,commBase,A}=compute();
+  const set=rows.filter(r=>view==='all'||r.qw);
+  // portfolio (always all 18 for headline)
+  const gross=rows.reduce((s,r)=>s+r.mid,0);
+  const realized=gross*S.haircut/100;
+  const build=rows.reduce((s,r)=>s+r.buildCost,0);
+  const run=rows.reduce((s,r)=>s+r.run,0);
+  const netY1=realized-build-run;
+  const netY2=realized-run;
+  const roi3=(build+run*3)>0?(realized*3)/(build+run*3):0;
+  // quick-win subtotal
+  const qw=rows.filter(r=>r.qw);
+  const qwReal=qw.reduce((s,r)=>s+r.mid,0)*S.haircut/100;
+  const qwBuild=qw.reduce((s,r)=>s+r.buildCost,0);
+
+  $('#headstats').innerHTML=`
+    <div class="hs"><b>${money(realized)}</b><span>Realized benefit / yr (all 18)</span></div>
+    <div class="hs ${netY1>=0?'pos':'neg'}"><b>${money(netY1)}</b><span>Year-1 net (after full build)</span></div>
+    <div class="hs pos"><b>${money(netY2)}</b><span>Year 2+ net / yr</span></div>
+    <div class="hs"><b>${roi3.toFixed(1)}×</b><span>3-year ROI</span></div>`;
+  $('#derived').innerHTML=`At these inputs: <strong>${A} advisor${A>1?'s':''}</strong> · <strong>${T} trips/yr</strong> · <strong>${money(rev)}</strong> revenue/trip · <strong>${money(commBase)}</strong> commission base. Quick-wins (8): <strong>${money(qwReal)}</strong> realized/yr on <strong>${money(qwBuild)}</strong> one-time build.`;
+
+  // table
+  let body=set.map(r=>`<tr class="${r.qw?'qw':''}">
+    <td class="l"><span class="tbadge ${r.tier}">${r.tier}</span>${r.t}</td>
+    <td class="b">${money(r.realized)}</td>
+    <td>${money(r.annualCost)}</td>
+    <td>${money(r.buildCost)}</td>
+    <td>${r.payback>120?'—':r.payback.toFixed(1)+'mo'}</td>
+    <td><span class="conf ${r.conf}">${r.conf}</span></td></tr>`).join('');
+  const sReal=set.reduce((s,r)=>s+r.realized,0), sCost=set.reduce((s,r)=>s+r.annualCost,0), sBuild=set.reduce((s,r)=>s+r.buildCost,0);
+  $('#roitable').innerHTML=`
+    <thead><tr><th class="l">Opportunity (${set.length})</th><th>Realized benefit/yr</th><th>Annual cost</th><th>One-time build</th><th>Payback</th><th>Confidence</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr><td class="l">${view==='all'?'All 18 (haircut applied)':'Quick wins (8)'}</td>
+      <td class="b">${money(sReal)}</td><td>${money(sCost)}</td><td>${money(sBuild)}</td><td></td><td></td></tr></tfoot>`;
+}
+$('#reset').addEventListener('click',()=>{CONTROLS.forEach(c=>{S[c.k]=c.def; $('#c_'+c.k).value=c.def;}); recompute();});
+document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',e=>{
+  view=e.target.dataset.v; document.querySelectorAll('.seg button').forEach(x=>x.classList.remove('active')); e.target.classList.add('active'); recompute();
+}));
+recompute();
+
+// nav/progress
+const nav=$('#nav'),prog=$('#progress');
+addEventListener('scroll',()=>{const sc=scrollY,h=document.body.scrollHeight-innerHeight;
+  prog.style.width=(sc/h*100)+'%'; nav.classList.toggle('scrolled',sc>40);},{passive:true});
+</script>
+</body>
+</html>

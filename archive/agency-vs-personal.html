@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agency-wide vs Personal Agents — Decision Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+<style>
+  :root{--agency:#8fa9c9; --personal:#73b29c; --hybrid:#c6a15b; --split:#cf8a6b}
+  /* spectrum */
+  .spectrum{position:relative; margin:46px 0 30px; padding:60px 10px 56px}
+  .spectrum-bar{height:10px; border-radius:8px; background:linear-gradient(90deg,var(--agency),var(--hybrid) 50%,var(--personal)); position:relative}
+  .spectrum-bar::before,.spectrum-bar::after{position:absolute; top:24px; font-size:.7rem; letter-spacing:.18em; text-transform:uppercase; color:var(--muted)}
+  .spectrum-bar::before{content:'◄ Agency-owned (shared)'; left:0; color:var(--agency)}
+  .spectrum-bar::after{content:'Personal to advisor ►'; right:0; color:var(--personal)}
+  .spectrum-mark{position:absolute; top:-6px; width:22px; height:22px; border-radius:50%; transform:translateX(-50%);
+    border:2px solid var(--ink); cursor:pointer; transition:transform .2s, box-shadow .2s; z-index:2; box-shadow:0 2px 8px rgba(0,0,0,.5)}
+  .spectrum-mark:hover{transform:translateX(-50%) scale(1.4); z-index:6}
+  .spectrum-mark span{position:absolute; bottom:26px; left:50%; transform:translateX(-50%); font-size:.58rem; color:var(--ink); font-weight:700;
+    width:16px; text-align:center}
+  .spectrum-tip{position:fixed; pointer-events:none; z-index:300; background:var(--ink3); border:1px solid var(--gold-d); border-radius:9px;
+    padding:11px 14px; max-width:280px; font-size:.8rem; opacity:0; transition:opacity .15s; box-shadow:var(--shadow)}
+  .spectrum-tip b{display:block; color:var(--gold-l); font-family:'Cormorant Garamond',serif; font-size:.98rem; margin-bottom:4px}
+  .spectrum-tip em{font-style:normal; color:var(--muted); font-size:.72rem; letter-spacing:.05em}
+  /* tier legend chips */
+  .tierchips{display:flex; flex-wrap:wrap; gap:10px; margin:10px 0 26px}
+  .tchip{font-size:.74rem; letter-spacing:.04em; padding:9px 15px; border-radius:30px; cursor:pointer; border:1px solid var(--line);
+    background:var(--ink2); color:var(--muted); display:inline-flex; align-items:center; gap:9px; transition:all .25s}
+  .tchip .sw{width:11px; height:11px; border-radius:50%}
+  .tchip:hover{color:var(--text); border-color:var(--gold-d)}
+  .tchip.active{color:var(--ink); font-weight:600}
+  .tchip.active.t-A{background:var(--agency); border-color:var(--agency)}
+  .tchip.active.t-H{background:var(--hybrid); border-color:var(--hybrid)}
+  .tchip.active.t-S{background:var(--split); border-color:var(--split)}
+  .tchip.active.t-all{background:var(--gold); border-color:var(--gold)}
+  .tcount{margin-left:auto; font-size:.78rem; color:var(--muted2)}
+  /* classification cards */
+  .clsgrid{display:grid; grid-template-columns:repeat(2,1fr); gap:16px}
+  @media(max-width:840px){.clsgrid{grid-template-columns:1fr}}
+  .cls{background:var(--ink2); border:1px solid var(--line); border-radius:13px; padding:22px 24px; border-left:3px solid var(--tc)}
+  .cls .ch{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px}
+  .cls .ch h3{font-size:1.22rem; color:var(--cream); margin:0}
+  .cls .tierbadge{font-size:.58rem; letter-spacing:.12em; text-transform:uppercase; padding:3px 9px; border-radius:20px;
+    color:var(--ink); font-weight:700; background:var(--tc)}
+  .cls .flag{font-size:.56rem; letter-spacing:.1em; text-transform:uppercase; color:var(--gold-l); border:1px solid var(--gold-d); padding:3px 8px; border-radius:20px}
+  .cls .tierfull{font-size:.74rem; color:var(--muted2); margin-bottom:10px}
+  .cls .why{font-size:.88rem; color:var(--muted); margin-bottom:14px}
+  .splitcols{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px}
+  @media(max-width:520px){.splitcols{grid-template-columns:1fr}}
+  .sc{border-radius:9px; padding:12px 13px; font-size:.8rem}
+  .sc.agency{background:rgba(143,169,201,.09); border:1px solid rgba(143,169,201,.25)}
+  .sc.personal{background:rgba(115,178,156,.09); border:1px solid rgba(115,178,156,.25)}
+  .sc .scl{font-size:.58rem; letter-spacing:.14em; text-transform:uppercase; margin-bottom:6px; font-weight:600}
+  .sc.agency .scl{color:var(--agency)} .sc.personal .scl{color:var(--personal)}
+  .sc p{color:var(--muted); font-size:.8rem; margin:0; max-width:none}
+  .cls .meta{font-size:.76rem; color:var(--muted2); border-top:1px solid var(--line); padding-top:10px}
+  .cls .meta b{color:var(--gold-l); font-weight:500}
+  /* arch stack */
+  .stack-plane{border:1px solid var(--line); border-radius:13px; margin:14px 0; overflow:hidden}
+  .plane-head{padding:12px 20px; font-size:.7rem; letter-spacing:.18em; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center}
+  .plane-head .pt{color:var(--muted2)}
+  .plane-body{padding:6px 16px 18px; display:grid; gap:12px}
+  .plane-body.cols2{grid-template-columns:1fr 1fr}
+  .plane-body.cols3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:760px){.plane-body.cols2,.plane-body.cols3{grid-template-columns:1fr}}
+  .alayer{background:var(--ink2); border:1px solid var(--line); border-radius:11px; padding:18px 18px; border-top:2px solid var(--lc)}
+  .alayer h4{font-family:'Cormorant Garamond',serif; font-weight:600; text-transform:none; letter-spacing:0; font-size:1.18rem; color:var(--cream); margin:0 0 4px}
+  .alayer .tag{font-size:.58rem; letter-spacing:.1em; text-transform:uppercase; color:var(--lc); margin-bottom:8px; display:inline-block}
+  .alayer p{font-size:.82rem; color:var(--muted); margin:0 0 8px; max-width:none}
+  .alayer .kv{font-size:.74rem; color:var(--muted2); margin-top:6px}
+  .alayer .kv b{color:var(--text); font-weight:500}
+  .alayer .new{font-size:.55rem; background:var(--emerald); color:var(--ink); padding:2px 7px; border-radius:20px; letter-spacing:.1em; font-weight:700; margin-left:6px}
+  .arrowdown{text-align:center; color:var(--gold-d); font-size:1.1rem; margin:-4px 0}
+  .archetype{background:var(--ink2); border:1px solid var(--line); border-radius:13px; padding:24px; border-top:2px solid var(--tc)}
+  .archetype h3{margin-top:0}
+  .archetype .size{font-size:.72rem; color:var(--muted2); letter-spacing:.06em; margin-bottom:12px}
+  .archetype .rec{margin-top:12px; background:rgba(198,161,91,.08); border-left:2px solid var(--gold); border-radius:8px; padding:12px 14px; font-size:.82rem; color:var(--muted)}
+  .archetype .rec b{color:var(--gold-l)}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="spectrum-tip" id="stip"></div>
+
+<nav id="nav">
+  <div class="brand">Hermes <b>×</b> Atelier Voyage</div>
+  <div class="navlinks">
+    <a href="#tiers">Tiers</a>
+    <a href="#classify">Classification</a>
+    <a href="#arch">Architecture</a>
+    <a href="#risk">Key-person risk</a>
+    <a href="#archetypes">Archetypes</a>
+    <a href="#confirm">Confirm</a>
+    <a href="index.html" class="backlink">← Package</a>
+  </div>
+</nav>
+
+<header class="dochero">
+  <div class="wrap">
+    <div class="eyebrow">Decision Brief · Agent Ownership Architecture</div>
+    <h1>Which agents belong to <em>the agency</em>, and which to <em>the advisor</em>?</h1>
+    <p class="sub">The split is not a fixed property of a capability — it flips with the employment contract. The right model defaults everything to personal and makes the agency <em>earn</em> each act of sharing, enforced structurally at the token layer, never by trusting the agent to police itself.</p>
+    <div class="docmeta">
+      <div>Opportunities classified<b>18</b></div>
+      <div>Purely agency<b>2</b></div>
+      <div>Hybrid (shared+personal)<b>15</b></div>
+      <div>True split<b>1</b></div>
+      <div>Purely personal<b>0*</b></div>
+    </div>
+  </div>
+</header>
+
+<!-- THE REFRAME -->
+<section class="doc-sec" id="reframe">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">01</span>The reframe</div>
+    <h2 class="title reveal">Contract dictates architecture — not the reverse.</h2>
+    <p class="lead reveal">The instinct is to label each capability "agency" or "personal" once and for all. That's the core error. The correct unit of analysis is <strong>capability × archetype</strong>: the same dossier is agency-owned for a W-2 employee and advisor-owned for a 1099 independent contractor.</p>
+    <div class="grid3">
+      <div class="card reveal"><h3>1 · Mirror the contract</h3><p>W-2 employees → the firm owns the book and dossier. 1099 ICs (the dominant luxury model) → the dossier and entire personal pipeline default to advisor-owned, segregated, host-invisible, and one-click exportable.</p></div>
+      <div class="card reveal"><h3>2 · Split, don't lump</h3><p>Every "shared" asset decomposes into an institutional core that <em>may</em> pool (negotiated rates, reliability scores, compliance rules, booking records) and a personal layer that <em>must not</em> (voice, rapport, referral graph, advisor-brought suppliers).</p></div>
+      <div class="card reveal"><h3>3 · Earn sharing, structurally</h3><p>Centralization must never silently expropriate the advisor. Fact-promotion is opt-in and hard-gated; portability is a shipped product feature; every boundary is enforced at the ZeroID/MCP layer — because agent self-policing runs ~112/129.</p></div>
+    </div>
+    <div class="callout ok reveal"><strong>* Why zero are "purely personal":</strong> on a shared Hermes stack every capability rides shared infrastructure, so pure-personal assets — the advisor's voice model and referral graph — exist as <em>components inside hybrids</em>, not as standalone capabilities. They are first-class and portable, but they are not separate agents.</div>
+  </div>
+</section>
+
+<!-- TIERS -->
+<section class="doc-sec" id="tiers">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">02</span>The three tiers</div>
+    <h2 class="title reveal">One taxonomy, applied per contract.</h2>
+    <div class="grid3" id="tiergrid"></div>
+  </div>
+</section>
+
+<!-- CLASSIFICATION -->
+<section class="doc-sec" id="classify">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">03</span>All 18, placed</div>
+    <h2 class="title reveal">The agency ↔ personal spectrum.</h2>
+    <p class="lead reveal">Each opportunity positioned by where it leans — agency-owned shared infrastructure on the left, advisor-owned relationship capital on the right. Hover a marker; filter by tier below.</p>
+    <div class="spectrum reveal">
+      <div class="spectrum-bar" id="sbar"></div>
+    </div>
+    <div class="tierchips" id="tierchips"></div>
+    <div class="clsgrid" id="clsgrid"></div>
+  </div>
+</section>
+
+<!-- ARCHITECTURE -->
+<section class="doc-sec" id="arch">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">04</span>The architecture</div>
+    <h2 class="title reveal">A four-plane stack that defaults to personal.</h2>
+    <p class="lead reveal" id="archsummary"></p>
+    <div id="archstack" class="reveal"></div>
+    <h3 style="margin-top:36px" class="reveal">The boundaries that make it safe</h3>
+    <ul class="checks reveal" id="boundaries"></ul>
+  </div>
+</section>
+
+<!-- KEY PERSON RISK -->
+<section class="doc-sec" id="risk">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">05</span>Key-person risk</div>
+    <h2 class="title reveal">Institutional memory vs. the advisor who guards it.</h2>
+    <div class="grid2">
+      <div class="callout warn reveal" id="kpProblem"></div>
+      <div class="callout ok reveal" id="kpMitigation"></div>
+    </div>
+    <h3 class="reveal" style="margin-top:26px">When an advisor leaves — the departure runbook</h3>
+    <ol class="steps reveal" id="departure"></ol>
+  </div>
+</section>
+
+<!-- ARCHETYPES -->
+<section class="doc-sec" id="archetypes">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">06</span>It changes by archetype</div>
+    <h2 class="title reveal">Same stack, four very different defaults.</h2>
+    <p class="lead reveal">What "personal to the user" even means depends on how the agency is structured. This is the single biggest input — and the one to confirm first.</p>
+    <div class="grid2" id="archetypegrid"></div>
+  </div>
+</section>
+
+<!-- CHANGE MANAGEMENT -->
+<section class="doc-sec" id="change">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">07</span>Adoption</div>
+    <h2 class="title reveal">Trust is the product. Earn it in sequence.</h2>
+    <p class="lead reveal">Get the data architecture wrong and the best advisors simply won't feed the system. These are the moves that make adoption voluntary.</p>
+    <ul class="bul reveal" id="change"></ul>
+  </div>
+</section>
+
+<!-- CONFIRM -->
+<section class="doc-sec" id="confirm">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">08</span>Before we build</div>
+    <h2 class="title reveal">Confirm these, in order — they set the matrix.</h2>
+    <div class="callout warn reveal" id="q1"></div>
+    <ol class="steps reveal" id="openq"></ol>
+    <div class="callout reveal" id="finalrec" style="margin-top:28px"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="fb">Hermes × Atelier Voyage</div>
+  <div>Agent ownership architecture — agency-wide vs personal-to-the-advisor.</div>
+  <div style="margin-top:8px; color:var(--muted2)">Synthesized from a 5-agent analysis, pressure-tested by a CISO + 20-year agency-owner critic. Defaults shown for the dominant 1099/host model; confirm employment status to finalize.</div>
+</footer>
+
+<script>
+const TC={A:'#8fa9c9',P:'#73b29c',H:'#c6a15b',S:'#cf8a6b'};
+const TAXONOMY=[
+ {key:'A',name:'Agency',color:'#8fa9c9',def:'Data and logic that must be consistent, authoritative, and continuous across the whole firm — a single source of truth no advisor should fork, disable, or carry away. Compliance, financial ledgers, booking records, pooled supplier intelligence. Value compounds as more advisors contribute to one de-identified canonical store.',owner:'Agency principal / ops / compliance — advisors are scoped consumers, not owners.',scope:'Firm-wide canonical structured DB; per-advisor access scoping on top; shared learning de-identified before write.'},
+ {key:'P',name:'Personal',color:'#73b29c',def:'The irreducibly individual layer — voice/SOUL.md, client relationships, personal channels, the referral graph, advisor-brought suppliers, cadence. Relational/competitive capital that travels with the advisor. On a shared stack it lives as components inside hybrids (0 of 18 stand alone) but gets first-class, portable standing.',owner:'The individual advisor — principal of their own personal agent; for ICs, contractually theirs.',scope:'Per-advisor private namespace, default-deny to other advisors and (host model) the operator via per-tenant keys. One-click export is a built feature.'},
+ {key:'H',name:'Hybrid',color:'#c6a15b',def:'Shared, firm-owned data/engine surfaced through a personal interface and voice. The institutional layer guarantees quality and continuity; the personal layer guarantees the client experiences one trusted advisor, not a corporate machine. The dominant pattern — 15 of 18.',owner:'Split — agency owns the data/engine and policy; advisor owns the voice, the send, the relationship. The balance point moves with employment status.',scope:'Two-layer: firm-owned canonical data joined at render time with a per-advisor private voice/rapport layer, walled per advisor. Row-level scope enforced at the MCP server, not the prompt.'}
+];
+const CLS=[
+ {t:'Living Client Dossier',code:'H',lean:55,flag:'⚑ contract-contingent',why:'The book of business — its tier flips on employment status. A flat label silently defaults ICs to agency-owned, exactly backwards for the dominant model.',shared:'Vault schema, hard-constraint data model, encrypted storage, retention tooling — and, only for W-2, the canonical record itself.',personal:'The client facts, preferences, curated notes, relationship context — for ICs, the entire record, segregated and host-invisible.',owner:'W-2: agency. 1099 IC: advisor. Settle AI-enriched-dossier IP in an ICA addendum before data accumulates.',privacy:'Per-client isolation + per-advisor walls; host model adds per-tenant BYOK encryption; one-click export shipped.'},
+ {t:'Discretion & Privacy Guardian',code:'A',lean:5,why:'Governance must be uniform, non-bypassable, centrally audited; one advisor weakening redaction collapses the firm’s discretion promise.',shared:'Redaction engine, network scoping, tamper-evident audit log, the policy gate, custody of the HNW travel-pattern store as a security asset.',personal:'None material — advisors are subjects, at most setting per-advisor sensitivity flags within firm bounds.',owner:'Agency (compliance/principal); the audit log is firm property, externally anchored so even the principal can’t edit it.',privacy:'This IS the privacy boundary — firm-wide enforcement + immutable audit. UHNW patterns treated as a physical-security vector.'},
+ {t:'Shadow-Mode Pilot & Voice QA',code:'H',lean:50,why:'Shared safety gate (nothing ships un-piloted) plus personal calibration (the voice being QA’d is the advisor’s).',shared:'Shadow-mode framework, go/no-go thresholds, QA rubric, the firm rule mandating a pilot.',personal:'The advisor’s voice model, sample corpus, and go-live sign-off.',owner:'Agency owns framework/thresholds; advisor owns voice samples and calibration.',privacy:'Voice samples per-advisor private; only pass/fail rolls up. Framed as advisor-protective, not surveillance.'},
+ {t:'Escalation & Incident Protocol',code:'A',lean:8,why:'When-in-doubt-human rules, rollback, and the incident register must be uniform and authoritative for liability and firm-wide learning.',shared:'Escalation thresholds, incident taxonomy, rollback machinery, the firm incident register.',personal:'Routing destination (the owning advisor) and minor per-advisor handle-vs-escalate preferences within bounds.',owner:'Agency; the register is firm property and feeds firm-wide learning.',privacy:'Logs firm-owned but access-controlled — advisors see their own incidents, principal sees all, all writes audited.'},
+ {t:'Omni-Channel Lead Capture',code:'H',lean:60,flag:'⚑ split channel',why:'Personal inbox/DMs/referrals-by-name must not surface into firm-visible logs by default — that leaks personal-channel relationship capital.',shared:'Capture/logging pipeline, dedup, attribution/routing engine — applied to AGENCY channels only.',personal:'The advisor’s own channels, contacts, warm-reply voice, and the ‘advisor sends’ action — private by default.',owner:'Personal-channel lead = advisor’s. Agency-channel lead = firm’s, routed by an agreed rule.',privacy:'Personal-channel leads stay in the advisor silo; only agency-channel leads are logged firm-visibly.'},
+ {t:'Proposal Buying-Signal Radar',code:'H',lean:68,why:'Shared sensor, personal response — but ‘anonymized firm-wide benchmarks’ are re-identifiable at small n in a boutique.',shared:'Re-open/engagement detection engine + firm-wide signal-to-conversion benchmarks, suppressed below a k-anonymity floor.',personal:'The advisor’s proposals, client engagement data, alert recipient, and follow-up voice.',owner:'Advisor owns proposal + engagement; agency owns the engine and de-identified aggregates.',privacy:'One advisor’s engagement invisible to others; benchmarks suppressed at small n so a unique HNW value can’t fingerprint a client.'},
+ {t:'Referral-Ask Timing Prompter',code:'H',lean:85,flag:'closest to pure-P',why:'The referral graph, the ask, and the voice are the advisor’s deepest relational capital; only a timing model is shared.',shared:'Peak-delight detection heuristic + optional firm-wide learning on when asks convert.',personal:'The referral graph, relationship, ask, voice, and who gets asked — a named, exportable P-asset.',owner:'Advisor owns the relationship + referral graph (prime flight-risk asset); agency may own the timing model.',privacy:'An advisor’s referral network is personal capital — never visible to others, leaves with the advisor on exit.'},
+ {t:'Bespoke Research Assistant',code:'H',lean:45,why:'Shared compounding destination knowledge + engine; personal brief, taste, and rate verification.',shared:'Sub-agent research infra, vetted source list, supplier data, growing destination knowledge base.',personal:'The specific client brief, the advisor’s curation and taste, mandatory rate verification.',owner:'Agency owns infra + pooled destination intel; advisor owns the brief and curated output.',privacy:'Client briefs private per advisor; only general destination research pools. A clean low-risk tool to introduce early.'},
+ {t:'House-Voice Proposal Generator',code:'H',lean:35,flag:'⚑ inverted · opt-in for ICs',why:'Brand consistency is firm IP, but mandating one voice on ICs is brand-erasure (adoption risk) and an IC-status control factor (legal risk).',shared:'House-voice/brand templates, deck design system, asset library, brand guardrails.',personal:'Client-specific content, pricing confirmation, the advisor’s positioning/voice within (or instead of) the brand.',owner:'Agency owns the brand system; advisor owns deck content. For ICs house voice is opt-in scaffold each tunes.',privacy:'Brand assets firm-wide; client decks private to advisor-client. A floor for mechanics, not a replacement for taste.'},
+ {t:'Client Lifecycle & Retention Engine',code:'H',lean:60,why:'Shared cadence playbook + write-back; personal relationship, voice, and history.',shared:'Cadence/playbook engine, re-engagement timing, write-back pipeline into the dossier.',personal:'The relationship, follow-up voice, and the client’s specific history and preferences.',owner:'Agency owns cadence + write-back path; advisor owns relationship + content (IC: with the dossier itself).',privacy:'Per-client/per-advisor; churn signals walled per advisor; principal roll-up aggregate-only in the IC model.'},
+ {t:'Occasion & Surprise-Prep Prompter',code:'H',lean:72,why:'Shared surfacing, personal magic — ‘the advisor invents the magic’ is explicitly the differentiator.',shared:'Occasion-detection logic, option-brief generator, supplier/perk inventory for surprises.',personal:'The creative execution, knowledge of what THIS client would love, the signature touch.',owner:'Agency owns detection infra + occasion data (in dossier); advisor owns the creative execution.',privacy:'Occasion data per-client private; surfacing never crosses advisors. The ‘magic’ must not be homogenized.'},
+ {t:'Confirmation-to-CRM Auto-Capture',code:'H',lean:30,flag:'A-leaning · re-split',why:'Transactional/booking records are precisely what the host holds by necessity (Agency); only the relationship write-back is personal.',shared:'Parsing engine, CRM schema, transactional booking records, a supplier confirmation-format library that learns PII-stripped.',personal:'The dossier write-back / relationship context and the advisor’s one-tap confirm — not the booking facts.',owner:'Agency owns parsing infra, CRM, format library, transactional record; advisor owns the relationship layer.',privacy:'Format library de-identified before write; raw confirmations never enter shared memory un-stripped.'},
+ {t:'Supplier & DMC Command Center',code:'S',lean:25,flag:'⚑ true split',why:'Firm-negotiated rates are agency IP, but advisor-brought supplier/DMC contacts are relational capital the advisor contributed — they must not be silently absorbed.',shared:'Supplier ledger, reliability scores, perk/deadline tracking, firm-negotiated rates and consortium relationships.',personal:'An advisor’s proprietary supplier/DMC contacts, tagged distinctly and returnable on exit.',owner:'Agency owns the reliability ledger + negotiated rates; advisor-brought contacts stay advisor-tagged with return-on-exit.',privacy:'Reliability scores firm-shared + de-identified; advisor-brought relationships flagged so they can be returned.'},
+ {t:'Pre-Trip Green-Light Sweep',code:'H',lean:30,flag:'A-leaning',why:'Firm quality/liability protocol + branded doc pack; only the specific trip and delivery are personal.',shared:'The T-7/3/1 sweep protocol/checklist, verification logic, branded doc-pack template.',personal:'The specific trip/client, the advisor’s final review, the relationship-context delivery.',owner:'Agency owns protocol + brand template; advisor owns trip/client data (IC: in their dossier).',privacy:'Trip data per-client/per-advisor; monitoring must continue through any departure hot-handoff.'},
+ {t:'Passport & Entry-Requirement Flagger',code:'H',lean:25,flag:'A-logic + isolated PII',why:'The logic is firm-vetted, but a flat ‘A’ invited pooling passport scans/DOB — the most sensitive per-client PII and a physical-security vector.',shared:'Vetted-API integrations, deterministic rules engine, liability-safe language standards (no improvisation).',personal:'The client’s passport PII and trip, held per-client; the advisor flags it. No personal LOGIC.',owner:'Agency owns the rules engine + liability framing; the client/advisor owns the passport PII.',privacy:'Field-level encryption, ephemeral handling; passport/PNR NEVER enters the shared format library or portal logs.'},
+ {t:'Flight & Disruption Sentinel',code:'H',lean:32,flag:'A-leaning',why:'Shared monitoring backbone + ranking; personal trips, comms, and ticketing.',shared:'Monitoring engine, flight feeds, disruption detection, alternative-ranking logic.',personal:'The advisor’s specific client trips/PNRs, client communication, and the ticketing decision.',owner:'Agency owns monitoring infra + feeds; advisor owns the client trip/PNR data.',privacy:'PNR/itinerary per-client; alerts route only to the owning advisor; hot-handoff so the watch never lapses on revoke.'},
+ {t:'Commission Reconciliation Watchdog',code:'H',lean:28,flag:'A-leaning · per-advisor wall',why:'Firm AR engine is authoritative, but in split-commission/IC models the advisor’s attributed slice is their own money and must be confidential.',shared:'Commission ledger, reconciliation engine, supplier payment terms, chase templates.',personal:'An advisor’s attributed commission entries and their approval/voice on chases via their supplier rapport.',owner:'Agency owns the ledger/AR; advisor has a scoped view of only their attributed commissions.',privacy:'Each advisor sees only their own; only admin reads the full ledger; specialists see none. Framed as found-money.'},
+ {t:'Proactive Daily Operations Brief',code:'H',lean:62,flag:'⚑ advisor brief P · principal roll-up A',why:'A second hidden artifact — a firm-wide roll-up aggregating every advisor’s book — was buried inside an H item with no access controls.',shared:'The brief-assembly engine and the source systems it pulls from.',personal:'The advisor’s own scoped brief — their clients, deadlines, leads, in priority order.',owner:'Agency owns the engine; the advisor brief is personal; the principal roll-up is a SEPARATE A-tier artifact.',privacy:'Each brief shows only that advisor’s book; the principal roll-up is access-controlled and excluded/aggregate-only in the host/IC model.'}
+];
+const ARCH={
+ summary:'A structured Agency Brain (Tier 0) is the system-of-record for institutional data only — never client relationship capital by default. A Chief-of-Staff orchestrator (Tier 1) routes, mints scoped ZeroID tokens, and enforces approval at the tool layer (not via agent self-policing, which runs ~112/129). Per-advisor Personal Agents (Tier 2) hold the voice and rapport silo and reach the dossier only through row-level-scoped tokens — and in the host/IC model the dossier is the advisor’s, host-invisible via per-tenant keys. A first-class Principal-Owner Agent carries the owner’s own book, walled from their admin hat. A Specialist Sub-agent Pool does delegated work with ephemeral PII and de-identified write-backs.',
+ planes:[
+  {tier:'Tier 0 — Data plane',head:'Agency Brain — Institutional System-of-Record',color:'#8fa9c9',cols:1,layers:[
+    {name:'Agency Brain',lc:'#8fa9c9',tag:'No voice · serves data only',role:'Single source of truth for what the firm legitimately owns: supplier scorecards, firm-negotiated rates, the commission ledger, the compliance ruleset, transactional booking records. Holds the dossier as SOR only where the contract grants it (W-2); for ICs it hosts an advisor-owned, per-tenant-encrypted dossier it cannot read in plaintext.',sees:'Only what callers are scoped to over MCP; row-level scope server-side. No client channels.',voice:'None — it is a data plane.',admin:'Central IT/ops (schema, keys, backups); Compliance owns the ruleset; audit log externally anchored.'}
+  ]},
+  {tier:'Tier 1 — Control plane',head:'Chief-of-Staff Orchestrator',color:'#8fa9c9',cols:1,layers:[
+    {name:'Chief-of-Staff Orchestrator',lc:'#c6a15b',tag:'Routing · scoping · approval gates',role:'Routes leads, assigns clients, runs the Kanban, mints and revokes scoped ZeroID tokens, enforces approval gates, and runs institutional cron jobs. Fact-promotion is opt-in, hard-gated, run by an isolated monitored sub-engine — a privileged cross-advisor reader, excluded by default in the host/IC model.',sees:'Agency-level data + orchestration state. Does NOT see advisor private rapport silos except through the isolated, opt-in, audited promotion engine.',voice:'Agency operational voice on shared channels only — never an advisor’s client voice.',admin:'Ops lead / managing director (rules, routing, approvals); central IT (runtime, token registry). Principal break-glass is dual-controlled.'}
+  ]},
+  {tier:'Tier 2 — Edge & shared-service plane',head:'Personal Agents + Principal Agent + Specialist Pool',color:'#73b29c',cols:3,layers:[
+    {name:'Personal Advisor Agents',lc:'#73b29c',tag:'One per advisor · the voice',role:'Each advisor’s AI counterpart: works their queue, drafts and converses in their voice, manages the relationship, reads/writes dossiers for assigned clients only. In the host/IC model the dossier is the advisor’s own, host-invisible.',sees:'Only assigned clients’ dossiers + needed shared data (supplier scores read-only, own commissions). Never another advisor’s book, silo, or channels.',voice:'The individual advisor’s SOUL.md — the client experiences one trusted advisor.',admin:'Advisor self-services voice/channels/skills; central IT owns the instance, the ZeroID scope, and the kill switch. The advisor cannot widen their own scope.'},
+    {name:'Principal-Owner Personal Agent',lc:'#73b29c',tag:'NEW · separation of duties',role:'In solo/boutique the owner is also a producing advisor. This is the owner’s OWN agent for their OWN book — structurally separate from their admin hat, so the owner’s clients sit behind the same per-advisor wall as everyone else’s.',sees:'Only the principal’s own assigned clients + shared data — same scope as any advisor agent. Admin powers live in the separate Tier-1 role.',voice:'The principal’s personal advisor voice for their own clients.',admin:'Central IT owns the instance/token; principal self-services their voice. Break-glass into others is gated by separation-of-duties, not self-grant.',isNew:true},
+    {name:'Specialist Sub-agent Pool',lc:'#c6a15b',tag:'Shared service · no relationships',role:'Reusable scoped workers any agent can delegate to: fare/flight research, visa & compliance checks, supplier negotiation, itinerary assembly. They do work; they never own a client relationship.',sees:'Shared Brain data + only transient, scoped PII for the single task. Holds no client memory between invocations.',voice:'None client-facing — invoked via delegation; results return to the caller.',admin:'Central engineering/ops (shared skill library, supplier credentials, browser runners).'}
+  ]}
+ ],
+ boundaries:[
+  'DOSSIER tier is contract-contingent, not a default: W-2 = agency-owned SOR via scoped token; 1099 IC = advisor-owned, segregated, host-invisible via per-tenant keys, firm retaining only the transactional records it must.',
+  'FACT-PROMOTION is opt-in and hard-gated at the tool layer: explicit per-fact advisor approval, non-response = no promotion, every promotion audited; the engine is excluded by default in the host/IC model.',
+  'DEFAULT-DENY, least-privilege, MCP-enforced: time-boxed tokens scoped to currently-assigned clients; a personal agent may read shared data it needs but never another advisor’s dossiers, silo, channels, full ledger, or supplier credentials.',
+  'DE-IDENTIFY-BEFORE-WRITE for every ‘improves with volume’ shared store; suppress small-n benchmarks below a k-anonymity floor so a boutique can’t re-identify a client from a unique HNW itinerary value.',
+  'SEPARATION OF DUTIES: the principal’s producing book lives in a Principal-Owner Agent walled from the admin hat; any break-glass is dual-controlled and written to an externally-anchored, principal-uneditable audit log.',
+  'PII HANDLING: passport/DOB/PNR field-level encrypted, ephemeral in the specialist pool, PII-stripped on write-back; the HNW travel-pattern store is a physical-security asset, walled per tenant.',
+  'CHANNEL BOUNDARY: personal-channel leads default to the advisor silo and never auto-surface; only agency-channel leads are logged firm-visibly under an agreed rule.',
+  'CONTINUITY BOUNDARY: a hot-handoff stands up coverage on in-flight clients’ monitoring BEFORE token revocation, so duty-of-care never lapses during revoke→reassign.',
+  'PORTABILITY as a built feature: one-click machine-readable dossier export (facts + rapport) — because whoever controls the running system holds de-facto power regardless of who ‘owns’ the client.'
+ ]
+};
+const KP={
+ problem:'The firm needs institutional memory to outlive any individual, but advisors own and guard those relationships and have a rational incentive to hoard context as leverage — acutely so for 1099 ICs whose entire value proposition is ‘your clients are yours.’ If relationship intelligence lives only in the per-advisor silo, losing the advisor loses the client. But over-correcting into an agency-owned canonical dossier with automatic fact-promotion expropriates the IC, contradicts the portability norm, and — with a kill switch and unwidenable scope — erodes 1099 status under ABC-test/AB5. Either extreme fails: hoarding kills continuity, expropriation triggers revolt and litigation.',
+ mitigation:'Mirror the contract, not the reverse. For W-2 the agency-owned dossier + opt-in fact-promotion is legitimate. For 1099 ICs the dossier defaults to advisor-owned and host-invisible, and continuity is bought with PORTABILITY and CONSENT rather than capture: fact-promotion opt-in and off by default; one-click export shipped so ‘you own it’ is real; advisor-brought suppliers and playbooks carry return-on-exit; new-IP ownership settled in an ICA addendum before data accumulates; agency mandates confined to compliance, duty-of-care, and financial rails. Net effect: even where the firm can’t keep the facts, it keeps service continuity through fast reassignment and a warm hand-off — so only personal chemistry, not client-knowledge access, is at stake.',
+ departure:[
+  'HOT-HANDOFF FIRST: before any revocation, stand up coverage on the departing advisor’s in-flight clients’ Disruption and Pre-Trip monitoring so duty-of-care never lapses mid-trip.',
+  'REVOKE ZeroID tokens at the MCP layer (CoS kill switch), terminating dossier access regardless of cached context.',
+  'SETTLE OWNERSHIP per contract: W-2 = firm retains the dossier SOR; 1099 IC = one-click export of facts + rapport to the advisor, firm retaining only legally-required transactional records.',
+  'RETURN personal capital: advisor-brought supplier/DMC contacts and advisor-authored SKILL.md playbooks returned per the carve-out; firm keeps negotiated rates/scores and shared-library skills.',
+  'DECOMMISSION the advisor’s personal Hermes instance, SOUL.md voice profile, and gateway config; personal channels leave with the advisor as their own accounts.',
+  'REASSIGN only data the firm may transfer to a covering advisor and auto-draft a warm hand-off in the NEW advisor’s voice — never silently handing an IC’s relationship capital to a competitor.',
+  'AUDIT: every step written to the externally-anchored, principal-uneditable audit log.'
+ ]
+};
+const ARCHETYPES=[
+ {name:'Solo owner-operator',size:'1 advisor, usually booking under a host (Fora, Gifted Travel Network, a Virtuoso host) for accreditation, commissions, back office.',tc:'#73b29c',
+  personal:'Essentially everything. The advisor and the brand are one entity; dossier, voice, referrals, pipeline are all one person’s relationship capital. The personal/agency line collapses — there’s no second advisor to wall off.',
+  agency:'Two layers that aren’t the solo’s own: the HOST’s rented rails (accreditation, host CRM as booking SOR, consortium, commission processing), and ‘agency-grade discipline’ the solo imposes on themselves (continuity, duty-of-care, privacy, sellable records).',
+  rec:'Default everything to personal; adopt agency-grade DISCIPLINE, not SHARING. Prioritize back-office multipliers (Commission Watchdog, Disruption Sentinel, Pre-Trip, Passport Flagger, Research, Confirmation-to-CRM, Daily Brief). Add the Principal-Owner Agent pattern from day one so the dossier lives in a system YOU own and can export — the exit/sale value of the business IS that dossier.'},
+ {name:'Small 2-5 advisor boutique',size:'Founder-owned, often a shared ops role; high trust, no anonymity, everyone knows everyone’s clients.',tc:'#c6a15b',
+  personal:'Each advisor’s individual client relationships, personal taste and proposal voice, their slice of the referral network, and occasion intelligence for their own clients.',
+  agency:'More than people expect. The house voice is a genuine shared asset; supplier/DMC relationships and perks are co-built; compliance, Discretion, Escalation and the sentinels are firm-level. And COVERAGE: when one advisor is on a flight a colleague must serve their VIP, so dossiers are semi-shared by necessity.',
+  rec:'Run shared infrastructure agency-wide (Supplier Center, Discretion, Escalation, sentinels, Confirmation-to-CRM, Daily Brief, Research as a shared house knowledge base). Keep dossiers personal-by-default but pooled under explicit, logged break-glass with auto-expiring re-scope. House-Voice is a shared scaffold each tunes. Apply a k-anonymity floor. Agree IN ADVANCE what a departing partner takes — before it becomes the crown jewel they litigate.'},
+ {name:'Mid/large firm — W-2 employees',size:'~10 to 100+ employee advisors with managers, ops, marketing, finance.',tc:'#8fa9c9',
+  personal:'Day-to-day relationship and craft; legally very little — work product within scope is the firm’s. ‘Personal’ is voice, professional identity, and morale, not ownership.',
+  agency:'Nearly everything, uncontroversially. The firm owns the book, dossier, CRM, house voice, supplier relationships. Leads are largely firm-generated, so Lead Capture, Buying-Signal Radar, and Retention are team/firm-managed.',
+  rec:'Lean heavily agency-wide — the one archetype where centralized shared memory is an unambiguous asset for coverage, onboarding, QA, and continuity. Invest in a fully shared dossier, House-Voice with brand governance, Shadow-Mode QA, Escalation. The risk is de-skilling and surveillance morale: preserve identity with per-advisor voice profiles and frame the Watchdog/QA as advisor-protective. Fact-promotion can run opt-out here.'},
+ {name:'Host agency / network — 1099 ICs',size:'Dozens to thousands of independent contractors booking under the host’s accreditation; thin central staff. The dominant luxury growth model (Fora, Gifted Travel Network, Travel Leaders).',tc:'#cf8a6b',
+  personal:'A great deal, contractually. The IC owns their book, relationships, voice, referral network, and the relational substance of the dossier. ‘Your clients are yours’ is the value proposition; any design that appears to erode it will be rejected.',
+  agency:'The shared rails the host legitimately controls: accreditation and agency-of-record status, commission processing, the host CRM as booking SOR (it already holds every transactional record because it processes the money), consortium/preferred-supplier relationships, compliance, and house leads.',
+  rec:'The hardest split — ENGINEER it, don’t assume it. Default the dossier, Buying-Signal, Referral Prompter, Occasion Prep, and personal Lead Capture to advisor-owned, segregated, per-tenant-encrypted, host-invisible, with one-click export. Make agency-wide only what needs scale and doesn’t expropriate (Discretion, Escalation, firm-negotiated Supplier layer, sentinels, Commission, Confirmation-to-CRM). Keep House-Voice and fact-promotion strictly opt-in; confine mandates to compliance/duty-of-care/financial rails to preserve 1099 status. Exclude the principal roll-up. Settle dossier + new-IP ownership and portability in an ICA addendum BEFORE launch. Trust IS the product.'}
+];
+const CHANGE=[
+ 'Neutralize the #1 fear (expropriation of relationship capital) with ARCHITECTURE, not reassurance: private-by-default dossiers, per-tenant encryption, row-level scope, audit on any cross-advisor view, and a contractual + PRODUCT export guarantee that ‘your dossier leaves with you.’',
+ 'Position House-Voice as a floor/scaffold, never a mandate — a homogenized voice reads as brand erasure and, for ICs, as an IC-status control factor. Let a top advisor’s style train THEIR profile, never a collective one.',
+ 'Earn autonomy click by click: launch every capability in Shadow Mode (AI drafts, human approves), publish the Escalation & Incident Protocol up front, and grant graduated autonomy against a visible track record.',
+ 'Defuse surveillance fear by design and framing: the Commission Watchdog is found money in the advisor’s pocket; QA prevents a career-ending mistake. State explicitly what is and isn’t reported to management; exclude the principal roll-up in the IC model.',
+ 'Sequence for trust: introduce advisor-benefiting, low-ownership-risk tools FIRST (Commission, Disruption, Research, Pre-Trip, Passport). Only after trust touch the dossier or shared memory. Never lead with the dossier.',
+ 'Pitch AI as removing drudgery so senior advisors spend MORE time on relationship and design; watch the inverse failure in juniors (over-reliance eroding judgment) and keep a human accountable for all client-facing output.',
+ 'Pick a respected senior, high-book champion to pilot — a trusted peer’s endorsement de-risks adoption far more than a management mandate.',
+ 'Publish a plain-language DATA MAP before deployment: what is personal, what is agency, who sees what, what leaves on exit. Retrofitting ownership onto a filled dossier is the fastest route to revolt.',
+ 'Define house accounts vs advisor accounts and lead attribution up front: ownership, commission split, AND the AI’s memory scope must follow the same transparent line.',
+ 'Co-design the defaults and break-glass coverage norms with the advisors who own the relationships — governance they helped write is governance they’ll actually use.',
+ 'Make consent real: because approval-gate compliance is only ~112/129, fact-promotion and high-risk actions must be hard-gated at the tool layer with non-response defaulting to NO action.'
+];
+const Q1='AGENCY-SIZE / EMPLOYMENT STATUS — confirm FIRST, because it sets the entire matrix: are advisors W-2 employees, 1099 independent contractors, or a mix? And how many advisors today and projected? This single answer flips the default tier of the Living Client Dossier and the whole personal pipeline.';
+const OPENQ=[
+ 'Accreditation posture: does the agency hold its own IATA/CLIA/ARC numbers, or book under a host? If hosted, the host already holds all transactional booking data and is agency-of-record.',
+ 'New-IP ownership: who owns the AI-ENRICHED dossier (predictive signals, surprise intelligence, rapport-derived facts) that legacy ICAs never contemplated? Settle in writing before data accumulates.',
+ 'Owner exit/sale & valuation: is the dossier IP genuinely OWNED (assignable) or merely hosted-on-behalf-of ICs? It materially affects enterprise value and acquirer diligence.',
+ 'House-account vs advisor-account line: which clients are agency-sourced vs advisor-brought, and do commission split, ownership, AND AI memory scope all follow the same line?',
+ 'Coverage norms: what are the break-glass rules for covering a colleague’s VIP — auto-expiring single-client re-scope, logging, consent — and who sets them?',
+ 'Restrictive-covenant jurisdiction: which states/countries govern the advisors (non-competes void in CA)? Architecture, not contract, must prevent poaching where covenants are weak.',
+ 'Data-protection roles: who is controller vs processor of client PII between host and IC under GDPR/CCPA, and how does Escalation handle a passport/PII breach?',
+ 'Infra tolerance: will the agency accept the self-host burden and no-SLA caveat for the shared tier, and fund central frontier-model spend with per-agent usage tagging?'
+];
+const REC='Build one Hermes stack, configured by a capability × archetype matrix rather than fixed per-capability tiers. Default every capability to personal/advisor-owned and make the agency earn each act of sharing by proving it needs scale and does not seize relationship capital. Pool only the institutional core (negotiated rates, reliability scores, compliance rules, transactional records, brand scaffold), de-identified before write with a k-anonymity floor; keep voice, rapport, referral graph, advisor-brought suppliers, and personal-channel leads in per-advisor, per-tenant-encrypted silos. Enforce every boundary structurally at the ZeroID/MCP layer, never via agent self-policing. For W-2 firms lean agency-wide; for the dominant 1099/host model default the dossier and entire personal pipeline to advisor-owned, segregated, host-invisible, and exportable. Trust is the product.';
+
+const $=s=>document.querySelector(s), el=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e;};
+
+// tiers
+const tg=$('#tiergrid');
+TAXONOMY.forEach(t=>{
+  const c=el('div','card'); c.style.borderTop=`2px solid ${t.color}`;
+  c.innerHTML=`<h3 style="color:${t.color}">${t.name}<span style="font-size:.7rem;color:var(--muted2);letter-spacing:.1em"> · tier ${t.key}</span></h3><p>${t.def}</p>
+    <div style="margin-top:12px;font-size:.78rem;color:var(--muted2)"><b style="color:var(--gold-l)">Owner:</b> ${t.owner}</div>
+    <div style="margin-top:6px;font-size:.78rem;color:var(--muted2)"><b style="color:var(--gold-l)">Memory:</b> ${t.scope}</div>`;
+  c.classList.add('reveal'); tg.appendChild(c);
+});
+
+// spectrum
+const sbar=$('#sbar'), stip=$('#stip');
+CLS.forEach((d,i)=>{
+  const m=el('div','spectrum-mark'); m.style.left=d.lean+'%'; m.style.background=TC[d.code];
+  // stagger vertical so labels don't collide
+  const up=(i%2===0);
+  m.style.top=up?'-6px':'-6px';
+  m.innerHTML=`<span style="${up?'':'bottom:auto;top:26px;'}">${i+1}</span>`;
+  m.dataset.t=d.t; m.dataset.c=({A:'Agency',P:'Personal',H:'Hybrid',S:'Split'})[d.code]; m.dataset.f=d.flag||'';
+  sbar.appendChild(m);
+});
+sbar.addEventListener('mousemove',e=>{
+  const m=e.target.closest('.spectrum-mark');
+  if(m){stip.innerHTML=`<b>${m.dataset.t}</b><em>${m.dataset.c}${m.dataset.f?' · '+m.dataset.f:''}</em>`;
+    stip.style.opacity=1; stip.style.left=Math.min(e.clientX+14,innerWidth-300)+'px'; stip.style.top=(e.clientY+16)+'px';}
+  else stip.style.opacity=0;
+});
+sbar.addEventListener('mouseleave',()=>stip.style.opacity=0);
+
+// tier chips + cards
+const chips=$('#tierchips'), grid=$('#clsgrid');
+const counts={A:0,H:0,S:0}; CLS.forEach(d=>counts[d.code]++);
+let activeT='all';
+const chipDefs=[['all','All 18','var(--gold)'],['A',`Agency · ${counts.A}`,'#8fa9c9'],['H',`Hybrid · ${counts.H}`,'#c6a15b'],['S',`Split · ${counts.S}`,'#cf8a6b']];
+chipDefs.forEach(([k,label,col])=>{
+  const c=el('div',`tchip t-${k}${k==='all'?' active':''}`); c.dataset.k=k;
+  c.innerHTML=`${k==='all'?'':`<span class="sw" style="background:${col}"></span>`}${label}`;
+  chips.appendChild(c);
+});
+const tcount=el('div','tcount'); tcount.id='tcount'; chips.appendChild(tcount);
+const tierName={A:'Agency',P:'Personal',H:'Hybrid',S:'Split'};
+function renderCards(){
+  grid.innerHTML='';
+  let n=0;
+  CLS.forEach((d,i)=>{
+    if(activeT!=='all'&&d.code!==activeT)return; n++;
+    const c=el('article','cls'); c.style.setProperty('--tc',TC[d.code]);
+    c.innerHTML=`
+      <div class="ch"><span class="tierbadge">${tierName[d.code]}</span><h3>${i+1}. ${d.t}</h3></div>
+      ${d.flag?`<div class="tierfull"><span class="flag">${d.flag}</span></div>`:''}
+      <p class="why">${d.why}</p>
+      <div class="splitcols">
+        <div class="sc agency"><div class="scl">Shared / Agency</div><p>${d.shared}</p></div>
+        <div class="sc personal"><div class="scl">Personal / Advisor</div><p>${d.personal}</p></div>
+      </div>
+      <div class="meta"><b>Owner:</b> ${d.owner}<br><b>Privacy:</b> ${d.privacy}</div>`;
+    grid.appendChild(c);
+  });
+  $('#tcount').textContent=`${n} shown`;
+}
+chips.addEventListener('click',e=>{const c=e.target.closest('.tchip');if(!c)return;
+  activeT=c.dataset.k; document.querySelectorAll('.tchip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); renderCards();});
+renderCards();
+
+// architecture
+$('#archsummary').textContent=ARCH.summary;
+const as=$('#archstack');
+ARCH.planes.forEach((pl,idx)=>{
+  const plane=el('div','stack-plane');
+  plane.innerHTML=`<div class="plane-head" style="background:${pl.color}1a;border-bottom:1px solid var(--line)">
+     <span style="color:${pl.color};font-weight:600">${pl.head}</span><span class="pt">${pl.tier}</span></div>`;
+  const body=el('div',`plane-body cols${pl.cols}`);
+  pl.layers.forEach(L=>{
+    const a=el('div','alayer'); a.style.setProperty('--lc',L.lc);
+    a.innerHTML=`<h4>${L.name}${L.isNew?'<span class="new">New</span>':''}</h4><span class="tag">${L.tag}</span>
+      <p>${L.role}</p>
+      <div class="kv"><b>Sees:</b> ${L.sees}</div>
+      <div class="kv"><b>Voice:</b> ${L.voice}</div>
+      <div class="kv"><b>Admin:</b> ${L.admin}</div>`;
+    body.appendChild(a);
+  });
+  plane.appendChild(body); as.appendChild(plane);
+  if(idx<ARCH.planes.length-1){const ar=el('div','arrowdown'); ar.textContent='▾ scoped ZeroID tokens ▾'; ar.style.fontSize='.66rem'; ar.style.letterSpacing='.16em'; ar.style.textTransform='uppercase'; as.appendChild(ar);}
+});
+const bd=$('#boundaries'); ARCH.boundaries.forEach(b=>{const li=el('li');
+  const idx=b.indexOf(':'); li.innerHTML=idx>0?`<strong>${b.slice(0,idx)}</strong>${b.slice(idx)}`:b; bd.appendChild(li);});
+
+// key person
+$('#kpProblem').innerHTML=`<strong>The tension:</strong> ${KP.problem}`;
+$('#kpMitigation').innerHTML=`<strong>The resolution:</strong> ${KP.mitigation}`;
+const dep=$('#departure'); KP.departure.forEach(s=>{const li=el('li');
+  const idx=s.indexOf(':'); li.innerHTML=idx>0&&idx<40?`<strong>${s.slice(0,idx)}</strong>${s.slice(idx)}`:s; dep.appendChild(li);});
+
+// archetypes
+const ag=$('#archetypegrid');
+ARCHETYPES.forEach(a=>{
+  const c=el('div','archetype reveal'); c.style.setProperty('--tc',a.tc);
+  c.innerHTML=`<h3>${a.name}</h3><div class="size">${a.size}</div>
+    <div style="font-size:.84rem;color:var(--muted);margin-bottom:10px"><b style="color:#73b29c">Personal means:</b> ${a.personal}</div>
+    <div style="font-size:.84rem;color:var(--muted)"><b style="color:#8fa9c9">Agency means:</b> ${a.agency}</div>
+    <div class="rec"><b>Recommendation —</b> ${a.rec}</div>`;
+  ag.appendChild(c);
+});
+
+// change
+const ch=$('#change'); CHANGE.forEach(x=>{const li=el('li'); li.innerHTML=x; ch.appendChild(li);});
+
+// confirm
+$('#q1').innerHTML=`<strong>① ${Q1.slice(0,Q1.indexOf('—'))}</strong>${Q1.slice(Q1.indexOf('—'))}`;
+const oq=$('#openq'); OPENQ.forEach(x=>{const li=el('li');
+  const idx=x.indexOf(':'); li.innerHTML=idx>0&&idx<46?`<strong>${x.slice(0,idx)}</strong>${x.slice(idx)}`:x; oq.appendChild(li);});
+$('#finalrec').innerHTML=`<strong>The recommendation in one breath:</strong> ${REC}`;
+
+// reveal + nav + progress
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}}),{threshold:.1});
+document.querySelectorAll('.reveal').forEach(e=>io.observe(e));
+const nav=$('#nav'),prog=$('#progress');
+const secs=[...document.querySelectorAll('section[id]')],links=[...document.querySelectorAll('.navlinks a[href^="#"]')];
+addEventListener('scroll',()=>{const sc=scrollY,h=document.body.scrollHeight-innerHeight;
+  prog.style.width=(sc/h*100)+'%'; nav.classList.toggle('scrolled',sc>40);
+  let cur='';secs.forEach(s=>{if(sc>=s.offsetTop-130)cur=s.id;});
+  links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')==='#'+cur));
+},{passive:true});
+</script>
+</body>
+</html>

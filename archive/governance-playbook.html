@@ -1,0 +1,319 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trust &amp; Data-Governance Playbook — HNW Concierge Agent on Hermes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head><body>
+<div id="progress"></div>
+<nav id="nav">
+  <div class="brand">Hermes <b>&times;</b> Atelier Voyage</div>
+  <div class="navlinks"><a href="roi-model.html">ROI model</a><a href="agency-vs-personal.html">Ownership</a><a href="index.html" class="backlink">&larr; Package</a></div>
+</nav>
+<header class="dochero"><div class="wrap">
+  <div class="eyebrow">Trust & Data-Governance Playbook</div>
+  <h1>Trust &amp; Data-Governance Playbook — HNW Concierge Agent on Hermes</h1>
+  <p class="sub">The document you show a security-conscious family office — independent-contractor-ownership-aware, portability-first, and audit-ready.</p>
+</div></header>
+<section class="doc-sec" id="overview"><div class="wrap">
+<div class="kicker"><span class="secnum">01</span>WHY THIS DOCUMENT EXISTS</div>
+<h2 class="title">Trust is the product. This is how we make it defensible.</h2>
+<p class="lead">This playbook governs an AI concierge built on the Hermes platform for an invitation-only travel atelier staffed by <strong>1099 independent-contractor advisors</strong>. It is the document we hand a security-conscious family office to prove three things: their dossier never leaks, no machine ever speaks to them or moves their money on its own authority, and the advisor — not the host — owns the relationship.</p>
+<p>The whole design rests on one inversion: <strong>everything defaults to advisor-owned, per-tenant encrypted, and host-invisible</strong>. The agency earns each act of sharing; it never expropriates. Guardrails are enforced <em>structurally</em> at the identity and tool layer (default-deny, time-boxed, row-level scope) — never via the agent policing itself, because a model under context compression drops constraints around turn ~30 and approval-gate adherence measured ~112/129 when left to prose alone.</p>
+<div class="stats">
+<div class="stat"><b>0</b><span>autonomous client-facing messages, anywhere</span></div>
+<div class="stat"><b>4</b><span>isolation planes, boundaries enforced at ZeroID/MCP</span></div>
+<div class="stat"><b>BYOK</b><span>per-tenant keys the host cannot read in plaintext</span></div>
+<div class="stat"><b>1-click</b><span>machine-readable dossier export — "your clients are yours"</span></div>
+</div>
+<div class="callout ok"><strong>Core invariant.</strong> The agent <em>drafts, stages, and recommends</em>. A human <em>sends, confirms, and spends</em>. Automate the scaffolding; never automate the relationship. Verify everything that moves money or makes a promise.</div>
+<div class="callout warn"><strong>Why structural, not behavioural.</strong> SOUL.md voice rules and MCP tool-whitelists (draft-only Gmail, GDS with <em>create_order/issue_ticket/cancel_order</em> excluded) are necessary but not sufficient. The hard stops live in the network, the token scopes, and the database — places the model cannot talk its way past.</div>
+</div></section>
+
+<section class="doc-sec" id="architecture"><div class="wrap">
+<div class="kicker"><span class="secnum">02</span>THE FOUR-PLANE ARCHITECTURE</div>
+<h2 class="title">Isolation is a topology, not a promise</h2>
+<p class="lead">Four planes, each a separate trust boundary. Crossing a boundary requires a freshly minted, scoped, time-boxed ZeroID token. There is no ambient authority and no plane can widen its own scope.</p>
+<div class="tl"><div class="tl-num">T0</div><div class="tl-body"><h3>Tier-0 — Agency Brain <span class="pill he">hermes profile (institutional)</span></h3><p>Institutional data only: the firm-negotiated supplier layer, reliability scores, escalation/discretion policy, compliance rails. It physically <strong>holds the advisor-owned dossiers per-tenant encrypted and cannot read them in plaintext</strong> — it is storage, not an audience. <em>No house voice lives here.</em></p></div></div>
+<div class="tl"><div class="tl-num">T1</div><div class="tl-body"><h3>Tier-1 — Chief-of-Staff Orchestrator <span class="pill he">gateway + cron + ZeroID minter</span></h3><p>Routes work, mints scoped tokens, enforces every approval gate, runs institutional cron (duty-of-care sentinels). It is the only component that issues authority, and it issues the minimum, for the shortest window, against named rows.</p></div></div>
+<div class="tl"><div class="tl-num">T2</div><div class="tl-body"><h3>Tier-2 — Personal Advisor Agents <span class="pill he">~/.hermes/profiles/&lt;advisor&gt;/</span></h3><p>One per advisor, each with its own SOUL.md voice, own profile, own state.db, and visibility into <strong>only its assigned clients</strong>. Sibling advisors are mutually invisible. The <em>Principal-Owner Personal Agent</em> sits here too — walled from the admin hat, dual-controlled break-glass, with an externally-anchored, principal-uneditable audit trail.</p></div></div>
+<div class="tl"><div class="tl-num">T3</div><div class="tl-body"><h3>Tier-3 — Specialist Sub-agent Pool <span class="pill">ephemeral</span></h3><p>Delegated, short-lived workers (research, document parsing). They receive <strong>ephemeral, PII-stripped</strong> task payloads and return <strong>de-identified write-backs</strong>. They never hold a long-lived dossier handle and die at task end.</p></div></div>
+<div class="callout"><strong>Ownership tier tags</strong> used throughout: <span class="pill">AGENCY</span> firm-owned and scaled · <span class="pill">SPLIT</span> shared, with advisor-brought assets returning on exit · <span class="pill">HYBRID</span> shared back-end, personal voice, dossier defaults advisor-owned.</div>
+</div></section>
+
+<section class="doc-sec" id="classification"><div class="wrap">
+<div class="kicker"><span class="secnum">03</span>DATA CLASSIFICATION TIERS</div>
+<h2 class="title">Three tiers, handling rules per tier</h2>
+<p class="lead">Every field in the dossier maps to exactly one tier. The tier dictates encryption, who may see it, whether it may leave the boundary, and what redaction must happen first.</p>
+<div class="grid3">
+<div class="card"><h3>RESTRICTED <span class="badge must">Max controls</span></h3><p>Passport &amp; visa numbers, national IDs, card/payment patterns, known-traveler IDs, biometrics, real-time and home locations, security/medical/protective-detail facts, exact DOB. Source columns: <em>documents.doc_number_enc</em>, <em>clients.known_traveler_ids</em>, hard_constraints (medical/security).</p></div>
+<div class="card"><h3>CONFIDENTIAL <span class="badge high">High</span></h3><p>Soft preferences, itineraries &amp; bookings, trip occasions, loyalty programs, supplier net rates, commission figures, household relationship tier, discretion notes. The "what we do for them," not the "who they legally are."</p></div>
+<div class="card"><h3>INTERNAL <span class="badge qw">Baseline</span></h3><p>Aggregated, k-anonymised benchmarks; de-identified supplier reliability scores; non-attributed operational metrics; firm policy documents. Nothing that re-identifies a household.</p></div>
+</div>
+<div class="rows">
+<div class="row"><div class="rk">RESTRICTED — at rest</div><div class="rv">Per-tenant BYOK envelope encryption. Document numbers as ciphertext only (<em>doc_number_enc</em>), <strong>never plaintext</strong>. Host operator cannot decrypt.</div></div>
+<div class="row"><div class="rk">RESTRICTED — in transit</div><div class="rv">Never leaves the boundary in clear. Stripped/tokenised by the redaction pipeline (§04) before <em>any</em> external API call. Never echoed back into a channel where it is not already present.</div></div>
+<div class="row"><div class="rk">RESTRICTED — access</div><div class="rv">Tier-2 owning advisor + dual-control break-glass only. Never to specialist sub-agents. Never to the host roll-up. Read events always audited.</div></div>
+<div class="row"><div class="rk">CONFIDENTIAL — at rest</div><div class="rv">Per-tenant encrypted; structured rows in the dossier DB, never flat markdown. Inferred facts flagged <em>unconfirmed</em> until a human confirms.</div></div>
+<div class="row"><div class="rk">CONFIDENTIAL — sharing</div><div class="rv">Cross-advisor sharing OFF by default. May enter a shared write only PII-stripped and via transactional confirmation-to-CRM capture.</div></div>
+<div class="row"><div class="rk">INTERNAL — sharing</div><div class="rv">May aggregate firm-wide only above a k-anonymity floor (k≥5 households). Never reconstructs an individual book.</div></div>
+</div>
+<div class="callout warn"><strong>Hard-constraint provenance.</strong> Allergies, do-not-book, mobility, security and budget ceilings are <em>human-curated</em> in <em>hard_constraints</em>, never auto-ingested. Inferred candidates are written as <em>unconfirmed</em> soft_preferences and surfaced for confirmation — they never silently become hard rules.</div>
+</div></section>
+
+<section class="doc-sec" id="redaction"><div class="wrap">
+<div class="kicker"><span class="secnum">04</span>DETERMINISTIC PII REDACTION</div>
+<h2 class="title">Nothing Restricted crosses the wire un-tokenised</h2>
+<p class="lead">Redaction is <strong>deterministic-first</strong>: a regex + dictionary pass that fails closed, with a local-model NER pass as a secondary net — <em>never the local model alone</em>. Substitution is reversible only inside the boundary via a local vault map; the external provider sees placeholders.</p>
+<ol class="steps">
+<li><strong>Dictionary pass (highest precision).</strong> Pull exact client legal/preferred names, property &amp; supplier names, emails and phones <em>from the dossier</em> for the in-scope rows and replace them first. Known strings beat pattern-matching.</li>
+<li><strong>Regex pass (deterministic primary).</strong> Apply the pattern library below; PAN candidates must pass Luhn before redaction to cut false positives.</li>
+<li><strong>Local-model NER pass (secondary recall net).</strong> A local model flags residual person/location/org spans the patterns missed. It can only <em>add</em> redactions, never <em>remove</em> them — it cannot un-mask.</li>
+<li><strong>Tokenise &amp; vault.</strong> Replace each hit with a typed placeholder (<em>[PASSPORT_1]</em>, <em>[CLIENT_2]</em>); store the mapping in a boundary-local vault keyed to the request id.</li>
+<li><strong>Egress assertion (fail-closed).</strong> If any Restricted pattern still matches the outbound payload, the call is <strong>blocked</strong>, not sent. No silent best-effort.</li>
+<li><strong>Re-hydrate on return.</strong> Map placeholders back to real values locally so the advisor sees a complete draft; the provider never did.</li>
+</ol>
+<pre class="code"><code>// Deterministic redaction pattern library (primary pass)
+EMAIL        =&gt; [A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
+PHONE_E164   =&gt; \+?[1-9]\d{0,2}[\s.\-]?\(?\d{1,4}\)?[\s.\-]?\d{3,4}[\s.\-]?\d{3,4}
+PAN_CARD     =&gt; \b(?:\d[ \-]?){13,19}\b        # then require Luhn() == true
+PASSPORT     =&gt; \b[A-Z]{1,2}\d{6,9}\b           # generic MRZ-style doc number
+US_SSN       =&gt; \b\d{3}-\d{2}-\d{4}\b
+IBAN         =&gt; \b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b
+KTN_GLOBAL   =&gt; \b\d{9,15}\b                     # known-traveler / PASSID (context-gated)
+DOB_ISO      =&gt; \b(19|20)\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b
+GEO_COORD    =&gt; [-+]?\d{1,2}\.\d{3,}\s*,\s*[-+]?\d{1,3}\.\d{3,}
+// Dictionary terms (exact-match, from dossier rows in scope):
+//   client legal_full_name, preferred_name, primary_email, primary_phone,
+//   household.name, supplier/property names, emergency_contact
+// Decision: regex_or_dict_hit OR local_ner_hit  =&gt;  REDACT
+// Egress gate: if any RESTRICTED pattern survives  =&gt;  BLOCK send, raise incident</code></pre>
+<div class="callout"><strong>Context-gated numerics.</strong> Bare digit runs (KTN, loyalty numbers, DOB) only trigger when near a trigger keyword ("passport", "DOB", "Global Entry", "card") to avoid shredding flight numbers and prices. The local-model pass backstops anything the gate misses.</div>
+<div class="callout ok"><strong>Self-hosted by design.</strong> The pipeline runs inside the scoped network on owned hardware (Pi / Mac mini / VPS). Frontier models are reached only with tokenised payloads; cheap local models handle routing and the NER net. Determinism is what makes redaction auditable.</div>
+</div></section>
+
+<section class="doc-sec" id="access"><div class="wrap">
+<div class="kicker"><span class="secnum">05</span>ACCESS CONTROL & NETWORK MODEL</div>
+<h2 class="title">Least-privilege at the wire, the token, and the row</h2>
+<p class="lead">A scoped <strong>Tailscale</strong> tailnet carries all internal traffic; ACL tags express who may reach what. On top of the network, <strong>ZeroID</strong> mints short-lived, single-purpose tokens with row-level scope. There is no path to prod that bypasses both.</p>
+<div class="rows">
+<div class="row"><div class="rk">tag:agency-brain</div><div class="rv">Tier-0 store. Accepts connections only from <em>tag:orchestrator</em>. Holds encrypted dossiers; serves ciphertext + decrypt-on-token only.</div></div>
+<div class="row"><div class="rk">tag:orchestrator</div><div class="rv">Tier-1. May reach brain + advisor agents + MCP egress proxy. Sole minter of scoped tokens. Runs cron.</div></div>
+<div class="row"><div class="rk">tag:advisor-&lt;name&gt;</div><div class="rv">One tag per advisor agent. Reaches only its own profile store and the orchestrator. Cannot see <em>tag:advisor-*</em> siblings.</div></div>
+<div class="row"><div class="rk">tag:specialist</div><div class="rv">Ephemeral pool. Egress to web/MCP only via the redaction proxy; no direct dossier route.</div></div>
+<div class="row"><div class="rk">tag:mcp-egress</div><div class="rv">The only node allowed outbound to GDS/Gmail/CRM/search. All outbound passes the redaction gate first.</div></div>
+<div class="row"><div class="rk">tag:admin (break-glass)</div><div class="rv">Human operators. <strong>No standing access to plaintext dossiers.</strong> Dual-control, time-boxed, fully audited.</div></div>
+</div>
+<ul class="checks">
+<li><strong>Default-deny everywhere.</strong> Messaging gateway is allowlist-only (e.g. <em>TELEGRAM_ALLOWED_USERS</em>); DM pairing codes expire in 1 hour. Unknown senders get nothing.</li>
+<li><strong>Time-boxed tokens.</strong> Every cross-plane grant expires (minutes, not days) and names the exact rows/operations it permits. No wildcard scopes.</li>
+<li><strong>No SSH or self-modify into prod without a gate.</strong> Hermes can self-modify; in prod that path is closed. Code/config changes go through review + a human break-glass approval; the terminal backend in prod is locked to a non-self-modifying profile.</li>
+<li><strong>Write-path minimalism.</strong> Of the institutional cron jobs, exactly one writes (supplier-reliability refresh). Everything else is read + draft.</li>
+<li><strong>External security review.</strong> Annual external pen-test of the tailnet, ZeroID scopes, redaction gate, and break-glass path; findings tracked to closure.</li>
+</ul>
+<div class="callout warn"><strong>Host cannot read into a tenant.</strong> ACL tags plus per-tenant BYOK mean even a fully compromised admin node yields ciphertext, not a family office's itinerary. Decryption requires a token the orchestrator will only mint to the owning advisor agent.</div>
+</div></section>
+
+<section class="doc-sec" id="audit"><div class="wrap">
+<div class="kicker"><span class="secnum">06</span>IMMUTABLE AUDIT LOG</div>
+<h2 class="title">Append-only, hash-chained, externally anchored</h2>
+<p class="lead">The dossier ships an append-only <em>audit_log</em> with before/after JSON on every sensitive mutation (bookings, commission, documents, hard_constraints), one row per real change via WHEN-guards. We harden it into a tamper-evident chain and anchor it outside the host so no operator — including the principal — can rewrite history.</p>
+<div class="rows">
+<div class="row"><div class="rk">id</div><div class="rv">Monotonic sequence (AUTOINCREMENT) — gap detection.</div></div>
+<div class="row"><div class="rk">actor</div><div class="rv"><em>hermes-agent</em> · advisor handle · <em>system</em> — who acted.</div></div>
+<div class="row"><div class="rk">action / entity_table / entity_id</div><div class="rv">insert · update · delete · custom, and the exact row touched.</div></div>
+<div class="row"><div class="rk">before_json / after_json</div><div class="rv">State snapshots (NULL on insert/delete respectively).</div></div>
+<div class="row"><div class="rk">reason</div><div class="rv">Agent-supplied rationale; e.g. "HARD CONSTRAINT REMOVED — review required".</div></div>
+<div class="row"><div class="rk">session_ref</div><div class="rv">Hermes session id, linking back to the FTS5 session store.</div></div>
+<div class="row"><div class="rk">prev_hash / row_hash</div><div class="rv"><strong>Added:</strong> SHA-256 of (prev_hash ‖ canonical row). Breaks if any prior row is altered.</div></div>
+<div class="row"><div class="rk">anchor_ref</div><div class="rv"><strong>Added:</strong> periodic chain head written to external WORM storage; principal-uneditable copy of the head.</div></div>
+<div class="row"><div class="rk">created_at</div><div class="rv">ISO-8601 UTC, DB-stamped.</div></div>
+</div>
+<ul class="checks">
+<li>No UPDATE or DELETE grants on <em>audit_log</em> — insert-only at the DB role level, not just by convention.</li>
+<li>WHEN-guards keep exactly one audit row per genuine change (the <em>updated_at</em> self-UPDATE fires sibling triggers; guards suppress the duplicate). Re-test if <em>recursive_triggers</em> is ever turned ON.</li>
+<li>Hash-chain head exported on each tick to off-host WORM; mismatch on re-verification = tamper alarm to the escalation channel.</li>
+<li>Restricted-field <em>reads</em> (decrypt events) are logged too, not just writes.</li>
+<li>The Principal-Owner agent's actions write to an <strong>externally-anchored, principal-uneditable</strong> log — the owner cannot launder their own break-glass use.</li>
+</ul>
+</div></section>
+
+<section class="doc-sec" id="retention"><div class="wrap">
+<div class="kicker"><span class="secnum">07</span>RETENTION, DELETION & RIGHT-TO-BE-FORGOTTEN</div>
+<h2 class="title">Keep the minimum, delete on request, prove the audit survives</h2>
+<p class="lead">Retention is purpose-bound and tier-bound. Erasure is real (crypto-shred the tenant key where possible), but the immutable audit trail is preserved in tamper-evident, minimised form because deletion itself must be provable.</p>
+<div class="rows">
+<div class="row"><div class="rk">Active dossier (Confidential)</div><div class="rv">Retained while the relationship is active + the advisor's chosen window. Advisor-owned; advisor sets the clock.</div></div>
+<div class="row"><div class="rk">Restricted identifiers</div><div class="rv">Document numbers kept only as ciphertext, only as long as a live trip needs them; purged after trip completion unless the client opts to retain.</div></div>
+<div class="row"><div class="rk">Financial / commission records</div><div class="rv">Retained to satisfy tax/accounting duties (typically up to 7 yrs), then purged. PCI: no card data retained at all.</div></div>
+<div class="row"><div class="rk">Session / state.db transcripts</div><div class="rv">Rolling window with compression; sensitive spans redacted before long-term retention. Never the canonical store of hard facts.</div></div>
+<div class="row"><div class="rk">Audit log</div><div class="rv">Retained beyond record deletion in minimised form (ids + hashes + action), so an erasure is itself auditable.</div></div>
+</div>
+<ol class="steps">
+<li><strong>Receive &amp; verify.</strong> Erasure/access request arrives; verify identity through the advisor (the controller for that dossier — see §09).</li>
+<li><strong>Scope.</strong> Resolve all rows across clients, trips, bookings, documents, preferences, search index, and cron outputs.</li>
+<li><strong>Crypto-shred.</strong> Where a tenant/sub-key isolates the subject, destroy the key — ciphertext becomes unrecoverable instantly.</li>
+<li><strong>Hard-delete residue.</strong> Remove plaintext rows and FTS entries; cron output markdown purged.</li>
+<li><strong>Preserve the proof.</strong> Audit log retains a minimised, hash-chained record that deletion occurred, by whom, when.</li>
+<li><strong>Confirm.</strong> Advisor confirms completion to the client; legal-hold exceptions (live dispute/regulatory) are documented, not silently ignored.</li>
+</ol>
+<div class="callout"><strong>Backups honour erasure.</strong> Hermes' <em>backups/ state-snapshots/ checkpoints/</em> are on the same rotation; a subject is removed from restorable snapshots within the documented backup-cycle window, and any restore re-applies pending erasures.</div>
+</div></section>
+
+<section class="doc-sec" id="compliance"><div class="wrap">
+<div class="kicker"><span class="secnum">08</span>COMPLIANCE STANCE — GDPR / CCPA / PCI</div>
+<h2 class="title">One posture, mapped per regime</h2>
+<p class="lead">We engineer to the strictest applicable bar and map it down. Data minimisation, purpose limitation, lawful basis, and breach duties are designed in, not bolted on.</p>
+<div class="grid3">
+<div class="card"><h3>GDPR <span class="badge must">EU/UK clients</span></h3><p>Lawful basis recorded per processing purpose. Data-subject rights (access, rectification, erasure, portability) are productised (§07, §12). Data minimisation via redaction. <strong>72-hour</strong> breach notification to the supervisory authority; affected individuals notified without undue delay when high risk. DPIA on file for HNW profiling risk.</p></div>
+<div class="card"><h3>CCPA / CPRA <span class="badge high">CA residents</span></h3><p>Right to know, delete, correct, and opt-out of "sale/share" — which we <strong>do not do</strong>: no dossier is sold or cross-context shared. No financial-incentive discrimination for exercising rights. Service-provider terms flow down to every sub-processor (GDS, Gmail, CRM, search).</p></div>
+<div class="card"><h3>PCI-DSS <span class="badge must">Payments</span></h3><p><strong>No payment-pattern storage.</strong> PAN/CVV never persist — not in the dossier, not in state.db, not in transcripts; the redaction PAN+Luhn rule blocks them at egress and ingress. Payments are handed to a PCI-compliant processor; we keep tokens/references only. Scope-reduction by never touching cardholder data.</p></div>
+</div>
+<ul class="checks">
+<li>Records of Processing Activities (RoPA) maintained; sub-processor list published to clients on request.</li>
+<li>Cross-border transfers covered by SCCs / adequacy; self-hosting keeps data resident where contracted.</li>
+<li>Breach-notification clock starts at <em>awareness</em>; the incident runbook (§11) drives the timeline and the controller/processor handoff (§09).</li>
+<li>Children's data and special-category data (health constraints) handled under elevated basis and access.</li>
+</ul>
+</div></section>
+
+<section class="doc-sec" id="controller-processor"><div class="wrap">
+<div class="kicker"><span class="secnum">09</span>CONTROLLER vs PROCESSOR — HOST & IC</div>
+<h2 class="title">The advisor is the controller; the host is the processor</h2>
+<p class="lead">Because dossiers are advisor-owned, the <strong>independent-contractor advisor is the data controller</strong> for their clients. The host operates the platform <strong>as a processor on the advisor's documented instructions</strong>. This division is the legal spine of the 1099 model and must be written before data accumulates.</p>
+<div class="rows">
+<div class="row"><div class="rk">Advisor = Controller</div><div class="rv">Determines purposes and means for their clients' data; holds the client relationship and the lawful basis; is the first responder to data-subject requests.</div></div>
+<div class="row"><div class="rk">Host = Processor</div><div class="rv">Provides infrastructure, encryption, redaction, audit, duty-of-care sentinels; acts only on instructions; cannot read tenant plaintext; cannot repurpose data.</div></div>
+<div class="row"><div class="rk">Shared institutional layer</div><div class="rv">For firm-owned data (supplier reliability, escalation policy) the host is an independent controller; the k-anonymity floor keeps individuals out of it.</div></div>
+<div class="row"><div class="rk">Sub-processors</div><div class="rv">GDS, Gmail, CRM, search — engaged with flow-down DPA terms; listed and change-notified.</div></div>
+</div>
+<div class="callout warn"><strong>Passport / PII breach handling.</strong> On a Restricted-data breach: the <em>host (processor)</em> must notify the <em>affected advisor (controller) without undue delay</em> on becoming aware. The host contains and forensically preserves (audit chain, redaction logs); the advisor as controller decides and issues regulator/data-subject notifications inside the GDPR 72-hour window. Crypto-shred limits blast radius — exfiltrated ciphertext without the tenant key is not a plaintext breach, which is documented in the DPIA as a mitigating control.</div>
+<div class="callout ok"><strong>Written, not assumed.</strong> A Data Processing Agreement (host↔advisor) plus the ICA Addendum (§12) record these roles, sub-processor flow-down, breach timelines, and the host's no-plaintext-access commitment.</div>
+</div></section>
+
+<section class="doc-sec" id="escalation"><div class="wrap">
+<div class="kicker"><span class="secnum">10</span>HUMAN-ESCALATION MATRIX</div>
+<h2 class="title">Trigger → required action</h2>
+<p class="lead">Escalation is an AGENCY-owned protocol <span class="pill">AGENCY</span> — uniform across every advisor, enforced at the tool layer. The agent never decides it is fine to proceed past one of these.</p>
+<div class="rows">
+<div class="row"><div class="rk">Emotional / distressed client</div><div class="rv"><strong>Stop drafting auto-replies.</strong> Surface verbatim to the owning advisor immediately; agent suggests tone, human responds. No templated empathy sent autonomously.</div></div>
+<div class="row"><div class="rk">Complaint or service failure</div><div class="rv">Flag to advisor + log an incident (§11). Draft a recovery option set; advisor approves and sends. Never minimise or close on the agent's authority.</div></div>
+<div class="row"><div class="rk">Crisis / duty-of-care (disruption, medical, security, safety)</div><div class="rv">Page the assigned advisor <em>and</em> the escalation channel. Duty-of-care sentinels keep running; the agent assembles facts and options, a human directs action.</div></div>
+<div class="row"><div class="rk">VIP / spend threshold crossed</div><div class="rv">Above the household's configured threshold (or any <em>private_office</em> / <em>premier</em> tier), require explicit advisor sign-off before any external step.</div></div>
+<div class="row"><div class="rk">Money or booking</div><div class="rv"><strong>Always human.</strong> No confirm, ticket, deposit release, fund move, or commission action without explicit approval. GDS order/ticket/cancel tools are excluded at the MCP layer; payments draft-only.</div></div>
+<div class="row"><div class="rk">Ambiguity / unverifiable fact</div><div class="rv">One well-judged clarifying question beats a confident wrong action. If price, availability, or a visa/passport rule cannot be verified, state what is known, what is not, and stop.</div></div>
+<div class="row"><div class="rk">Hard-constraint conflict</div><div class="rv">Halt and surface. Never "work around" an allergy, medical, accessibility, security, or budget-ceiling constraint.</div></div>
+</div>
+</div></section>
+
+<section class="doc-sec" id="incident"><div class="wrap">
+<div class="kicker"><span class="secnum">11</span>CLIENT-INCIDENT RUNBOOK</div>
+<h2 class="title">Detect → Contain → Correct → Log → Learn</h2>
+<p class="lead">A single, AGENCY-owned loop <span class="pill">AGENCY</span> for any incident touching a client — data, service, or safety. The human leads; the agent assembles.</p>
+<ol class="steps">
+<li><strong>Detect.</strong> Source: sentinel alert, advisor report, client complaint, redaction-gate block, or audit-chain mismatch. Open an incident record with severity and affected household(s).</li>
+<li><strong>Contain.</strong> Stop the bleed: revoke the implicated token, pause the relevant cron job, quarantine the affected agent profile, freeze outbound drafts. For data incidents, crypto-shred or isolate exposed material.</li>
+<li><strong>Correct.</strong> Human-led remediation: fix the booking, re-issue the document request, correct the dossier row (audited), and prepare client-facing recovery for advisor approval.</li>
+<li><strong>Log.</strong> Full timeline into the immutable audit log + incident record: what happened, what data, what tier, who was notified, controller/processor handoff (§09), regulator clock if triggered.</li>
+<li><strong>Learn.</strong> Post-incident review → update redaction patterns, token scopes, escalation thresholds, or SOUL.md guidance. Capture the pattern so the same class of incident cannot recur. Feed material findings to the next external review.</li>
+</ol>
+<div class="callout warn"><strong>Notification timing.</strong> For Restricted-data incidents the GDPR 72-hour and CCPA duties begin at awareness — the runbook's Detect step timestamps awareness, and Contain/Log run in parallel with the controller's notification decision, never after it.</div>
+</div></section>
+
+<section class="doc-sec" id="ownership"><div class="wrap">
+<div class="kicker"><span class="secnum">12</span>OWNERSHIP & PORTABILITY</div>
+<h2 class="title">Your clients are yours — proven, not promised</h2>
+<p class="lead">This is the IC value proposition and the reason a top advisor brings their book. The dossier and the entire personal pipeline default to advisor-owned, per-tenant BYOK-encrypted, host-invisible, with one-click export built as a product feature.</p>
+<div class="grid2">
+<div class="card"><h3>Advisor-owned by default <span class="pill">HYBRID</span></h3><p>Dossier, personal-channel lead capture, buying-signal, referral, occasion, retention, and house-voice all default to the advisor. Segregated per-tenant, encrypted with the advisor's own key. The host runs the back-end but is not an audience.</p></div>
+<div class="card"><h3>BYOK the host cannot read <span class="badge must">Must-do</span></h3><p>Per-tenant keys held by the advisor; the operator stores only ciphertext. No standing decrypt path for admins. "Host-invisible" is enforced by key custody, not policy text.</p></div>
+<div class="card"><h3>One-click export <span class="badge qw">Product feature</span></h3><p>Machine-readable export of the full dossier + AI-enrichments on demand — portable, complete, no friction. Portability is a feature, not a favour.</p></div>
+<div class="card"><h3>Advisor-brought suppliers return on exit <span class="pill">SPLIT</span></h3><p>Firm-negotiated supplier layer scales for everyone, but advisor-introduced contacts stay <em>advisor-tagged</em> and <strong>return with the advisor on exit</strong>. The firm keeps its own contracts, not the advisor's relationships.</p></div>
+</div>
+<div class="callout ok"><strong>ICA Addendum — sign before data accumulates.</strong> The Independent-Contractor Agreement addendum settles, up front: (1) dossier ownership = advisor; (2) <strong>NEW-IP ownership</strong> — the AI-enriched dossier (inferred preferences, embeddings, reliability context layered on the advisor's data) is the advisor's, not a host asset; (3) portability mechanics and format; (4) supplier return-on-exit; (5) the host's no-plaintext-access and processor role. Settling this after data accumulates is how trust dies.</div>
+<div class="callout warn"><strong>Promotion is opt-in, hard-gated.</strong> House-voice sharing and fact-promotion (one advisor's learned fact feeding the firm) are STRICTLY OPT-IN at the tool layer. <em>Non-response = no action.</em> The cross-advisor promotion engine is OFF by default. De-identify-before-write and a k-anonymity floor (k≥5) apply to every shared benchmark.</div>
+</div></section>
+
+<section class="doc-sec" id="status"><div class="wrap">
+<div class="kicker"><span class="secnum">13</span>1099-STATUS PRESERVATION</div>
+<h2 class="title">Mandate the rails, never the relationship</h2>
+<p class="lead">The architecture must not create an ABC-test / AB5 misclassification risk. We confine agency mandates to compliance, duty-of-care, and financial rails, and we never dictate how an advisor sells or sounds.</p>
+<ul class="checks">
+<li><strong>Mandates are limited to:</strong> compliance (privacy, PCI, breach), duty-of-care (pre-trip, disruption, passport/visa logic), and financial rails (commission integrity, no auto-pay). Nothing about <em>how</em> to serve.</li>
+<li><strong>No mandated voice or workflow.</strong> SOUL.md voice is the advisor's; the firm supplies a default the advisor may discard. Pipeline and cadence are advisor-chosen.</li>
+<li><strong>No auto-widened scope.</strong> An advisor's agent cannot have its visibility or duties silently expanded by the host. Scope changes require the advisor's act.</li>
+<li><strong>Kill switch = duty-of-care continuity, not control.</strong> The only firm override exists to keep a client safe mid-trip (hot-handoff, §14) — never to discipline, observe, or redirect an advisor's business.</li>
+<li><strong>No host surveillance of the book.</strong> The host roll-up brief is excluded or aggregate-only (§15); the firm cannot watch an IC's clients or HNW travel patterns.</li>
+</ul>
+<div class="callout"><strong>Test it against the factors.</strong> Each mandate is documented with its <em>duty-of-care or legal</em> justification, so that under an ABC/AB5 review the firm's control is visibly confined to outcomes the law itself requires — not to the manner and means of the advisor's work.</div>
+</div></section>
+
+<section class="doc-sec" id="departure"><div class="wrap">
+<div class="kicker"><span class="secnum">14</span>ADVISOR-DEPARTURE RUNBOOK</div>
+<h2 class="title">Hot-handoff before any token is revoked</h2>
+<p class="lead">When an advisor leaves, duty-of-care to <em>their</em> clients must never lapse mid-trip, and their ownership rights must be honoured. Coverage comes first; revocation comes last.</p>
+<ol class="steps">
+<li><strong>Export &amp; handover (advisor's rights first).</strong> Trigger one-click export to the departing advisor; confirm dossier + NEW-IP delivered per the ICA Addendum; advisor-brought suppliers re-tagged for return.</li>
+<li><strong>Identify live duty-of-care.</strong> Enumerate in-progress and imminent trips (sentinels: pre-trip, disruption, passport/visa) that cannot go dark.</li>
+<li><strong>Hot-handoff.</strong> Assign a covering advisor; mint <em>new</em> scoped tokens to the covering Tier-2 agent for the affected clients <strong>before</strong> touching the departing one. Verify the covering agent can see what it needs.</li>
+<li><strong>Confirm continuity.</strong> Prove sentinels fire under the new owner — a test tick on the covered trips — so no gap exists.</li>
+<li><strong>Revoke.</strong> Only now revoke the departing advisor's prod tokens, tailnet tags, and gateway access. Decommission the profile.</li>
+<li><strong>Settle &amp; record.</strong> Final commission reconciliation on the advisor's attributed slice; departure logged to the immutable audit chain.</li>
+</ol>
+<div class="callout warn"><strong>Ordering is the control.</strong> Revoking before hot-handoff completes would orphan a family mid-trip. The runbook makes coverage a precondition of revocation — the kill switch protects clients, it does not punish advisors.</div>
+</div></section>
+
+<section class="doc-sec" id="forbidden"><div class="wrap">
+<div class="kicker"><span class="secnum">15</span>FORBIDDEN ACTIONS</div>
+<h2 class="title">Lines the system will not cross — for the agent and the host</h2>
+<p class="lead">These are enforced structurally (token scope, MCP whitelist, network ACL), not merely instructed. Each is a hard stop.</p>
+<h3>The agent must never:</h3>
+<ul class="bul">
+<li>Send <strong>any client-facing message</strong> autonomously. Draft only; a human presses send.</li>
+<li><strong>Auto-pay or auto-book</strong> — confirm a reservation, issue a ticket, release a deposit, or move funds. (GDS create_order/issue_ticket/cancel_order excluded; payments draft-only.)</li>
+<li>Covertly profile a client from <strong>public signals</strong> or scrape social/web footprints to enrich a dossier without consent.</li>
+<li>Mark a passport, visa, or entry requirement as <strong>"cleared" / "valid"</strong> — it states what is known and unverified; a human confirms travel eligibility.</li>
+<li>Run <strong>LinkedIn or social automation</strong> — no connection requests, scraping, messaging, or bulk outreach.</li>
+<li>Store passport or card numbers in <strong>plaintext</strong>, or echo Restricted identifiers into a channel where they are not already present.</li>
+<li>Promote one advisor's facts to the firm, or alter SOUL.md voice, without an explicit opt-in (non-response = no action).</li>
+</ul>
+<h3>The host operator must never:</h3>
+<ul class="bul">
+<li>Read an IC's <strong>dossier in plaintext</strong> — BYOK + ACL make this technically impossible without dual-control break-glass, which is itself audited.</li>
+<li>Perform <strong>silent fact-promotion</strong> or cross-advisor sharing — the promotion engine is OFF by default and opt-in only.</li>
+<li>Generate a <strong>roll-up of individual books</strong> — no host view of an IC's clients or HNW travel patterns; firm analytics are aggregate-only above the k-anonymity floor.</li>
+<li>Auto-widen an advisor's scope, mandate their voice/workflow, or use the kill switch for anything other than duty-of-care continuity.</li>
+<li>SSH or self-modify into prod without the review + break-glass gate.</li>
+</ul>
+<div class="callout ok"><strong>Why a list, not a vibe.</strong> Every line maps to a concrete enforcement point: an excluded MCP tool, an absent token scope, a denied tailnet route, or a missing decrypt key. The agent cannot reason its way around an authority it was never granted.</div>
+</div></section>
+
+<section class="doc-sec" id="insurance"><div class="wrap">
+<div class="kicker"><span class="secnum">16</span>INSURANCE & CLIENT DISCLOSURE</div>
+<h2 class="title">E&O coverage and informed consent</h2>
+<p class="lead">Defensibility includes the paperwork. We carry appropriate coverage and we tell clients, plainly, that an AI assists their advisor — and what it will and will not do.</p>
+<div class="grid2">
+<div class="card"><h3>E&O / Professional Liability <span class="badge must">Must-do</span></h3><p>Errors &amp; Omissions cover written to explicitly contemplate <strong>AI-assisted</strong> drafting and operations. Confirm the policy does not exclude AI-tool use; clarify host-vs-IC coverage so a 1099 advisor is not uninsured for agency-provided tooling.</p></div>
+<div class="card"><h3>Cyber / Data-Breach <span class="badge high">High</span></h3><p>Coverage for breach response, notification costs, and forensics on Restricted data. Aligns to the §11 runbook and §09 controller/processor split so claims map cleanly to responsibility.</p></div>
+<div class="card"><h3>Client disclosure</h3><p>At onboarding, clients are told: an AI concierge supports your advisor; it drafts and prepares; <strong>a human always sends, confirms, and spends</strong>; your data is encrypted and owned by your advisor; here is how to exercise your rights.</p></div>
+<div class="card"><h3>Consent &amp; basis</h3><p>Explicit consent recorded for processing and for any optional enrichment. Hard constraints captured with the client's confirmation. Opt-out of optional features is honoured without service penalty (CCPA non-discrimination).</p></div>
+</div>
+<div class="rows">
+<div class="row"><div class="rk">Disclosure is standing</div><div class="rv">Re-surfaced on material changes (new sub-processor, new capability), not buried once at signup.</div></div>
+<div class="row"><div class="rk">Consent is granular</div><div class="rv">Core duty-of-care vs optional enrichment/promotion are separately consented; the latter default OFF.</div></div>
+<div class="row"><div class="rk">Liability follows control</div><div class="rv">Because a human approves every external act, the human-in-the-loop record (audit log) is the evidence that no machine acted alone.</div></div>
+</div>
+<div class="callout"><strong>The whole posture, in one line:</strong> automate the scaffolding, never the relationship; verify everything that moves money or makes a promise; and make the advisor — not the host — the owner of the trust that is the product.</div>
+</div></section>
+<footer>
+  <div class="fb">Hermes &times; Atelier Voyage</div>
+  <div>Trust & Data-Governance Playbook</div>
+  <div style="margin-top:8px;color:var(--muted2)">Tuned for a host network of 1099 independent advisors. Figures are modeled, not measured — instrument real baselines before committing budget.</div>
+</footer>
+<script>
+const nav=document.getElementById('nav'),prog=document.getElementById('progress');
+addEventListener('scroll',()=>{const sc=scrollY,h=document.body.scrollHeight-innerHeight;
+ prog.style.width=(sc/h*100)+'%';nav.classList.toggle('scrolled',sc>40);},{passive:true});
+</script>
+</body></html>

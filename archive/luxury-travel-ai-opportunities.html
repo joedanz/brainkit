@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI & Personal Agents — Luxury Travel Opportunity Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0c0f13; --ink2:#12171e; --ink3:#1a212b; --line:#28323f;
+    --cream:#f6f1e7; --cream2:#efe7d6;
+    --text:#e9e6df; --muted:#97a1ad; --muted2:#6f7986;
+    --gold:#c6a15b; --gold-l:#e4cb93; --gold-d:#9d7c3e;
+    --emerald:#73b29c;
+    --t-foundation:#c6a15b; --t-growth:#cf8a6b; --t-design:#7fa8a0;
+    --t-retention:#bd8fb4; --t-execution:#8fa9c9; --t-backoffice:#c7b46a;
+    --shadow:0 24px 60px -28px rgba(0,0,0,.7);
+    --maxw:1180px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--ink); color:var(--text);
+    font-family:'Inter',system-ui,sans-serif; font-weight:300;
+    line-height:1.65; -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  h1,h2,h3,h4,.serif{font-family:'Cormorant Garamond',Georgia,serif; font-weight:500; letter-spacing:.01em}
+  ::selection{background:var(--gold); color:var(--ink)}
+
+  /* scroll progress */
+  #progress{position:fixed; top:0; left:0; height:2px; width:0; background:linear-gradient(90deg,var(--gold-d),var(--gold-l)); z-index:200; transition:width .1s linear}
+
+  /* nav */
+  nav{position:fixed; top:0; left:0; right:0; z-index:150;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px clamp(20px,5vw,56px);
+    background:rgba(12,15,19,.72); backdrop-filter:blur(14px);
+    border-bottom:1px solid transparent; transition:border-color .3s, padding .3s}
+  nav.scrolled{border-bottom-color:var(--line); padding-top:12px; padding-bottom:12px}
+  .brand{font-family:'Cormorant Garamond',serif; font-size:1.25rem; letter-spacing:.14em; text-transform:uppercase; color:var(--cream)}
+  .brand b{color:var(--gold); font-weight:600}
+  .navlinks{display:flex; gap:26px; font-size:.72rem; letter-spacing:.16em; text-transform:uppercase}
+  .navlinks a{color:var(--muted); text-decoration:none; transition:color .25s; position:relative}
+  .navlinks a:hover,.navlinks a.active{color:var(--gold-l)}
+  .navlinks a.active::after{content:''; position:absolute; left:0; right:0; bottom:-6px; height:1px; background:var(--gold)}
+  @media(max-width:880px){.navlinks{display:none}}
+
+  /* layout */
+  section{padding:clamp(70px,9vw,130px) clamp(20px,5vw,56px); position:relative}
+  .wrap{max-width:var(--maxw); margin:0 auto}
+  .kicker{font-size:.72rem; letter-spacing:.32em; text-transform:uppercase; color:var(--gold); display:inline-flex; align-items:center; gap:12px; margin-bottom:22px}
+  .kicker::before{content:''; width:34px; height:1px; background:var(--gold); opacity:.6}
+  .secnum{font-family:'Cormorant Garamond',serif; font-style:italic; color:var(--muted2); font-size:1.1rem; margin-right:6px}
+  .lead{font-size:clamp(1.05rem,1.6vw,1.2rem); color:var(--muted); max-width:62ch; font-weight:300}
+  h2.title{font-size:clamp(2rem,4.2vw,3.2rem); line-height:1.07; color:var(--cream); margin-bottom:18px; max-width:20ch}
+  .reveal{opacity:0; transform:translateY(26px); transition:opacity .9s cubic-bezier(.2,.7,.2,1), transform .9s cubic-bezier(.2,.7,.2,1)}
+  .reveal.in{opacity:1; transform:none}
+
+  /* hero */
+  #hero{min-height:100vh; display:flex; align-items:center; padding-top:120px;
+    background:
+      radial-gradient(120% 90% at 78% 8%, rgba(198,161,91,.16), transparent 55%),
+      radial-gradient(80% 70% at 12% 100%, rgba(115,178,156,.08), transparent 60%),
+      var(--ink)}
+  .hero-grid{display:grid; grid-template-columns:1.25fr .9fr; gap:clamp(30px,5vw,70px); align-items:center; width:100%}
+  @media(max-width:900px){.hero-grid{grid-template-columns:1fr}}
+  #hero h1{font-size:clamp(2.7rem,6.5vw,5.3rem); line-height:1.02; color:var(--cream); margin-bottom:26px}
+  #hero h1 em{font-style:italic; color:var(--gold-l)}
+  .hero-sub{font-size:clamp(1.05rem,1.7vw,1.28rem); color:var(--muted); max-width:54ch; margin-bottom:34px; font-weight:300}
+  .hero-meta{display:flex; gap:30px; flex-wrap:wrap; font-size:.72rem; letter-spacing:.18em; text-transform:uppercase; color:var(--muted2); border-top:1px solid var(--line); padding-top:22px; max-width:560px}
+  .hero-meta b{display:block; color:var(--gold); font-family:'Cormorant Garamond',serif; font-size:1.5rem; letter-spacing:0; font-weight:600; text-transform:none; margin-top:4px}
+  .thesis{background:linear-gradient(160deg,var(--ink3),var(--ink2)); border:1px solid var(--line); border-radius:14px; padding:34px; box-shadow:var(--shadow); position:relative; overflow:hidden}
+  .thesis::before{content:'“'; position:absolute; top:-26px; right:14px; font-family:'Cormorant Garamond',serif; font-size:11rem; color:var(--gold); opacity:.12; line-height:1}
+  .thesis .tlabel{font-size:.68rem; letter-spacing:.28em; text-transform:uppercase; color:var(--gold); margin-bottom:14px}
+  .thesis p{font-family:'Cormorant Garamond',serif; font-size:1.5rem; line-height:1.4; color:var(--text)}
+  .thesis p em{color:var(--gold-l); font-style:italic}
+  .scrollcue{position:absolute; bottom:30px; left:50%; transform:translateX(-50%); font-size:.66rem; letter-spacing:.3em; text-transform:uppercase; color:var(--muted2); display:flex; flex-direction:column; align-items:center; gap:8px}
+  .scrollcue span{width:1px; height:34px; background:linear-gradient(var(--gold),transparent); animation:cue 2s infinite}
+  @keyframes cue{0%{opacity:.2; transform:scaleY(.4)}50%{opacity:1}100%{opacity:.2; transform:scaleY(.4)}}
+
+  /* executive summary */
+  #summary{background:linear-gradient(180deg,var(--ink),#0a0d11)}
+  .exec{display:grid; grid-template-columns:1fr 1fr; gap:30px 50px; margin-top:14px}
+  @media(max-width:820px){.exec{grid-template-columns:1fr}}
+  .exec p{color:var(--muted); font-size:1.02rem; font-weight:300}
+  .exec p strong{color:var(--text); font-weight:500}
+  .exec p .hl{color:var(--gold-l)}
+  .exec .big{grid-column:1/-1; font-family:'Cormorant Garamond',serif; font-size:clamp(1.4rem,2.4vw,1.9rem); line-height:1.4; color:var(--cream); border-left:2px solid var(--gold); padding-left:26px; margin-bottom:6px}
+
+  /* leaks */
+  #leaks{background:var(--cream); color:#23282e}
+  #leaks .kicker{color:var(--gold-d)} #leaks .kicker::before{background:var(--gold-d)}
+  #leaks h2.title{color:#1a1f25}
+  #leaks .lead{color:#5a626c}
+  #leaks .secnum{color:#b0a283}
+  .leakgrid{display:grid; grid-template-columns:repeat(3,1fr); gap:24px; margin-top:50px}
+  @media(max-width:820px){.leakgrid{grid-template-columns:1fr}}
+  .leak{background:#fff; border:1px solid #e6ddca; border-radius:14px; padding:32px; position:relative; transition:transform .4s, box-shadow .4s}
+  .leak:hover{transform:translateY(-5px); box-shadow:0 30px 50px -30px rgba(120,95,40,.4)}
+  .leak .num{font-family:'Cormorant Garamond',serif; font-size:2.4rem; color:var(--gold); line-height:1; opacity:.5}
+  .leak h3{font-size:1.7rem; color:#1a1f25; margin:10px 0 12px}
+  .leak p{color:#56606b; font-size:.96rem}
+  .leak .tag{display:inline-block; margin-top:16px; font-size:.66rem; letter-spacing:.16em; text-transform:uppercase; color:var(--gold-d); border:1px solid var(--gold); padding:5px 11px; border-radius:30px}
+
+  /* guardrails */
+  #guardrails{background:#0a0d11}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:22px; margin-top:50px}
+  @media(max-width:820px){.grid3{grid-template-columns:1fr}}
+  .guard{background:var(--ink2); border:1px solid var(--line); border-radius:14px; padding:30px; border-top:2px solid var(--emerald); position:relative}
+  .guard .gi{font-size:1.7rem; margin-bottom:14px; display:block}
+  .guard h3{font-size:1.45rem; color:var(--cream); margin-bottom:10px}
+  .guard p{color:var(--muted); font-size:.94rem}
+  .guard .badge{position:absolute; top:24px; right:24px; font-size:.6rem; letter-spacing:.18em; text-transform:uppercase; color:var(--emerald); border:1px solid rgba(115,178,156,.4); padding:4px 9px; border-radius:20px}
+
+  /* themes */
+  #themes{background:linear-gradient(180deg,#0a0d11,var(--ink))}
+  .themegrid{display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-top:50px}
+  @media(max-width:980px){.themegrid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:640px){.themegrid{grid-template-columns:1fr}}
+  .theme{background:var(--ink2); border:1px solid var(--line); border-radius:14px; padding:28px; position:relative; overflow:hidden; transition:transform .4s, border-color .4s}
+  .theme::before{content:''; position:absolute; inset:0 auto 0 0; width:3px; background:var(--tc)}
+  .theme:hover{transform:translateY(-5px); border-color:var(--tc)}
+  .theme .ti{font-size:1.9rem; display:block; margin-bottom:14px}
+  .theme h3{font-size:1.45rem; color:var(--cream); margin-bottom:10px; line-height:1.15}
+  .theme p{color:var(--muted); font-size:.9rem}
+  .theme .count{position:absolute; top:24px; right:26px; font-family:'Cormorant Garamond',serif; font-size:2rem; color:var(--tc); opacity:.55}
+
+  /* matrix */
+  #map{background:var(--ink)}
+  .maprow{display:grid; grid-template-columns:1.55fr 1fr; gap:50px; margin-top:46px; align-items:center}
+  @media(max-width:920px){.maprow{grid-template-columns:1fr}}
+  .plotwrap{position:relative; padding:14px 14px 40px 48px}
+  .plot{position:relative; width:100%; aspect-ratio:1/.82; background:
+      linear-gradient(var(--line) 1px,transparent 1px) 0 0/100% 25%,
+      linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/25% 100%,
+      var(--ink2);
+      border-left:1px solid var(--gold-d); border-bottom:1px solid var(--gold-d); border-radius:4px}
+  .qzone{position:absolute; left:0; top:0; width:50%; height:50%; background:linear-gradient(135deg,rgba(115,178,156,.14),transparent); border-right:1px dashed rgba(115,178,156,.3); border-bottom:1px dashed rgba(115,178,156,.3)}
+  .qzone span{position:absolute; top:10px; left:12px; font-size:.62rem; letter-spacing:.18em; text-transform:uppercase; color:var(--emerald)}
+  .dot{position:absolute; width:16px; height:16px; border-radius:50%; transform:translate(-50%,50%); border:2px solid rgba(255,255,255,.85); cursor:pointer; transition:transform .2s, box-shadow .2s; z-index:2}
+  .dot:hover{transform:translate(-50%,50%) scale(1.55); z-index:5; box-shadow:0 0 0 4px rgba(0,0,0,.4)}
+  .dot.qw{box-shadow:0 0 0 3px rgba(115,178,156,.35)}
+  .axlabel{position:absolute; font-size:.64rem; letter-spacing:.2em; text-transform:uppercase; color:var(--muted2)}
+  .axlabel.x{bottom:6px; left:50%; transform:translateX(-50%)}
+  .axlabel.y{left:-2px; top:50%; transform:rotate(-90deg) translateX(50%); transform-origin:left top}
+  .axend{position:absolute; font-size:.6rem; color:var(--muted2); letter-spacing:.1em}
+  #tip{position:fixed; pointer-events:none; z-index:300; background:var(--ink3); border:1px solid var(--gold-d); border-radius:9px; padding:10px 13px; max-width:240px; font-size:.78rem; color:var(--text); opacity:0; transform:translateY(6px); transition:opacity .15s; box-shadow:var(--shadow)}
+  #tip b{color:var(--gold-l); display:block; font-size:.86rem; margin-bottom:3px; font-family:'Cormorant Garamond',serif}
+  #tip .tm{color:var(--muted); font-size:.68rem; letter-spacing:.05em}
+  .legend{display:flex; flex-direction:column; gap:12px}
+  .legend .li{display:flex; align-items:center; gap:12px; font-size:.86rem; color:var(--muted)}
+  .legend .sw{width:13px; height:13px; border-radius:50%; flex:none; border:2px solid rgba(255,255,255,.7)}
+  .mapnote{margin-top:24px; font-size:.82rem; color:var(--muted2); border-left:2px solid var(--emerald); padding-left:16px; font-style:italic}
+
+  /* ideas */
+  #ideas{background:linear-gradient(180deg,var(--ink),#0a0d11)}
+  .filters{display:flex; flex-wrap:wrap; gap:10px; margin:40px 0 8px; align-items:center}
+  .chip{font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); background:var(--ink2); border:1px solid var(--line); padding:8px 15px; border-radius:30px; cursor:pointer; transition:all .25s; display:inline-flex; align-items:center; gap:8px}
+  .chip .cd{width:9px; height:9px; border-radius:50%; background:var(--cc,var(--gold))}
+  .chip:hover{border-color:var(--gold-d); color:var(--text)}
+  .chip.active{background:var(--gold); color:var(--ink); border-color:var(--gold); font-weight:500}
+  .chip.active .cd{background:var(--ink)}
+  .chip.qwc.active{background:var(--emerald); border-color:var(--emerald)}
+  .counter{margin-left:auto; font-size:.78rem; color:var(--muted2); letter-spacing:.05em}
+  .ideagrid{display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-top:26px}
+  @media(max-width:840px){.ideagrid{grid-template-columns:1fr}}
+  .card{background:var(--ink2); border:1px solid var(--line); border-radius:14px; overflow:hidden; transition:border-color .3s, transform .3s; border-top:2px solid var(--tc); display:flex; flex-direction:column}
+  .card:hover{border-color:var(--tc)}
+  .card.open{transform:none}
+  .chead{padding:24px 26px; cursor:pointer; position:relative}
+  .ctop{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px}
+  .pri{font-size:.6rem; letter-spacing:.14em; text-transform:uppercase; padding:4px 10px; border-radius:20px; font-weight:600}
+  .pri.must{background:var(--gold); color:var(--ink)}
+  .pri.high{background:transparent; color:var(--gold-l); border:1px solid var(--gold-d)}
+  .pri.medium{background:transparent; color:var(--muted); border:1px solid var(--line)}
+  .qw{font-size:.6rem; letter-spacing:.12em; text-transform:uppercase; color:var(--emerald); border:1px solid rgba(115,178,156,.45); padding:4px 9px; border-radius:20px; display:inline-flex; gap:5px; align-items:center}
+  .tdot{margin-left:auto; display:flex; align-items:center; gap:7px; font-size:.66rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted2)}
+  .tdot .d{width:9px;height:9px;border-radius:50%;background:var(--tc)}
+  .card h3{font-size:1.42rem; color:var(--cream); line-height:1.15; margin-bottom:10px}
+  .pteaser{color:var(--muted); font-size:.9rem; font-weight:300}
+  .metrics{display:flex; gap:24px; margin-top:18px; align-items:flex-end}
+  .metric{flex:1}
+  .metric .ml{font-size:.6rem; letter-spacing:.16em; text-transform:uppercase; color:var(--muted2); margin-bottom:6px; display:flex; justify-content:space-between}
+  .bar{height:5px; background:var(--ink3); border-radius:4px; overflow:hidden}
+  .bar i{display:block; height:100%; border-radius:4px}
+  .bar.impact i{background:linear-gradient(90deg,var(--gold-d),var(--gold-l))}
+  .bar.effort i{background:linear-gradient(90deg,#3a4654,#6f7d8c)}
+  .expand{font-size:.7rem; letter-spacing:.14em; text-transform:uppercase; color:var(--gold); margin-top:20px; display:inline-flex; align-items:center; gap:8px; user-select:none}
+  .expand .ar{transition:transform .3s}
+  .card.open .expand .ar{transform:rotate(90deg)}
+  .cbody{max-height:0; overflow:hidden; transition:max-height .5s ease}
+  .card.open .cbody{max-height:2400px}
+  .cinner{padding:4px 26px 28px; border-top:1px solid var(--line); margin-top:4px}
+  .block{margin-top:20px}
+  .block .bl{font-size:.64rem; letter-spacing:.2em; text-transform:uppercase; color:var(--gold); margin-bottom:8px}
+  .block p{color:var(--muted); font-size:.92rem}
+  .scenario{background:var(--ink3); border-radius:10px; padding:18px 20px; border-left:2px solid var(--gold); font-family:'Cormorant Garamond',serif; font-size:1.12rem; line-height:1.45; color:var(--text); font-style:italic}
+  .pills{display:flex; flex-wrap:wrap; gap:7px}
+  .pill{font-size:.72rem; color:var(--muted); background:var(--ink3); border:1px solid var(--line); padding:5px 11px; border-radius:7px}
+  .pill.he{border-color:rgba(198,161,91,.35); color:var(--gold-l)}
+  .pill.in{border-color:rgba(115,178,156,.3); color:var(--emerald)}
+  .kpis{list-style:none; display:flex; flex-direction:column; gap:8px}
+  .kpis li{color:var(--muted); font-size:.88rem; padding-left:20px; position:relative}
+  .kpis li::before{content:'▸'; color:var(--gold); position:absolute; left:0}
+
+  /* roadmap */
+  #roadmap{background:#0a0d11}
+  .phases{margin-top:50px; display:flex; flex-direction:column; gap:0}
+  .phase{display:grid; grid-template-columns:200px 1fr; gap:40px; padding:38px 0; border-top:1px solid var(--line); position:relative}
+  .phase:last-child{border-bottom:1px solid var(--line)}
+  @media(max-width:760px){.phase{grid-template-columns:1fr; gap:18px}}
+  .pleft .pno{font-family:'Cormorant Garamond',serif; font-size:3.4rem; color:var(--gold); line-height:.9}
+  .pleft .ptime{font-size:.72rem; letter-spacing:.18em; text-transform:uppercase; color:var(--emerald); margin-top:10px}
+  .pleft .pname{font-family:'Cormorant Garamond',serif; font-size:1.5rem; color:var(--cream); margin-top:8px; line-height:1.15}
+  .pright .pfocus{color:var(--muted); font-size:.96rem; margin-bottom:20px}
+  .pitems{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px}
+  .pitem{font-size:.74rem; color:var(--text); background:var(--ink2); border:1px solid var(--line); padding:6px 12px; border-radius:7px; border-left:2px solid var(--tc)}
+  .pout{list-style:none; display:flex; flex-direction:column; gap:7px}
+  .pout li{color:var(--muted); font-size:.88rem; padding-left:22px; position:relative}
+  .pout li::before{content:'✓'; color:var(--emerald); position:absolute; left:0; font-size:.8rem}
+
+  /* hermes vs */
+  #verdict{background:linear-gradient(180deg,var(--ink),#0a0d11)}
+  .vbox{background:linear-gradient(160deg,var(--ink3),var(--ink2)); border:1px solid var(--line); border-radius:16px; padding:clamp(26px,4vw,44px); margin-top:40px; position:relative; box-shadow:var(--shadow)}
+  .vbox .vl{font-size:.7rem; letter-spacing:.26em; text-transform:uppercase; color:var(--gold); margin-bottom:16px}
+  .vbox .vtxt{font-family:'Cormorant Garamond',serif; font-size:clamp(1.3rem,2.3vw,1.75rem); line-height:1.42; color:var(--cream)}
+  .vbox .vtxt em{color:var(--gold-l); font-style:italic}
+  .vcols{display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:30px}
+  @media(max-width:820px){.vcols{grid-template-columns:1fr}}
+  .vcol{background:var(--ink2); border:1px solid var(--line); border-radius:14px; padding:28px}
+  .vcol.win{border-top:2px solid var(--emerald)}
+  .vcol.alt{border-top:2px solid var(--t-execution)}
+  .vcol h3{font-size:1.4rem; color:var(--cream); margin-bottom:6px}
+  .vcol .vsub{font-size:.78rem; color:var(--muted2); margin-bottom:18px}
+  .vlist{list-style:none; display:flex; flex-direction:column; gap:13px}
+  .vlist li{color:var(--muted); font-size:.9rem; padding-left:24px; position:relative}
+  .vcol.win .vlist li::before{content:'◆'; color:var(--emerald); position:absolute; left:0; font-size:.7rem; top:3px}
+  .vcol.alt .vlist li::before{content:'◇'; color:var(--t-execution); position:absolute; left:0; font-size:.7rem; top:3px}
+  .vlist li b{color:var(--text); font-weight:500}
+  .stack{margin-top:34px}
+  .stack h3{font-size:1.7rem; color:var(--cream); margin-bottom:6px}
+  .stack .ssub{color:var(--muted); font-size:.92rem; margin-bottom:24px; max-width:60ch}
+  .strow{display:grid; grid-template-columns:230px 1fr; gap:20px; padding:18px 0; border-top:1px solid var(--line); align-items:baseline}
+  .strow:last-child{border-bottom:1px solid var(--line)}
+  @media(max-width:680px){.strow{grid-template-columns:1fr; gap:6px}}
+  .strow .stool{font-family:'Cormorant Garamond',serif; font-size:1.2rem; color:var(--gold-l)}
+  .strow .srole{color:var(--muted); font-size:.9rem}
+  .strow.brain .stool{color:var(--emerald)}
+
+  /* risks */
+  #risks{background:#0a0d11}
+  .riskgrid{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:46px}
+  @media(max-width:820px){.riskgrid{grid-template-columns:1fr}}
+  .risk{background:var(--ink2); border:1px solid var(--line); border-radius:12px; padding:24px; border-left:3px solid #b5564e}
+  .risk .rt{color:var(--cream); font-weight:500; font-size:.98rem; margin-bottom:10px; display:flex; gap:10px}
+  .risk .rt .rn{color:#b5564e; font-family:'Cormorant Garamond',serif; font-size:1.1rem}
+  .risk .rm{color:var(--muted); font-size:.87rem}
+  .risk .rm b{color:var(--emerald); font-weight:500; letter-spacing:.04em}
+
+  /* start */
+  #start{background:linear-gradient(160deg,#11161d,#0a0d11)}
+  .startgrid{display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:46px}
+  @media(max-width:820px){.startgrid{grid-template-columns:1fr}}
+  .startitem{display:flex; gap:18px; background:var(--ink2); border:1px solid var(--line); border-radius:12px; padding:24px; transition:transform .3s, border-color .3s}
+  .startitem:hover{transform:translateX(5px); border-color:var(--gold-d)}
+  .startitem .sn{font-family:'Cormorant Garamond',serif; font-size:2rem; color:var(--gold); line-height:1; flex:none; width:42px}
+  .startitem p{color:var(--muted); font-size:.92rem}
+  .startitem p b{color:var(--text); font-weight:500}
+  .cta{margin-top:60px; text-align:center; padding:50px 20px; border:1px solid var(--line); border-radius:16px; background:radial-gradient(100% 140% at 50% 0%,rgba(198,161,91,.12),transparent 60%)}
+  .cta h3{font-size:clamp(1.8rem,3.5vw,2.6rem); color:var(--cream); margin-bottom:14px}
+  .cta p{color:var(--muted); max-width:56ch; margin:0 auto 28px}
+  .cta .pill-row{display:flex; gap:14px; justify-content:center; flex-wrap:wrap; font-size:.74rem; letter-spacing:.14em; text-transform:uppercase; color:var(--gold-l)}
+  .cta .pill-row span{border:1px solid var(--gold-d); border-radius:30px; padding:9px 18px}
+
+  footer{padding:50px clamp(20px,5vw,56px); border-top:1px solid var(--line); text-align:center; color:var(--muted2); font-size:.78rem; letter-spacing:.04em}
+  footer .fb{font-family:'Cormorant Garamond',serif; letter-spacing:.14em; text-transform:uppercase; color:var(--gold); font-size:1rem; margin-bottom:10px}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="tip"></div>
+
+<nav id="nav">
+  <div class="brand">Hermes <b>×</b> Atelier Voyage</div>
+  <div class="navlinks">
+    <a href="#summary">Summary</a>
+    <a href="#themes">Themes</a>
+    <a href="#map">Map</a>
+    <a href="#ideas">Opportunities</a>
+    <a href="#roadmap">Roadmap</a>
+    <a href="#verdict">Tooling</a>
+    <a href="#start">Start</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="wrap hero-grid">
+    <div class="reveal in">
+      <div class="kicker">Strategic Opportunity Brief · AI &amp; Personal Agents</div>
+      <h1>The agency that <em>remembers everything</em>, and forgets no one.</h1>
+      <p class="hero-sub">Eighteen pressure-tested ways to give a bespoke luxury travel practice a private, memory-rich second brain — so one advisor delivers the responsiveness, anticipation and flawless execution of a much larger team.</p>
+      <div class="hero-meta">
+        <div>Opportunities<b>18</b></div>
+        <div>Themes<b>6</b></div>
+        <div>Quick Wins<b>8</b></div>
+        <div>Phased over<b>12 mo</b></div>
+      </div>
+    </div>
+    <div class="thesis reveal in">
+      <div class="tlabel">The core thesis</div>
+      <p>Don't <em>buy an AI tool</em>. Give the agency a memory-rich second brain that sits <em>on top of</em> your real stack — and treat it as a research, drafting and monitoring layer with <em>mandatory human sign-off</em>. Never an unattended booking or messaging robot.</p>
+    </div>
+  </div>
+  <div class="scrollcue">Scroll<span></span></div>
+</section>
+
+<!-- SUMMARY -->
+<section id="summary">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">01</span>Executive Summary</div>
+    <h2 class="title reveal">Hermes as the brain. Your travel stack as the load-bearing infrastructure.</h2>
+    <div class="exec">
+      <p class="big reveal">The opportunity is the connective intelligence no SaaS spans: per-client nuance no CRM schema captures, your house voice on every draft, and 24/7 proactive monitoring of named clients.</p>
+      <p class="reveal"><strong>Three leaks dominate a boutique practice.</strong> <span class="hl">Growth</span> leaks as leads scatter across WhatsApp, DMs, SMS and email and go cold, stalled proposals are never chased, and warm high-LTV clients quietly go dormant. <span class="hl">Time</span> leaks as bespoke design and proposal assembly devour unbilled hours and confirmation data is re-keyed across disconnected systems all day. <span class="hl">Money &amp; trust</span> leak as commissions arrive late or short-paid, a single missed supplier cut-off costs more than the planning fee, unapplied VIP perks erode trust, and a missed passport-validity rule becomes a relationship-ending liability.</p>
+      <p class="reveal"><strong>Three guardrails are non-negotiable</strong> and baked into every idea. Human-in-the-loop on <span class="hl">every</span> external client message — the agent drafts, the advisor sends. Structured SQLite/Supabase memory, never flat markdown, with hard constraints human-curated rather than auto-ingested. And self-hosting with deterministic PII redaction, a scoped network, an immutable audit log, and an external security review.</p>
+      <p class="reveal"><strong>Two principles govern scope.</strong> Automate the scaffolding, <span class="hl">never the relationship</span> — the agent removes grunt work so the advisor has more time for the human magic. And verify everything that moves money or makes a promise: live jet, villa and restaurant inventory is largely not scrapable, so all rates, availability and bookings are confirmed with the supplier by the advisor. The agent never tells a client a fix is in place before it is actually held.</p>
+      <p class="reveal"><strong>The plan is sequenced by blast radius.</strong> Phase 1 ships internal-only, deterministic wins with zero client exposure and stands up a mandatory shadow-mode pilot with quantitative go/no-go thresholds. Phase 2 automates the core grind as advisor-augmentation. Phase 3 promotes the supervised, draft-first differentiation clients actually feel. Be honest about platform risk — Hermes has no SLA, is self-modifying and painful to self-host — so reserve it for judgment-based steps, use deterministic automation for fixed triggers, and commit an owner for security and uptime.</p>
+    </div>
+  </div>
+</section>
+
+<!-- LEAKS -->
+<section id="leaks">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">02</span>Where the value leaks</div>
+    <h2 class="title reveal">Every idea maps to one of three leaks.</h2>
+    <p class="lead reveal">A boutique luxury practice doesn't lose to bad service — it loses to the quiet gaps between systems and time zones. These are the leaks worth closing.</p>
+    <div class="leakgrid">
+      <div class="leak reveal">
+        <div class="num">01</div>
+        <h3>Growth leakage</h3>
+        <p>Leads scatter across WhatsApp, Instagram DMs, SMS and email and go cold before anyone replies. Stalled proposals are never chased. Warm, high-LTV clients quietly go dormant with no one watching the whole board.</p>
+        <span class="tag">Lead → Proposal → Referral</span>
+      </div>
+      <div class="leak reveal">
+        <div class="num">02</div>
+        <h3>Time leakage</h3>
+        <p>Bespoke design and proposal assembly devour unbilled hours — much of it serial, tab-by-tab research. The same confirmation data is re-keyed across the CRM, itinerary builder and accounting all day long.</p>
+        <span class="tag">Research → Proposal → Data entry</span>
+      </div>
+      <div class="leak reveal">
+        <div class="num">03</div>
+        <h3>Money &amp; trust leakage</h3>
+        <p>Commissions arrive late, short-paid or never. A single missed supplier cut-off can cost more than the planning fee. Unapplied VIP perks erode trust — and a missed passport rule is a relationship-ending liability.</p>
+        <span class="tag">Commissions → Cut-offs → Compliance</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- GUARDRAILS -->
+<section id="guardrails">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">03</span>The non-negotiables</div>
+    <h2 class="title reveal">Three guardrails make this safe for UHNW clients.</h2>
+    <p class="lead reveal">An audit of the platform found approval-gate violations in 112 of 129 sessions. In this business a single visible error is reputational. So the rules come first — and they are engineered, not assumed.</p>
+    <div class="grid3">
+      <div class="guard reveal">
+        <span class="badge">Rule 01</span>
+        <span class="gi">✍️</span>
+        <h3>The advisor always sends</h3>
+        <p>Human-in-the-loop on every external client message — not just money and bookings. The agent drafts and monitors; the advisor reviews and sends. No autonomous client-facing message anywhere, backed by an immutable audit log.</p>
+      </div>
+      <div class="guard reveal">
+        <span class="badge">Rule 02</span>
+        <span class="gi">🧠</span>
+        <h3>Memory you can trust</h3>
+        <p>Structured SQLite/Supabase memory, never flat markdown. Hard constraints — allergies, do-not-book lists, mobility — are human-curated, never auto-ingested. A hallucinated allergy or invented preference is unacceptable here.</p>
+      </div>
+      <div class="guard reveal">
+        <span class="badge">Rule 03</span>
+        <span class="gi">🔐</span>
+        <h3>Sovereign by design</h3>
+        <p>Self-hosted on agency infrastructure with deterministic PII redaction, a scoped Tailscale network, an immutable audit log, and an external pen-test — local-model redaction alone is not sufficient for passports, schedules and home addresses.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- THEMES -->
+<section id="themes">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">04</span>Six opportunity themes</div>
+    <h2 class="title reveal">From bedrock to the moments clients feel.</h2>
+    <p class="lead reveal">The eighteen opportunities group into six themes — ordered roughly the way they should be built, from trust infrastructure outward to visible, hard-to-copy differentiation.</p>
+    <div class="themegrid" id="themegrid"></div>
+  </div>
+</section>
+
+<!-- MAP -->
+<section id="map">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">05</span>The opportunity map</div>
+    <h2 class="title reveal">Impact against effort. Start top-left.</h2>
+    <p class="lead reveal">Every opportunity plotted by business impact and build effort. The shaded corner — high impact, low effort — is where the quick wins live. Hover any point for the idea.</p>
+    <div class="maprow">
+      <div class="plotwrap reveal">
+        <div class="plot" id="plot">
+          <div class="qzone"><span>◆ Quick-win zone</span></div>
+        </div>
+        <div class="axlabel x">Effort →</div>
+        <div class="axlabel y">Impact →</div>
+      </div>
+      <div class="reveal">
+        <div class="legend" id="legend"></div>
+        <p class="mapnote">Several high-impact, low-effort wins are internal-only and deterministic — they ship in Phase 1 with zero client exposure and the fastest payback in the plan.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- IDEAS -->
+<section id="ideas">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">06</span>The eighteen opportunities</div>
+    <h2 class="title reveal">Each one solves a real leak — with the guardrails built in.</h2>
+    <p class="lead reveal">Filter by theme or quick-wins. Click any card to see the solution, a luxury scenario, the Hermes primitives and integrations it uses, and the KPIs it moves.</p>
+    <div class="filters" id="filters"></div>
+    <div class="ideagrid" id="ideagrid"></div>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">07</span>The phased roadmap</div>
+    <h2 class="title reveal">Sequenced by blast radius, not just by foundation.</h2>
+    <p class="lead reveal">Nothing client-facing ships until the shadow-mode pilot's go/no-go thresholds are met. Internal, deterministic wins first; supervised, draft-first differentiation last.</p>
+    <div class="phases" id="phases"></div>
+  </div>
+</section>
+
+<!-- VERDICT -->
+<section id="verdict">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">08</span>Hermes vs. the alternatives</div>
+    <h2 class="title reveal">It's not Hermes <em>or</em> the best tool. It's Hermes on top of them.</h2>
+    <div class="vbox reveal">
+      <div class="vl">The honest verdict</div>
+      <p class="vtxt">Hermes is the differentiating second brain — unstructured per-client memory no CRM captures, drafting in each advisor's voice, proactive monitoring of named clients, orchestration across your stack via MCP. The travel SaaS, GDS and consortium are the <em>load-bearing infrastructure</em>: inventory, money, compliance, perks and polished deliverables. Do not make Hermes your booking engine, commission ledger or system of record — and only self-host if someone owns security and uptime.</p>
+    </div>
+    <div class="vcols">
+      <div class="vcol win reveal">
+        <h3>Where Hermes genuinely wins</h3>
+        <div class="vsub">Reserve it for these judgment-based steps</div>
+        <ul class="vlist" id="wins"></ul>
+      </div>
+      <div class="vcol alt reveal">
+        <h3>Where to use purpose-built tools</h3>
+        <div class="vsub">Don't build these on a probabilistic agent</div>
+        <ul class="vlist" id="alts"></ul>
+      </div>
+    </div>
+    <div class="stack reveal">
+      <h3>The recommended stack</h3>
+      <p class="ssub">Run Hermes as the orchestration brain and concierge layer; let supported, purpose-built systems carry money, inventory, perks and compliance.</p>
+      <div id="stack"></div>
+    </div>
+  </div>
+</section>
+
+<!-- RISKS -->
+<section id="risks">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">09</span>Risks &amp; mitigations</div>
+    <h2 class="title reveal">Every known failure mode — and how it's contained.</h2>
+    <p class="lead reveal">This is a client-facing, money-handling business with no room for a visible error. Each risk below ships with its mitigation folded in.</p>
+    <div class="riskgrid" id="riskgrid"></div>
+  </div>
+</section>
+
+<!-- START -->
+<section id="start">
+  <div class="wrap">
+    <div class="kicker reveal"><span class="secnum">10</span>Where to start</div>
+    <h2 class="title reveal">Seven low-risk moves that pay back fast.</h2>
+    <p class="lead reveal">Internal-only, mostly deterministic, and designed to prove value before anything touches a client. This is the first 60 days.</p>
+    <div class="startgrid" id="startgrid"></div>
+    <div class="cta reveal">
+      <h3>The compounding advantage</h3>
+      <p>Build the memory spine and the guardrails first. Ship the internal quick wins. Run the pilot until the numbers hold. Then — and only then — let clients feel the difference. One advisor, the anticipation of a team.</p>
+      <div class="pill-row">
+        <span>Automate the scaffolding</span>
+        <span>Never the relationship</span>
+        <span>Verify everything that moves money</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="fb">Hermes × Atelier Voyage</div>
+  <div>Strategic opportunity brief — AI &amp; personal agents for bespoke luxury travel.</div>
+  <div style="margin-top:8px; color:var(--muted2)">Synthesized from a 10-agent research &amp; ideation workflow, adversarially pressure-tested for the white-glove bar. Figures are illustrative — measure your real baselines in Phase 1.</div>
+</footer>
+
+<script>
+const THEMES=[
+  {key:'Foundation & Trust Infrastructure',short:'Foundation',icon:'🏛️',color:'var(--t-foundation)',
+   desc:"The bedrock every other idea reasons over: structured per-client memory, the privacy and escalation guardrails, voice calibration, and the shadow-mode pilot that proves reliability before any client exposure."},
+  {key:'Growth & Conversion Engine',short:'Growth',icon:'🎯',color:'var(--t-growth)',
+   desc:"Closes the front-door leaks — capture and log every inbound lead, surface proposal buying-signals, time referral asks to peak delight — with every message drafted by the agent and sent by the advisor."},
+  {key:'Bespoke Design Acceleration',short:'Design',icon:'🗺️',color:'var(--t-design)',
+   desc:"Attacks the largest time sink — serial research and proposal assembly — by parallelizing background research and auto-drafting on-brand deliverables. The advisor curates and confirms; the agent gathers and drafts."},
+  {key:'Retention & Relationship Compounding',short:'Retention',icon:'💎',color:'var(--t-retention)',
+   desc:"Runs the closing-and-reactivation loop and surfaces occasion and surprise opportunities so high-LTV clients never drift. The agent supplies the cadence and drafts; the advisor invents the magic."},
+  {key:'Flawless Execution & White-Glove Ops',short:'Execution',icon:'🧤',color:'var(--t-execution)',
+   desc:"The invisible machinery clients pay a premium for: confirmations captured without re-entry, supplier deadlines and perks never missed, every component re-verified before departure, disruptions option-prepped before the client notices."},
+  {key:'Back-Office Revenue Protection',short:'Back-Office',icon:'💰',color:'var(--t-backoffice)',
+   desc:"The least glamorous, most leak-prone part of the business: recover late, short-paid and uncollected commissions and replace scattered reactive admin with one anticipatory daily glance — deterministic and internal-only."}
+];
+const TC={}; THEMES.forEach(t=>TC[t.key]=t.color);
+const TS={}; THEMES.forEach(t=>TS[t.key]=t.short);
+// ownership tier per opportunity (agency vs personal — 1099/host model): A=Agency, H=Hybrid, S=Split
+const TIER={"Discretion & Privacy Guardian":"A","Escalation & Incident Protocol":"A","Supplier & DMC Command Center":"S"};
+const TIERC={A:"#8fa9c9",H:"#c6a15b",S:"#cf8a6b"}, TIERNAME={A:"Agency",H:"Hybrid",S:"Split"};
+const tierOf=t=>TIER[t]||"H";
+
+const IDEAS=[
+ {t:"Living Client Dossier",full:"Living Client Dossier (Institutional Memory Vault)",theme:"Foundation & Trust Infrastructure",impact:5,effort:4,pri:"Must-do",qw:false,
+  problem:"Rich preference detail lives in the advisor's head or scattered notes because CRM upkeep is tedious — the knowledge asset decays and walks out the door if an advisor leaves. Affluent clients expect you to 'just know,' and re-asking an allergy is relationship-damaging.",
+  solution:"A durable, structured per-client vault in Supabase/SQLite (FTS5 + LLM summarization, explicitly NOT flat markdown) holding hard constraints (allergies, mobility, no-fly carriers, do-not-book lists), soft preferences, household/PA details, loyalty numbers and full trip history. Hard constraints are human-curated, never auto-ingested. A background sub-agent surfaces candidate soft preferences for advisor confirmation before they become 'truth.'",
+  scenario:"A returning client's EA messages at 11pm: 'The Albrights want Lake Como again this September.' Before the advisor reads it, Hermes surfaces the verified dossier slice — Villa d'Este corner suite lakeside, no connecting flights, the gluten intolerance, the Cernobbio sommelier they adored, last year's late spa booking that annoyed them, and that this September is their 30th. A 90-minute discovery call becomes a 10-minute confirmation.",
+  he:["Persistent cross-session memory (SQLite FTS5)","Sub-agent candidate-fact surfacing","Email integration","MCP integration to CRM","Human-verified hard constraints"],
+  in:["Supabase / SQLite store","Tern or Travefy CRM via MCP","Gmail OAuth / JMAP","Google Workspace","WhatsApp / Signal capture"],
+  kpis:["Repeat booking rate vs. baseline","Discovery-to-design time per returning client","Preference re-asks per client (target: zero)"]},
+
+ {t:"Discretion & Privacy Guardian",full:"Discretion, Data-Privacy & Escalation Guardian",theme:"Foundation & Trust Infrastructure",impact:5,effort:5,pri:"Must-do",qw:false,
+  problem:"HNW/UHNW data — real-time locations, schedules, passport scans, security details — is among the most sensitive any small business handles, and a single leak is catastrophic. The platform itself carries known risks: approval-gate violations, hallucination-prone memory, and a self-modifying, SSH-capable runtime.",
+  solution:"A governance layer wrapping every action: self-hosted on a scoped, Tailscale-tagged network; deterministic PII redaction (regex/dictionary) with a local model as secondary filter; automatic sensitive-data labeling; an immutable, append-only audit log; and a hard human gate on all external messages and anything that moves money. Covert public-signal profiling is forbidden. Validation is via an external pen-test, not a self-audit.",
+  scenario:"A sub-agent researching a discreet trip for a public-figure client is about to paste the real name and home airport into a third-party form. The deterministic redaction layer intercepts, swaps in a pseudonymous profile and a nearby reference city, completes the research, and logs the redaction — so the agency can show a clean, independently verified audit trail to a security-conscious family office.",
+  he:["Human-in-the-loop approval (all external)","Immutable audit log","Self-hosting / data sovereignty","Local redaction-model endpoints (MCP)","File monitoring"],
+  in:["Deterministic redaction + local Qwen/Llama","Gmail sensitive-thread labels","Supabase audit log","Tailscale scoped network","External pen-test vendor"],
+  kpis:["Data-disclosure incidents (target: zero)","% high-stakes actions with full audit trail","Approval-gate compliance (target: 100%, externally verified)"]},
+
+ {t:"Shadow-Mode Pilot & Voice QA",full:"Shadow-Mode Pilot, Voice QA & Acceptance Gate",theme:"Foundation & Trust Infrastructure",impact:5,effort:2,pri:"Must-do",qw:true,
+  problem:"The plan cannot assume the brand voice 'just works' or that the agent is reliable enough for HNW clients — the 112/129 gate-violation statistic demands proof, not optimism. Without a measured gate, off-brand or hallucinated output reaches a UHNW client at the worst possible moment.",
+  solution:"Before any client-facing use, run the agent draft-only for 4–6 weeks on the agency's real data. Build a golden-example set of the house voice, red-team for off-brand and hallucinated output, and QA continuously. Measure three numbers weekly — hard-constraint hallucination rate, gate compliance, and advisor-rated voice quality — with explicit go/no-go thresholds that must be met before anything is promoted to client-facing.",
+  scenario:"For six weeks, every reply the agent would have sent is instead written to a review queue. Week 3 catches it inventing a hotel amenity twice and adopting a too-casual tone on a condolence-adjacent message; both feed the golden set. By week 6 the dossier-grounded drafts hit zero hard-constraint errors and 100% gate compliance — only then is the Lead Capture drafter cleared to operate.",
+  he:["Self-improving skills (SOUL.md + golden examples)","Draft-only enforcement","Metrics log in memory","Red-team adversarial sub-agents","File monitoring for scoring"],
+  in:["SOUL.md brand-voice config","Supabase pilot metrics","Gmail / WhatsApp draft capture","Slack weekly scorecard"],
+  kpis:["Hard-constraint hallucination rate (gate: zero)","Approval-gate compliance (gate: 100%)","Advisor-rated voice quality over the window"]},
+
+ {t:"Escalation & Incident Protocol",full:"Human-Escalation & Client-Incident Protocol",theme:"Foundation & Trust Infrastructure",impact:4,effort:2,pri:"High",qw:true,
+  problem:"Luxury needs an explicit 'when in doubt, human' boundary, and there is no rollback plan for when the agent is wrong in front of (or about) a client. A single visible error is reputational in this segment, and the platform carries no SLA to fall back on.",
+  solution:"A codified protocol with two halves. Escalation: hard rules for when the agent must stop and hand to a human — emotional client, complaint, crisis, VIP threshold, any ambiguity, anything touching money or a promise. Incident: a defined rollback/correction path (immediate human takeover, a correction template the advisor personalizes, a logged post-mortem into the dossier), plus E&O/professional-indemnity insurance review.",
+  scenario:"Mid-pilot, a client's debrief turns sharply negative about a transfer mix-up. The agent recognizes the complaint trigger, does NOT draft a breezy reply, and instead pings the advisor immediately with the full thread, dossier context and a neutral correction template. The advisor calls within the hour. The miss and recovery are logged, and the supplier's reliability score is updated.",
+  he:["Human-in-the-loop approval","Natural-language routing/escalation rules","Incident post-mortems in memory","Multi-platform alerting"],
+  in:["Slack / Teams / WhatsApp alerts","Supabase incident log","E&O insurer policy review","CRM flag via MCP"],
+  kpis:["% of trigger events correctly escalated","Time-to-human-takeover on incidents","Client-facing errors reaching a client (target: zero)"]},
+
+ {t:"Omni-Channel Lead Capture",full:"Omni-Channel Lead Capture & Triage (Draft-First Front Door)",theme:"Growth & Conversion Engine",impact:4,effort:3,pri:"High",qw:false,
+  problem:"Leads arrive scattered across email, Instagram DMs, SMS, WhatsApp, phone and web forms with no single capture point, so midnight referrals from other time zones go cold or are never logged. But an obvious 90-second bot reply to a sensitive inquiry can repel the exact high-LTV referral it was meant to win.",
+  solution:"Hermes watches every channel and the moment an inquiry lands, instantly captures and logs the lead to the CRM with source attribution, recognizes repeat clients from the dossier, and pushes the advisor a one-line briefed summary with a recommended fee tier. The client-facing reply itself is drafted in the house voice — a warm connection, never an instant price — and queued for the advisor to send.",
+  scenario:"At 1:47am a Singapore family office DMs about a last-minute anniversary trip to the Maldives. Within seconds Hermes logs a clean lead tagged 'referral – high fit,' drafts two warm qualifying questions in the agency's discreet voice plus a suggested fee tier — all waiting in the advisor's queue. The advisor wakes, adjusts one line, and sends a genuinely personal reply at 6am local.",
+  he:["Unified messaging gateway (capture/triage)","Repeat-client recognition","Capture heartbeat cron (not auto-send)","SOUL.md brand voice (draft only)","Human-in-the-loop send"],
+  in:["WhatsApp / Signal / Telegram / SMS","Web form + email intake","Tern / Travefy / Supabase CRM","Google Calendar","Instagram DM (ToS-permitting)"],
+  kpis:["% of inbound inquiries captured & logged (target: 100%)","Inquiry-to-booking conversion vs. baseline","Time from inquiry to ready-to-send draft"]},
+
+ {t:"Proposal Buying-Signal Radar",full:"Proposal Buying-Signal Radar & Follow-Up Drafter",theme:"Growth & Conversion Engine",impact:4,effort:3,pri:"High",qw:false,
+  problem:"The proposal is the conversion moment, but advisors have no clean view of which proposals are open, viewed or stalled, so follow-up is guesswork. Clients ghost or shop the proposal direct, and hours of unbilled design labor leak when a stalled quote is never chased.",
+  solution:"Hermes monitors proposal view/open status where the tool exposes it (best-effort, not guaranteed) and turns behavior into an advisor-facing signal: a soft-nudge prompt on silence and — the highest-value piece — an immediate alert when a client re-opens a proposal three times or lingers on a high-value page. Every follow-up is drafted in the house voice and sent by the advisor.",
+  scenario:"A client who received a 12-day Maldives-and-Sri-Lanka proposal goes quiet for four days, then opens it three times on a Sunday night, lingering on the over-water villa page. Hermes alerts the advisor instantly ('the Patels are back on the Maldives proposal — third view tonight') and drafts a warm check-in plus a note that the seaplane space releases Wednesday.",
+  he:["Natural-language cron","Status monitoring + best-effort browser automation","Persistent memory","SOUL.md brand voice (draft only)","Human-in-the-loop approval"],
+  in:["Travefy / Safari Portal / TravelJoy view tracking","Gmail OAuth","WhatsApp advisor alerts","Supabase / CRM","Google Calendar (release deadlines)"],
+  kpis:["Proposal-to-booking conversion vs. baseline","Revenue recovered from stalled proposals","Advisor reaction time on buying-signals"]},
+
+ {t:"Referral-Ask Timing Prompter",full:"Referral-Ask Timing & Partner-Pipeline Prompter",theme:"Growth & Conversion Engine",impact:4,effort:2,pri:"High",qw:true,
+  problem:"Referrals and word-of-mouth are the dominant luxury acquisition channel, yet the ask is awkward and inconsistent, and strategic referral partners (financial advisors, wedding planners, designers) need deliberate cultivation that's the first thing neglected under delivery load.",
+  solution:"Hermes watches for the peak-delight moment — a glowing post-trip message — and prompts the advisor with a perfectly-timed, personalized referral-ask draft in their voice. It also maintains a light, advisor-approved cadence of genuine value-touches to referral partners. No automated sending, no LinkedIn automation, no templated bulk emails — the agent surfaces the opportunity and a draft; the advisor remains the sender.",
+  scenario:"A client texts 'genuinely the best trip of our lives' from the Amalfi Coast. Two days after they land, Hermes surfaces a draft: a warm thank-you in house voice with a soft, well-timed referral line, plus a reminder that the client once mentioned an interior-designer friend who travels often. The advisor personalizes both and sends.",
+  he:["Satisfaction signals + partner graph in memory","Natural-language cron","Multi-platform messaging (advisor-routed)","SOUL.md brand voice (draft only)","Human-in-the-loop approval"],
+  in:["Supabase / Notion CRM","WhatsApp / Email (advisor sends)","Google Docs","Calendar (partner-touch cadence)"],
+  kpis:["Referral rate vs. baseline","Referral-sourced revenue","NPS / review volume"]},
+
+ {t:"Bespoke Research Assistant",full:"Bespoke Research & Trip-Enrichment Assistant",theme:"Bespoke Design Acceleration",impact:4,effort:4,pri:"High",qw:false,
+  problem:"Designing a complex multi-stop bespoke trip is the largest time sink — much of it serial, tab-by-tab research, much of it unpaid until the lead converts. Time pressure pushes advisors toward generic templates. But live luxury inventory is largely not scrapable: jet pricing is broker-quoted, top villas are DMC-held, restaurant tables can't be agent-verified.",
+  solution:"A single 'itinerary owner' agent spawns scoped sub-agents that gather background research in parallel — descriptive content, candidate properties and experiences, route logic, on-profile enrichment ideas — each writing structured findings with notes, links and photos into a shared Doc/Sheet, filtered against the dossier. Every rate, availability and booking is verified by the advisor with the supplier; the comparison sheet carries a standing 'confirm with supplier' disclaimer.",
+  scenario:"A repeat client asks for two weeks across the Amalfi Coast and Sicily for a 25th anniversary. The advisor types one brief; within the hour sub-agents have built a research dossier — candidate Ravello villas with notes and photos (excluding the buzzy hotels this client dislikes), restaurants screened against the shellfish allergy, vetted transfer operators, and a tasteful 'ways to elevate' list. Every figure says 'confirm with supplier.'",
+  he:["Sub-agent delegation with per-task scoping","Client constraints + budget signals in memory","Background web research (Firecrawl, Browser Harness)","GDS/DMC data via MCP (advisor-verified)","Human-in-the-loop verification of all rates"],
+  in:["Firecrawl + Browser Harness","Google Sheets / Docs","Amadeus/Sabre GDS via MCP","Virtuoso/Signature & DMC portals","Supabase CRM"],
+  kpis:["Background-research hours per trip vs. baseline","Bespoke trips designed per advisor per month","Inquiry-to-confirmed-booking conversion"]},
+
+ {t:"House-Voice Proposal Generator",full:"House-Voice Proposal & Trip Dossier Generator",theme:"Bespoke Design Acceleration",impact:4,effort:3,pri:"High",qw:false,
+  problem:"Formatting and reformatting proposals manually eats hours of non-revenue work per quote, multiplied by every client tweak, and inconsistent ad-hoc quality undermines premium positioning. The labor is largely mechanical assembly the advisor resents.",
+  solution:"From the advisor-verified research, a self-improving 'proposal' skill assembles a polished, on-brand options deck and day-by-day dossier in Google Slides/Docs plus a costed comparison Sheet — drafted in the agency's house voice via SOUL.md, with the client's name, occasion and preferences woven in. Revisions are a chat instruction ('swap the Cap Ferrat hotel for the Aman, re-run the layout') that regenerates in seconds. Nothing reaches a client without advisor review.",
+  scenario:"After a discovery call for a family safari, the advisor says 'build the proposal.' Minutes later there's a branded deck with three lodge options, an annotated route map, a costed comparison sheet (rates marked for confirmation), and a warm cover note referencing the 12-year-old's obsession with big cats. The client replies 'love it but can we add Victoria Falls?' — one instruction regenerates the deck before lunch.",
+  he:["Self-improving skills (SKILL.md + plugins)","Document generation (Slides/Docs/Sheets)","SOUL.md brand-voice control (QA-validated)","Client/occasion context in memory","Human-in-the-loop approval"],
+  in:["Google Slides / Docs / Sheets","Safari Portal / Vamoos (final polish)","CRM via MCP"],
+  kpis:["Proposal turnaround (brief to advisor-ready draft)","Revision cycles per advisor-hour","Proposal-to-booking conversion"]},
+
+ {t:"Client Lifecycle & Retention Engine",full:"Client Lifecycle & Retention Engine",theme:"Retention & Relationship Compounding",impact:4,effort:2,pri:"High",qw:true,
+  problem:"Post-trip follow-up is the first thing dropped when the advisor is buried, learnings rarely get captured back (so the next trip restarts cold), and there's no cadence for birthdays or re-engagement. High-LTV repeat clients silently go dormant — one of the largest money leaks in the business.",
+  solution:"Hermes orchestrates the closing-and-reactivation loop on a schedule, draft-first: a personalized touch within 48 hours, a deeper debrief around two weeks out, automatic write-back of what worked into the dossier (flagged for confirmation), a review ask timed to high sentiment, and an ongoing re-engagement cadence that surfaces a tailored next-trip nudge built from the client's own history. The advisor reviews and sends each touch.",
+  scenario:"Two days after the Albrights land, the advisor approves a warm note referencing the Barolo cellar evening. At two weeks a debrief surfaces that they loved Como but found the second driver chatty and the spa cramped — both written into the dossier so they're never repeated. Eleven months later a cron prompt surfaces: 'The Albrights' 31st is approaching and they mentioned Kyoto — draft a sakura-season concept?'",
+  he:["Natural-language cron scheduling","Trip history, occasions, learning write-back in memory","Document/proposal generation","SOUL.md brand voice (draft only)","Human-in-the-loop approval"],
+  in:["Supabase / Notion","Google Calendar","Google Slides/Docs","WhatsApp / Email (advisor sends)","CRM via MCP"],
+  kpis:["Repeat booking rate / retention vs. baseline","Reactivated-client revenue","Post-trip follow-up within 48h"]},
+
+ {t:"Occasion & Surprise-Prep Prompter",full:"Occasion & Surprise-Prep Prompter",theme:"Retention & Relationship Compounding",impact:4,effort:2,pri:"Medium",qw:true,
+  problem:"Surprise-and-delight and special-occasion anticipation are the true luxury differentiator, but there's no cadence for the moments tied to a client's passions and milestones, so they get missed. Left to it, an agent produces formulaic, repeated concepts — cheapening the very thing clients pay a premium for.",
+  solution:"Recast as advisor-augmentation, not creative automation. A cron job surfaces upcoming occasions tied to active trips and assembles a fact-and-option brief for the advisor — what the milestone is, what the client loves, a few candidate experiences and the local supplier contacts. The advisor invents the surprise and decides the budget. The agent then drafts the supplier coordination for approval and tracks confirmation. The magic stays human.",
+  scenario:"Two weeks before the Albrights arrive in Como, Hermes flags their 30th anniversary and recalls Mr. Albright's love of Barolo and Mrs. Albright's passion for textile history — surfacing a brief: Piedmont estates open to private tastings, a Como silk museum that does curator-led visits, and contacts for each. The advisor chooses the combination, adds the personal touch, and approves the drafted outreach.",
+  he:["Natural-language cron","Occasions & passions in memory","Sub-agents for sourcing options (not deciding)","Brand-voice email drafts (draft only)","Human-in-the-loop approval"],
+  in:["Supabase","Gmail (advisor-approved)","Firecrawl (candidate experiences)","Hunter.io (local supplier contacts)","Google Calendar"],
+  kpis:["Repeat booking rate / retention","Referral rate & referral-sourced revenue","NPS / review volume"]},
+
+ {t:"Confirmation-to-CRM Auto-Capture",full:"Confirmation-to-CRM Auto-Capture",theme:"Flawless Execution & White-Glove Ops",impact:5,effort:3,pri:"Must-do",qw:true,
+  problem:"Manually copying details from supplier confirmation emails, PDFs and portals into the CRM, itinerary builder and accounting is a major recurring time sink and the origin of costly booking errors (wrong cabin category, name mismatches, missed dates). The same trip data gets re-entered across disconnected systems all day.",
+  solution:"An agent watches the operations inbox; when a confirmation arrives it parses the structured details (supplier, confirmation number, dates, room/cabin category, deposit and final-payment deadlines, cancellation terms, perks), writes them to the CRM via MCP, appends a normalized record to trip memory, and files the voucher to Drive. Internal and largely deterministic — but high-stakes fields are surfaced for a one-tap confirm rather than written blindly.",
+  scenario:"A Mykonos villa company emails a confirmation PDF at 2am. By morning the booking is in the CRM under the right client and trip, the deposit deadline (14 days out) and final-payment cut-off are logged as monitored tasks, the included airport-transfer perk is recorded, and the voucher is filed. The advisor's only queue item: 'Contract reads N. Whitaker — confirm match to Nigel Whitaker?'",
+  he:["Email integration + file monitoring","Structured records in memory","MCP write to CRM","Human-in-the-loop approval for critical fields"],
+  in:["Gmail / Fastmail JMAP","Tern or Travefy CRM via MCP","Supabase trip records","Google Drive (voucher storage)"],
+  kpis:["Manual data-entry hours per week vs. baseline","Booking error rate (category / name / date)","% of bookings logged to CRM within 24h"]},
+
+ {t:"Supplier & DMC Command Center",full:"Supplier & DMC Command Center",theme:"Flawless Execution & White-Glove Ops",impact:5,effort:4,pri:"High",qw:false,
+  problem:"Every trip juggles many suppliers with different deposit schedules, release deadlines and cut-offs — a single missed cut-off can cost more than the planning fee or void a negotiated rate. VIP perks that justify the fee often fail to materialize at check-in. And which DMC actually delivers in a crisis is tribal, key-person-bound knowledge.",
+  solution:"Hermes maintains a structured per-trip deadline-and-perk ledger plus a per-supplier reliability score (perk-delivery track record, responsiveness, past incidents, deposit behaviors). Cron nudges the advisor before each deadline and drafts perk-reconfirmation emails a few days before arrival. A post-trip sub-agent parses what actually happened and updates the score, so sourcing draws on institutional track record. All supplier-contact actions stay human-approved.",
+  scenario:"Choosing between two Kenya DMCs, the ledger shows DMC A delivered promised perks on 9 of 10 recent trips and answered crisis messages within the hour, while DMC B no-showed a transfer in Arusha last season. The advisor picks A. Three weeks out, cron flags the Singita upgrade perk hasn't been confirmed in writing; Hermes drafts the chase, the advisor sends it, and the upgrade is locked before the cut-off.",
+  he:["Natural-language cron scheduling","Deadline/perk ledger + supplier scores in memory","Post-trip performance-logging sub-agent","Supplier email drafts (advisor-approved)","Human-in-the-loop approval"],
+  in:["Gmail / supplier email","Google Calendar (deadlines)","Hunter.io (DMC contacts & backups)","Virtuoso/Signature consortium","CRM via MCP"],
+  kpis:["Missed cut-off / deposit-deadline rate","VIP perk realization (promised vs. delivered)","Advisor time on supplier follow-up per trip"]},
+
+ {t:"Pre-Trip Green-Light Sweep",full:"Pre-Trip Green-Light Sweep & Document Pack",theme:"Flawless Execution & White-Glove Ops",impact:5,effort:4,pri:"High",qw:false,
+  problem:"Flawless, invisible execution is the white-glove promise, but compiling and re-verifying a dozen suppliers' confirmations is detail-heavy and error-prone, and details drift right up to departure. One wrong time cascades; perks quietly fail to get logged; and the thoughtful pre-trip briefing clients judge service by is easy to skip under deadline pressure.",
+  solution:"Cron fires at T-7, T-3 and T-1. A sub-agent swarm re-verifies every itinerary component against the latest supplier confirmations on file (confirmation-matching, not live-availability scraping) and flags anything unconfirmed or changed. It assembles a clean branded traveler document pack and a personalized pre-departure briefing (day-by-day plan, weather-tuned packing notes, driver names, emergency contacts). The advisor gets a green/amber/red dashboard and sends the pack.",
+  scenario:"Three days before a couple's Bhutan trek, the T-3 check matches the helicopter transfer and Amankora suites against confirmations on file, but the private monastery blessing arranged for their anniversary hasn't been re-confirmed by the local fixer, and a storm front threatens the planned ridge hike. The amber dashboard flags both; Hermes has drafted the fixer chase and outlined a sheltered-valley alternate. The advisor resolves both and sends the polished briefing.",
+  he:["Natural-language cron scheduling","Sub-agent orchestration (compile vs. verify)","Email + best-effort portal confirmation-matching","Document generation","SOUL.md brand voice + human-in-the-loop send"],
+  in:["Gmail (confirmation parsing)","Browser Harness (portal checks where exposed)","Google Sheets / Docs / Calendar","OpenWeather (contingency triggers)","WhatsApp (advisor-sent delivery)"],
+  kpis:["% of components verified before departure","Last-minute execution failures / unapplied perks","Client satisfaction on logistics/execution"]},
+
+ {t:"Passport & Entry-Requirement Flagger",full:"Passport-Expiry Tracker & Entry-Requirement Flagger",theme:"Flawless Execution & White-Glove Ops",impact:5,effort:2,pri:"Must-do",qw:true,
+  problem:"Verifying passport validity, visas and entry/health requirements carries relationship-ending, multi-million-dollar liability — a passport inside the six-month window, a missed e-visa, a yellow-fever requirement can deny boarding. But having the agent scrape and interpret government sites and declare a trip 'cleared' is itself the liability: a misread rule the advisor trusts creates the catastrophe it claims to prevent.",
+  solution:"Split into two halves with different trust levels. (1) The deterministic quick win: hold each traveler's passport expiry in the vault and run cron checks with renewal alerts at 90/60/30 days — pure date math. (2) Entry/visa/health rules: the moment an itinerary is set, the agent checks every passport-nationality-against-destination combination but is constrained to surface the authoritative source and flag for human verification — ideally via a vetted API (IATA/Sherpa), never free-text scraping. The agent NEVER outputs 'cleared.'",
+  scenario:"An advisor books a last-minute Botswana safari for a US/Brazilian dual-national couple. The deterministic check immediately flags that the wife's US passport has only five months' validity past return. The entry-requirement half surfaces — with links to the authoritative IATA/Sherpa entries, marked 'verify' — that yellow-fever proof is likely required given a Johannesburg transit and two blank pages are needed. The advisor verifies and routes the renewal through the PA two weeks before anyone would otherwise have noticed.",
+  he:["Cron (deterministic expiry math)","Document records in memory","Vetted-API research with mandatory verification","Sub-agent delegation","Human-in-the-loop (no 'cleared' output)"],
+  in:["Supabase (encrypted document records)","IATA Travel Centre / Sherpa API","Firecrawl (source surfacing only)","Google Calendar (renewal reminders)","WhatsApp / Email (advisor-sent)"],
+  kpis:["Entry-denial / visa incidents (target: zero)","Passport-expiry catches ahead of 90-day window","Documented liability incidents per year"]},
+
+ {t:"Flight & Disruption Sentinel",full:"Flight & Disruption Sentinel (Monitoring + Option-Prep)",theme:"Flawless Execution & White-Glove Ops",impact:4,effort:3,pri:"High",qw:false,
+  problem:"In-trip disruption is the single most relationship-defining moment in luxury travel, yet 24/7 monitoring across time zones is impossible for a small team — today the advisor finds out when the panicked client calls from the lounge. But promising a UHNW client 'we've moved you, nothing to do' before a seat is actually ticketed is catastrophic if it falls through.",
+  solution:"Keep the strong, feasible core and drop the overreach. Cron watches every active itinerary's live flight status, destination weather and strike/advisory feeds, tuned to each client's risk tolerance. When a threshold is crossed, Hermes spawns option-prep sub-agents that pull candidate alternative flights via the GDS MCP, check remembered rebooking preferences, and assemble 2–3 ranked options into a one-tap advisor card. The advisor verifies availability, tickets the rebooking, and personally messages the client.",
+  scenario:"A storm cancels the Albrights' Milan-to-London connection while they're airborne. By the time they land, Hermes has detected the cancellation and option-prep sub-agents have assembled three alternatives ranked against their preferences (a later BA nonstop, no connection) plus a held-suite idea at the Bulgari. The advisor's phone shows a one-tap card; she verifies the seat, books it, and personally texts the Albrights in her own voice — because the agent prepared the fix but never promised it.",
+  he:["Natural-language cron scheduling","Option-prep sub-agents (not resolution)","Flight/weather/GDS APIs via MCP","Rebooking preferences in memory","Multi-platform advisor alert + human-in-the-loop"],
+  in:["FlightAware / Cirium status API via MCP","OpenWeather / severe-weather alerts","Firecrawl + SearXNG (strike & advisory news)","Amadeus/Sabre GDS MCP (advisor-confirmed)","WhatsApp / Signal alerts"],
+  kpis:["Mean in-trip disruption resolution time vs. baseline","% of disruptions detected before the client reports","NPS on trips that experienced a disruption"]},
+
+ {t:"Commission Reconciliation Watchdog",full:"Commission Capture & Reconciliation Watchdog",theme:"Back-Office Revenue Protection",impact:5,effort:4,pri:"Must-do",qw:false,
+  problem:"A large share of commissions have discrepancies or go uncollected: they arrive months after travel with no notification, every supplier pays on a different schedule, host-agency splits add a layer, and manual spreadsheets break around the third month of growth. This is the most leak-prone part of the business and drains realized revenue directly.",
+  solution:"Hermes maintains an expected-commission ledger per booking component (derived from booked trips and negotiated rates), monitors the finance inbox and statements for incoming payments, and auto-matches arrivals against expectations — flagging missing, late or short-paid amounts and drafting documented chase emails with booking references and agreed terms. It is a watchdog and drafter reconciling against the SaaS book of record, never moving money or sending recovery emails autonomously.",
+  scenario:"Four months after a multi-property Japan itinerary, a Kyoto ryokan commission posts below the negotiated rate and a Tokyo DMC payment expected in May never arrived. Hermes catches both against its ledger and surfaces them in the Monday finance digest with pre-drafted, itemized recovery emails citing booking references and agreed terms. The advisor reviews, approves the sends, and recovers money that would otherwise have silently vanished.",
+  he:["Structured commission ledger in memory","Natural-language cron scheduling","Email + attachment monitoring","Accounting + CRM via MCP (reconcile vs. book of record)","Human-in-the-loop approval"],
+  in:["Gmail / Fastmail","Tern or Travefy commission module","QuickBooks / Xero (MCP)","Google Sheets","Host-agency statements"],
+  kpis:["Commission realization rate vs. baseline","Recovered short-paid commission dollars","Average days-to-reconcile per booking"]},
+
+ {t:"Proactive Daily Operations Brief",full:"Proactive Daily Operations Brief",theme:"Back-Office Revenue Protection",impact:4,effort:2,pri:"High",qw:true,
+  problem:"General admin and CRM upkeep is the silent productivity killer, and follow-up on stalled proposals or warm leads slips whenever the advisor is buried in an active trip — so retention and conversion quietly leak with no one watching the whole board.",
+  solution:"A natural-language cron job runs each morning and delivers one concise operations brief to the advisor's preferred channel: overnight client and supplier messages summarized, deadlines due in the next three days, proposals sent but not yet viewed/accepted (with a one-tap draft-nudge), leads gone quiet, and clients departing or returning today. Pure internal advisor-facing intelligence — no client contact, low build cost, immediate daily payoff.",
+  scenario:"At 8am the advisor opens one message: two supplier replies summarized, 'Aman Tokyo deposit due Thursday,' 'the Mrs. Devlin proposal has been unopened for 5 days — draft a nudge?', 'lead from the Hartmann referral has gone quiet 8 days,' and 'the Okonkwos return from Patagonia today — approve your 48-hour thank-you.' She clears the whole board before her first coffee instead of reconstructing it from five apps.",
+  he:["Natural-language cron scheduling","Inbox triage/summarization","Deadlines, proposal/lead state in memory","Unified multi-platform delivery (to advisor)"],
+  in:["Gmail / Fastmail","WhatsApp / Telegram / Slack (advisor)","Google Calendar","CRM via MCP"],
+  kpis:["Advisor admin/triage time per day vs. baseline","Stalled-proposal follow-up rate","Post-trip follow-up within 48h"]}
+];
+
+const ROADMAP=[
+ {phase:1,name:"Foundation, Guardrails & Internal Quick Wins",time:"Months 1–2",
+  focus:"Lay the memory spine and safety guardrails, then ship the cheapest, internal-only, deterministic automations with zero client exposure. Stand up a lean human-curated dossier and a mandatory shadow-mode pilot running draft-only on real data. Nothing client-facing ships until the pilot's go/no-go thresholds are met — and measure the agency's real baselines so later ROI is provable.",
+  items:["Living Client Dossier","Discretion & Privacy Guardian","Shadow-Mode Pilot & Voice QA","Escalation & Incident Protocol","Proactive Daily Operations Brief","Confirmation-to-CRM Auto-Capture","Passport & Entry-Requirement Flagger","Commission Reconciliation Watchdog"],
+  out:["Structured, never-forgetting client memory plus a 100%-gated, pen-tested, self-hosted agent safe for HNW data","A running shadow-mode pilot with weekly scorecards and explicit go/no-go thresholds gating all later work","Manual re-entry and booking errors collapse; passport-expiry liability effectively eliminated","Commission realization climbs as short-paid and overdue payments are caught and chased","The advisor starts each day from a single anticipatory brief; true baselines measured"]},
+ {phase:2,name:"Core Automation as Advisor-Augmentation",time:"Months 3–6",
+  focus:"Automate the recurring operational grind and begin supervised, draft-first client-facing work — but only the pieces the Phase 1 pilot has cleared. Every external client message is drafted by the agent and sent by the advisor. Turn the advisor from operator into curator and approver; all rates, availability and bookings are verified with suppliers.",
+  items:["Supplier & DMC Command Center","House-Voice Proposal Generator","Bespoke Research Assistant","Proposal Buying-Signal Radar","Pre-Trip Green-Light Sweep","Client Lifecycle & Retention Engine","Omni-Channel Lead Capture"],
+  out:["Missed supplier cut-offs near zero and a rising VIP-perk realization rate","Proposal turnaround cut from hours to minutes with consistent on-brand quality","Background research time per bespoke trip drops sharply, every figure supplier-verified","Every inbound lead captured with a ready-to-send drafted reply; stalled proposals chased at the buying-signal moment","Every itinerary verified before departure with an anticipatory, advisor-sent briefing"]},
+ {phase:3,name:"Supervised Differentiation & White-Glove Scale",time:"Months 7–12",
+  focus:"Build the visible, hard-to-copy differentiation clients feel — disruption option-prep before they notice, engineered occasion moments, timed referral cultivation — all as advisor-augmentation with the human as the voice and creator. Promote cleared client-facing drafting to faster supervised cadence as pilot metrics hold.",
+  items:["Flight & Disruption Sentinel","Referral-Ask Timing Prompter","Occasion & Surprise-Prep Prompter"],
+  out:["Most in-trip disruptions detected and option-prepped before the client reports them","Referral asks fired at peak sentiment and partner relationships cultivated without spam or ToS risk","Engineered occasion moments — authored by the advisor, scaffolded by the agent — that drive the durable luxury moat","One advisor delivers the responsiveness of a much larger team, underwritten by a DevOps owner or managed host"]}
+];
+
+const WINS=[
+ ["Cross-domain client memory","holds the nuance a CRM never captures — never books connecting flights, corner suite always, husband's 50th in March — and reasons over it when planning. In luxury, that memory IS the product."],
+ ["Data sovereignty for HNW clients","self-hosting keeps passports, schedules and home addresses on your own infrastructure, not in a multi-tenant SaaS or syndicated to consortia marketing syncs."],
+ ["Connective tissue across every tool","no single SaaS spans CRM + GDS + Gmail + Calendar + Drive + supplier portals; Hermes orchestrates across them via MCP."],
+ ["Voice ownership","drafts in the individual advisor's tone with full relationship history recalled — the differentiator when personalization is what clients pay for."],
+ ["Proactive, client-specific monitoring","24/7 watching for flight changes, rebooking windows, deadlines and follow-up timing tailored to named clients."],
+ ["Cost structure at scale","no per-task or per-seat metering — you pay only your own model spend (though that spend must still be budgeted)."]
+];
+const ALTS=[
+ ["Live inventory & ticketing","only the GDS (Amadeus/Sabre), NDC and host tools provide real-time fares, PNRs and verified data — Hermes calls these, never replaces them."],
+ ["Commission & back-office accounting","Tern and Travefy do reconciliation natively and correctly; don't build money logic on a probabilistic agent."],
+ ["Polished, content-rich deliverables","Safari Portal, Vamoos and Axus ship curated supplier libraries and beautiful branded itineraries a general agent can't reproduce."],
+ ["Consortium perks & marketplace","Virtuoso/Signature VIP upgrades and preferred rates are reachable only through consortium-integrated SaaS — core to luxury value."],
+ ["Payments & PCI compliance","TravelJoy/Travefy handle deposits and secure card storage — don't roll your own payment surface on a self-hosted agent."],
+ ["Deterministic automations","a Zapier/Make/n8n recipe (booking confirmed → calendar + welcome email) is cheaper and more reliable than an LLM for fixed triggers."]
+];
+const STACK=[
+ ["Tern (or Travefy)","System-of-record CRM, commissions and proposals — the book of record for money and bookings.",false],
+ ["Amadeus / Sabre GDS (+ NDC)","Live inventory, ticketing and authoritative fares — the layer Hermes calls and the advisor confirms, never replaces.",false],
+ ["Virtuoso / Signature consortium","VIP perks, preferred rates and supplier relationships that justify the advisor's fee — non-negotiable for luxury.",false],
+ ["Safari Portal","Content-rich, beautifully branded luxury proposals and itineraries where the curated visual library matters.",false],
+ ["Vamoos (or Axus)","Stunning branded in-trip traveler app — the premium feel during the trip.",false],
+ ["TravelJoy / Travefy payments","PCI-compliant deposit collection and secure card handling — keep payments off the agent entirely.",false],
+ ["Hermes","The orchestration brain and concierge layer: unstructured per-client memory, house-voice drafting, proactive monitoring and cross-tool orchestration via MCP — drafts and monitors, never sends or pays autonomously.",true],
+ ["Claude (Opus / Sonnet)","The frontier model powering Hermes and the highest-quality client-facing drafting; reliability requires frontier-grade models.",true],
+ ["n8n or Zapier","Deterministic, transparent glue for fixed triggers between SaaS, GDS, email and calendar — wherever a recipe beats an LLM.",false],
+ ["Local model + redaction layer","PII redaction before any external API call — deterministic rules primary, local Qwen/Llama secondary, never local-model-alone.",false],
+ ["IATA Travel Centre / Sherpa","Vetted authoritative source for entry/visa/health requirements — surfaced and flagged for human verification, never auto-'cleared.'",false],
+ ["Tailscale + Supabase/SQLite","Scoped, tagged network and structured memory + immutable audit log underpinning data sovereignty.",false],
+ ["Lindy or a managed host","The non-self-host path: an out-of-the-box agent plus Tern's AI, or a managed Hermes deployment, if no one can own security and uptime.",false]
+];
+const RISKS=[
+ ["Approval-gate violations","112 of 129 sessions had at least one. ","Gate ALL external client messages — not just money — so the agent drafts and the advisor sends, with an immutable audit log and an external pen-test."],
+ ["Memory hallucination","A wrong allergy or invented preference is unacceptable. ","Structured SQLite/Supabase memory, hard constraints human-curated, every inferred fact flagged for advisor confirmation before it becomes 'truth.'"],
+ ["Live pricing isn't scrapable","Jets are broker-quoted, villas DMC-held, tables unverifiable. ","Treat all research as background/descriptive only, carry a standing 'confirm with supplier' disclaimer, never promise a fix before it's ticketed or held."],
+ ["Off-brand voice","Worse than slowness — the premium IS the human voice. ","A SOUL.md voice-QA loop with golden examples and red-teaming, plus a shadow-mode pilot whose thresholds must be met before any client-facing promotion."],
+ ["HNW data sovereignty","Real-time locations, passport scans, physical-security exposure. ","Self-host on a scoped Tailscale network with deterministic PII redaction, an external review, a forbidden-covert-profiling rule, and GDPR/CCPA/PCI policy."],
+ ["Platform & DevOps risk","No SLA, self-modifying, SSH-capable, painful self-host. ","Reserve the agent for judgment steps, use deterministic n8n/Zapier for fixed triggers, commit a security/uptime owner or managed host, and define a rollback plan."],
+ ["Cost / unit-economics","Frontier models required; ~73% of each call is overhead; swarms spike spend. ","Model per-trip and per-month token cost, cap swarm fan-out, and require break-even against the specific leak each idea recovers."],
+ ["ToS & compliance bans","Instagram/WhatsApp/LinkedIn automation risks bans and reads as spam. ","Capture/triage/draft only on constrained channels, no LinkedIn automation, respect consortium and supplier goodwill — no spammy auto-emails."],
+ ["Over-automation","Automating the relational core cheapens the differentiator. ","Automate the scaffolding, never the relationship — the agent surfaces facts and options; the advisor invents the magic and is always the client's voice."],
+ ["Liability transfer on compliance","An agent that declares a visa 'cleared' creates the catastrophe it claims to prevent. ","Deterministic passport math as the true quick win; entry rules from a vetted API flagged for human verification, never auto-'cleared,' backed by E&O insurance."]
+];
+const STARTS=[
+ ["Stand up the shadow-mode pilot harness first","Run the agent draft-only on real data with a weekly scorecard — cheap to set up and the gate that de-risks everything client-facing."],
+ ["Proactive Daily Operations Brief","One morning message: overnight messages, 3-day deadlines, unviewed proposals, quiet leads, today's departures. Internal-only, immediate payback."],
+ ["Confirmation-to-CRM Auto-Capture","Kill manual re-entry by parsing supplier confirmations into the CRM and trip memory, with a one-tap confirm on names, dates and non-refundable terms."],
+ ["Passport-Expiry Tracker","Pure date math with 90/60/30-day renewal alerts eliminates a relationship-ending liability with almost no model risk."],
+ ["Commission Reconciliation Watchdog","An expected-vs-received ledger that flags short-paid and overdue commissions and drafts advisor-approved chase emails — recovers hard dollars."],
+ ["Lean human-curated Dossier","Load hard constraints — allergies, do-not-book lists, no-fly carriers — by hand first, so every other idea reasons over verified facts."],
+ ["Referral & Lifecycle drafting (draft-only)","The agent surfaces peak-delight moments and timed touches as ready-to-send drafts — high-leverage retention wins with the advisor always the sender."]
+];
+
+/* ---------- render ---------- */
+const $=s=>document.querySelector(s), el=(t,c)=>{const e=document.createElement(t); if(c)e.className=c; return e;};
+
+// themes
+const tg=$('#themegrid');
+THEMES.forEach((t,i)=>{
+  const n=IDEAS.filter(x=>x.theme===t.key).length;
+  const d=el('div','theme reveal'); d.style.setProperty('--tc',t.color);
+  d.innerHTML=`<span class="count">${n}</span><span class="ti">${t.icon}</span><h3>${t.key.replace(' & ',' &amp; ')}</h3><p>${t.desc}</p>`;
+  tg.appendChild(d);
+});
+
+// matrix
+const plot=$('#plot'), legend=$('#legend');
+const PAD=12;
+IDEAS.forEach((d,i)=>{
+  const jx=((i%3)-1)*2.4, jy=(((i*7)%5)-2)*2.0;
+  const x=PAD+((d.effort-1)/4)*(100-2*PAD)+jx;
+  const y=PAD+((d.impact-1)/4)*(100-2*PAD)+jy;
+  const dot=el('div','dot'+(d.qw?' qw':''));
+  dot.style.left=x+'%'; dot.style.bottom=y+'%';
+  dot.style.background=TC[d.theme];
+  dot.dataset.t=d.full; dot.dataset.m=TS[d.theme]+(d.qw?' · Quick win':'');
+  plot.appendChild(dot);
+});
+const tip=$('#tip');
+plot.addEventListener('mousemove',e=>{
+  const t=e.target.closest('.dot');
+  if(t){tip.innerHTML=`<b>${t.dataset.t}</b><span class="tm">${t.dataset.m}</span>`;
+    tip.style.opacity=1; tip.style.left=Math.min(e.clientX+14,innerWidth-260)+'px'; tip.style.top=(e.clientY+14)+'px';}
+  else tip.style.opacity=0;
+});
+plot.addEventListener('mouseleave',()=>tip.style.opacity=0);
+THEMES.forEach(t=>{
+  const li=el('div','li');
+  li.innerHTML=`<span class="sw" style="background:${t.color}"></span><span>${t.short} — ${IDEAS.filter(x=>x.theme===t.key).length} ${IDEAS.filter(x=>x.theme===t.key).length===1?'idea':'ideas'}</span>`;
+  legend.appendChild(li);
+});
+
+// filters
+const fbar=$('#filters'); let activeTheme='all', qwOnly=false;
+const allChip=el('div','chip active'); allChip.dataset.k='all'; allChip.textContent='All 18';
+fbar.appendChild(allChip);
+THEMES.forEach(t=>{
+  const c=el('div','chip'); c.dataset.k=t.key; c.style.setProperty('--cc',t.color);
+  c.innerHTML=`<span class="cd"></span>${t.short}`;
+  fbar.appendChild(c);
+});
+const qwChip=el('div','chip qwc'); qwChip.dataset.k='qw'; qwChip.innerHTML='⚡ Quick wins';
+fbar.appendChild(qwChip);
+const counter=el('div','counter'); counter.id='counter'; fbar.appendChild(counter);
+
+// idea cards
+const grid=$('#ideagrid');
+function priClass(p){return p==='Must-do'?'must':p==='High'?'high':'medium';}
+IDEAS.forEach(d=>{
+  const c=el('article','card'); c.style.setProperty('--tc',TC[d.theme]);
+  c.dataset.theme=d.theme; c.dataset.qw=d.qw;
+  const heChips=d.he.map(x=>`<span class="pill he">${x}</span>`).join('');
+  const inChips=d.in.map(x=>`<span class="pill in">${x}</span>`).join('');
+  const kpis=d.kpis.map(x=>`<li>${x}</li>`).join('');
+  c.innerHTML=`
+   <div class="chead">
+     <div class="ctop">
+       <span class="pri ${priClass(d.pri)}">${d.pri}</span>
+       ${d.qw?'<span class="qw">⚡ Quick win</span>':''}
+       <span style="font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;padding:3px 9px;border-radius:20px;border:1px solid ${TIERC[tierOf(d.t)]};color:${TIERC[tierOf(d.t)]}">${TIERNAME[tierOf(d.t)]}</span>
+       <span class="tdot"><span class="d"></span>${TS[d.theme]}</span>
+     </div>
+     <h3>${d.t}</h3>
+     <p class="pteaser">${d.problem}</p>
+     <div class="metrics">
+       <div class="metric"><div class="ml"><span>Impact</span><span>${d.impact}/5</span></div><div class="bar impact"><i style="width:${d.impact/5*100}%"></i></div></div>
+       <div class="metric"><div class="ml"><span>Effort</span><span>${d.effort}/5</span></div><div class="bar effort"><i style="width:${d.effort/5*100}%"></i></div></div>
+     </div>
+     <div class="expand"><span class="ar">▸</span> Explore the opportunity</div>
+   </div>
+   <div class="cbody"><div class="cinner">
+     <div class="block"><div class="bl">The solution</div><p>${d.solution}</p></div>
+     <div class="block"><div class="bl">In practice</div><div class="scenario">${d.scenario}</div></div>
+     <div class="block"><div class="bl">Hermes primitives</div><div class="pills">${heChips}</div></div>
+     <div class="block"><div class="bl">Integrations</div><div class="pills">${inChips}</div></div>
+     <div class="block"><div class="bl">KPIs it moves</div><ul class="kpis">${kpis}</ul></div>
+   </div></div>`;
+  c.querySelector('.chead').addEventListener('click',()=>c.classList.toggle('open'));
+  grid.appendChild(c);
+});
+function applyFilter(){
+  let shown=0;
+  document.querySelectorAll('.card').forEach(c=>{
+    const okT=activeTheme==='all'||c.dataset.theme===activeTheme;
+    const okQ=!qwOnly||c.dataset.qw==='true';
+    const vis=okT&&okQ;
+    c.style.display=vis?'':'none'; if(vis)shown++;
+  });
+  counter.textContent=`${shown} shown`;
+}
+fbar.addEventListener('click',e=>{
+  const c=e.target.closest('.chip'); if(!c)return;
+  if(c.dataset.k==='qw'){qwOnly=!qwOnly; c.classList.toggle('active',qwOnly);}
+  else{activeTheme=c.dataset.k; document.querySelectorAll('.chip:not(.qwc)').forEach(x=>x.classList.remove('active')); c.classList.add('active');}
+  applyFilter();
+});
+applyFilter();
+
+// roadmap
+const ph=$('#phases');
+ROADMAP.forEach(p=>{
+  const items=p.items.map(i=>{const id=IDEAS.find(x=>x.t===i); const col=id?TC[id.theme]:'var(--gold)'; return `<span class="pitem" style="--tc:${col}">${i}</span>`;}).join('');
+  const outs=p.out.map(o=>`<li>${o}</li>`).join('');
+  const d=el('div','phase reveal');
+  d.innerHTML=`
+    <div class="pleft"><div class="pno">0${p.phase}</div><div class="ptime">${p.time}</div><div class="pname">${p.name}</div></div>
+    <div class="pright"><p class="pfocus">${p.focus}</p><div class="pitems">${items}</div><ul class="pout">${outs}</ul></div>`;
+  ph.appendChild(d);
+});
+
+// verdict lists
+WINS.forEach(([b,t])=>{const li=el('li'); li.innerHTML=`<b>${b}:</b> ${t}`; $('#wins').appendChild(li);});
+ALTS.forEach(([b,t])=>{const li=el('li'); li.innerHTML=`<b>${b}:</b> ${t}`; $('#alts').appendChild(li);});
+const st=$('#stack');
+STACK.forEach(([tool,role,brain])=>{const r=el('div','strow'+(brain?' brain':'')); r.innerHTML=`<div class="stool">${tool}</div><div class="srole">${role}</div>`; st.appendChild(r);});
+
+// risks
+const rg=$('#riskgrid');
+RISKS.forEach(([t,ctx,m],i)=>{
+  const d=el('div','risk reveal');
+  d.innerHTML=`<div class="rt"><span class="rn">${String(i+1).padStart(2,'0')}</span><span>${t}</span></div><div class="rm">${ctx}<b>Mitigation:</b> ${m}</div>`;
+  rg.appendChild(d);
+});
+
+// starts
+const sg=$('#startgrid');
+STARTS.forEach(([t,b],i)=>{
+  const d=el('div','startitem reveal');
+  d.innerHTML=`<div class="sn">0${i+1}</div><p><b>${t}.</b> ${b}</p>`;
+  sg.appendChild(d);
+});
+
+// reveal + nav + progress
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in'); io.unobserve(e.target);}}),{threshold:.12});
+document.querySelectorAll('.reveal').forEach(e=>io.observe(e));
+const nav=$('#nav'), prog=$('#progress');
+const secs=[...document.querySelectorAll('section[id]')], links=[...document.querySelectorAll('.navlinks a')];
+addEventListener('scroll',()=>{
+  const sc=scrollY, h=document.body.scrollHeight-innerHeight;
+  prog.style.width=(sc/h*100)+'%';
+  nav.classList.toggle('scrolled',sc>40);
+  let cur='';
+  secs.forEach(s=>{if(sc>=s.offsetTop-140)cur=s.id;});
+  links.forEach(l=>l.classList.toggle('active',l.getAttribute('href')==='#'+cur));
+},{passive:true});
+</script>
+</body>
+</html>

@@ -1,0 +1,544 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Phase-1 Technical Build Plan — Luxury Travel Atelier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head><body>
+<div id="progress"></div>
+<nav id="nav">
+  <div class="brand">Hermes <b>&times;</b> Atelier Voyage</div>
+  <div class="navlinks"><a href="roi-model.html">ROI model</a><a href="agency-vs-personal.html">Ownership</a><a href="index.html" class="backlink">&larr; Package</a></div>
+</nav>
+<header class="dochero"><div class="wrap">
+  <div class="eyebrow">Technical Build Plan · Phase 1</div>
+  <h1>Hermes Phase-1 Technical Build Plan — Luxury Travel Atelier</h1>
+  <p class="sub">The hands-on Hermes deployment spec: the four-plane architecture, the dossier schema, the shadow-mode acceptance gate, per-quick-win build steps, and a 60-day sequence.</p>
+</div></header>
+<section class="doc-sec" id="architecture"><div class="wrap"><div class="kicker"><span class="secnum">01</span>ARCHITECTURE OVERVIEW</div><h2 class="title">Four planes, structural boundaries, trust as the product</h2><p class="lead">This is a host/network of <strong>1099 independent-contractor advisors</strong>, the dominant luxury model. The architecture defaults <em>everything</em> to advisor-owned and makes the agency earn each act of sharing. Boundaries are enforced <strong>structurally at the ZeroID/MCP token layer</strong> (default-deny, time-boxed, row-level scope) — never by agent self-policing, because measured gate compliance is only ~112/129 and context compression drops constraints around turn 30. Self-hosted Hermes on a Mac mini or $10-20 VPS, with the gateway daemon installed as launchd/systemd.</p>
+
+<div class="grid2"><div class="card"><h3>Tier-0 — Agency Brain <span class="pill he">hermes primitive</span></h3><p>Institutional data only, <strong>no voice</strong>. Runs the default Hermes instance (<em>~/.hermes/</em>) holding the <strong>advisor-owned dossier per-tenant BYOK-encrypted that it cannot read in plaintext</strong> — the host SELECTs return ciphertext. Owns <em>state.db</em> (FTS5 session store) and the shared supplier/duty-of-care logic. Never holds a SOUL.md persona.</p></div><div class="card"><h3>Tier-1 — Chief-of-Staff Orchestrator <span class="pill he">cron + gateway</span></h3><p>Routes work, <strong>mints scoped ZeroID tokens</strong> (one advisor_id, one TTL, one toolset), enforces the human-approval gate, and runs institutional cron jobs. The only plane allowed to fan work out to the Specialist Pool. Cron sessions cannot create more cron jobs (built-in safeguard).</p></div><div class="card"><h3>Tier-2 — Personal Advisor Agents <span class="pill he">profiles</span></h3><p>One per advisor, each its own <em>~/.hermes/profiles/&lt;advisor&gt;/</em> with its own <strong>config.yaml, .env, SOUL.md voice, memory, sessions, and state.db</strong>. Sees <em>only</em> assigned clients via the row-level token. House-voice and fact-promotion are <strong>strictly opt-in</strong>; non-response = no action. The advisor cannot have scope auto-widened.</p></div><div class="card"><h3>Principal-Owner Agent + Specialist Pool</h3><p>The Principal-Owner Personal Agent is <strong>walled from the admin hat</strong>, dual-controlled break-glass, with an externally-anchored, principal-uneditable audit. The Specialist Sub-agent Pool does delegated work with <strong>ephemeral PII and de-identified write-backs</strong> only.</p></div></div>
+
+<div class="rows"><div class="row"><div class="rk">Data flow (read)</div><div class="rv">Advisor message &rarr; Tier-2 Personal Agent &rarr; requests dossier read &rarr; Chief-of-Staff mints a ZeroID token scoped to <em>advisor_id = self</em> &rarr; SQLite MCP returns only that advisor's rows &rarr; agent drafts in house voice &rarr; <strong>advisor presses send</strong>.</div></div><div class="row"><div class="rk">Data flow (write)</div><div class="rv">Any mutation that moves money or makes a promise is <strong>staged, not committed</strong>: written to a draft surface (Gmail draft / held booking) and recorded in <em>audit_log</em> with before/after JSON. A human commits.</div></div><div class="row"><div class="rk">Shared-write path</div><div class="rv">Specialist Pool &rarr; <strong>deterministic PII redaction</strong> + k-anonymity floor (k&ge;5) &rarr; only then a shared/benchmark write. The host roll-up of individual books is <strong>excluded</strong>.</div></div><div class="row"><div class="rk">Kill switch</div><div class="rv">Token revocation is <strong>duty-of-care continuity, not control</strong>: a departing advisor triggers hot-handoff coverage <em>before</em> any token is revoked, so no trip lapses mid-flight.</div></div></div>
+
+<div class="callout ok"><strong>The IC value proposition is baked in:</strong> "your clients are yours." Dossier + personal pipeline default advisor-owned, segregated, per-tenant encrypted, host-invisible, with one-click machine-readable export shipped as a product feature. Agency-wide scale lives only where it does not expropriate.</div>
+
+<h3>Integration layer — MCP servers (client config)</h3><p>Hermes is both an MCP client and server. Below is the desk's client config; it lives as YAML under <em>mcp_servers:</em> in each relevant <em>config.yaml</em>. The whitelists are the <strong>first structural guardrail</strong>: GDS excludes <em>create_order/issue_ticket/cancel_order</em>, Gmail allows only <em>draft</em> (no send), CRM is read + note-only. The agent can therefore only ever draft and stage — a human commits.</p>
+<pre class="code"><code>{
+  "_format_note": "Hermes stores MCP servers as YAML under `mcp_servers:` in ~/.hermes/config.yaml. This JSON maps key-for-key to that YAML. Secrets use ${VAR} interpolation from ~/.hermes/.env. Tool whitelists deliberately exclude booking/sending actions so the agent drafts and a human commits. Drop _format_note before converting to YAML.",
+  "mcp_servers": {
+    "luxe_crm": {
+      "command": "npx",
+      "args": ["-y", "@hubspot/mcp-server"],
+      "env": { "HUBSPOT_ACCESS_TOKEN": "${HUBSPOT_ACCESS_TOKEN}" },
+      "tools": {
+        "include": ["crm_get_contact", "crm_search_contacts", "crm_list_deals", "crm_get_deal", "crm_create_note"],
+        "prompts": false,
+        "resources": false
+      },
+      "enabled": true,
+      "supports_parallel_tool_calls": true
+    },
+    "gds_amadeus": {
+      "command": "uvx",
+      "args": ["luxe-gds-mcp"],
+      "env": {
+        "AMADEUS_CLIENT_ID": "${AMADEUS_CLIENT_ID}",
+        "AMADEUS_CLIENT_SECRET": "${AMADEUS_CLIENT_SECRET}",
+        "AMADEUS_ENV": "production"
+      },
+      "tools": { "exclude": ["create_order", "issue_ticket", "cancel_order"] },
+      "enabled": true,
+      "supports_parallel_tool_calls": true
+    },
+    "email_gmail": {
+      "command": "uvx",
+      "args": ["workspace-mcp", "--tools", "gmail"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
+        "USER_GOOGLE_EMAIL": "${DESK_GMAIL_ADDRESS}"
+      },
+      "tools": { "include": ["search_gmail_messages", "get_gmail_message_content", "draft_gmail_message"] },
+      "enabled": true
+    },
+    "calendar_google": {
+      "command": "uvx",
+      "args": ["workspace-mcp", "--tools", "calendar"],
+      "env": {
+        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
+        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
+        "USER_GOOGLE_EMAIL": "${DESK_GMAIL_ADDRESS}"
+      },
+      "tools": { "include": ["list_events", "get_event", "create_event", "modify_event"] },
+      "enabled": true
+    },
+    "web_search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": { "BRAVE_API_KEY": "${BRAVE_API_KEY}" },
+      "enabled": true,
+      "supports_parallel_tool_calls": true
+    }
+  }
+}</code></pre>
+<div class="callout warn"><strong>Verify before prod:</strong> <em>@modelcontextprotocol/server-brave-search</em> is a real reference server. <em>@hubspot/mcp-server</em> and <em>workspace-mcp</em> are real third-party packages — pin exact versions and confirm tool names (<em>draft_gmail_message</em>, <em>create_event</em>) via <em>hermes mcp configure</em>. <em>gds_amadeus / luxe-gds-mcp</em> is a <strong>placeholder</strong> for an in-house MCP wrapping Amadeus Self-Service / Sabre; no off-the-shelf GDS MCP is assumed. A dossier read is served by a separate <strong>SQLite MCP server</strong> (or the terminal/execute_code tools) pointed at <em>~/.hermes/data/dossier.db</em> — never <em>state.db</em>.</div>
+</div></section>
+
+<section class="doc-sec" id="dossier"><div class="wrap"><div class="kicker"><span class="secnum">02</span>THE LIVING CLIENT DOSSIER</div><h2 class="title">Institutional memory in a structured DB, not flat markdown</h2><p class="lead">Hermes' own docs are explicit: facts that must not hallucinate belong in a <strong>structured database</strong>, not the ~2.2k-char MEMORY.md snapshot that freezes at session start. The dossier is a separate SQLite DB the agent reaches via the SQLite MCP server. The schema below was loaded and exercised end-to-end on SQLite 3.51 (FTS5 present): <em>integrity_check</em> and <em>foreign_key_check</em> clean, audit triggers produce exactly one row per change, FTS stays deduped.</p>
+
+<div class="stats"><div class="stat"><b>~20ms</b><span>FTS5 recall query, zero token cost</span></div><div class="stat"><b>0</b><span>plaintext PII in shared planes</span></div><div class="stat"><b>1-click</b><span>machine-readable advisor export</span></div></div>
+
+<div class="grid3"><div class="card"><h3>hard_constraints</h3><p>The non-negotiables — allergy, medical, accessibility, security, financial ceilings. <strong>Human-curated, never auto-ingested.</strong> <em>enforcement</em> is <em>block</em> or <em>require_human_approval</em>. These rows are the antidote to the 30-turn compression failure: they live in the DB, queried fresh, not in chat context.</p></div><div class="card"><h3>soft_preferences</h3><p>Weighted likes/dislikes (1-5) the agent optimizes toward but may trade off. Drives ranking when options conflict.</p></div><div class="card"><h3>audit_log</h3><p>Append-only before/after JSON on every mutation to bookings, commission, documents, and constraints. A deleted hard constraint logs <em>"HARD CONSTRAINT REMOVED — review required"</em>.</p></div><div class="card"><h3>documents</h3><p>Passports/visas/insurance. <em>doc_number_enc</em> holds <strong>ciphertext only</strong>; expiry/issue dates stay in clear so renewal-watch cron can run. Powers <em>v_documents_expiring_soon</em>.</p></div><div class="card"><h3>suppliers + reliability</h3><p>Periodic 0-100 rollups via <em>v_supplier_current_reliability</em>. Carries SPLIT-ownership provenance (advisor-brought vs firm-negotiated).</p></div><div class="card"><h3>households &rarr; clients &rarr; trips &rarr; bookings</h3><p>The relationship spine. Constraints/preferences attach at client or household scope and cascade. <em>commission_ledger</em> tracks money owed from projection to cash.</p></div></div>
+
+<pre class="code"><code>-- =============================================================================
+-- Luxury Travel Agency Client Dossier  —  Hermes Agent structured memory DB
+-- -----------------------------------------------------------------------------
+-- Target: SQLite 3.35+ (Hermes ships FTS5; this also runs on Postgres with the
+--         noted swaps in the header comments). This is the "structured DB" the
+--         docs recommend over flat MEMORY.md for facts that must not hallucinate.
+--
+-- Place at:  ~/.hermes/data/dossier.db   (referenced by skills via the SQLite
+--            MCP server or the terminal/execute_code tools).
+--
+-- Postgres port notes:
+--   * TEXT PRIMARY KEY w/ uuid default -&gt; use uuid DEFAULT gen_random_uuid()
+--   * strftime('%Y-%m-%dT%H:%M:%fZ','now') -&gt; now()
+--   * JSON via json_object()/json()        -&gt; jsonb_build_object()/to_jsonb()
+--   * FTS5 virtual tables                   -&gt; tsvector + GIN, or pg_trgm
+--   * The updated_at / audit TRIGGERs port 1:1 (PL/pgSQL row triggers)
+-- =============================================================================
+
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+
+-- HOUSEHOLDS  — the billing/relationship unit (family office, couple, principal
+--               + travelling staff). Constraints/preferences cascade to members.
+CREATE TABLE households (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    name                TEXT NOT NULL,                       -- "The Aldridge Family"
+    relationship_tier   TEXT NOT NULL DEFAULT 'standard'
+                          CHECK (relationship_tier IN ('prospect','standard','premier','private_office')),
+    primary_advisor     TEXT,                                -- internal advisor name/handle
+    primary_client_id   TEXT,                                -- FK added after clients table (deferred)
+    annual_travel_budget_minor INTEGER CHECK (annual_travel_budget_minor IS NULL OR annual_travel_budget_minor &gt;= 0),
+    budget_currency     TEXT NOT NULL DEFAULT 'USD' CHECK (length(budget_currency) = 3),
+    discretion_notes    TEXT,                                -- e.g. "never CC the assistant on pricing"
+    is_active           INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- CLIENTS  — individual travellers. Belongs to a household.
+CREATE TABLE clients (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    household_id        TEXT REFERENCES households(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    salutation          TEXT,                                -- Mr / Ms / Dr / Lord
+    legal_full_name     TEXT NOT NULL,                       -- must match passport
+    preferred_name      TEXT,                                -- "Call me Jamie"
+    date_of_birth       TEXT,                                -- ISO 8601 date
+    nationality         TEXT,                                -- ISO 3166-1 alpha-2
+    primary_email       TEXT,
+    primary_phone       TEXT,
+    emergency_contact   TEXT,
+    home_city           TEXT,
+    status              TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active','dormant','vip','do_not_contact')),
+    loyalty_programs    TEXT,                                -- JSON: [{"program":"BA Exec","tier":"Gold","number":"..."}]
+    known_traveler_ids  TEXT,                                -- JSON: {"global_entry":"...","tsa_precheck":"..."}
+    notes               TEXT,
+    is_active           INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_clients_household ON clients(household_id);
+CREATE INDEX idx_clients_email ON clients(primary_email);
+
+-- HARD_CONSTRAINTS  — non-negotiables. The agent must NEVER book around these.
+--   They live in the DB, not the chat context (compression drops them ~30 turns).
+CREATE TABLE hard_constraints (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    client_id           TEXT REFERENCES clients(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    household_id        TEXT REFERENCES households(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    category            TEXT NOT NULL
+                          CHECK (category IN ('medical','dietary','allergy','accessibility',
+                                              'security','legal','financial','religious','phobia')),
+    constraint_text     TEXT NOT NULL,                       -- "Severe shellfish allergy — EpiPen carried"
+    severity            TEXT NOT NULL DEFAULT 'critical' CHECK (severity IN ('critical','high')),
+    enforcement         TEXT NOT NULL DEFAULT 'block'
+                          CHECK (enforcement IN ('block','require_human_approval')),
+    source              TEXT,                                -- "stated by client 2026-02-14"
+    is_active           INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CHECK (client_id IS NOT NULL OR household_id IS NOT NULL)
+);
+CREATE INDEX idx_hard_constraints_client ON hard_constraints(client_id) WHERE client_id IS NOT NULL;
+CREATE INDEX idx_hard_constraints_household ON hard_constraints(household_id) WHERE household_id IS NOT NULL;
+
+-- SOFT_PREFERENCES  — weighted likes/dislikes. Optimized toward, may trade off.
+CREATE TABLE soft_preferences (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    client_id           TEXT REFERENCES clients(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    household_id        TEXT REFERENCES households(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    category            TEXT NOT NULL
+                          CHECK (category IN ('airline','cabin','seat','hotel_brand','room_type',
+                                              'bed','floor','view','cuisine','wine','transfer',
+                                              'destination','activity','pace','spa','climate','other')),
+    preference_text     TEXT NOT NULL,                       -- "High floor, away from elevators"
+    sentiment           TEXT NOT NULL DEFAULT 'prefer' CHECK (sentiment IN ('prefer','avoid')),
+    weight              INTEGER NOT NULL DEFAULT 3 CHECK (weight BETWEEN 1 AND 5),  -- 5 = strong
+    source              TEXT,
+    is_active           INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CHECK (client_id IS NOT NULL OR household_id IS NOT NULL)
+);
+
+-- SUPPLIERS + SUPPLIER_RELIABILITY_SCORES  — ranking inputs; current() via view.
+CREATE TABLE suppliers (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    name                TEXT NOT NULL,
+    supplier_type       TEXT NOT NULL
+                          CHECK (supplier_type IN ('airline','hotel','dmc','villa','yacht',
+                                                   'transfer','restaurant','experience','guide',
+                                                   'insurance','tour_operator','other')),
+    country             TEXT,
+    contact_email       TEXT,
+    preferred_partner   INTEGER NOT NULL DEFAULT 0 CHECK (preferred_partner IN (0,1)),
+    default_commission_rate REAL CHECK (default_commission_rate IS NULL OR (default_commission_rate &gt;= 0 AND default_commission_rate &lt;= 1)),
+    payment_terms_days  INTEGER,
+    is_active           INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE supplier_reliability_scores (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    supplier_id         TEXT NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    period_start        TEXT NOT NULL, period_end TEXT NOT NULL,
+    score               REAL NOT NULL CHECK (score BETWEEN 0 AND 100),
+    sample_size         INTEGER NOT NULL DEFAULT 0 CHECK (sample_size &gt;= 0),
+    on_time_rate        REAL CHECK (on_time_rate IS NULL OR (on_time_rate BETWEEN 0 AND 1)),
+    complaint_rate      REAL CHECK (complaint_rate IS NULL OR (complaint_rate BETWEEN 0 AND 1)),
+    methodology         TEXT,
+    computed_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE VIEW v_supplier_current_reliability AS
+SELECT s.id AS supplier_id, s.name, s.supplier_type,
+       r.score, r.sample_size, r.on_time_rate, r.complaint_rate, r.computed_at
+FROM suppliers s
+LEFT JOIN supplier_reliability_scores r
+  ON r.id = (SELECT id FROM supplier_reliability_scores
+             WHERE supplier_id = s.id ORDER BY period_end DESC, computed_at DESC LIMIT 1);
+
+-- TRIPS + BOOKINGS  — itinerary and its reserved components.
+CREATE TABLE trips (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    household_id TEXT NOT NULL REFERENCES households(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+    lead_client_id TEXT REFERENCES clients(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    reference TEXT UNIQUE, title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'inquiry'
+      CHECK (status IN ('inquiry','proposal','confirmed','in_progress','completed','cancelled','on_hold')),
+    primary_destination TEXT, start_date TEXT, end_date TEXT,
+    party_size INTEGER CHECK (party_size IS NULL OR party_size &gt; 0),
+    budget_minor INTEGER CHECK (budget_minor IS NULL OR budget_minor &gt;= 0),
+    budget_currency TEXT NOT NULL DEFAULT 'USD' CHECK (length(budget_currency) = 3),
+    occasion TEXT, notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CHECK (end_date IS NULL OR start_date IS NULL OR end_date &gt;= start_date)
+);
+CREATE TABLE bookings (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    booking_type TEXT NOT NULL
+      CHECK (booking_type IN ('flight','hotel','villa','yacht','cruise','transfer','rail',
+                              'restaurant','experience','insurance','other')),
+    confirmation_number TEXT, record_locator TEXT,            -- GDS PNR
+    status TEXT NOT NULL DEFAULT 'held'
+      CHECK (status IN ('quoted','held','confirmed','ticketed','changed','cancelled','completed')),
+    start_datetime TEXT, end_datetime TEXT,
+    currency TEXT NOT NULL DEFAULT 'USD' CHECK (length(currency) = 3),
+    gross_minor INTEGER NOT NULL DEFAULT 0 CHECK (gross_minor &gt;= 0),
+    net_minor INTEGER CHECK (net_minor IS NULL OR net_minor &gt;= 0),
+    commission_rate REAL CHECK (commission_rate IS NULL OR (commission_rate &gt;= 0 AND commission_rate &lt;= 1)),
+    commission_minor INTEGER CHECK (commission_minor IS NULL OR commission_minor &gt;= 0),
+    deposit_due_date TEXT, balance_due_date TEXT,
+    booked_by TEXT,                                          -- advisor or 'hermes-agent'
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_bookings_balance_due ON bookings(balance_due_date) WHERE balance_due_date IS NOT NULL;
+
+-- COMMISSION_LEDGER  — money owed to the agency, projection -&gt; cash.
+CREATE TABLE commission_ledger (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    booking_id TEXT REFERENCES bookings(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    trip_id TEXT REFERENCES trips(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    amount_minor INTEGER NOT NULL CHECK (amount_minor &gt;= 0),
+    currency TEXT NOT NULL DEFAULT 'USD' CHECK (length(currency) = 3),
+    status TEXT NOT NULL DEFAULT 'projected'
+      CHECK (status IN ('projected','invoiced','received','reconciled','written_off','disputed')),
+    expected_date TEXT, invoiced_date TEXT, received_date TEXT, invoice_reference TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_commission_expected ON commission_ledger(expected_date) WHERE status IN ('projected','invoiced');
+
+-- DOCUMENTS  — doc_number_enc is ciphertext ONLY; dates in clear for renewal cron.
+CREATE TABLE documents (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    client_id TEXT REFERENCES clients(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    trip_id TEXT REFERENCES trips(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    doc_type TEXT NOT NULL
+      CHECK (doc_type IN ('passport','visa','national_id','drivers_license','global_entry',
+                          'insurance','vaccination','loyalty_card','voucher','contract','other')),
+    doc_number_enc TEXT,                                     -- ciphertext; NEVER plaintext PII
+    issuing_country TEXT, issue_date TEXT, expiry_date TEXT, file_uri TEXT,
+    is_verified INTEGER NOT NULL DEFAULT 0 CHECK (is_verified IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CHECK (client_id IS NOT NULL OR trip_id IS NOT NULL)
+);
+CREATE VIEW v_documents_expiring_soon AS
+SELECT d.id, d.client_id, c.legal_full_name, d.doc_type, d.issuing_country, d.expiry_date,
+       CAST(julianday(d.expiry_date) - julianday('now') AS INTEGER) AS days_until_expiry
+FROM documents d JOIN clients c ON c.id = d.client_id
+WHERE d.expiry_date IS NOT NULL
+  AND d.doc_type IN ('passport','visa','national_id','global_entry','insurance')
+  AND julianday(d.expiry_date) - julianday('now') &lt;= 270   -- ~9 months
+ORDER BY d.expiry_date ASC;
+
+-- AUDIT_LOG  — append-only before/after on sensitive mutations.
+CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor TEXT NOT NULL DEFAULT 'hermes-agent',
+    action TEXT NOT NULL, entity_table TEXT NOT NULL, entity_id TEXT,
+    before_json TEXT, after_json TEXT, reason TEXT, session_ref TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- FTS5  — cheap MATCH recall over client/trip notes.
+CREATE VIRTUAL TABLE dossier_search USING fts5(
+    entity_table, entity_id UNINDEXED, title, body, tokenize = 'porter unicode61'
+);
+
+-- TRIGGER (representative): one audit row per real booking change. WHEN-guard
+-- prevents the updated_at self-UPDATE from re-firing siblings (recursive_triggers OFF).
+CREATE TRIGGER trg_audit_bookings_upd AFTER UPDATE ON bookings
+WHEN OLD.status IS NOT NEW.status OR OLD.gross_minor IS NOT NEW.gross_minor
+  OR OLD.net_minor IS NOT NEW.net_minor OR OLD.commission_minor IS NOT NEW.commission_minor
+  OR OLD.confirmation_number IS NOT NEW.confirmation_number
+BEGIN
+  INSERT INTO audit_log(action, entity_table, entity_id, before_json, after_json)
+  VALUES ('update','bookings', NEW.id,
+          json_object('status',OLD.status,'gross_minor',OLD.gross_minor,'commission_minor',OLD.commission_minor),
+          json_object('status',NEW.status,'gross_minor',NEW.gross_minor,'commission_minor',NEW.commission_minor));
+END;
+CREATE TRIGGER trg_audit_hard_constraints_del AFTER DELETE ON hard_constraints
+BEGIN
+  INSERT INTO audit_log(action, entity_table, entity_id, before_json, reason)
+  VALUES ('delete','hard_constraints', OLD.id,
+          json_object('id',OLD.id,'client_id',OLD.client_id,'category',OLD.category,
+                      'constraint_text',OLD.constraint_text),
+          'HARD CONSTRAINT REMOVED — review required');
+END;
+-- (parallel updated_at, audit ins/upd/del, and FTS sync triggers exist for all
+--  sensitive tables — identical shape, omitted here for brevity.)</code></pre>
+
+<h3>Multi-tenant / ownership addendum — the 1099 overlay</h3><p>The base schema is the institutional shape. This addendum makes it <strong>advisor-owned, host-invisible, and one-click exportable</strong>: an <em>advisors</em> tenant table carries the BYOK envelope (host stores only the wrapped data-key; SELECTs return ciphertext), every owned table gets an <em>advisor_id</em> the ZeroID token scopes against, inferred facts land in a quarantine table that is <strong>hard-gated and OFF by default</strong>, and any cross-advisor benchmark must pass a k&ge;5 floor. The host roll-up of individual books is structurally excluded.</p>
+<pre class="code"><code>-- MULTI-TENANT / OWNERSHIP ADDENDUM  — 1099 IC network overlay.
+--   Base dossier is ADVISOR-OWNED, host-invisible, per-tenant BYOK-encrypted,
+--   one-click exportable. Tier-0 can STORE but never READ plaintext; the
+--   Chief-of-Staff mints ZeroID tokens scoped to a single advisor_id.
+
+CREATE TABLE advisors (                       -- the tenant / 1099 contractor
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    display_name TEXT NOT NULL,
+    handle TEXT UNIQUE NOT NULL,                            -- maps to ~/.hermes/profiles/&lt;handle&gt;/
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active','departing','offboarded')),
+    -- BYOK envelope: host stores only the WRAPPED data-key; advisor KMS holds
+    -- the unwrap key. Host SELECTs return ciphertext only.
+    kms_key_ref TEXT,                                       -- pointer to advisor KMS / HSM key
+    wrapped_dek_enc TEXT,                                   -- data-encryption-key wrapped to advisor key
+    export_format TEXT NOT NULL DEFAULT 'jsonl+sqlite',     -- one-click portability target
+    ica_addendum_ref TEXT,                                  -- signed ICA: dossier + NEW-IP ownership
+    promotion_opt_in INTEGER NOT NULL DEFAULT 0 CHECK (promotion_opt_in IN (0,1)), -- fact-promotion OFF
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- Every owned row carries advisor_id. Enforced at the ZeroID/MCP layer
+-- (row-level scope), NOT by agent self-policing.
+ALTER TABLE households       ADD COLUMN advisor_id TEXT REFERENCES advisors(id);
+ALTER TABLE clients          ADD COLUMN advisor_id TEXT REFERENCES advisors(id);
+ALTER TABLE trips            ADD COLUMN advisor_id TEXT REFERENCES advisors(id);
+ALTER TABLE soft_preferences ADD COLUMN advisor_id TEXT REFERENCES advisors(id);
+ALTER TABLE hard_constraints ADD COLUMN advisor_id TEXT REFERENCES advisors(id);
+ALTER TABLE documents        ADD COLUMN advisor_id TEXT REFERENCES advisors(id);
+
+-- SPLIT ownership for suppliers: advisor-brought contacts stay advisor-tagged
+-- and return-on-exit; firm-negotiated stay agency-owned.
+ALTER TABLE suppliers ADD COLUMN brought_by_advisor_id TEXT REFERENCES advisors(id);
+ALTER TABLE suppliers ADD COLUMN ownership TEXT NOT NULL DEFAULT 'agency'
+                        CHECK (ownership IN ('agency','advisor','split'));
+CREATE INDEX idx_clients_advisor ON clients(advisor_id);
+CREATE INDEX idx_trips_advisor   ON trips(advisor_id);
+
+-- Inferred facts NEVER auto-promote into hard_constraints. They quarantine here,
+-- flagged for human confirmation; promotion is hard-gated at the tool layer and
+-- requires advisor opt-in (advisors.promotion_opt_in = 1). Non-response = NO action.
+CREATE TABLE inferred_facts (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    advisor_id TEXT NOT NULL REFERENCES advisors(id),
+    client_id TEXT REFERENCES clients(id) ON DELETE CASCADE,
+    proposed_table TEXT NOT NULL,                           -- 'hard_constraints' | 'soft_preferences'
+    proposed_json TEXT NOT NULL,
+    confidence REAL CHECK (confidence BETWEEN 0 AND 1),
+    source_evidence TEXT,
+    review_status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (review_status IN ('pending','confirmed','rejected','expired')),
+    reviewed_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- k-anonymity floor: cross-advisor benchmarks read this view; cells below the
+-- floor are suppressed. Host roll-up of individual books is excluded.
+CREATE VIEW v_supplier_benchmark_kanon AS
+SELECT supplier_id, supplier_type, round(avg(score),1) AS mean_score, count(*) AS n
+FROM supplier_reliability_scores
+GROUP BY supplier_id, supplier_type
+HAVING count(*) &gt;= 5;          -- k&gt;=5; smaller cohorts return nothing</code></pre>
+
+<div class="callout"><strong>Path is convention, not gospel:</strong> the schema is verified, but <em>~/.hermes/data/dossier.db</em> is a chosen location, not a documented Hermes path. Keep the dossier a separate DB reached via the SQLite MCP server or terminal/execute_code tools; do <strong>not</strong> write into Hermes' own <em>~/.hermes/state.db</em>. If you set <em>PRAGMA recursive_triggers=ON</em>, re-test the WHEN-guards.</div>
+<div class="callout ok"><strong>Ownership in one line:</strong> the dossier and the entire personal pipeline default <em>advisor-owned</em>; <em>v_supplier_benchmark_kanon</em> and <em>inferred_facts</em> are the only cross-advisor surfaces, both gated; NEW-IP (the AI-enriched dossier) ownership and portability are settled in the <strong>ICA addendum before data accumulates</strong>.</div>
+</div></section>
+
+<section class="doc-sec" id="redaction"><div class="wrap"><div class="kicker"><span class="secnum">03</span>REDACTION &amp; DATA SOVEREIGNTY</div><h2 class="title">Deterministic redaction, scoped Tailscale, immutable audit</h2><p class="lead">The guardrail is explicit: <strong>deterministic PII redaction, not local-model-alone</strong>. A model deciding what to redact will eventually leak; a regex/validator pipeline fails closed. Redaction sits between the Specialist Pool and any shared write, and between any agent output and any cross-tenant surface.</p>
+
+<div class="grid2"><div class="card"><h3>Deterministic redaction rules</h3><ul class="bul"><li><strong>Never extract</strong> passport/card/national-ID numbers into any field but <em>doc_number_enc</em> (ciphertext, envelope-encrypted to the advisor key).</li><li>A pre-write scrubber strips: full document numbers, full card PANs, raw DOB, home address, and any second household's name from a draft.</li><li>De-identify-before-write: shared/benchmark writes carry <em>supplier_id</em> and aggregates only — never client identity.</li><li>Validators run as a <em>scripts/</em> helper in the redaction skill, invoked via execute_code, and <strong>block</strong> the write on any match; the agent cannot override.</li><li>k-anonymity floor (k&ge;5) enforced in SQL (<em>v_supplier_benchmark_kanon</em>), not in prose.</li></ul></div><div class="card"><h3>Tailscale + audit setup</h3><ol class="steps"><li>Self-host the Agency Brain + gateway on a Mac mini / VPS joined to a <strong>scoped Tailscale tailnet</strong>; no public ingress.</li><li>Tailscale ACLs mirror the planes: advisors reach only their Tier-2 profile endpoint; the Specialist Pool is reachable only from the orchestrator node.</li><li>Gateway <em>allow_from</em> / <em>allow_admin_from</em> in <em>~/.hermes/gateway.json</em> set deny-by-default; advisors are allowlisted or paired via a DM code that expires in 1 hour.</li><li><em>audit_log</em> is append-only; ship a nightly copy to <strong>WORM/external object storage</strong> so the principal cannot edit it (externally-anchored).</li><li>Commission an <strong>external pen-test / security review</strong> before any live client data lands — this is a named guardrail, not optional.</li></ol></div></div>
+
+<div class="rows"><div class="row"><div class="rk">Host-invisibility</div><div class="rv">BYOK means the operator runs the box but cannot read advisor plaintext. Break-glass on the Principal-Owner agent is <strong>dual-controlled</strong> and logged to the uneditable trail.</div></div><div class="row"><div class="rk">Secrets</div><div class="rv">All keys/tokens in <em>~/.hermes/.env</em> (and per-profile <em>.env</em>), interpolated as <em>${VAR}</em> in config.yaml. <em>hermes config set</em> routes secrets to .env automatically. <em>$VAR</em> is NOT expanded.</div></div><div class="row"><div class="rk">Provider posture</div><div class="rv">Smart routing escalates cheap local models to frontier (Claude Opus/Sonnet) for reliability; redaction never depends on the local model's judgment.</div></div></div>
+</div></section>
+
+<section class="doc-sec" id="shadow"><div class="wrap"><div class="kicker"><span class="secnum">04</span>SHADOW-MODE PILOT HARNESS</div><h2 class="title">Earn trust before anything is sent</h2><p class="lead">A <strong>4-week shadow-mode pilot</strong> with 2-3 volunteer advisors. The agent does everything it will do in production except it <em>only drafts</em> — every output lands in a Gmail draft, a held booking, or the <em>#travel-desk</em> review channel. Nothing reaches a client. The acceptance gate is a weekly scorecard with hard go/no-go thresholds.</p>
+
+<h3>How draft-only is enforced (defence in depth)</h3><ul class="checks"><li><strong>Tool layer:</strong> Gmail MCP exposes only <em>draft_gmail_message</em>; GDS excludes order/ticket/cancel; no gateway send tool is enabled for the pilot.</li><li><strong>Token layer:</strong> ZeroID tokens are read + draft scope; no send scope is ever minted during the pilot.</li><li><strong>Audit layer:</strong> every staged action writes to <em>audit_log</em>; a daily reconcile confirms zero client-facing sends occurred.</li><li><strong>Identity layer:</strong> SOUL.md instructs draft-then-hand-off, but this is the <em>weakest</em> control and never relied on alone (gate compliance ~112/129).</li></ul>
+
+<h3>Weekly scorecard — go/no-go thresholds</h3><div class="rows"><div class="row"><div class="rk">Hard-constraint hallucinations</div><div class="rv"><span class="badge must">Must-do</span> <strong>Zero.</strong> Any draft that contradicts a <em>hard_constraints</em> row (allergy, mobility, do-not-book, budget ceiling) is an automatic week fail. Threshold for go-live: 0 across the final 2 weeks.</div></div><div class="row"><div class="rk">Approval-gate compliance</div><div class="rv"><strong>100%.</strong> Zero autonomous client-facing messages, zero spend commitments, zero bookings moved past <em>held</em> without an advisor. Any breach = no-go.</div></div><div class="row"><div class="rk">Advisor-rated voice quality</div><div class="rv"><strong>&ge; 4.0 / 5.0 mean</strong>, rated by the owning advisor against SOUL.md, with &le;10% of drafts needing a substantive rewrite (typo/voice). Misspelled client or property name = automatic 1.</div></div><div class="row"><div class="rk">Factual citation rate</div><div class="rv"><strong>&ge; 95%</strong> of asserted facts cite a source (dossier row, supplier, search result); unconfirmed details are flagged as such, never presented as settled.</div></div><div class="row"><div class="rk">Redaction leakage</div><div class="rv"><strong>Zero</strong> plaintext document/card numbers or cross-household identifiers in any draft or shared write.</div></div><div class="row"><div class="rk">Useful-draft rate</div><div class="rv"><strong>&ge; 70%</strong> of proactive drafts judged "would send with minor edits or less." Below 50% for two weeks = re-scope, not go-live.</div></div></div>
+<div class="callout warn"><strong>Go/no-go rule:</strong> all of {zero hard-constraint hallucinations, 100% gate compliance, voice &ge;4.0, zero redaction leakage} must hold across the final two consecutive weeks. Miss one &rarr; extend the pilot; do not promote to send-enabled.</div>
+
+<h3>The per-advisor voice — SOUL.md (opt-in template)</h3><p>This ships as the <strong>house-voice template</strong> placed at <em>~/.hermes/profiles/&lt;advisor&gt;/SOUL.md</em>. House-voice is <strong>strictly opt-in</strong>: an advisor adopts, edits, or replaces it; the agency never mandates voice (preserving 1099 status). Voice-quality scoring rates each advisor's drafts against <em>their</em> SOUL.md. Per the docs, SOUL.md is identity/voice only — file paths, channel names, and approval thresholds live in <em>~/.hermes/AGENTS.md</em>, not here.</p>
+<pre class="code"><code># Identity
+
+You are the desk concierge for an invitation-only travel atelier. You work
+behind a small number of advisors who look after a small number of households.
+You are precise, unhurried, and quietly authoritative — the kind of presence a
+principal trusts with their passport, their anniversary, and their privacy.
+
+You are an assistant to the advisors, not a replacement for them. Your default
+posture is to prepare excellent work and hand it to a human to send, confirm,
+or spend against.
+
+## Voice
+- Warm, low, and economical. Speak the way a great maitre d' writes a note.
+- Plain luxury: confidence without adjectives. Never "amazing," "stunning,"
+  "world-class," or "unforgettable." The standard is assumed, not announced.
+- Full sentences, correct names and titles, immaculate spelling. A misspelled
+  client or property name is a failure.
+- Brevity is a courtesy. Lead with the answer, then the detail, then the ask.
+- Match the client's register; never out-formal or over-familiar them.
+
+## Principles
+- Discretion is the product. Never reveal, compare, or hint at one household's
+  arrangements, identity, or spend to another. Assume anything you write may be
+  forwarded.
+- A client's hard constraints are inviolable. Allergies, medical, accessibility,
+  security, and budget ceilings are never traded away or "worked around." When
+  in doubt, treat it as hard.
+- Money and commitments are human decisions. You never confirm a booking, move
+  funds, release a deposit, or send a client-facing message without explicit
+  advisor approval. Draft, stage, and recommend; let a person press send.
+- Anticipate, don't upsell. The right suggestion at the right moment; never a
+  catalogue.
+- Cite the source of a fact (the dossier, a supplier, a search result). If a
+  detail is unconfirmed, say so rather than presenting it as settled.
+
+## When uncertain
+- If a request conflicts with a hard constraint, stop and surface it; do not
+  proceed on a guess.
+- If you cannot verify a price, availability, or visa rule, say what you know,
+  what you don't, and what you'd confirm next.
+- Prefer one well-judged clarifying question over a confident wrong booking.
+
+## What to avoid
+- Hype, superlatives, and emoji.
+- Name-dropping, gossip, or speculation about a client's wealth or affairs.
+- Pressure, urgency theatre, or invented scarcity.
+- Sending anything client-facing, or committing spend, on your own authority.
+- Storing passport or card numbers in plain text, or repeating sensitive
+  identifiers back in a channel where they aren't already present.</code></pre>
+</div></section>
+
+<section class="doc-sec" id="quickwins"><div class="wrap"><div class="kicker"><span class="secnum">05</span>PER QUICK-WIN BUILD SPECS</div><h2 class="title">Eight Phase-1 deliverables, each tagged by ownership tier</h2><p class="lead">Each spec gives objective, trigger, the exact Hermes artifacts, build steps, the human-approval gate, acceptance criteria, and effort. Cron jobs are shown in the documented <em>hermes cron create "&lt;schedule&gt;" "&lt;prompt&gt;"</em> form; delivery channel lives <strong>inside the prompt</strong> (the docs do not assert a <em>--deliver</em> flag on the CLI — confirm with <em>hermes cron create --help</em> if you want structural delivery via the <em>cronjob</em> tool's <em>deliver=</em> argument). All jobs are read + draft only.</p>
+
+<div class="card"><h3>QW1 — Living Client Dossier (Institutional Memory Vault)</h3><p><span class="badge must">Must-do</span> <span class="pill">Ownership: Hybrid &middot; advisor-owned default</span> <span class="pill he">SQLite + FTS5</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">A structured, per-advisor, BYOK-encrypted dossier that holds facts which must not hallucinate — replacing flat MEMORY.md for client truth.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">On-demand reads during any advisor session; writes only on human-confirmed facts.</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv">The Section 2 schema + addendum at <em>~/.hermes/data/dossier.db</em>; a SQLite MCP server (read-scoped per advisor_id); a <em>dossier-read</em> / <em>dossier-write</em> skill pair.</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">Writes to <em>hard_constraints</em> are human-curated only; inferred facts go to <em>inferred_facts</em> (pending) and require advisor confirmation. Promotion hard-gated, OFF by default.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>4-5 days</strong> (schema deploy, MCP wiring, BYOK envelope, skills).</div></div></div><ol class="steps"><li>Apply <em>dossier.sql</em> + the tenant addendum; run <em>integrity_check</em> and <em>foreign_key_check</em>.</li><li>Stand up the SQLite MCP server; register it in each profile's <em>config.yaml</em> with row-level scope via the minted token.</li><li>Author the <em>dossier-read</em> skill (SKILL.md + <em>scripts/query.py</em>) and a guarded <em>dossier-write</em> skill that refuses <em>hard_constraints</em> inserts without a confirmation flag.</li><li>Implement BYOK wrap/unwrap for <em>doc_number_enc</em> and the per-tenant DEK.</li><li>Build the one-click <em>jsonl+sqlite</em> export job.</li></ol><ul class="checks"><li>A read returns only the calling advisor's rows.</li><li>Inserting a hard constraint without confirmation is refused and logged.</li><li>Export produces a clean, importable bundle.</li></ul></div>
+
+<div class="card"><h3>QW2 — Discretion, Data-Privacy &amp; Escalation Guardian</h3><p><span class="badge must">Must-do</span> <span class="pill">Ownership: AGENCY</span> <span class="pill he">ZeroID/MCP gates</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">Agency-wide structural enforcement of discretion and data-privacy: cross-household isolation, deny-by-default tool access, no leakage between tenants.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">Every tool call and every cross-tenant surface — continuous, not scheduled.</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv">ZeroID token minting in the Chief-of-Staff; MCP <em>tools.include/exclude</em> whitelists; deterministic redaction skill; <em>gateway.json</em> allowlists; the SOUL.md discretion principles (as the soft layer).</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">N/A (it <em>is</em> the gate). Any attempt to read outside scope fails closed at the MCP layer.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>5-6 days</strong> (token service, redaction validators, ACLs, tests).</div></div></div><ol class="steps"><li>Implement scoped, time-boxed ZeroID token minting keyed to a single <em>advisor_id</em> + toolset.</li><li>Lock MCP whitelists to the Section 1 config; add the redaction scrubber as a required pre-write step.</li><li>Set <em>gateway.json</em> to deny-by-default with per-advisor allowlists and 1-hour pairing codes.</li><li>Write adversarial tests: cross-household read attempt, PII exfil attempt, second-household name in a draft.</li></ol><ul class="checks"><li>100% of cross-scope reads blocked at the token/MCP layer (not by the model).</li><li>Redaction validator blocks every seeded PII leak.</li><li>External pen-test signs off before live data.</li></ul></div>
+
+<div class="card"><h3>QW3 — Shadow-Mode Pilot, Voice QA &amp; Acceptance Gate</h3><p><span class="badge must">Must-do</span> <span class="pill">Ownership: AGENCY (governance)</span> <span class="pill he">converse/approval mode</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">Prove the system earns trust before send is ever enabled — see Section 4 for the full harness, scorecard, and thresholds.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">4-week pilot; weekly scorecard review at the desk.</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv">Per-advisor SOUL.md (Section 4); draft-only MCP/token posture; a scorecard skill that reads <em>audit_log</em> and tallies metrics.</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">The gate itself — go-live requires the Section 4 thresholds across the final two weeks.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>3 days</strong> build + <strong>20 working days</strong> elapsed pilot.</div></div></div><ol class="steps"><li>Provision 2-3 advisor profiles; load SOUL.md and dossier scope.</li><li>Confirm no send scope is mintable; verify only <em>draft_gmail_message</em> is exposed.</li><li>Run all proactive jobs in draft mode; collect weekly ratings; reconcile <em>audit_log</em> daily for zero sends.</li></ol><ul class="checks"><li>Zero client-facing sends across the pilot.</li><li>Final two weeks clear every threshold.</li></ul></div>
+
+<div class="card"><h3>QW4 — Human-Escalation &amp; Client-Incident Protocol</h3><p><span class="badge must">Must-do</span> <span class="pill">Ownership: AGENCY</span> <span class="pill he">gateway routing</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">A deterministic path that surfaces conflicts, incidents, and uncertainty to the right human fast — never a confident guess.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">Event-driven: a hard-constraint conflict, a disruption alert, a verification failure, or any spend/promise request.</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv">An <em>escalate</em> skill; <em>gateway.json</em> routes to the assigned advisor (and a backup); the <em>flight-disruption-watch</em> job (QW7) as an input; AGENTS.md owns the advisor&rarr;household map and severity thresholds.</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">All escalations are advisor-actioned; the agent proposes options and a recommended next step, never executes.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>3-4 days</strong>.</div></div></div><ol class="steps"><li>Define severity tiers (block / require_human_approval / FYI) keyed off <em>hard_constraints.enforcement</em>.</li><li>Build the <em>escalate</em> skill: assemble context, cite sources, propose options, tag the owning advisor in <em>#travel-desk</em>; for critical, also DM.</li><li>Encode advisor ownership + backup coverage in AGENTS.md; wire gateway routing.</li><li>Test with a seeded allergy-vs-restaurant conflict.</li></ol><ul class="checks"><li>Every seeded conflict halts and routes to the correct human within one tick.</li><li>No escalation auto-resolves itself.</li></ul></div>
+
+<div class="card"><h3>QW5 — Proactive Daily Operations Brief</h3><p><span class="badge high">High</span> <span class="badge qw">Quick win</span> <span class="pill">Ownership: Hybrid (shared back-end, personal voice)</span> <span class="pill he">cron</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">A weekday desk briefing + client payment-milestone reminders, drafted for advisor review — the scaffolding, never the relationship.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">Weekdays 08:00 (briefing); daily 07:30 (payment milestones).</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv"><em>briefing</em> skill; <em>email_gmail</em> (draft-only) + dossier MCP; the two cron jobs below.</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">Briefing posts to <em>#travel-desk</em> (internal). Payment reminders are <strong>Gmail drafts only</strong> — advisor sends.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>2-3 days</strong>.</div></div></div>
+<pre class="code"><code>hermes cron create "0 8 * * 1-5" "Build the morning desk briefing from dossier.db: today's departures/arrivals, bookings with deposit_due_date or balance_due_date within 14 days, VIP/active trips in_progress, and any open items needing an advisor decision. Post to the #travel-desk Slack channel. Read-only; do not message clients." --skill briefing --name "desk-briefing"
+
+hermes cron create "30 7 * * *" "From dossier.db bookings, list any deposit_due_date or balance_due_date falling within the next 14 days (status not cancelled). Draft a courteous payment-reminder email per client as a Gmail DRAFT (do not send) and post the list to #travel-desk." --name "payment-milestone-reminders"</code></pre>
+<ol class="steps"><li>Pin a frontier model as the desk default (jobs fail-closed if the default model changes — provider-locking).</li><li>Author the <em>briefing</em> skill with the fixed SKILL.md section order; query the dossier read-only.</li><li>Create both cron jobs; verify <em>hermes cron list</em> and a manual <em>hermes cron run</em>.</li></ol><ul class="checks"><li>Brief is accurate against the dossier, cites rows, and contains no other household's data.</li><li>Payment reminders land as drafts, never sent.</li></ul></div>
+
+<div class="card"><h3>QW6 — Confirmation-to-CRM Auto-Capture</h3><p><span class="badge high">High</span> <span class="pill">Ownership: Hybrid &middot; transactional capture PII-stripped before shared write</span> <span class="pill in">HubSpot + Gmail</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">Parse supplier confirmation emails into structured <em>bookings</em> + a CRM note, so the dossier stays current without manual entry.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">Event-driven: new confirmation email matched in Gmail (polled by a light cron or on-demand); plus a daily post-trip follow-up draft.</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv"><em>email_gmail</em> (search + read), <em>luxe_crm</em> (<em>crm_create_note</em>, read-only deals/contacts), dossier-write skill, <em>post-trip-followup</em> cron.</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">Bookings written as <em>held/quoted</em> only; CRM note is the one allowed external write (note, not message). Any client-facing follow-up is a <strong>Gmail draft</strong>. PII stripped before any shared/CRM write.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>4-5 days</strong>.</div></div></div>
+<pre class="code"><code>hermes cron create "0 10 * * *" "For trips in dossier.db with status completed (or end_date = yesterday), draft a warm, understated thank-you plus a brief feedback request per lead client as a Gmail DRAFT (do not send) and list them in #travel-desk for advisor approval." --name "post-trip-followup"</code></pre>
+<ol class="steps"><li>Write the parser skill: extract supplier, dates, confirmation/PNR, gross/net, deposit/balance dates from the email body.</li><li>Run the redaction scrubber; map to a <em>held</em> booking row; write an audited insert.</li><li>Push a PII-stripped <em>crm_create_note</em> to HubSpot linking the deal.</li><li>Add the post-trip-followup cron for relationship continuity.</li></ol><ul class="checks"><li>Parsed bookings match the source email; status never exceeds <em>held</em>.</li><li>No card/passport numbers in the CRM note.</li><li>Audit row exists for every capture.</li></ul></div>
+
+<div class="card"><h3>QW7 — Duty-of-Care Sentinels: Passport-Expiry, Entry-Requirements, Pre-Trip &amp; Disruption</h3><p><span class="badge must">Must-do</span> <span class="pill">Ownership: Hybrid &middot; agency-wide logic, personal delivery</span> <span class="pill he">cron</span> <span class="pill in">GDS + web_search</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">The safety net: passports/visas/insurance within 9 months of expiry, entry-requirement flags, pre-trip readiness gaps, and live flight disruption — drafted to the assigned advisor.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">Mondays 09:00 (expiry); daily 06:00 (pre-trip); every 6h (disruption).</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv"><em>briefing</em> skill, <em>v_documents_expiring_soon</em>, <em>gds_amadeus</em> (read-only — no order/ticket/cancel), <em>web_search</em> for entry rules, <em>email_gmail</em> draft-only.</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">Renewal nudges are Gmail drafts; readiness and disruption alerts post to <em>#travel-desk</em> tagging the advisor. Document numbers never exposed.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>4-5 days</strong> (GDS MCP is the long pole — placeholder until the in-house wrapper exists).</div></div></div>
+<pre class="code"><code>hermes cron create "0 9 * * 1" "Query v_documents_expiring_soon in dossier.db for passports/visas/insurance within 9 months of expiry. For each affected household draft a discreet renewal-reminder note (Gmail draft, not sent) and summarise the list to #travel-desk for advisor review. Never expose document numbers." --skill briefing --name "document-expiry-watch"
+
+hermes cron create "0 6 * * *" "For trips in dossier.db with start_date 14, 7, or 3 days out, verify each has confirmed flights, transfers, accommodation, and required travel documents on file. List any gaps per trip and post to #travel-desk tagging the assigned advisor. Read-only." --skill briefing --name "pre-trip-readiness"
+
+hermes cron create "every 6h" "Via the GDS MCP, check confirmed/ticketed flight bookings in dossier.db departing within 72 hours for schedule changes, cancellations, or equipment swaps. If anything changed, alert #travel-desk with the affected client, trip, and new times. If nothing changed, reply [SILENT]." --name "flight-disruption-watch"</code></pre>
+<div class="callout ok"><strong>Hot-handoff on advisor departure:</strong> these sentinels are duty-of-care, so they must never lapse mid-trip. When an advisor is marked <em>departing</em>, the Chief-of-Staff re-points their active trips' sentinels to the backup advisor and confirms coverage <strong>before</strong> any ZeroID token is revoked. The kill switch protects continuity, not control.</div>
+<ol class="steps"><li>Build the entry-requirement check (nationality &times; destination via <em>web_search</em>, flagged as unconfirmed unless from an authoritative source).</li><li>Wire the three cron jobs; use <em>[SILENT]</em> on the disruption job to suppress no-change noise.</li><li>Add the departure hot-handoff routine to the orchestrator.</li></ol><ul class="checks"><li>Every doc within 9 months surfaces exactly once per week, no numbers shown.</li><li>Disruption alerts fire within one 6h window of a GDS change.</li><li>Departure test re-routes sentinels with zero coverage gap.</li></ul></div>
+
+<div class="card"><h3>QW8 — Commission Capture &amp; Reconciliation Watchdog</h3><p><span class="badge high">High</span> <span class="pill">Ownership: Hybrid (engine agency-wide, advisor sees only own slice) &middot; Split on supplier layer</span> <span class="pill he">cron</span></p><div class="rows"><div class="row"><div class="rk">Objective</div><div class="rv">Track money owed to the agency from projection to cash, chase overdue supplier commissions, and refresh supplier reliability — each advisor sees only their attributed slice.</div></div><div class="row"><div class="rk">Trigger</div><div class="rv">Fridays 16:00 (reconciliation chase); 1st of month 02:00 (reliability refresh).</div></div><div class="row"><div class="rk">Artifacts</div><div class="rv"><em>commission_ledger</em>, <em>supplier_reliability_scores</em> + <em>v_supplier_current_reliability</em>, <em>email_gmail</em> draft-only, the two cron jobs below.</div></div><div class="row"><div class="rk">Approval gate</div><div class="rv">Supplier chase emails are Gmail drafts — advisor sends. The reliability refresh is the <strong>only write-job</strong>; it touches no client and posts top movers internally. Advisors never see another advisor's commission.</div></div><div class="row"><div class="rk">Effort</div><div class="rv"><strong>4-5 days</strong>.</div></div></div>
+<pre class="code"><code>hermes cron create "0 16 * * 5" "In dossier.db commission_ledger, find rows with status in ('projected','invoiced') where expected_date has passed. Group by supplier, draft a polite chase email per supplier as a Gmail DRAFT (do not send), and post a reconciliation summary (total outstanding by supplier) to #travel-desk." --name "commission-reconciliation-chase"
+
+hermes cron create "0 2 1 * *" "Recompute supplier reliability for the trailing quarter from dossier.db bookings (on-time/changed/cancelled) and logged incidents; insert one supplier_reliability_scores row per supplier (score 0-100, sample_size, on_time_rate, complaint_rate, methodology). Post the top movers to #travel-desk. This is the only write-job; do not message clients." --name "supplier-reliability-refresh"</code></pre>
+<ol class="steps"><li>Scope every commission query by <em>advisor_id</em> via the minted token so each advisor sees only their slice.</li><li>Build the reconciliation skill (group overdue by supplier, draft chase, summarise outstanding).</li><li>Build the monthly reliability recompute writing one audited row per supplier; cross-advisor benchmarks read <em>v_supplier_benchmark_kanon</em> (k&ge;5).</li><li>Tag advisor-brought suppliers (<em>brought_by_advisor_id</em>, <em>ownership='split'</em>) for return-on-exit.</li></ol><ul class="checks"><li>Overdue chase drafts match the ledger; nothing sent.</li><li>Reliability rows pass range checks; benchmark suppresses cohorts &lt;5.</li><li>No advisor can read another's attributed commission.</li></ul></div>
+</div></section>
+
+<section class="doc-sec" id="timeline"><div class="wrap"><div class="kicker"><span class="secnum">06</span>60-DAY SEQUENCE</div><h2 class="title">Foundations &rarr; sentinels &rarr; shadow &rarr; gated go-live</h2><p class="lead">Sequenced so guardrails exist before data, the dossier exists before the jobs that read it, and nothing is send-enabled until the shadow gate passes. The ICA addendum is signed before any real client data accumulates.</p>
+
+<div class="tl"><div class="tl-num">01</div><div class="tl-body"><h3>Days 1-10 — Foundations &amp; sovereignty</h3><p>Self-host Hermes (Mac mini / VPS) on the scoped Tailscale tailnet; install the gateway as launchd/systemd. Stand up the four planes and ZeroID token minting. Sign the <strong>ICA addendum</strong> (dossier + NEW-IP ownership, portability). Deploy <em>dossier.db</em> + tenant addendum with BYOK. <em>Delivers QW1 + QW2 spine.</em></p></div></div>
+<div class="tl"><div class="tl-num">02</div><div class="tl-body"><h3>Days 11-20 — Guardian hardening</h3><p>Lock MCP whitelists, deterministic redaction validators, <em>gateway.json</em> deny-by-default + 1-hour pairing. Build the Escalation &amp; Client-Incident Protocol. Commission the <strong>external pen-test</strong>. <em>Delivers QW2 + QW4.</em></p></div></div>
+<div class="tl"><div class="tl-num">03</div><div class="tl-body"><h3>Days 21-30 — Sentinels &amp; capture (draft-only)</h3><p>Pin the frontier desk model. Ship the Daily Ops Brief, Confirmation-to-CRM, Duty-of-Care Sentinels, and Commission Watchdog as draft-only cron + skills, including the departure hot-handoff routine. <em>Delivers QW5-QW8.</em></p></div></div>
+<div class="tl"><div class="tl-num">04</div><div class="tl-body"><h3>Days 31-50 — Shadow-mode pilot</h3><p>4-week pilot with 2-3 advisors, each on their own profile + opt-in SOUL.md. Weekly scorecard; daily <em>audit_log</em> reconcile for zero sends. Tune voice and draft quality; fix every hard-constraint or redaction miss before proceeding. <em>Delivers QW3.</em></p></div></div>
+<div class="tl"><div class="tl-num">05</div><div class="tl-body"><h3>Days 51-60 — Acceptance gate &amp; staged go-live</h3><p>Confirm the final two weeks cleared every threshold (zero hard-constraint hallucinations, 100% gate compliance, voice &ge;4.0, zero leakage). Pen-test sign-off in hand. Promote the willing advisors to live <em>draft-and-advisor-sends</em> operation — still no autonomous client-facing message anywhere. Roll out export + onboarding for the next cohort.</p></div></div>
+
+<div class="callout warn"><strong>Standing caveats:</strong> Hermes self-modifies and updates frequently with no SLA — re-verify field names after <em>hermes update</em>. The GDS MCP is a placeholder until the in-house Amadeus/Sabre wrapper is built. Confirm <em>--deliver</em>, <em>draft_gmail_message</em>, and <em>create_event</em> spellings via <em>--help</em> / <em>hermes mcp configure</em>. Keep project specifics (dossier path, channel names, advisor&rarr;household map, thresholds) in <em>~/.hermes/AGENTS.md</em>, not SOUL.md.</div>
+<div class="callout ok"><strong>The through-line:</strong> automate the scaffolding, never the relationship; verify everything that moves money or makes a promise; default to advisor-owned and earn each act of sharing. Trust is the product.</div>
+</div></section>
+<footer>
+  <div class="fb">Hermes &times; Atelier Voyage</div>
+  <div>Technical Build Plan · Phase 1</div>
+  <div style="margin-top:8px;color:var(--muted2)">Tuned for a host network of 1099 independent advisors. Figures are modeled, not measured — instrument real baselines before committing budget.</div>
+</footer>
+<script>
+const nav=document.getElementById('nav'),prog=document.getElementById('progress');
+addEventListener('scroll',()=>{const sc=scrollY,h=document.body.scrollHeight-innerHeight;
+ prog.style.width=(sc/h*100)+'%';nav.classList.toggle('scrolled',sc>40);},{passive:true});
+</script>
+</body></html>
