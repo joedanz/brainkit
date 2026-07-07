@@ -1,6 +1,15 @@
 """Property test: no compiled vault ever contains a file outside the person's
-readable spaces. This is the product's core security claim."""
+readable spaces. This is the product's core security claim.
 
+The skip-list is manifest-based, not name-based: only files the compiler
+itself declares as generated (plus the manifest) are exempt from the space
+check. A REAL AGENTS.md leaked from an unreadable space is NOT in the
+manifest's generated list, so it trips the assertion — the honeypots planted
+by random_world in every People/<pid> and one Teams/<t> space prove this
+path is armed.
+"""
+
+import json
 import random
 import subprocess
 from pathlib import Path
@@ -15,8 +24,6 @@ RULES = (
     SpaceRule("People/*", read=("person:{name}",), write=("person:{name}",)),
     SpaceRule("Clients/*", read=("everyone",), write=("role:admin",)),
 )
-
-GENERATED_NAMES = {"AGENTS.md", "CLAUDE.md", MANIFEST_NAME}
 
 
 def random_world(rng: random.Random, root: Path) -> Org:
@@ -38,9 +45,35 @@ def random_world(rng: random.Random, root: Path) -> Org:
             f = root / space / f"note{j}.md"
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(f"content of {space}/note{j}\n")
+    # Honeypots: a REAL AGENTS.md in every person's space and one team space.
+    # In the vault owner's own People space it is overwritten by generation
+    # (and listed as generated) — correct. In OTHER people's spaces and
+    # unjoined teams it must simply never appear; if it leaked, the
+    # manifest-based skip would NOT exempt it and the assertion trips.
+    for pid in people:
+        (root / "People" / pid / "AGENTS.md").write_text("leaked server note\n")
+    (root / "Teams" / teams[0] / "AGENTS.md").write_text("leaked server note\n")
     (root / "_meta").mkdir(exist_ok=True)
     (root / "_meta/secret.yaml").write_text("secret: true\n")
     return Org(people=people)
+
+
+def assert_vault_has_no_leaks(master: Path, person: Person, out: Path) -> None:
+    """Every file in the vault must live in a readable space, unless the
+    compiler's own manifest declares it generated (or it is the manifest)."""
+    allowed = set(readable_spaces(master, person, RULES))
+    manifest = json.loads((out / MANIFEST_NAME).read_text())
+    skip = set(manifest["generated"]) | {MANIFEST_NAME}
+    for f in out.rglob("*"):
+        if not f.is_file() or ".git" in f.parts:
+            continue
+        rel = f.relative_to(out).as_posix()
+        if rel in skip:
+            continue
+        space = space_of_path(rel)
+        assert space in allowed, (
+            f"LEAK person={person.id}: {rel} (space={space})"
+        )
 
 
 def test_no_leak_across_random_worlds(tmp_path: Path):
@@ -52,17 +85,7 @@ def test_no_leak_across_random_worlds(tmp_path: Path):
         for person in org.people.values():
             out = tmp_path / f"out{seed}" / person.id
             compile_vault(master, person, RULES, out)
-            allowed = set(readable_spaces(master, person, RULES))
-            for f in out.rglob("*"):
-                if not f.is_file() or ".git" in f.parts:
-                    continue
-                rel = str(f.relative_to(out))
-                if f.name in GENERATED_NAMES:
-                    continue
-                space = space_of_path(rel)
-                assert space in allowed, (
-                    f"LEAK seed={seed} person={person.id}: {rel} (space={space})"
-                )
+            assert_vault_has_no_leaks(master, person, out)
 
 
 def test_compile_all_creates_git_repos(tmp_path: Path):
@@ -73,6 +96,9 @@ def test_compile_all_creates_git_repos(tmp_path: Path):
     out_root = tmp_path / "compiled"
     results = compile_all(master, org, RULES, out_root)
     assert {r.person_id for r in results} == set(org.people)
+    # The product-level entry point must uphold the leak boundary too.
+    for person in org.people.values():
+        assert_vault_has_no_leaks(master, person, out_root / person.id)
     some = out_root / next(iter(org.people))
     assert (some / ".git").is_dir()
     log = subprocess.run(
