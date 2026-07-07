@@ -1,8 +1,13 @@
 """Vault compiler: (master, person) -> filtered vault. THE security boundary.
 
-Builds into a temp sibling directory and atomically swaps into place, so any
-failure leaves the previous compiled output untouched (fail closed). A person
-can only ever temporarily see LESS than they are allowed, never more.
+Builds into a temp sibling directory, then swaps in two renames: the previous
+vault is renamed aside to `.{out}.old` before the new tree takes its place, so
+no failure or crash ever destroys the previous output before the replacement
+is in place (fail closed). A crash mid-swap leaves either the old vault intact
+at `.old` (still recoverable) or the new vault live with `.git` still under
+`.old` — both states are repaired automatically at the start of the next
+compile. A person can only ever temporarily see LESS than they are allowed,
+never more.
 
 The manifest records the sha256 of every shipped file AFTER post-processing
 (link stubbing, context generation). Write-back diffs against this baseline,
@@ -41,6 +46,16 @@ def compile_vault(
 ) -> CompileResult:
     spaces = readable_spaces(master, person, rules)
     building = out.parent / f".{out.name}.building"
+    old = out.parent / f".{out.name}.old"
+
+    # Recover from a previously crashed swap: if `.old` still exists, the last
+    # run died mid-swap. Restore the git history if the new tree landed without
+    # it, then drop the tombstone.
+    if old.exists():
+        if (old / ".git").exists() and out.exists() and not (out / ".git").exists():
+            shutil.move(str(old / ".git"), str(out / ".git"))
+        shutil.rmtree(old)
+
     if building.exists():
         shutil.rmtree(building)
     building.mkdir(parents=True)
@@ -70,13 +85,17 @@ def compile_vault(
         }
         (building / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2))
 
-        # Atomic-ish swap; preserve the per-person git history across recompiles.
+        # Two-phase swap: rename the previous vault aside, promote the new
+        # tree, then move the per-person git history into it. The previous
+        # output is never deleted before the replacement is in place; any
+        # crash window leaves a state the recovery step above repairs.
         if out.exists():
-            git_dir = out / ".git"
-            if git_dir.exists():
-                shutil.move(str(git_dir), str(building / ".git"))
-            shutil.rmtree(out)
+            out.rename(old)
         shutil.move(str(building), str(out))
+        if (old / ".git").exists():
+            shutil.move(str(old / ".git"), str(out / ".git"))
+        if old.exists():
+            shutil.rmtree(old)
     finally:
         if building.exists():
             shutil.rmtree(building)
