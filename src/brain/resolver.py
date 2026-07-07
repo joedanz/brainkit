@@ -28,8 +28,11 @@ def enumerate_spaces(master: Path) -> list[str]:
 
 
 def space_of_path(rel_path: str) -> str | None:
-    parts = PurePosixPath(rel_path).parts
-    if not parts or parts[0] in RESERVED or parts[0].startswith("."):
+    path = PurePosixPath(rel_path)
+    parts = path.parts
+    if not parts or path.is_absolute() or ".." in parts:
+        return None
+    if parts[0] in RESERVED or parts[0].startswith("."):
         return None
     if parts[0] == "Company":
         return "Company"

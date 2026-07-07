@@ -65,6 +65,13 @@ def test_can_write_path():
     assert not can_write_path("stray-root-file.md", ALICE, RULES)   # outside any space
 
 
+def test_traversal_and_absolute_paths_rejected():
+    assert not can_write_path("People/bob/../../Company/x.md", BOB, RULES)
+    assert not can_write_path("Company/../_meta/org.yaml", ALICE, RULES)
+    assert space_of_path("/People/alice/x.md") is None
+    assert space_of_path("Teams/ops/../sales/y.md") is None
+
+
 def test_readable_spaces(tmp_path: Path):
     master = make_master(tmp_path)
     spaces = set(readable_spaces(master, BOB, RULES))
