@@ -19,14 +19,34 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from brain.resolver import readable_spaces
 from brain.schemas import Person, SpaceRule
 
 MANIFEST_NAME = ".brain-manifest.json"
+
+WIKILINK_RE = re.compile(
+    r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
+)
+
+
+def _stem(target: str) -> str:
+    return PurePosixPath(target.strip()).stem.lower()
+
+
+def stub_links(text: str, included_stems: set[str], master_stems: set[str]) -> str:
+    def repl(m: re.Match) -> str:
+        target, alias = m.group(1), m.group(4)
+        stem = _stem(target)
+        if stem in included_stems or stem not in master_stems:
+            return m.group(0)
+        return (alias or target).strip()
+
+    return WIKILINK_RE.sub(repl, text)
 
 
 @dataclass
@@ -132,4 +152,18 @@ def _post_process(
 
     Returns the list of generated rel paths for the manifest.
     """
+    from brain.resolver import can_write_path
+
+    included_stems = {
+        PurePosixPath(rel).stem.lower() for rel in compiled if rel.endswith(".md")
+    }
+    master_stems = {
+        p.stem.lower()
+        for p in master.rglob("*.md")
+        if ".git" not in p.parts and "_meta" not in p.parts
+    }
+    for rel in compiled:
+        if rel.endswith(".md") and not can_write_path(rel, person, rules):
+            f = building / rel
+            f.write_text(stub_links(f.read_text(), included_stems, master_stems))
     return []
