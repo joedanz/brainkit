@@ -70,6 +70,23 @@ def test_git_dir_preserved_across_recompile(master: Path, tmp_path: Path):
     assert (out / ".git/HEAD").read_text() == "ref: refs/heads/main\n"
 
 
+def test_crashed_swap_with_missing_out_fully_restored(master: Path, tmp_path: Path):
+    # Simulate a crash between `out.rename(old)` and promoting the new tree:
+    # `out` is gone entirely and the previous vault (content + .git) sits at
+    # `.old`. The next compile must restore it — preserving git history —
+    # then proceed normally, replacing content via the two-phase swap.
+    out = tmp_path / "bob-vault"
+    old = out.parent / f".{out.name}.old"
+    (old / ".git").mkdir(parents=True)
+    (old / ".git/HEAD").write_text("ref: refs/heads/main\n")
+    (old / "marker.md").write_text("stale content from previous vault\n")
+    compile_vault(master, BOB, RULES, out)
+    assert out.exists()
+    assert (out / "People/bob/Memory.md").exists()  # fresh compiled content
+    assert (out / ".git/HEAD").read_text() == "ref: refs/heads/main\n"
+    assert not old.exists()
+
+
 def test_crashed_swap_recovered_on_next_compile(master: Path, tmp_path: Path):
     # Simulate a crash mid-swap: the new tree landed at `out` but the process
     # died before moving .git back and removing the `.old` sibling. The next

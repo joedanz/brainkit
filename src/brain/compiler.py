@@ -49,12 +49,18 @@ def compile_vault(
     old = out.parent / f".{out.name}.old"
 
     # Recover from a previously crashed swap: if `.old` still exists, the last
-    # run died mid-swap. Restore the git history if the new tree landed without
-    # it, then drop the tombstone.
+    # run died mid-swap. If the crash hit before the new tree was promoted,
+    # `out` is missing entirely — restore the whole previous vault (content
+    # AND .git); this compile then replaces it via the normal two-phase swap.
+    # If the new tree landed but lost its git history, move .git back. Either
+    # way the tombstone is gone before we build.
     if old.exists():
-        if (old / ".git").exists() and out.exists() and not (out / ".git").exists():
-            shutil.move(str(old / ".git"), str(out / ".git"))
-        shutil.rmtree(old)
+        if not out.exists():
+            old.rename(out)
+        else:
+            if (old / ".git").exists() and not (out / ".git").exists():
+                shutil.move(str(old / ".git"), str(out / ".git"))
+            shutil.rmtree(old)
 
     if building.exists():
         shutil.rmtree(building)
