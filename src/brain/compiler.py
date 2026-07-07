@@ -166,4 +166,7 @@ def _post_process(
         if rel.endswith(".md") and not can_write_path(rel, person, rules):
             f = building / rel
             f.write_text(stub_links(f.read_text(), included_stems, master_stems))
-    return []
+
+    from brain.contextgen import generate_context_files
+
+    return generate_context_files(building, person, spaces, rules)
