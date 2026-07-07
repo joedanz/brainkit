@@ -53,3 +53,38 @@ def test_duplicate_rule_path_rejected(tmp_path: Path):
     )
     with pytest.raises(SchemaError, match="duplicate"):
         load_spaces(f)
+
+
+def test_scalar_roles_rejected(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text("people:\n  alice: {name: Alice Nguyen, roles: admin}\n")
+    with pytest.raises(SchemaError, match="'alice'.*roles"):
+        load_org(f)
+
+
+def test_scalar_teams_rejected(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text("people:\n  bob: {name: Bob Rivera, teams: ops}\n")
+    with pytest.raises(SchemaError, match="'bob'.*teams"):
+        load_org(f)
+
+
+def test_non_dict_person_rejected(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text("people:\n  alice: just a string\n")
+    with pytest.raises(SchemaError, match="'alice'"):
+        load_org(f)
+
+
+def test_non_dict_spaces_entry_rejected(tmp_path: Path):
+    f = tmp_path / "spaces.yaml"
+    f.write_text("spaces:\n  - just a string\n")
+    with pytest.raises(SchemaError, match="mapping"):
+        load_spaces(f)
+
+
+def test_scalar_read_rejected(tmp_path: Path):
+    f = tmp_path / "spaces.yaml"
+    f.write_text("spaces:\n  - {path: Company, read: everyone, write: []}\n")
+    with pytest.raises(SchemaError, match="'Company'.*read must be a list"):
+        load_spaces(f)
