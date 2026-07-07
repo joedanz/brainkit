@@ -8,6 +8,11 @@ from tests.conftest import ALICE, BOB, RULES
 
 
 def test_compiles_only_readable_spaces(master: Path, tmp_path: Path):
+    # Marker for the master-root invariant: context generation never writes a
+    # file with this name, so unlike AGENTS.md (which generation overwrites),
+    # its presence in the vault can only mean the copy loop regressed and
+    # copied master-root files.
+    (master / "SERVER-NOTES.md").write_text("server-only marker\n")
     out = tmp_path / "bob-vault"
     result = compile_vault(master, BOB, RULES, out)
     assert (out / "Company/Home.md").exists()
@@ -18,9 +23,18 @@ def test_compiles_only_readable_spaces(master: Path, tmp_path: Path):
     assert not (out / "Teams/sales").exists()
     assert not (out / "People/alice").exists()
     assert not (out / "_meta").exists()
-    # Master-root files (server chief-of-staff protocol) are never copied
-    # verbatim — any AGENTS.md present is Task 5's generated context file.
-    assert "Chief-of-staff protocol (server only)" not in (out / "AGENTS.md").read_text()
+    # Master-root files are never copied: the marker appears nowhere in the
+    # vault, and the root AGENTS.md is exactly the generated protocol (not
+    # master's server-only file).
+    assert not list(out.rglob("SERVER-NOTES.md"))
+    from brain.contextgen import render_root_protocol
+    from brain.resolver import can_write_path, readable_spaces
+
+    spaces_rw = [
+        (s, can_write_path(f"{s}/x.md", BOB, RULES))
+        for s in readable_spaces(master, BOB, RULES)
+    ]
+    assert (out / "AGENTS.md").read_text() == render_root_protocol(BOB, spaces_rw)
     assert "Company/Home.md" in result.files
 
 
