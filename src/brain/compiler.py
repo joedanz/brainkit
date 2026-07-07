@@ -21,11 +21,12 @@ import json
 import os
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from brain.resolver import readable_spaces
-from brain.schemas import Person, SpaceRule
+from brain.schemas import Org, Person, SpaceRule
 
 MANIFEST_NAME = ".brain-manifest.json"
 
@@ -170,3 +171,31 @@ def _post_process(
     from brain.contextgen import generate_context_files
 
     return generate_context_files(building, person, spaces, rules)
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True
+    )
+
+
+def compile_all(
+    master: Path, org: Org, rules: tuple[SpaceRule, ...], out_root: Path
+) -> list[CompileResult]:
+    results = []
+    for person in org.people.values():
+        out = out_root / person.id
+        result = compile_vault(master, person, rules, out)
+        if not (out / ".git").exists():
+            _git(out, "init", "-b", "main")
+        _git(out, "add", "-A")
+        status = _git(out, "status", "--porcelain").stdout
+        if status.strip():
+            _git(
+                out,
+                "-c", "user.name=Brain Compiler",
+                "-c", "user.email=compiler@brain.local",
+                "commit", "-m", f"compile: refresh vault for {person.id}",
+            )
+        results.append(result)
+    return results
