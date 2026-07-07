@@ -119,3 +119,42 @@ def test_crashed_swap_recovered_on_next_compile(master: Path, tmp_path: Path):
     compile_vault(master, BOB, RULES, out)
     assert (out / ".git/HEAD").read_text() == "ref: refs/heads/main\n"
     assert not old.exists()
+
+
+from brain.compiler import stub_links
+
+
+def test_stub_links_unit():
+    included = {"big deal decision"}
+    master = {"big deal decision", "bob private note"}
+    text = "See [[Big Deal Decision]], [[Bob Private Note|his note]], and [[Future Idea]]. ![[Bob Private Note]]"
+    out = stub_links(text, included, master)
+    assert "[[Big Deal Decision]]" in out          # included → untouched
+    assert "[[Bob Private Note" not in out         # invisible → stubbed
+    assert "his note" in out                       # alias used as display text
+    assert "[[Future Idea]]" in out                # nonexistent anywhere → untouched
+    assert "![[" not in out                        # embed of invisible note stubbed too
+
+
+def test_compile_stubs_invisible_links_in_readonly_spaces(master, tmp_path):
+    from brain.compiler import compile_vault
+    from tests.conftest import BOB, RULES
+
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    # Company is read-only for bob → stubbing applies there
+    home = (out / "Company/Home.md").read_text()
+    assert "[[Big Deal Decision]]" in home   # included in bob's vault → untouched
+    assert "[[Q3 Pipeline]]" not in home     # Teams/sales invisible to bob → stubbed
+    assert "Q3 Pipeline" in home             # display text remains
+
+
+def test_writable_spaces_never_stubbed(master, tmp_path):
+    from brain.compiler import compile_vault
+    from tests.conftest import BOB, RULES
+
+    (master / "People/bob/Notes.md").write_text("See [[Q3 Pipeline]].\n")
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    # People/bob is writable for bob → byte-identical copy, link untouched
+    assert (out / "People/bob/Notes.md").read_text() == "See [[Q3 Pipeline]].\n"
