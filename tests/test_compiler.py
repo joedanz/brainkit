@@ -68,3 +68,17 @@ def test_git_dir_preserved_across_recompile(master: Path, tmp_path: Path):
     (out / ".git/HEAD").write_text("ref: refs/heads/main\n")
     compile_vault(master, BOB, RULES, out)
     assert (out / ".git/HEAD").read_text() == "ref: refs/heads/main\n"
+
+
+def test_crashed_swap_recovered_on_next_compile(master: Path, tmp_path: Path):
+    # Simulate a crash mid-swap: the new tree landed at `out` but the process
+    # died before moving .git back and removing the `.old` sibling. The next
+    # compile must recover the git history and clean up the tombstone.
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    old = out.parent / f".{out.name}.old"
+    (old / ".git").mkdir(parents=True)
+    (old / ".git/HEAD").write_text("ref: refs/heads/main\n")
+    compile_vault(master, BOB, RULES, out)
+    assert (out / ".git/HEAD").read_text() == "ref: refs/heads/main\n"
+    assert not old.exists()
