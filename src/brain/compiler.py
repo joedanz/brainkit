@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,10 +36,20 @@ class CompileResult:
 
 
 def _iter_space_files(master: Path, space: str):
+    # Invariant: symlinks never cross the tenant boundary — symlinked files
+    # are skipped and symlinked directories are never descended, so a link
+    # planted inside a readable space can't materialize an unreadable target.
     root = master / space
-    for p in sorted(root.rglob("*")):
-        if p.is_file():
-            yield str(p.relative_to(master))
+    if root.is_symlink():
+        return
+    rels: list[str] = []
+    for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
+        for name in filenames:
+            p = Path(dirpath) / name
+            if p.is_symlink():
+                continue
+            rels.append(str(p.relative_to(master)))
+    yield from sorted(rels)
 
 
 def compile_vault(

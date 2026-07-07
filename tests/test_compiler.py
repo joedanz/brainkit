@@ -70,6 +70,26 @@ def test_git_dir_preserved_across_recompile(master: Path, tmp_path: Path):
     assert (out / ".git/HEAD").read_text() == "ref: refs/heads/main\n"
 
 
+def test_symlinks_never_cross_tenant_boundary(master: Path, tmp_path: Path):
+    # A symlink planted inside a readable space pointing at a file (or dir)
+    # in an unreadable space must not materialize the target's content.
+    (master / "People/bob/leak.md").symlink_to(master / "People/alice/Memory.md")
+    (master / "People/bob/leakdir").symlink_to(
+        master / "People/alice", target_is_directory=True
+    )
+    out = tmp_path / "bob-vault"
+    result = compile_vault(master, BOB, RULES, out)
+    assert not (out / "People/bob/leak.md").exists(follow_symlinks=False)
+    assert not (out / "People/bob/leakdir").exists(follow_symlinks=False)
+    leaked = [
+        p
+        for p in out.rglob("*")
+        if p.is_file() and "Alice private memory" in p.read_text()
+    ]
+    assert leaked == []
+    assert "People/bob/leak.md" not in result.files
+
+
 def test_crashed_swap_with_missing_out_fully_restored(master: Path, tmp_path: Path):
     # Simulate a crash between `out.rename(old)` and promoting the new tree:
     # `out` is gone entirely and the previous vault (content + .git) sits at
