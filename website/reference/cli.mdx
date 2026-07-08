@@ -202,7 +202,7 @@ Findings carry one of three severities:
 | Severity | Meaning | Examples |
 |---|---|---|
 | `error` | An invariant is broken. Exits `1`. | Malformed `org.yaml`/`spaces.yaml`, an unknown `person:` in a rule, a symlink in the master, a crashed-compile tombstone, an unreadable manifest, or `_meta/` leaked into a compiled vault. |
-| `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, or a promotion draft the sweep will silently skip. |
+| `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, a `.md` sitting loose under `Teams/`/`People/`/`Clients/` (in no space, so compiled into no vault), a **cross-space reference** whose name is visible to readers who can't see its target, or a promotion draft the sweep will silently skip. |
 | `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval. |
 
 Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into CI or a pre-cron gate. Run it after setup and on a schedule.

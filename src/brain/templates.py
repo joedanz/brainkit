@@ -17,7 +17,12 @@ spaces:
   - {path: Company,     read: [everyone],        write: ["role:admin"]}
   - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}
   - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}
-  - {path: "Clients/*", read: [everyone],        write: ["role:admin"]}
+
+  # Clients are deny-by-default: only admins see a client until it's assigned.
+  # An exact per-client rule below overrides this wildcard. Grant each client to
+  # its advisor(s) and any team that supports it, e.g.:
+  #   - {path: "Clients/Acme", read: ["role:admin", "person:alice", "team:concierge"], write: ["role:admin", "person:alice"]}
+  - {path: "Clients/*", read: ["role:admin"], write: ["role:admin"]}
 """
 
 CHIEF_OF_STAFF_PROTOCOL = """\

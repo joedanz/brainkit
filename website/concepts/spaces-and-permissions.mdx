@@ -19,7 +19,7 @@ master/
   Teams/<team>/           # visible to members of that team
   People/<person>/        # visible to that person only
     Memory.md  Actions/  Sessions/  Inbox/   # Inbox: transcripts land here
-  Clients/<client>/       # company-wide by default; restrictable per client
+  Clients/<client>/       # admin-only by default; grant per client
   _meta/                  # server-only — never compiled into any personal vault
     org.yaml              # people, roles, teams
     spaces.yaml           # space path → read/write rules
@@ -35,15 +35,37 @@ spaces:
   - {path: Company,     read: [everyone],        write: ["role:admin"]}
   - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}
   - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}
-  - {path: "Clients/*", read: [everyone],        write: ["role:admin"]}
+  - {path: "Clients/*", read: ["role:admin"],    write: ["role:admin"]}
 ```
 
-Read this as: everyone can read `Company`, but only admins write it; a team's space is readable and writable by that team; a person's space is theirs alone; client files are company-wide but only admins edit them.
+Read this as: everyone can read `Company`, but only admins write it; a team's space is readable and writable by that team; a person's space is theirs alone; and a client is **admin-only until you assign it** — a new client folder is invisible to advisors until an exact rule grants it.
 
 <Callout type="info">
   **Exact match beats wildcard.** If both `Teams/*` and a specific `Teams/sales`
   rule exist, the exact rule wins for `Teams/sales`. This lets you carve a
   single exception without rewriting the general rule.
+</Callout>
+
+## Protecting clients
+
+Client confidentiality is the common reason to move off the defaults. The `Clients/*` wildcard is deny-by-default (admins only); grant each client to its advisor and any supporting team with an **exact** rule, which overrides the wildcard:
+
+```yaml
+  - {path: "Clients/*", read: ["role:admin"], write: ["role:admin"]}
+  - {path: "Clients/Vandenberg",     read: ["role:admin", "person:marco", "team:concierge"], write: ["role:admin", "person:marco"]}
+  - {path: "Clients/Nakamura",       read: ["role:admin", "person:yuki"],                    write: ["role:admin", "person:yuki"]}
+```
+
+Now Marco sees Vandenberg but not Nakamura; Yuki sees the reverse; an advisor with no rule sees neither. Because the wildcard denies by default, **forgetting to add a rule fails closed** — a new client is private until you say otherwise, never accidentally company-wide.
+
+<Callout type="warning">
+  **Names leak through prose, not just files.** The compiler guarantees a client's
+  *file* never enters an unauthorized vault — but a client *name* typed into a
+  shared note (`Company/Memory.md: "the Vandenberg expedition proved…"`) travels
+  to everyone who reads that space. The structure can't redact prose. Keep client
+  names in client spaces; write lessons generically in `Company`. `brain doctor`
+  flags every cross-space reference (see below) so these slips don't accumulate
+  silently.
 </Callout>
 
 ## Who exists: `org.yaml`
@@ -63,3 +85,5 @@ Editing `org.yaml` (and `spaces.yaml` if a new space needs a rule) and re-runnin
 ## Cross-space links
 
 Wikilinks between spaces are allowed. When the compiler builds a slice, a link that points at a note the person *can't* see is [stubbed](/concepts/the-compiler#link-stubbing) — rendered as plain text or a marker — never resolved to content they shouldn't have.
+
+The stub protects the *target's content*, but the link *text* — usually the note's name — remains in the source. `brain doctor` reports this as a `cross-refs` warning: for every wikilink, it checks that everyone who can read the source space can also read the target space, and flags the readers who can't. It's a warning, not an error — nothing structural broke, but a human wrote a name where someone uncleared can see it. Personal spaces (`People/<id>`) are exempt: their sole reader is the owner, who can't leak a name to themselves. See the [CLI reference](/reference/cli#brain-doctor) for the full check list.
