@@ -99,7 +99,10 @@ The ordering is load-bearing: write-back lands each person's edits (including fr
   This is the one command to run on a schedule — a cron entry or a git
   post-receive hook. It replaces running `writeback`, `promotions sweep`, and
   `compile` by hand. A person whose vault has never been compiled is `skipped`
-  (not an error); the recompile creates it.
+  (not an error); the recompile creates it. A person whose manifest is corrupt
+  is likewise `skipped` (with the reason in `violations`) rather than aborting
+  everyone else's refresh — the recompile rewrites a clean manifest, so the
+  next cycle recovers on its own.
 </Callout>
 
 ```bash
