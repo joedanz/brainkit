@@ -194,6 +194,13 @@ def cmd_search(args) -> int:
     return 0
 
 
+def cmd_mcp(args) -> int:
+    from brain.mcp import serve
+
+    serve(Path(args.vault))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -244,6 +251,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--keyword-only", action="store_true")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_search)
+
+    mc = sub.add_parser(
+        "mcp",
+        help="run a stdio MCP server over a vault "
+             "(register: claude mcp add brain -- brain mcp --vault ~/brain)")
+    mc.add_argument("--vault", required=True)
+    mc.set_defaults(func=cmd_mcp)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
     d.add_argument("--master", required=True)
