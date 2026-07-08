@@ -296,6 +296,41 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_dashboard(args) -> int:
+    import webbrowser
+
+    import yaml
+
+    from brain.dashboard import write_dashboard
+    from brain.schemas import SchemaError
+    from brain.stats import collect_master_stats, collect_vault_stats
+
+    if args.vault and args.out:
+        print("--out only applies to the admin lens (--master)", file=sys.stderr)
+        return 2
+
+    try:
+        if args.vault:
+            stats = collect_vault_stats(Path(args.vault), include_graph=True)
+        else:
+            out_root = Path(args.out) if args.out else None
+            stats = collect_master_stats(Path(args.master), out_root)
+    except ManifestError as e:
+        print(f"cannot read vault: {e}", file=sys.stderr)
+        return 1
+    except (SchemaError, OSError, yaml.YAMLError) as e:
+        print(f"cannot read master meta: {e}", file=sys.stderr)
+        return 1
+
+    path = write_dashboard(stats, Path(args.html))
+    print(f"wrote {path}")
+    for w in stats.warnings:
+        print(f"  warning: {w}", file=sys.stderr)
+    if args.open_browser:
+        webbrowser.open(path.resolve().as_uri())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -376,6 +411,17 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--out", help="compiled output root (admin lens; enables per-person checks)")
     st.add_argument("--json", action="store_true")
     st.set_defaults(func=cmd_status)
+
+    db = sub.add_parser("dashboard", help="generate a self-contained HTML dashboard")
+    dlens = db.add_mutually_exclusive_group(required=True)
+    dlens.add_argument("--vault", help="a compiled per-person vault (user lens)")
+    dlens.add_argument("--master", help="the master vault (admin lens)")
+    db.add_argument("--out", help="compiled output root (admin lens; enables per-person checks)")
+    db.add_argument("--html", default="brain-dashboard.html",
+                    help="output HTML file path (default: %(default)s)")
+    db.add_argument("--open", action="store_true", dest="open_browser",
+                    help="open the generated file in a browser")
+    db.set_defaults(func=cmd_dashboard)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
     d.add_argument("--master", required=True)
