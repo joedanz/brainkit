@@ -63,3 +63,20 @@ def test_promotions_flow(master: Path, tmp_path: Path, capsys):
     assert main(["promotions", "approve", "p-1", "--master", str(master),
                  "--approver", "alice"]) == 0
     assert (master / "Company/Frameworks/SOP.md").exists()
+
+
+def test_init_scaffolds_master(tmp_path: Path):
+    dest = tmp_path / "acme-brain"
+    assert main(["init", str(dest), "--company", "Acme Co"]) == 0
+    assert (dest / "Company/Home.md").exists()
+    assert "Acme Co" in (dest / "Company/Memory.md").read_text()
+    assert (dest / "_meta/spaces.yaml").exists()
+    assert (dest / "_meta/promotions/pending/.gitkeep").exists()
+    protocol = (dest / "AGENTS.md").read_text()
+    assert "chief-of-staff" in protocol.lower()
+    assert "Needs-Routing" in protocol
+    assert (dest / ".git").is_dir()
+    # org/spaces parse cleanly
+    from brain.schemas import load_org, load_spaces
+    load_org(dest / "_meta/org.yaml")
+    load_spaces(dest / "_meta/spaces.yaml")

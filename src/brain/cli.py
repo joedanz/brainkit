@@ -75,6 +75,19 @@ def cmd_promotions(args) -> int:
     return 0
 
 
+def cmd_init(args) -> int:
+    from brain.templates import scaffold_master
+
+    dest = Path(args.dir)
+    if dest.exists() and any(dest.iterdir()):
+        print(f"{dest} exists and is not empty", file=sys.stderr)
+        return 1
+    dest.mkdir(parents=True, exist_ok=True)
+    created = scaffold_master(dest, args.company)
+    print(f"initialized {args.company} master vault at {dest} ({len(created)} files)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -98,6 +111,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--approver", default="")
     p.add_argument("--reason", default="")
     p.set_defaults(func=cmd_promotions)
+
+    i = sub.add_parser("init", help="scaffold a new company master vault")
+    i.add_argument("dir")
+    i.add_argument("--company", required=True)
+    i.set_defaults(func=cmd_init)
 
     return parser
 
