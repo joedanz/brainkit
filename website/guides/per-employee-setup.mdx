@@ -55,9 +55,11 @@ Once [the master is compiled](/getting-started), each employee needs two things:
 - **In:** transcripts and notes drop into `People/<you>/Inbox/`. The agent
   summarizes, extracts decisions and action items, and routes them per the
   vault protocol.
-- **Back up:** edits sync to the server, which runs `brain writeback` per person,
-  then `brain promotions sweep` (agent drafts → pending queue), then
-  `brain compile` to refresh everyone.
+- **Back up:** edits sync to the server, which runs a single scheduled command —
+  [`brain cycle`](/reference/cli#brain-cycle) — that writes back every person's
+  edits, sweeps agent drafts into the pending queue, and recompiles everyone, in
+  that order. (A rejected edit reverts on the recompile and the command exits
+  non-zero, so cron alerts.)
 - **Sharing:** the agent drafts a promotion; an owner approves it with
   `brain promotions approve <id> --master … --approver <you>`. See
   [Promotions](/concepts/promotions).
