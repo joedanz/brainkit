@@ -259,6 +259,43 @@ def cmd_mcp(args) -> int:
     return 0
 
 
+def cmd_status(args) -> int:
+    import yaml
+
+    from brain.schemas import SchemaError
+    from brain.stats import (
+        collect_master_stats,
+        collect_vault_stats,
+        format_master_status,
+        format_vault_status,
+    )
+
+    if args.vault and args.out:
+        print("--out only applies to the admin lens (--master)", file=sys.stderr)
+        return 2
+
+    try:
+        if args.vault:
+            stats = collect_vault_stats(Path(args.vault), include_graph=False)
+            text = format_vault_status(stats)
+        else:
+            out_root = Path(args.out) if args.out else None
+            stats = collect_master_stats(Path(args.master), out_root)
+            text = format_master_status(stats)
+    except ManifestError as e:
+        print(f"cannot read vault: {e}", file=sys.stderr)
+        return 1
+    except (SchemaError, OSError, yaml.YAMLError) as e:
+        print(f"cannot read master meta: {e}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps({**asdict(stats), "ok": True}, indent=2))
+    else:
+        print(text)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -331,6 +368,14 @@ def build_parser() -> argparse.ArgumentParser:
              "(register: claude mcp add brain -- brain mcp --vault ~/brain)")
     mc.add_argument("--vault", required=True)
     mc.set_defaults(func=cmd_mcp)
+
+    st = sub.add_parser("status", help="counts, freshness and health for a vault or the whole company")
+    lens = st.add_mutually_exclusive_group(required=True)
+    lens.add_argument("--vault", help="a compiled per-person vault (user lens)")
+    lens.add_argument("--master", help="the master vault (admin lens)")
+    st.add_argument("--out", help="compiled output root (admin lens; enables per-person checks)")
+    st.add_argument("--json", action="store_true")
+    st.set_defaults(func=cmd_status)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
     d.add_argument("--master", required=True)

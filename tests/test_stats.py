@@ -202,3 +202,65 @@ def test_format_master_status_sections(master, tmp_path):
     assert "vaults:" in text
     assert "permissions:" in text
     assert "p-1" in text
+
+
+# ---- brain status CLI ---------------------------------------------------------
+
+def test_cli_status_vault_text_and_json(master, tmp_path, capsys):
+    import json
+
+    from brain.cli import main
+
+    vault = _compiled_indexed(master, tmp_path)
+    assert main(["status", "--vault", str(vault)]) == 0
+    out = capsys.readouterr().out
+    assert "Company" in out and "notes:" in out
+
+    assert main(["status", "--vault", str(vault), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["kind"] == "vault"
+    assert payload["person"] == "alice"
+
+
+def test_cli_status_vault_without_index_still_succeeds(master, tmp_path, capsys):
+    from brain.cli import main
+
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    assert main(["status", "--vault", str(vault)]) == 0
+    assert "index: none" in capsys.readouterr().out
+
+
+def test_cli_status_master_lens(master, tmp_path, capsys):
+    import json
+
+    from brain.cli import main
+
+    out_root = _seeded_company(master, tmp_path)
+    capsys.readouterr()  # drain compile output from setup
+    assert main(["status", "--master", str(master), "--out", str(out_root),
+                 "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["kind"] == "master"
+    assert payload["people_count"] == 2
+
+    # without --out, per-vault sections are simply absent
+    assert main(["status", "--master", str(master)]) == 0
+
+
+def test_cli_status_error_paths(master, tmp_path, capsys):
+    import pytest as _pytest
+
+    from brain.cli import main
+
+    # uncompiled dir → handled error
+    assert main(["status", "--vault", str(tmp_path / "nope")]) == 1
+    assert "cannot read vault" in capsys.readouterr().err
+    # --vault with --out is a usage error
+    vault = _compiled_indexed(master, tmp_path)
+    assert main(["status", "--vault", str(vault), "--out", "x"]) == 2
+    # --vault and --master are mutually exclusive (argparse exits 2)
+    with _pytest.raises(SystemExit) as exc:
+        main(["status", "--vault", "a", "--master", "b"])
+    assert exc.value.code == 2
