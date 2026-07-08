@@ -11,6 +11,7 @@ from pathlib import Path
 
 from brain.compiler import compile_all, compile_vault
 from brain.cycle import run_cycle
+from brain.doctor import run_doctor
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
 from brain.writeback import apply_writeback
@@ -112,6 +113,24 @@ def cmd_cycle(args) -> int:
     return 0 if report.ok else 1
 
 
+def cmd_doctor(args) -> int:
+    out_root = Path(args.out) if args.out else None
+    findings = run_doctor(Path(args.master), out_root)
+    errors = [f for f in findings if f.severity == "error"]
+    if args.json:
+        print(json.dumps({
+            "ok": not errors,
+            "findings": [asdict(f) for f in findings],
+        }, indent=2))
+    else:
+        for f in findings:
+            print(f"[{f.severity.upper():5}] {f.check}: {f.message}")
+        warns = sum(1 for f in findings if f.severity == "warn")
+        print(f"{len(errors)} error(s), {warns} warning(s), "
+              f"{len(findings)} finding(s) total")
+    return 1 if errors else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -146,6 +165,12 @@ def build_parser() -> argparse.ArgumentParser:
     y.add_argument("--out", required=True)
     y.add_argument("--json", action="store_true")
     y.set_defaults(func=cmd_cycle)
+
+    d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
+    d.add_argument("--master", required=True)
+    d.add_argument("--out")
+    d.add_argument("--json", action="store_true")
+    d.set_defaults(func=cmd_doctor)
 
     return parser
 

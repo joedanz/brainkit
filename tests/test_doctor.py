@@ -99,6 +99,28 @@ def test_compiled_checks_clean_and_missing_vault(master, tmp_path):
     assert "warn" in _severities(findings, "compiled")  # bob never compiled
 
 
+import json as jsonlib
+
+
+def test_cli_doctor_clean_exits_zero(master, tmp_path, capsys):
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    capsys.readouterr()
+    code = main(["doctor", "--master", str(master), "--out", str(out)])
+    assert code == 0
+    assert "0 error(s)" in capsys.readouterr().out
+
+
+def test_cli_doctor_error_exits_one_and_json(master, tmp_path, capsys):
+    seed_meta(master)
+    (master / "Company/evil.md").symlink_to(master / "People/bob/Memory.md")
+    code = main(["doctor", "--master", str(master), "--json"])
+    assert code == 1
+    payload = jsonlib.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert any(f["check"] == "symlinks" for f in payload["findings"])
+
+
 def test_meta_inside_vault_is_security_error(master, tmp_path):
     seed_meta(master)
     out = _compile(master, tmp_path)
