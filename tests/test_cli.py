@@ -1,12 +1,16 @@
+import io
+import json
 import subprocess
 from pathlib import Path
+
+import pytest
 
 from brain.cli import main
 
 ORG_YAML = """\
 people:
-  alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
-  bob:   {name: Bob Rivera, teams: [ops]}
+  alice: {name: Alice Nguyen, roles: [admin], teams: [sales], email: alice@acme.com}
+  bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}
 """
 
 SPACES_YAML = """\
@@ -63,6 +67,83 @@ def test_promotions_flow(master: Path, tmp_path: Path, capsys):
     assert main(["promotions", "approve", "p-1", "--master", str(master),
                  "--approver", "alice"]) == 0
     assert (master / "Company/Frameworks/SOP.md").exists()
+
+
+def test_ingest_cli_by_person_stdin(master: Path, monkeypatch, capsys):
+    seed_meta(master)
+    monkeypatch.setattr("sys.stdin", io.StringIO("decided X\n"))
+    code = main(["ingest", "--master", str(master), "--person", "bob",
+                 "--title", "Standup", "--source", "chat"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "People/bob/Inbox/" in out
+    assert list((master / "People/bob/Inbox").glob("*.md"))
+
+
+def test_ingest_cli_by_email(master: Path, monkeypatch):
+    seed_meta(master)
+    monkeypatch.setattr("sys.stdin", io.StringIO("from the field\n"))
+    code = main(["ingest", "--master", str(master),
+                 "--from", "bob@acme.com", "--source", "email"])
+    assert code == 0
+    notes = list((master / "People/bob/Inbox").glob("*.md"))
+    assert len(notes) == 1
+    assert "from: bob@acme.com" in notes[0].read_text()
+
+
+def test_ingest_cli_unknown_sender_fails_closed(master: Path, monkeypatch, capsys):
+    seed_meta(master)
+    monkeypatch.setattr("sys.stdin", io.StringIO("intruder\n"))
+    code = main(["ingest", "--master", str(master),
+                 "--from", "stranger@evil.com"])
+    assert code == 1
+    assert "refusing to ingest" in capsys.readouterr().err
+    # Nothing written anywhere under People/.
+    assert not list((master / "People").rglob("Inbox/*.md"))
+
+
+def test_ingest_cli_unknown_person(master: Path, monkeypatch, capsys):
+    seed_meta(master)
+    monkeypatch.setattr("sys.stdin", io.StringIO("x\n"))
+    code = main(["ingest", "--master", str(master), "--person", "nobody"])
+    assert code == 1
+    assert "unknown person" in capsys.readouterr().err
+
+
+def test_ingest_cli_requires_exactly_one_identity(master: Path):
+    seed_meta(master)
+    with pytest.raises(SystemExit) as none:
+        main(["ingest", "--master", str(master)])
+    assert none.value.code == 2
+    with pytest.raises(SystemExit) as both:
+        main(["ingest", "--master", str(master),
+              "--person", "bob", "--from", "bob@acme.com"])
+    assert both.value.code == 2
+
+
+def test_ingest_cli_json(master: Path, monkeypatch, capsys):
+    seed_meta(master)
+    monkeypatch.setattr("sys.stdin", io.StringIO("payload\n"))
+    code = main(["ingest", "--master", str(master), "--person", "bob",
+                 "--title", "Note", "--json"])
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["person_id"] == "bob"
+    assert payload["rel_path"].startswith("People/bob/Inbox/")
+
+
+def test_ingest_cli_file_input(master: Path, tmp_path: Path, capsys):
+    seed_meta(master)
+    src = tmp_path / "meeting-notes.md"
+    src.write_text("# Kickoff\nWe start Monday.\n")
+    code = main(["ingest", "--master", str(master), "--person", "bob",
+                 "--file", str(src), "--source", "upload"])
+    assert code == 0
+    note = next((master / "People/bob/Inbox").glob("*.md"))
+    text = note.read_text()
+    assert "original-name: meeting-notes.md" in text
+    assert "title: meeting-notes" in text  # default title from file stem
 
 
 def test_init_scaffolds_master(tmp_path: Path):

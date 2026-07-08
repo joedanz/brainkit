@@ -1,0 +1,94 @@
+---
+title: Getting Things In
+description: How notes reach a person's Inbox — the brain ingest primitive and the channels that wrap it.
+icon: inbox
+---
+
+A brain is only as useful as what reaches it. Everything a person captures lands in one place — `People/<them>/Inbox/` — where their chief-of-staff agent summarizes it, extracts decisions and action items, and files it. This page is about the step *before* that: how a transcript, an email, or a voice memo actually gets into the Inbox.
+
+<Callout type="info">
+  The Inbox is an ordinary folder. Anything that writes a markdown file there is
+  a valid intake — a drag-and-drop in Obsidian, an agent, or an automated feed.
+  The `brain ingest` command is the safe, server-side way to do it.
+</Callout>
+
+## The primitive: `brain ingest`
+
+`brain ingest` writes one provenance-stamped note into a person's Inbox in the master vault and commits it. It is the single code path that lets an outside channel drop a note into someone's private space — so all the safety checks live here, not in any channel:
+
+```bash
+echo "Client agreed to renew. Follow up Monday." \
+  | brain ingest --master /srv/brain/master --person bob --source chat --title "Renewal call"
+```
+
+That writes `People/bob/Inbox/2026-07-08-renewal-call.md`:
+
+```markdown
+---
+title: Renewal call
+source: chat
+from: bob
+created: 2026-07-08
+---
+Client agreed to renew. Follow up Monday.
+```
+
+The next [`brain cycle`](/reference/cli#brain-cycle) compiles that note into bob's vault — and, because of [the compiler](/concepts/the-compiler), only bob's. From there the chief-of-staff protocol in the master `AGENTS.md` routes it out of the Inbox. See the [CLI reference](/reference/cli#brain-ingest) for every flag.
+
+### It fails closed
+
+- **Unknown senders are refused.** With `--from <email>`, the address must match a person's `email` in [`org.yaml`](/reference/configuration#org-yaml); an unrecognized sender is rejected, never guessed onto someone.
+- **The note can only land in that person's Inbox.** The target path is constructed, not taken from input, and is re-checked against write permissions — a crafted title can't escape into a shared space.
+- **Untrusted content can't forge metadata.** A newline or stray `---` in the title, sender, or source is rejected, so channel input can't inject frontmatter keys.
+- **Every intake is auditable.** Each note is its own git commit under the `Brain Ingest <ingest@brain.local>` identity, distinct from authenticated write-backs.
+
+## Channels
+
+Each channel below is an **integration recipe** — a thin wrapper that turns an incoming message into a `brain ingest` call. None of them ship as a running service; they're patterns you wire up with tools you already have.
+
+### Email in
+
+Give each person an address that forwards to a small handler which extracts the sender, subject, and body, then calls `brain ingest`:
+
+```bash
+# invoked by your mail pipe with the parsed message on stdin
+brain ingest --master /srv/brain/master \
+  --from "$SENDER_EMAIL" --title "$SUBJECT" --source email
+```
+
+Set each person's `email:` in `org.yaml` so `--from` can resolve them. Anything they can email — a forwarded thread, a note to self — becomes an Inbox item. The recipe supplies plain text; `brain ingest` does not parse raw `.eml` or attachments.
+
+### Chat DM
+
+Let someone text their own brain. In the [per-person gateway](/guides/deployment) model, each employee runs their own chat bot locked to them, so the person is already known — the handler just calls:
+
+```bash
+brain ingest --master /srv/brain/master --person bob --source chat
+```
+
+A shared, multi-user bot is deliberately avoided: it would be one process that can write into everyone's Inbox. Per-person gateways keep each intake path scoped to one person.
+
+### Voice memos
+
+Record a thought, transcribe it (any speech-to-text step), and pipe the transcript in:
+
+```bash
+transcribe memo.m4a | brain ingest --master /srv/brain/master --person bob --source voice
+```
+
+### Share sheet & uploads
+
+Point a synced "drop" folder or a phone share-sheet target at a tiny loop that ingests each new file:
+
+```bash
+brain ingest --master /srv/brain/master --person bob --file "$DROPPED_FILE" --source upload
+```
+
+With `--file`, the original filename is recorded as `original-name` and, absent `--title`, becomes the note's title.
+
+<Callout type="warning">
+  Ingest writes directly to master; the next cycle compiles it out. A heavy
+  pipeline should funnel through one queue rather than run many ingests
+  concurrently against the same master — there is no cross-process lock. Content
+  still lands correctly; this only avoids an ingest racing a cycle's commit.
+</Callout>

@@ -39,8 +39,11 @@ Re-run `brain compile` on every master change (cron or a git post-commit hook).
 
 ## 2. Daily flow
 
-- Transcripts and notes drop into `People/<you>/Inbox/`; the agent ingests
-  and routes them.
+- Transcripts and notes reach `People/<you>/Inbox/`; the agent ingests and
+  routes them. Drop a file directly, or feed a channel (email/chat/voice/upload)
+  that wraps the intake primitive:
+
+      echo "decided X" | brain ingest --master /srv/brain/master --person <you> --source voice
 - Edits sync back; the server runs one command per interval (cron or
   post-receive hook):
 
