@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
 
 
@@ -62,12 +63,7 @@ def draft_promotion(
 
 
 def _parse(path: Path) -> Promotion:
-    text = path.read_text()
-    _, fm, body = text.split("---\n", 2)
-    meta = {}
-    for line in fm.strip().splitlines():
-        key, _, value = line.partition(": ")
-        meta[key] = value
+    meta, body = split_frontmatter(path.read_text())
     return Promotion(
         id=meta["promotion-id"],
         person_id=meta["from"],
@@ -148,14 +144,9 @@ def sweep(master: Path, today: str) -> list[Path]:
             continue  # never read through links out of the person's space
         rel = f.relative_to(master)
         person_id = rel.parts[1]
-        text = f.read_text()
-        if text.count("---\n") < 2:
+        meta, body = split_frontmatter(f.read_text())
+        if not meta:
             continue
-        _, fm, body = text.split("---\n", 2)
-        meta = {}
-        for line in fm.strip().splitlines():
-            key, _, value = line.partition(": ")
-            meta[key] = value
         target = meta.get("target-path", "")
         promo_id = f"{person_id}-{_slug(f.stem)}"
         if (_pending_dir(master) / f"{promo_id}.md").exists():
