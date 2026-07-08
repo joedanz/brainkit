@@ -134,3 +134,71 @@ def test_format_vault_status_mentions_key_sections(master, tmp_path):
     assert "notes:" in text
     assert "Company" in text
     assert "top linked:" in text
+
+
+# ---- master (admin lens) -----------------------------------------------------
+
+def _seeded_company(master, tmp_path):
+    from brain.cli import main
+    from brain.promotions import draft_promotion
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    out_root = tmp_path / "compiled"
+    assert main(["compile", "--master", str(master), "--out", str(out_root)]) == 0
+    build_index(out_root / "alice", provider=None, cache=None)
+    draft_promotion(master, "bob", "Company/Frameworks/SOP.md",
+                    "People/bob/Sessions/x.md", "Body.\n", "p-1", "2026-07-08")
+    return out_root
+
+
+def test_master_stats_full_picture(master, tmp_path):
+    from brain.doctor import run_doctor
+    from brain.stats import collect_master_stats
+
+    out_root = _seeded_company(master, tmp_path)
+    (out_root / "bob/Company/Home.md").write_text("defaced\n")
+
+    s = collect_master_stats(master, out_root)
+    assert s.kind == "master"
+    assert s.people_count == 2
+    by_person = {p.person_id: p for p in s.people}
+    assert by_person["alice"].compiled and by_person["bob"].compiled
+    assert by_person["alice"].drift == 0
+    assert by_person["bob"].drift == 1
+    assert by_person["alice"].index_built_at  # indexed above
+    assert by_person["bob"].index_built_at is None
+    assert by_person["alice"].disk_bytes > 0
+    assert by_person["alice"].notes > 0
+
+    assert [p.id for p in s.promotions_pending] == ["p-1"]
+
+    perms = {p.space: p for p in s.permissions}
+    assert "bob" not in perms["Company"].writers  # only role:admin writes
+    assert "alice" in perms["Company"].writers
+    assert perms["People/bob"].readers == ["bob"]
+
+    # findings come from doctor verbatim, not a reimplementation
+    assert s.findings == run_doctor(master, out_root)
+
+
+def test_master_stats_without_out_root(master, tmp_path):
+    from brain.stats import collect_master_stats
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    s = collect_master_stats(master, None)
+    assert s.out_root is None
+    assert all(not p.compiled for p in s.people)
+    assert s.spaces  # enumerated from master itself
+
+
+def test_format_master_status_sections(master, tmp_path):
+    from brain.stats import collect_master_stats, format_master_status
+
+    out_root = _seeded_company(master, tmp_path)
+    text = format_master_status(collect_master_stats(master, out_root))
+    assert "people: 2" in text
+    assert "vaults:" in text
+    assert "permissions:" in text
+    assert "p-1" in text
