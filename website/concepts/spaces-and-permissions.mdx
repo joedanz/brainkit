@@ -1,0 +1,65 @@
+---
+title: Spaces & Permissions
+description: The vault layout and how spaces.yaml decides who reads and writes what.
+icon: shield
+---
+
+Every note lives in exactly **one space**, and the space determines who can see it. There are no per-note permissions — visibility is a property of *where* a note sits.
+
+## The master layout
+
+```
+master/
+  Company/                # visible to everyone
+    Home.md               # entry point / priority dashboard
+    Memory.md             # business overview, positioning, team structure
+    Decisions/            # decision log with reasoning
+    Frameworks/           # SOPs, playbooks, workflows
+    Templates/            # reusable formats
+  Teams/<team>/           # visible to members of that team
+  People/<person>/        # visible to that person only
+    Memory.md  Actions/  Sessions/  Inbox/   # Inbox: transcripts land here
+  Clients/<client>/       # company-wide by default; restrictable per client
+  _meta/                  # server-only — never compiled into any personal vault
+    org.yaml              # people, roles, teams
+    spaces.yaml           # space path → read/write rules
+    promotions/           # pending/ approved/ rejected/
+```
+
+## Who sees what: `spaces.yaml`
+
+Each space maps to a `read` and a `write` list of grants. A grant is one of `everyone`, `role:<name>`, `team:<name>`, or `person:<id>`. The `{name}` placeholder binds the wildcard segment, so one `Teams/*` rule covers every team.
+
+```yaml
+spaces:
+  - {path: Company,     read: [everyone],        write: ["role:admin"]}
+  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}
+  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}
+  - {path: "Clients/*", read: [everyone],        write: ["role:admin"]}
+```
+
+Read this as: everyone can read `Company`, but only admins write it; a team's space is readable and writable by that team; a person's space is theirs alone; client files are company-wide but only admins edit them.
+
+<Callout type="info">
+  **Exact match beats wildcard.** If both `Teams/*` and a specific `Teams/sales`
+  rule exist, the exact rule wins for `Teams/sales`. This lets you carve a
+  single exception without rewriting the general rule.
+</Callout>
+
+## Who exists: `org.yaml`
+
+```yaml
+people:
+  alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
+  bob:   {name: Bob Rivera, teams: [ops]}
+```
+
+A person's `roles` and `teams` are what the grants resolve against. Alice is an `admin` on the `sales` team, so she reads `Company`, writes `Company` (admin), and reads/writes `Teams/sales` and `People/alice`.
+
+## Adding a person or team
+
+Editing `org.yaml` (and `spaces.yaml` if a new space needs a rule) and re-running `brain compile` is the *entire* operation. There is no schema migration, no per-note reclassification — capacity grows, architecture doesn't. See the [configuration reference](/reference/configuration) for the full schema and validation rules.
+
+## Cross-space links
+
+Wikilinks between spaces are allowed. When the compiler builds a slice, a link that points at a note the person *can't* see is [stubbed](/concepts/the-compiler#link-stubbing) — rendered as plain text or a marker — never resolved to content they shouldn't have.
