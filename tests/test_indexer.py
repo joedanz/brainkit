@@ -116,6 +116,91 @@ def test_no_provider_is_keyword_only(master, tmp_path):
     assert report.files_indexed > 0  # chunks still stored for FTS
 
 
+def _links(vault: Path) -> set[tuple[str, str, int]]:
+    s = IndexStore.open(vault / ".brain/index.db")
+    rows = {
+        (src, tgt, res)
+        for src, tgt, res in s.conn.execute(
+            "SELECT src_rel_path, target_rel_path, resolved FROM links")
+    }
+    s.close()
+    return rows
+
+
+def test_links_populated_and_resolved(master, tmp_path):
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    links = _links(vault)
+    # Home.md links to two notes alice can read; both resolve to real paths.
+    assert ("Company/Home.md", "Company/Decisions/Big Deal Decision.md", 1) in links
+    assert ("Company/Home.md", "Teams/sales/Q3 Pipeline.md", 1) in links
+
+
+def test_stubbed_links_never_reach_the_index(master, tmp_path):
+    # Bob can't read Teams/sales, so the compiler stubs [[Q3 Pipeline]] out of
+    # his Home.md — the link must not exist in his index in any form.
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    assert not any("Q3 Pipeline" in tgt for _, tgt, _ in _links(vault))
+
+
+def test_path_form_links_resolve_exactly(master, tmp_path):
+    (master / "Company/Paths.md").write_text(
+        "See [[Company/Decisions/Big Deal Decision]] and [[Company/Nope/Missing]].\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    links = _links(vault)
+    assert ("Company/Paths.md", "Company/Decisions/Big Deal Decision.md", 1) in links
+    assert ("Company/Paths.md", "Company/Nope/Missing", 0) in links
+
+
+def test_removed_target_demotes_link_from_unchanged_source(master, tmp_path):
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    (master / "Company/Decisions/Big Deal Decision.md").unlink()
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)  # Home.md itself unchanged
+    links = _links(vault)
+    assert ("Company/Home.md", "Company/Decisions/Big Deal Decision.md", 0) in links
+
+
+def test_editing_source_replaces_its_links(master, tmp_path):
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    (master / "Company/Home.md").write_text("# Home\nNow only [[Q3 Pipeline]].\n")
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    home_links = {tgt for src, tgt, _ in _links(vault) if src == "Company/Home.md"}
+    assert home_links == {"Teams/sales/Q3 Pipeline.md"}
+
+
+def test_schema_migration_forces_full_rebuild(master, tmp_path):
+    import sqlite3
+
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    # Simulate a pre-links index: wipe the table, pin user_version back to 1.
+    db = vault / ".brain/index.db"
+    conn = sqlite3.connect(db)
+    conn.execute("DELETE FROM links")
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+
+    report = build_index(vault, provider=None, cache=None)
+    assert report.files_indexed > 0  # rebuilt, not skipped as unchanged
+    assert _links(vault)  # links repopulated
+
+
 def test_cli_index_json_and_missing_manifest(master, tmp_path, capsys):
     vault = tmp_path / "alice"
     compile_vault(master, ALICE, RULES, vault)

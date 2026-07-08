@@ -39,6 +39,12 @@ def _stem(target: str) -> str:
     return PurePosixPath(target.strip()).stem.lower()
 
 
+def extract_wikilinks(text: str) -> list[str]:
+    """Raw wikilink targets in order of appearance, heading and alias stripped.
+    Embeds (``![[...]]``) count as links."""
+    return [m.group(1).strip() for m in WIKILINK_RE.finditer(text)]
+
+
 def stub_links(text: str, included_stems: set[str], master_stems: set[str]) -> str:
     def repl(m: re.Match) -> str:
         target, alias = m.group(1), m.group(4)

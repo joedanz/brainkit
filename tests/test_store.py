@@ -91,6 +91,49 @@ def test_null_backend_when_extension_unavailable(tmp_path, monkeypatch):
     s.close()
 
 
+def test_links_round_trip_and_delete(tmp_path):
+    s = IndexStore.open(tmp_path / "index.db")
+    s.add_file(
+        "Company/A.md", "sha", "Company", _chunks("Company/A.md", 1), ["x"], None,
+        links=[("Company/B.md", 1), ("Missing Note", 0), ("Company/B.md", 1)],
+    )
+    rows = s.conn.execute(
+        "SELECT src_rel_path, target_rel_path, resolved FROM links ORDER BY target_rel_path"
+    ).fetchall()
+    # duplicate targets collapse via the composite primary key
+    assert rows == [
+        ("Company/A.md", "Company/B.md", 1),
+        ("Company/A.md", "Missing Note", 0),
+    ]
+    s.delete_file("Company/A.md")
+    assert s.conn.execute("SELECT count(*) FROM links").fetchone()[0] == 0
+    s.close()
+
+
+def test_v1_index_migrates_and_reports_migrated_from(tmp_path):
+    p = tmp_path / "index.db"
+    # Hand-roll a v1 index: current DDL minus links, user_version pinned to 1.
+    conn = sqlite3.connect(p)
+    conn.executescript(
+        "CREATE TABLE index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "CREATE TABLE files (rel_path TEXT PRIMARY KEY, sha256 TEXT NOT NULL, space TEXT NOT NULL);"
+    )
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+
+    s = IndexStore.open(p)
+    assert s.migrated_from == 1
+    assert s.conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert s.conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE name = 'links'").fetchone()
+    s.close()
+    # Reopening a current-version index is not a migration.
+    s2 = IndexStore.open(p)
+    assert s2.migrated_from is None
+    s2.close()
+
+
 def test_meta_round_trip_and_files_map(tmp_path):
     s = IndexStore.open(tmp_path / "index.db")
     s.set_meta("model", "fake-32")
