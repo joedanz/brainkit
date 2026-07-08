@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from brain.compiler import MANIFEST_NAME
+from brain.promotions import PromotionError, _parse, _pending_dir, _validate_target
 from brain.resolver import _match_rule, enumerate_spaces
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
 
@@ -100,6 +101,48 @@ def _check_symlinks(master: Path) -> list[Finding]:
     return findings
 
 
+def _check_promotions(master: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    pending_dir = _pending_dir(master)
+    valid_pending = 0
+    if pending_dir.is_dir():
+        for f in sorted(pending_dir.glob("*.md")):
+            try:
+                promo = _parse(f)
+                _validate_target(promo.target_path)
+                valid_pending += 1
+            except (KeyError, ValueError, PromotionError) as e:
+                findings.append(Finding(
+                    "warn", "promotions",
+                    f"pending/{f.name}: malformed, will never be approvable ({e})"))
+    if valid_pending:
+        findings.append(Finding(
+            "info", "promotions",
+            f"{valid_pending} promotion(s) awaiting approval"))
+
+    # Drafts sweep() will silently skip forever: missing/invalid target-path.
+    for f in sorted(master.glob("People/*/Promotions/*.md")):
+        if f.is_symlink():
+            continue
+        text = f.read_text()
+        rel = f.relative_to(master)
+        if text.count("---\n") < 2:
+            findings.append(Finding(
+                "warn", "promotions", f"{rel}: draft has no frontmatter, sweep skips it"))
+            continue
+        _, fm, _ = text.split("---\n", 2)
+        meta = dict(
+            (line.partition(": ")[0], line.partition(": ")[2])
+            for line in fm.strip().splitlines()
+        )
+        try:
+            _validate_target(meta.get("target-path", ""))
+        except PromotionError as e:
+            findings.append(Finding(
+                "warn", "promotions", f"{rel}: sweep will never move it ({e})"))
+    return findings
+
+
 def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for person in org.people.values():
@@ -148,6 +191,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_rule_paths(master, rules)
     findings += _check_space_coverage(master, rules)
     findings += _check_symlinks(master)
+    findings += _check_promotions(master)
     if out_root is not None:
         findings += _check_compiled(master, org, out_root)
     return findings
