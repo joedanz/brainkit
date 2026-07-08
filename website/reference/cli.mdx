@@ -7,7 +7,7 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,compile,writeback,promotions,cycle,index,search,mcp,doctor} …
+brain {init,ingest,compile,writeback,promotions,cycle,index,search,mcp,doctor} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
@@ -26,6 +26,27 @@ brain init <dir> --company "Acme Co"
 | `--company` | yes | Company name, woven into the seeded `Company/` notes. |
 
 Creates the space layout, `_meta/org.yaml` and `_meta/spaces.yaml`, the `_meta/promotions/{pending,approved,rejected}/` queue, the master-root `AGENTS.md` (chief-of-staff protocol), and an initial git commit.
+
+## `brain ingest`
+
+Write one provenance-stamped note into a person's `Inbox/` in the master. The safe, server-side intake used by [email, chat, voice, and upload channels](/guides/getting-things-in).
+
+```bash
+brain ingest --master <master> (--person <id> | --from <email>) [--file <path>] [--title <t>] [--source <channel>] [--date <YYYY-MM-DD>] [--json]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--master` | yes | Path to the master vault. |
+| `--person` | one of | Target person by id. |
+| `--from` | one of | Target person by their `org.yaml` `email` (unknown senders are refused). Mutually exclusive with `--person`. |
+| `--file` | no | Read the note body from this file; default is stdin. |
+| `--title` | no | Note title. Defaults to the `--file` name, else the first non-empty line, else `note`. |
+| `--source` | no | Intake channel label (`email`/`chat`/`voice`/`upload`/`manual`). Default `manual`. |
+| `--date` | no | Provenance date. Default today. |
+| `--json` | no | Emit `{"person_id", "rel_path", "title", "source", "committed", "ok"}`. |
+
+The note lands at `People/<id>/Inbox/<date>-<slug>.md` — the path is constructed (never derived from input), then re-checked with `can_write_path`, so intake can only ever write into that person's own Inbox. Provenance metadata is rejected if it contains newlines (no frontmatter injection). Each intake is a separate git commit under `Brain Ingest <ingest@brain.local>`, distinct from write-back. Exactly one of `--person`/`--from` is required; passing neither or both is a usage error (exit `2`). An unknown person/sender or an unwritable target exits `1`.
 
 ## `brain compile`
 
@@ -197,5 +218,5 @@ Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into C
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Handled error — unknown person, rejected write-back, invalid/missing promotion, or (for `doctor`) an `error`-severity finding. The message is on stderr. |
+| `1` | Handled error — unknown person or sender, rejected write-back, invalid/missing promotion, an unwritable ingest target, or (for `doctor`) an `error`-severity finding. The message is on stderr. |
 | `2` | Usage error from argument parsing (unknown subcommand, missing required flag). |
