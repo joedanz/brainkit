@@ -135,6 +135,29 @@ def cmd_doctor(args) -> int:
     return 1 if errors else 0
 
 
+def cmd_index(args) -> int:
+    from brain.embeddings import EmbeddingCache, default_cache_path, provider_from_config
+    from brain.indexer import build_index
+
+    provider = provider_from_config()
+    cache = EmbeddingCache(default_cache_path()) if provider else None
+    try:
+        report = build_index(Path(args.vault), provider=provider, cache=cache, full=args.full)
+    except ManifestError as e:
+        print(f"cannot index: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({**asdict(report), "ok": True}, indent=2))
+    else:
+        print(f"indexed {report.files_indexed} file(s) "
+              f"({report.files_removed} removed, {report.files_unchanged} unchanged); "
+              f"embedded {report.chunks_embedded} chunk(s) "
+              f"({report.chunks_from_cache} cached) [{report.mode}]")
+        for w in report.warnings:
+            print(f"  warning: {w}", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -169,6 +192,12 @@ def build_parser() -> argparse.ArgumentParser:
     y.add_argument("--out", required=True)
     y.add_argument("--json", action="store_true")
     y.set_defaults(func=cmd_cycle)
+
+    ix = sub.add_parser("index", help="build/refresh the search index for a compiled vault")
+    ix.add_argument("--vault", required=True)
+    ix.add_argument("--full", action="store_true", help="rebuild from scratch")
+    ix.add_argument("--json", action="store_true")
+    ix.set_defaults(func=cmd_index)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
     d.add_argument("--master", required=True)
