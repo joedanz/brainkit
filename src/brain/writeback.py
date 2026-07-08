@@ -35,8 +35,30 @@ class WritebackResult:
     violations: list[str] = field(default_factory=list)
 
 
+class ManifestError(ValueError):
+    """The compiled vault's manifest is missing, unreadable, or the wrong shape.
+
+    Write-back diffs against the manifest baseline; without a usable one there
+    is no trustworthy baseline, so we refuse rather than guess. Callers surface
+    this as a handled error (never a raw traceback): the standalone `writeback`
+    command exits non-zero with a message, and `brain cycle` skips just that
+    person so one corrupt vault can't abort everyone else's refresh.
+    """
+
+
 def _load_manifest(vault: Path) -> dict:
-    return json.loads((vault / MANIFEST_NAME).read_text())
+    path = vault / MANIFEST_NAME
+    try:
+        manifest = json.loads(path.read_text())
+    except FileNotFoundError as e:
+        raise ManifestError(f"{vault.name}: manifest missing ({e})") from e
+    except ValueError as e:  # includes json.JSONDecodeError
+        raise ManifestError(f"{vault.name}: manifest is not valid JSON ({e})") from e
+    if not isinstance(manifest, dict) or "compiled" not in manifest or "generated" not in manifest:
+        raise ManifestError(
+            f"{vault.name}: manifest is the wrong shape "
+            "(missing 'compiled'/'generated')")
+    return manifest
 
 
 def _sha(data: bytes) -> str:
