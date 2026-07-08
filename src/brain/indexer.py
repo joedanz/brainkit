@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from brain.chunker import chunk_markdown, embedding_input
+from brain.compiler import _stem, extract_wikilinks
 from brain.embeddings import EmbeddingCache, EmbeddingProvider, pack_vector
 from brain.resolver import space_of_path
 from brain.store import IndexStore
@@ -43,6 +44,35 @@ def _sha_text(text: str) -> str:
 
 def _index_path(vault: Path) -> Path:
     return vault / ".brain" / "index.db"
+
+
+def _resolve_links(
+    raw_targets: list[str], paths: set[str], by_stem: dict[str, str]
+) -> list[tuple[str, int]]:
+    """Map raw wikilink targets to (target_rel_path, resolved) pairs.
+
+    Resolution matches the compiler's stem-based scheme (lowercased stem);
+    path-form targets ("Company/Decisions/X") try an exact rel-path match
+    first. On duplicate stems the lexicographically first path wins —
+    deterministic, though Obsidian itself prefers the shortest path.
+    Unresolved targets keep their raw text with resolved=0: "note doesn't
+    exist" and "note exists in master but outside this vault" are
+    indistinguishable from inside a compiled vault, by design.
+    """
+    out: list[tuple[str, int]] = []
+    for target in raw_targets:
+        if "/" in target:
+            for candidate in (target, target + ".md"):
+                if candidate in paths:
+                    out.append((candidate, 1))
+                    break
+            else:
+                hit = by_stem.get(_stem(target))
+                out.append((hit, 1) if hit else (target, 0))
+        else:
+            hit = by_stem.get(_stem(target))
+            out.append((hit, 1) if hit else (target, 0))
+    return out
 
 
 def build_index(
@@ -69,6 +99,10 @@ def build_index(
     # rebuild from scratch — the embedding cache keeps that cheap.
     if provider is not None and store.get_meta("model") not in (None, provider.model):
         full = True
+    # A schema migration leaves new tables (e.g. links) empty for files the
+    # diff would skip as unchanged; rebuild so they populate.
+    if store.migrated_from is not None:
+        full = True
     if full:
         store.close()
         for p in (index_path, index_path.with_name(index_path.name + "-wal"),
@@ -91,8 +125,16 @@ def build_index(
     changed = [rel for rel, sha in candidates.items() if existing.get(rel) != sha]
     report.files_unchanged = len(candidates) - len(changed)
 
+    # Link targets resolve against every indexable file in the manifest, the
+    # same universe the compiler used for stubbing. First path wins on
+    # duplicate stems (sorted → deterministic).
+    link_paths = set(candidates)
+    by_stem: dict[str, str] = {}
+    for rel in sorted(candidates):
+        by_stem.setdefault(_stem(rel), rel)
+
     # Phase 1: chunk every changed file and gather the embedding inputs needed.
-    per_file: dict[str, tuple[str, str, list, list[str]]] = {}
+    per_file: dict[str, tuple[str, str, list, list[str], list[tuple[str, int]]]] = {}
     needed: dict[str, str] = {}  # chunk_sha -> embedding input
     for rel in changed:
         space = space_of_path(rel)
@@ -102,7 +144,8 @@ def build_index(
         text = (vault / rel).read_text(encoding="utf-8", errors="replace")
         chunks = chunk_markdown(rel, text)
         cshas = [_sha_text(embedding_input(c)) for c in chunks]
-        per_file[rel] = (candidates[rel], space, chunks, cshas)
+        links = _resolve_links(extract_wikilinks(text), link_paths, by_stem)
+        per_file[rel] = (candidates[rel], space, chunks, cshas, links)
         if want_vectors:
             for ch, csha in zip(chunks, cshas):
                 needed.setdefault(csha, embedding_input(ch))
@@ -123,11 +166,19 @@ def build_index(
             report.chunks_embedded = len(misses)
 
     # Phase 3: write each file atomically (delete + add is one transaction pair).
-    for rel, (sha, space, chunks, cshas) in per_file.items():
+    for rel, (sha, space, chunks, cshas, links) in per_file.items():
         store.delete_file(rel)
         vectors = [vecs[s] for s in cshas] if want_vectors else None
-        store.add_file(rel, sha, space, chunks, cshas, vectors)
+        store.add_file(rel, sha, space, chunks, cshas, vectors, links=links)
     report.files_indexed = len(per_file)
+
+    # Unchanged sources may still point at files removed this run; demote
+    # those rows so `resolved` never claims a target the index no longer has.
+    store.conn.execute(
+        "UPDATE links SET resolved = 0 WHERE resolved = 1 "
+        "AND target_rel_path NOT IN (SELECT rel_path FROM files)"
+    )
+    store.conn.commit()
 
     if provider is not None:
         store.set_meta("model", provider.model)
