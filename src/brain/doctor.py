@@ -15,10 +15,10 @@ from pathlib import Path
 
 import yaml
 
-from brain.compiler import MANIFEST_NAME
+from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_target
-from brain.resolver import _match_rule, enumerate_spaces
+from brain.resolver import NESTED_TOPS, RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
 
 
@@ -86,6 +86,101 @@ def _check_space_coverage(master: Path, rules: tuple[SpaceRule, ...]) -> list[Fi
             findings.append(Finding(
                 "warn", "space-coverage",
                 f"space {space!r} matches no rule — unreachable by everyone"))
+    return findings
+
+
+def _check_orphan_files(master: Path) -> list[Finding]:
+    """A .md placed directly under a nested top (Teams/, People/, Clients/)
+    belongs to no space — those tops only form spaces from their subfolders — so
+    the compiler copies it into nobody's vault. It vanishes silently. Company is
+    itself a space, so files directly under it are fine and not checked here."""
+    findings: list[Finding] = []
+    for top in NESTED_TOPS:
+        d = master / top
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.md")):
+            if f.is_file():
+                findings.append(Finding(
+                    "warn", "orphan-files",
+                    f"{f.relative_to(master)} sits directly under {top}/ — not in "
+                    f"any space, so it compiles into no vault; move it into a subfolder"))
+    return findings
+
+
+def _content_files(master: Path) -> list[str]:
+    """All rel paths of .md files that live in a resolvable space."""
+    rels: list[str] = []
+    for f in sorted(master.rglob("*.md")):
+        parts = f.relative_to(master).parts
+        if parts[0] in RESERVED or parts[0].startswith("."):
+            continue
+        rel = f.relative_to(master).as_posix()
+        if space_of_path(rel) is not None:
+            rels.append(rel)
+    return rels
+
+
+def _resolve_target(target: str, paths: set[str], by_stem: dict[str, str]) -> str | None:
+    """Resolve one raw wikilink target to a rel_path, or None if unresolved.
+    Mirrors indexer._resolve_links; duplicated (not imported) to keep doctor free
+    of the indexer's heavy embedding/store dependencies."""
+    if "/" in target:
+        for candidate in (target, target + ".md"):
+            if candidate in paths:
+                return candidate
+    return by_stem.get(_stem(target))
+
+
+def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+    """A note in space S that links to a note in space T leaks T's *name* to
+    everyone who can read S — even though the compiler guarantees the *file*
+    never crosses. If some reader of S cannot read T, that link exposes a note
+    (client, deal, person) they aren't cleared to see. Warn, not error: no file
+    crossed, but a human wrote a name into the wrong space. Plain-text mentions
+    (a client named without a wikilink) are unstructured and out of scope."""
+    rels = _content_files(master)
+    paths = set(rels)
+    by_stem: dict[str, str] = {}
+    for rel in rels:
+        by_stem.setdefault(_stem(rel), rel)
+
+    people = list(org.people.values())
+    readers: dict[str, frozenset[str]] = {}
+
+    def readers_of(space: str) -> frozenset[str]:
+        if space not in readers:
+            readers[space] = frozenset(
+                p.id for p in people if can_read(space, p, rules))
+        return readers[space]
+
+    findings: list[Finding] = []
+    for rel in rels:
+        src_space = space_of_path(rel)
+        # A personal space (People/<id>) has a single reader — its owner. A name
+        # they reference in their own notes is exposed to no one else, so it can
+        # never be a cross-person leak; skip to avoid "owner cannot see it" noise.
+        if src_space.startswith("People/"):
+            continue
+        src_readers = readers_of(src_space)
+        if not src_readers:
+            continue
+        flagged: set[str] = set()  # target spaces already reported for this file
+        for target in extract_wikilinks((master / rel).read_text()):
+            hit = _resolve_target(target, paths, by_stem)
+            if hit is None:
+                continue
+            tgt_space = space_of_path(hit)
+            if tgt_space is None or tgt_space == src_space or tgt_space in flagged:
+                continue
+            leaked = src_readers - readers_of(tgt_space)
+            if leaked:
+                flagged.add(tgt_space)
+                findings.append(Finding(
+                    "warn", "cross-refs",
+                    f"{rel} links to {tgt_space!r}, but {len(leaked)} reader(s) of "
+                    f"{src_space!r} cannot see it: {', '.join(sorted(leaked))} — "
+                    f"the name leaks even though the file does not"))
     return findings
 
 
@@ -186,6 +281,8 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
     findings += _check_space_coverage(master, rules)
+    findings += _check_orphan_files(master)
+    findings += _check_cross_space_refs(master, org, rules)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
     if out_root is not None:

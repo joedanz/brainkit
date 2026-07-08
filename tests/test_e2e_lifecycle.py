@@ -62,6 +62,16 @@ def _content_files(vault: Path) -> set[str]:
 
 def _populate(master: Path) -> None:
     (master / "_meta/org.yaml").write_text(ORG_YAML)
+    # Explicit spaces so this lifecycle test owns its permission model rather than
+    # inheriting the scaffold default (which is deny-by-default for Clients). Here
+    # Clients are everyone-readable — the isolation asserts below depend on it.
+    (master / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
+        '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
+        '  - {path: "Clients/*", read: [everyone],        write: ["role:admin"]}\n'
+    )
     _write(master, "Company/Home.md",
            "# Northwind — Home\n\nSee [[Q3 Strategy]] and the [[Ops Runbook]].\n")
     _write(master, "Company/Decisions/Q3 Strategy.md", "Ship the pilot in Q3.\n")
