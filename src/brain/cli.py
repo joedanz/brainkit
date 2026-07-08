@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
 from brain.compiler import compile_all, compile_vault
+from brain.cycle import run_cycle
+from brain.doctor import run_doctor
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
 from brain.writeback import apply_writeback
@@ -88,6 +92,45 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_cycle(args) -> int:
+    report = run_cycle(Path(args.master), Path(args.out),
+                       today=date.today().isoformat())
+    if args.json:
+        payload = asdict(report)
+        payload["ok"] = report.ok
+        print(json.dumps(payload, indent=2))
+    else:
+        for w in report.writebacks:
+            line = f"writeback {w.person_id}: {w.status}"
+            if w.status == "applied":
+                line += f" ({w.applied} change(s))"
+            print(line)
+            for v in w.violations:
+                print(f"  {v}", file=sys.stderr)
+        print(f"swept {report.swept} draft(s); "
+              f"compiled {report.compiled} vault(s); "
+              f"{report.pending} promotion(s) pending")
+    return 0 if report.ok else 1
+
+
+def cmd_doctor(args) -> int:
+    out_root = Path(args.out) if args.out else None
+    findings = run_doctor(Path(args.master), out_root)
+    errors = [f for f in findings if f.severity == "error"]
+    if args.json:
+        print(json.dumps({
+            "ok": not errors,
+            "findings": [asdict(f) for f in findings],
+        }, indent=2))
+    else:
+        for f in findings:
+            print(f"[{f.severity.upper():5}] {f.check}: {f.message}")
+        warns = sum(1 for f in findings if f.severity == "warn")
+        print(f"{len(errors)} error(s), {warns} warning(s), "
+              f"{len(findings)} finding(s) total")
+    return 1 if errors else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -116,6 +159,18 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("dir")
     i.add_argument("--company", required=True)
     i.set_defaults(func=cmd_init)
+
+    y = sub.add_parser("cycle", help="writeback all, sweep promotions, recompile")
+    y.add_argument("--master", required=True)
+    y.add_argument("--out", required=True)
+    y.add_argument("--json", action="store_true")
+    y.set_defaults(func=cmd_cycle)
+
+    d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
+    d.add_argument("--master", required=True)
+    d.add_argument("--out")
+    d.add_argument("--json", action="store_true")
+    d.set_defaults(func=cmd_doctor)
 
     return parser
 
