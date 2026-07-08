@@ -90,8 +90,9 @@ def compile_vault(
         if not out.exists():
             old.rename(out)
         else:
-            if (old / ".git").exists() and not (out / ".git").exists():
-                shutil.move(str(old / ".git"), str(out / ".git"))
+            for keep in (".git", ".brain"):
+                if (old / keep).exists() and not (out / keep).exists():
+                    shutil.move(str(old / keep), str(out / keep))
             shutil.rmtree(old)
 
     if building.exists():
@@ -130,8 +131,11 @@ def compile_vault(
         if out.exists():
             out.rename(old)
         shutil.move(str(building), str(out))
-        if (old / ".git").exists():
-            shutil.move(str(old / ".git"), str(out / ".git"))
+        # Machine-local state (git history, the .brain search index) lives in
+        # the vault but is never compiled output; carry it across the swap.
+        for keep in (".git", ".brain"):
+            if (old / keep).exists():
+                shutil.move(str(old / keep), str(out / keep))
         if old.exists():
             shutil.rmtree(old)
     finally:

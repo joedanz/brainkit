@@ -95,7 +95,7 @@ def test_full_multiuser_lifecycle(tmp_path: Path, capsys):
 
     # 2. compile all + isolation ------------------------------------------ #
     assert main(["compile", "--master", str(master), "--out", str(compiled)]) == 0
-    exempt = {"AGENTS.md", "CLAUDE.md", ".brain-manifest.json"}
+    exempt = {"AGENTS.md", "CLAUDE.md", ".brain-manifest.json", ".gitignore"}
     for pid in PEOPLE:
         vault = compiled / pid
         expected = set(readable_spaces(master, org.people[pid], rules))
