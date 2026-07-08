@@ -14,7 +14,7 @@ from brain.cycle import run_cycle
 from brain.doctor import run_doctor
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
-from brain.writeback import apply_writeback
+from brain.writeback import ManifestError, apply_writeback
 
 
 def _load(master: Path):
@@ -47,7 +47,11 @@ def cmd_writeback(args) -> int:
     if person is None:
         print(f"unknown person: {args.person}", file=sys.stderr)
         return 1
-    result = apply_writeback(master, vault, person, rules)
+    try:
+        result = apply_writeback(master, vault, person, rules)
+    except ManifestError as e:
+        print(f"cannot write back: {e}", file=sys.stderr)
+        return 1
     if result.violations:
         print("REJECTED — nothing applied:", file=sys.stderr)
         for v in result.violations:

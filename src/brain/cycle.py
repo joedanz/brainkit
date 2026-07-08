@@ -17,7 +17,7 @@ from pathlib import Path
 from brain.compiler import MANIFEST_NAME, compile_all
 from brain.promotions import list_pending, sweep
 from brain.schemas import load_org, load_spaces
-from brain.writeback import apply_writeback
+from brain.writeback import ManifestError, apply_writeback
 
 
 @dataclass
@@ -50,7 +50,15 @@ def run_cycle(master: Path, out_root: Path, today: str) -> CycleReport:
         if not (vault / MANIFEST_NAME).is_file():
             writebacks.append(PersonWriteback(person.id, "skipped"))
             continue
-        result = apply_writeback(master, vault, person, rules)
+        try:
+            result = apply_writeback(master, vault, person, rules)
+        except ManifestError as e:
+            # A present-but-corrupt manifest means no trustworthy diff baseline
+            # for this person. Skip them (their edits, if any, wait for the next
+            # cycle) rather than aborting everyone else's refresh — the recompile
+            # below rewrites a clean manifest, so the next cycle self-heals.
+            writebacks.append(PersonWriteback(person.id, "skipped", violations=[str(e)]))
+            continue
         if result.violations:
             writebacks.append(
                 PersonWriteback(person.id, "rejected", violations=result.violations)

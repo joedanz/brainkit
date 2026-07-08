@@ -100,3 +100,43 @@ def test_cli_cycle_human_output(master, tmp_path, capsys):
     assert code == 0
     text = capsys.readouterr().out
     assert "swept" in text and "compiled" in text
+
+
+def test_cycle_skips_corrupt_manifest_and_isolates_others(master, tmp_path, capsys):
+    """A present-but-wrong-shape manifest must not abort the whole cycle: that
+    person is skipped (with a reason), everyone else is still processed, and the
+    recompile heals the manifest so the next cycle self-recovers.
+    """
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    (out / "alice/People/alice/Memory.md").write_text("alice valid edit\n")
+    (out / "bob/.brain-manifest.json").write_text("{}")  # valid JSON, wrong shape
+
+    capsys.readouterr()  # drop buffered compile output
+    code = main(["cycle", "--master", str(master), "--out", str(out), "--json"])
+    report = json.loads(capsys.readouterr().out)
+
+    statuses = {w["person_id"]: w for w in report["writebacks"]}
+    assert statuses["bob"]["status"] == "skipped"
+    assert statuses["bob"]["violations"]  # reason surfaced, not a crash
+    assert statuses["alice"]["status"] == "applied"  # not blocked by bob
+    assert "alice valid edit" in (master / "People/alice/Memory.md").read_text()
+    assert code == 0  # a skip does not flip ok; doctor is the error gate
+    # recompile rewrote bob's manifest -> next cycle sees a clean baseline
+    import json as _json
+    healed = _json.loads((out / "bob/.brain-manifest.json").read_text())
+    assert "compiled" in healed and "generated" in healed
+
+
+def test_cli_writeback_corrupt_manifest_is_clean_error(master, tmp_path, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/.brain-manifest.json").write_text("{ not json")
+
+    code = main(["writeback", "--master", str(master),
+                 "--vault", str(out / "bob"), "--person", "bob"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "cannot write back" in err and "manifest" in err
+    assert "Traceback" not in err  # handled, not a crash
