@@ -213,6 +213,57 @@ Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into C
   reported as `info`, never an error.
 </Callout>
 
+## `brain status`
+
+Counts, freshness, and health at a glance — in the terminal. Read-only: index reads go through a read-only SQLite connection, so `status` can never create or migrate an index as a side effect.
+
+```bash
+brain status --vault <vault> [--json]                  # user lens
+brain status --master <master> [--out <out>] [--json]  # admin lens
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--vault` | one of the two | A compiled per-person vault. Shows notes/chunks by space, index freshness, files pending reindex, inbox/open-action counts, most-linked notes, and embedding coverage. |
+| `--master` | one of the two | The master vault. Shows people, spaces, the promotion queue, a read/write permission matrix, and all `doctor` findings. |
+| `--out` | no | Compiled-vault root (admin lens only). Adds a per-person table: vault size, note count, index age, and edits awaiting write-back. |
+| `--json` | no | Emit the full stats structure on stdout — the automation surface. |
+
+`status` is informational and exits `0` even with warnings; `doctor` remains the failing check for CI.
+
+<Callout type="info">
+  A vault without an index still reports space and note counts from the
+  manifest, plus a hint to run `brain index`. Nothing here requires the
+  embedding provider to be configured.
+</Callout>
+
+## `brain dashboard`
+
+Generate a **self-contained HTML dashboard** — one file, inline styles and scripts, no network requests ever. Open it in any browser, email it, or drop it on a share.
+
+```bash
+brain dashboard --vault <vault> [--html dash.html] [--open]
+brain dashboard --master <master> [--out <out>] [--html dash.html] [--open]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--vault` / `--master` | one of the two | Same two lenses as `status`. |
+| `--out` | no | Compiled-vault root (admin lens only). |
+| `--html` | no | Output file path (default `brain-dashboard.html`). |
+| `--open` | no | Open the generated file in the default browser. |
+
+The **user view** shows stat tiles, a notes-by-space breakdown, recent git activity, and an interactive **context graph** of the vault's wikilinks — colored by space, sized by connectedness, click a note to see what links in and out.
+
+The **admin view** shows company-wide tiles, a per-person vault table (size, notes, index age, write-back drift), the promotion queue, a spaces × people permission matrix, and `doctor` findings with severity badges.
+
+<Callout type="info">
+  Privacy is structural here too: the user dashboard reads only the compiled
+  vault, so it can only ever visualize what that person is allowed to see.
+  Settings shown in the admin view are read-only — changes stay in
+  `_meta/org.yaml` and `_meta/spaces.yaml`, where git audits them.
+</Callout>
+
 ## Exit codes
 
 | Code | Meaning |

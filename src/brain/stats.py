@@ -358,10 +358,14 @@ class MasterStats:
 
 
 def _vault_disk_bytes(vault: Path) -> int:
+    # Content only: dot-entries (.git, .brain index, .obsidian) are
+    # machine-local state, outside every space — the same rule diff_vault
+    # applies when deciding what counts as a person's content.
     return sum(
         f.stat().st_size
         for f in vault.rglob("*")
-        if f.is_file() and not f.is_symlink() and ".git" not in f.parts
+        if f.is_file() and not f.is_symlink()
+        and not any(part.startswith(".") for part in f.relative_to(vault).parts)
     )
 
 

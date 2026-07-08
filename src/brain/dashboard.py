@@ -249,25 +249,25 @@ function renderGraph(parent, graph) {
         var b = nodes[j];
         var dx = a.x - b.x, dy = a.y - b.y;
         var d2 = dx * dx + dy * dy + 0.01;
-        var f = 1400 / d2 * alpha;
+        var f = 9000 / d2 * alpha;
         var d = Math.sqrt(d2);
         dx /= d; dy /= d;
         a.vx += dx * f; a.vy += dy * f;
         b.vx -= dx * f; b.vy -= dy * f;
       }
-      a.vx += (W / 2 - a.x) * 0.002 * alpha;
-      a.vy += (H / 2 - a.y) * 0.002 * alpha;
+      a.vx += (W / 2 - a.x) * 0.0012 * alpha;
+      a.vy += (H / 2 - a.y) * 0.0012 * alpha;
     }
     edges.forEach(function (e) {
       var dx = e.t.x - e.s.x, dy = e.t.y - e.s.y;
       var d = Math.sqrt(dx * dx + dy * dy) + 0.01;
-      var f = (d - 70) * 0.01 * alpha;
+      var f = (d - 130) * 0.006 * alpha;
       dx /= d; dy /= d;
       e.s.vx += dx * f * d; e.s.vy += dy * f * d;
       e.t.vx -= dx * f * d; e.t.vy -= dy * f * d;
     });
     nodes.forEach(function (n) {
-      n.vx *= 0.82; n.vy *= 0.82;
+      n.vx *= 0.85; n.vy *= 0.85;
       n.x = Math.max(n.radius, Math.min(W - n.radius, n.x + n.vx));
       n.y = Math.max(n.radius, Math.min(H - n.radius, n.y + n.vy));
     });
