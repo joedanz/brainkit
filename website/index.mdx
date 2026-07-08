@@ -29,6 +29,8 @@ flowchart TB
     M -->|every commit| C
     C -->|"(commit, person) → slice"| V
     V -->|sync down| E
+    V -.->|brain index| I["Search index<br/>.brain/ · per-vault"]
+    I -.->|search / MCP| E
     E -->|edits| W
     W -->|all paths in scope| M
     E -->|promotion draft| Q
@@ -39,6 +41,7 @@ flowchart TB
 - **Compiler** — deterministic `(master commit, person) → filtered vault`. Copies only readable spaces, stubs links to notes the person can't see, and fails closed so a bug can only ever show *less*.
 - **Write-back** — validates every changed path against the person's write permissions server-side, then applies to master. One out-of-scope edit rejects the whole change set.
 - **Promotions** — the *only* path from a private space to a shared one, and a human gates every one.
+- **Retrieval** — each vault gets a local hybrid search index built *only* from its own compiled slice, so search inherits the compiler's boundary — it can't return what the compiler already left out. Reached by CLI or as MCP tools.
 
 ## What to read next
 
@@ -52,6 +55,9 @@ flowchart TB
   <Card title="The compiler" icon="lock" href="/concepts/the-compiler">
     Why the privacy guarantee is structural, and what "fail closed" buys you.
   </Card>
+  <Card title="Retrieval" icon="search" href="/concepts/retrieval">
+    Hybrid search over each vault, with the boundary enforced by construction.
+  </Card>
   <Card title="CLI reference" icon="terminal" href="/reference/cli">
     Every `brain` subcommand, its flags, and its exit codes.
   </Card>
@@ -59,7 +65,7 @@ flowchart TB
 
 ## Design goals
 
-- **Structural privacy** — the vault contains only what its owner may see.
+- **Structural privacy** — the vault contains only what its owner may see, and search inherits that: a per-vault index can't surface what the compiler left out.
 - **A brain that feeds itself** — knowledge flows upward through a human-approved queue, so the shared brain neither starves (the wiki failure mode) nor leaks (the auto-sync failure mode).
 - **Plain markdown you own** — the whole vault is portable files, readable in Obsidian, GitHub, or any editor.
 - **Start small, scale structurally** — the pilot runs 5–25 people; growing to 150+ changes capacity, not architecture.
