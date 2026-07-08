@@ -1,0 +1,66 @@
+---
+title: Per-Employee Setup
+description: Give each person sync access to their slice and point their agent at it.
+icon: user-plus
+---
+
+Once [the master is compiled](/getting-started), each employee needs two things: sync access to *their* vault (and nothing else), and an agent pointed at it.
+
+<Steps>
+  <Step title="Grant per-person sync access">
+    Give the employee access to `compiled/<person-id>/` **only** — a per-person
+    deploy key or a per-person remote. Never hand out access to the master or to
+    another person's slice.
+
+    <Callout type="warning">
+      This is a real boundary, not a convention. The master vault is the tenant
+      wall; a person who can read the master can read everyone. Sync access is
+      always to a compiled slice.
+    </Callout>
+  </Step>
+
+  <Step title="Clone and open in Obsidian">
+    On their machine:
+
+    ```bash
+    git clone <their-vault-remote> ~/brain
+    ```
+
+    Open `~/brain` as an Obsidian vault (the pilot uses the Obsidian Git plugin
+    to sync). Everything is plain markdown, so any editor works too.
+  </Step>
+
+  <Step title="Point an agent at the vault">
+    The compiled vault is self-describing — its root `AGENTS.md` and `CLAUDE.md`
+    carry the full protocol.
+
+    <Tabs>
+      <Tab title="Claude Code">
+        Nothing to install. Open `~/brain` in Claude Code; the vault's
+        `CLAUDE.md` carries the routing and promotion protocol.
+      </Tab>
+      <Tab title="Hermes">
+        ```bash
+        hermes profile install github.com/<your-org>/company-brain --alias
+        ```
+        Set `terminal.cwd` to `~/brain` in the profile config before the first
+        run. Credentials, memories, and sessions stay on the employee's machine.
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+## The daily flow
+
+- **In:** transcripts and notes drop into `People/<you>/Inbox/`. The agent
+  summarizes, extracts decisions and action items, and routes them per the
+  vault protocol.
+- **Back up:** edits sync to the server, which runs `brain writeback` per person,
+  then `brain promotions sweep` (agent drafts → pending queue), then
+  `brain compile` to refresh everyone.
+- **Sharing:** the agent drafts a promotion; an owner approves it with
+  `brain promotions approve <id> --master … --approver <you>`. See
+  [Promotions](/concepts/promotions).
+
+Read the [deployment rule](/guides/deployment) before running any personal agent
+server-side — it is the one operational mistake that breaks the tenant wall.

@@ -1,0 +1,88 @@
+---
+title: CLI Reference
+description: Every brain subcommand, its flags, and its exit codes.
+icon: terminal
+---
+
+The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, and manage promotions.
+
+```
+brain {init,compile,writeback,promotions} …
+```
+
+Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
+
+## `brain init`
+
+Scaffold a new company master vault.
+
+```bash
+brain init <dir> --company "Acme Co"
+```
+
+| Argument | Required | Meaning |
+|---|---|---|
+| `dir` | yes | Destination directory; must be empty or nonexistent. |
+| `--company` | yes | Company name, woven into the seeded `Company/` notes. |
+
+Creates the space layout, `_meta/org.yaml` and `_meta/spaces.yaml`, the `_meta/promotions/{pending,approved,rejected}/` queue, the master-root `AGENTS.md` (chief-of-staff protocol), and an initial git commit.
+
+## `brain compile`
+
+Materialize per-person vaults from the master.
+
+```bash
+brain compile --master <master> --out <out> [--person <id>]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--master` | yes | Path to the master vault. |
+| `--out` | yes | Output root; each person's slice lands in `<out>/<id>/`. |
+| `--person` | no | Compile only this person instead of everyone. |
+
+<Callout type="info">
+  Re-run on every master change. The compiler [fails closed](/concepts/the-compiler#fail-closed):
+  if a compile errors, the previous slice stands.
+</Callout>
+
+## `brain writeback`
+
+Validate a person's edits and apply them to the master.
+
+```bash
+brain writeback --master <master> --vault <vault> --person <id>
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--master` | yes | Path to the master vault. |
+| `--vault` | yes | The person's edited (synced) vault. |
+| `--person` | yes | Whose edits these are — determines the write scope. |
+
+Every changed path is checked against the person's write permissions server-side. If **any** path is out of scope, the whole change set is rejected: nothing is applied, the violations print to stderr, and the command exits `1`. This is deliberate — there is no partial write that could leave the master half-updated.
+
+## `brain promotions`
+
+Manage the [promotion queue](/concepts/promotions).
+
+```bash
+brain promotions {list,sweep,approve,reject} [id] --master <master> [--approver <who>] [--reason <text>]
+```
+
+| Action | Uses | Meaning |
+|---|---|---|
+| `list` | `--master` | Print pending promotions (`id`, from, target). |
+| `sweep` | `--master` | Pull agent drafts from `People/*/Promotions/` into the pending queue. |
+| `approve <id>` | `--master --approver` | Publish the promotion to its target space with provenance frontmatter. |
+| `reject <id>` | `--master --reason` | Move it to `rejected/` with the reason. |
+
+`approve` re-validates the target path at publish time, so a tampered pending file cannot write outside the master root or into a private space.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success. |
+| `1` | Handled error — unknown person, rejected write-back, or invalid/missing promotion. The message is on stderr. |
+| `2` | Usage error from argument parsing (unknown subcommand, missing required flag). |
