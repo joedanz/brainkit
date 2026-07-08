@@ -10,8 +10,8 @@ Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and
 
 ```yaml
 people:
-  alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
-  bob:   {name: Bob Rivera, teams: [ops]}
+  alice: {name: Alice Nguyen, roles: [admin], teams: [sales], email: alice@acme.com}
+  bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}
 ```
 
 | Field | Type | Required | Meaning |
@@ -20,6 +20,7 @@ people:
 | `name` | string | yes | Display name. |
 | `roles` | list of strings | no | Roles this person holds; resolved against `role:` grants. Defaults to none. |
 | `teams` | list of strings | no | Teams this person belongs to; resolved against `team:` grants. Defaults to none. |
+| `email` | string | no | The person's address, used by [`brain ingest --from`](/guides/getting-things-in#email-in) to resolve email intake to them. Must be unique across people; a duplicate is a load error. |
 
 Field **types** are validated: a scalar where a list is expected (`roles: admin` instead of `roles: [admin]`) is rejected rather than silently coerced.
 

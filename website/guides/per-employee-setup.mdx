@@ -72,9 +72,10 @@ Once [the master is compiled](/getting-started), each employee needs two things:
 
 ## The daily flow
 
-- **In:** transcripts and notes drop into `People/<you>/Inbox/`. The agent
-  summarizes, extracts decisions and action items, and routes them per the
-  vault protocol.
+- **In:** transcripts and notes reach `People/<you>/Inbox/` — dropped in as a
+  file, or sent through an [email/chat/voice/upload channel](/guides/getting-things-in)
+  backed by `brain ingest`. The agent summarizes, extracts decisions and action
+  items, and routes them per the vault protocol.
 - **Back up:** edits sync to the server, which runs a single scheduled command —
   [`brain cycle`](/reference/cli#brain-cycle) — that writes back every person's
   edits, sweeps agent drafts into the pending queue, and recompiles everyone, in

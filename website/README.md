@@ -24,7 +24,7 @@ npm start          # node dist/rsc/index.js
 docs.json                     navigation + theme
 index.mdx                     overview
 getting-started.mdx           operator quickstart
-guides/                       per-employee-setup, deployment
+guides/                       per-employee-setup, getting-things-in, deployment
 concepts/                     spaces-and-permissions, the-compiler, promotions, retrieval
 reference/                    cli, configuration
 ```

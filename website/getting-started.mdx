@@ -26,7 +26,7 @@ uv tool install git+https://github.com/joedanz/brain
 # or, from a clone:  uv pip install -e .
 ```
 
-`brain --help` should now list the `init`, `compile`, `writeback`, `promotions`, `cycle`, `index`, `search`, `mcp`, and `doctor` subcommands.
+`brain --help` should now list the `init`, `ingest`, `compile`, `writeback`, `promotions`, `cycle`, `index`, `search`, `mcp`, and `doctor` subcommands.
 
 ## Stand up a company brain
 
@@ -47,12 +47,14 @@ uv tool install git+https://github.com/joedanz/brain
 
     ```yaml
     people:
-      alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
-      bob:   {name: Bob Rivera, teams: [ops]}
+      alice: {name: Alice Nguyen, roles: [admin], teams: [sales], email: alice@acme.com}
+      bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}
     ```
 
-    Adjust `_meta/spaces.yaml` only if the default visibility (Company readable
-    by everyone, Teams/People scoped by membership) doesn't fit. See
+    `email` is optional — add it for anyone who should be able to
+    [email notes into their brain](/guides/getting-things-in). Adjust
+    `_meta/spaces.yaml` only if the default visibility (Company readable by
+    everyone, Teams/People scoped by membership) doesn't fit. See
     [Configuration](/reference/configuration) for the schema.
   </Step>
 
@@ -104,4 +106,6 @@ uv tool install git+https://github.com/joedanz/brain
 ```
 
 Next, hand each person sync access to their slice — see
-[Per-employee setup](/guides/per-employee-setup).
+[Per-employee setup](/guides/per-employee-setup) — and wire up how notes get in,
+from a plain file drop to email or chat, in
+[Getting things in](/guides/getting-things-in).
