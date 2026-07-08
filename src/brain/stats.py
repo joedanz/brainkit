@@ -17,8 +17,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from brain.resolver import space_of_path
-from brain.writeback import _load_manifest
+from brain.doctor import Finding, run_doctor
+from brain.promotions import list_pending
+from brain.resolver import (
+    _match_rule,
+    can_read,
+    can_write_path,
+    enumerate_spaces,
+    space_of_path,
+)
+from brain.schemas import load_org, load_spaces
+from brain.writeback import ManifestError, _load_manifest, diff_vault
 
 
 @dataclass
@@ -303,6 +312,139 @@ def _count_files(directory: Path) -> int:
     )
 
 
+# ---- master (admin lens) -----------------------------------------------------
+
+@dataclass
+class PersonVaultStats:
+    person_id: str
+    name: str
+    compiled: bool
+    disk_bytes: int  # content size; .git history is machine-local, excluded
+    notes: int
+    index_built_at: str | None
+    drift: int | None  # edits awaiting writeback; None if manifest unreadable
+    drift_error: str | None
+
+
+@dataclass
+class PromotionSummary:
+    id: str
+    person_id: str
+    target_path: str
+    created: str
+
+
+@dataclass
+class SpacePermission:
+    space: str
+    readers: list[str]  # person ids
+    writers: list[str]
+
+
+@dataclass
+class MasterStats:
+    kind: str  # always "master"
+    master: str
+    out_root: str | None
+    collected_at: str
+    people_count: int
+    spaces: list[str]
+    permissions: list[SpacePermission]
+    uncovered_spaces: list[str]
+    people: list[PersonVaultStats]
+    promotions_pending: list[PromotionSummary]
+    findings: list[Finding]
+    warnings: list[str] = field(default_factory=list)
+
+
+def _vault_disk_bytes(vault: Path) -> int:
+    return sum(
+        f.stat().st_size
+        for f in vault.rglob("*")
+        if f.is_file() and not f.is_symlink() and ".git" not in f.parts
+    )
+
+
+def _read_index_built_at(vault: Path) -> str | None:
+    db = vault / ".brain" / "index.db"
+    if not db.is_file():
+        return None
+    try:
+        conn = _ro_connect(db)
+        try:
+            row = conn.execute(
+                "SELECT value FROM index_meta WHERE key = 'built_at'").fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+
+def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterStats:
+    master = Path(master)
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+
+    warnings: list[str] = []
+    spaces = enumerate_spaces(master)
+    uncovered = [s for s in spaces if _match_rule(s, rules)[0] is None]
+    permissions = [
+        SpacePermission(
+            space=s,
+            readers=[p.id for p in org.people.values() if can_read(s, p, rules)],
+            writers=[p.id for p in org.people.values()
+                     if can_write_path(f"{s}/x.md", p, rules)],
+        )
+        for s in spaces
+    ]
+
+    people: list[PersonVaultStats] = []
+    for person in org.people.values():
+        entry = PersonVaultStats(
+            person_id=person.id, name=person.name, compiled=False,
+            disk_bytes=0, notes=0, index_built_at=None,
+            drift=None, drift_error=None,
+        )
+        if out_root is not None:
+            vault = Path(out_root) / person.id
+            if vault.is_dir():
+                entry.compiled = True
+                entry.disk_bytes = _vault_disk_bytes(vault)
+                entry.index_built_at = _read_index_built_at(vault)
+                try:
+                    manifest = _load_manifest(vault)
+                    generated = set(manifest["generated"])
+                    entry.notes = sum(
+                        1 for rel in manifest["compiled"]
+                        if rel.endswith(".md") and rel not in generated)
+                    entry.drift = len(diff_vault(vault))
+                except ManifestError as e:
+                    entry.drift_error = str(e)
+        people.append(entry)
+
+    promotions = [
+        PromotionSummary(id=p.id, person_id=p.person_id,
+                         target_path=p.target_path, created=p.created)
+        for p in list_pending(master)
+    ]
+
+    return MasterStats(
+        kind="master",
+        master=str(master),
+        out_root=str(out_root) if out_root is not None else None,
+        collected_at=_utcnow(),
+        people_count=len(org.people),
+        spaces=spaces,
+        permissions=permissions,
+        uncovered_spaces=uncovered,
+        people=people,
+        promotions_pending=promotions,
+        findings=run_doctor(master, Path(out_root) if out_root else None),
+        warnings=warnings,
+    )
+
+
 # ---- plain-text rendering ----------------------------------------------------
 
 def _table(rows: list[tuple[str, ...]], indent: str = "  ") -> list[str]:
@@ -349,6 +491,69 @@ def format_vault_status(s: VaultStats) -> str:
         lines += _table([
             (c.sha, c.date, c.subject) for c in s.recent_commits[:5]
         ])
+    for w in s.warnings:
+        lines.append(f"warning: {w}")
+    return "\n".join(lines)
+
+
+def _human_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
+        n /= 1024
+    return f"{n} B"  # unreachable
+
+
+def format_master_status(s: MasterStats) -> str:
+    lines = [f"master {s.master}"]
+    lines.append(
+        f"people: {s.people_count}; spaces: {len(s.spaces)}; "
+        f"promotions pending: {len(s.promotions_pending)}")
+    if s.uncovered_spaces:
+        lines.append("uncovered spaces: " + ", ".join(s.uncovered_spaces))
+
+    if s.out_root is not None:
+        lines.append("vaults:")
+        rows = [("person", "size", "notes", "index built", "drift")]
+        for p in s.people:
+            if not p.compiled:
+                rows.append((p.person_id, "-", "-", "-", "not compiled"))
+            else:
+                drift = p.drift_error if p.drift_error else str(p.drift)
+                rows.append((
+                    p.person_id,
+                    _human_bytes(p.disk_bytes),
+                    str(p.notes),
+                    p.index_built_at or "never",
+                    drift,
+                ))
+        lines += _table(rows)
+
+    if s.promotions_pending:
+        lines.append("promotions pending:")
+        lines += _table([
+            (p.id, f"from={p.person_id}", p.target_path)
+            for p in s.promotions_pending
+        ])
+
+    lines.append("permissions:")
+    lines += _table(
+        [("space", "read", "write")]
+        + [
+            (perm.space,
+             ",".join(perm.readers) or "-",
+             ",".join(perm.writers) or "-")
+            for perm in s.permissions
+        ])
+
+    errors = sum(1 for f in s.findings if f.severity == "error")
+    warns = sum(1 for f in s.findings if f.severity == "warn")
+    if s.findings:
+        lines.append("doctor:")
+        lines += _table([
+            (f"[{f.severity.upper()}]", f.check, f.message) for f in s.findings
+        ])
+    lines.append(f"{errors} error(s), {warns} warning(s) from doctor")
     for w in s.warnings:
         lines.append(f"warning: {w}")
     return "\n".join(lines)
