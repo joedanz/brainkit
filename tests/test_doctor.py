@@ -80,11 +80,32 @@ def test_space_with_no_rule_is_warn(master):
     assert "warn" in _severities(findings, "space-coverage")
 
 
-def test_symlink_in_master_is_error(master):
+def test_orphan_loose_file_under_nested_top_is_warn(master):
     seed_meta(master)
-    (master / "Company/evil.md").symlink_to(master / "People/bob/Memory.md")
+    # A file directly under Clients/ (not in a client subfolder) is in no space,
+    # so the compiler copies it into nobody's vault — it vanishes silently.
+    (master / "Clients/Globex.md").write_text("# Globex\nLoose, in no space.\n")
     findings = run_doctor(master)
-    assert "error" in _severities(findings, "symlinks")
+    assert "warn" in _severities(findings, "orphan-files")
+    # A properly nested client file is fine.
+    (master / "Clients/Globex.md").unlink()
+    (master / "Clients/Globex/Globex.md").parent.mkdir(parents=True)
+    (master / "Clients/Globex/Globex.md").write_text("# Globex\n")
+    findings = run_doctor(master)
+    assert "warn" not in _severities(findings, "orphan-files")
+
+
+def test_cross_space_reference_warns_and_same_space_is_silent(master):
+    seed_meta(master)
+    # The fixture's Company/Home.md links to [[Big Deal Decision]] (Company, same
+    # space) and [[Q3 Pipeline]] (Teams/sales). Company is everyone-readable, but
+    # bob (ops) cannot read Teams/sales — so the second link leaks the name.
+    findings = [f for f in run_doctor(master) if f.check == "cross-refs"]
+    home = [f for f in findings if f.message.startswith("Company/Home.md")]
+    assert len(home) == 1                     # same-space link is NOT flagged
+    assert home[0].severity == "warn"
+    assert "Teams/sales" in home[0].message   # the space that leaked
+    assert "bob" in home[0].message           # the reader who cannot see it
 
 
 def test_compiled_checks_clean_and_missing_vault(master, tmp_path):
