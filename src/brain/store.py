@@ -23,7 +23,7 @@ import sqlite_vec
 
 from brain.chunker import Chunk
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS files (
     sha256   TEXT NOT NULL,
     space    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS links (
+    src_rel_path    TEXT NOT NULL,
+    target_rel_path TEXT NOT NULL,
+    resolved        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (src_rel_path, target_rel_path)
+);
+CREATE INDEX IF NOT EXISTS links_by_target ON links(target_rel_path);
 CREATE TABLE IF NOT EXISTS chunks (
     id           INTEGER PRIMARY KEY,
     rel_path     TEXT NOT NULL,
@@ -135,10 +142,15 @@ def _sanitize_fts(query: str) -> str:
 
 
 class IndexStore:
-    def __init__(self, conn: sqlite3.Connection, vectors: VectorBackend, vector_status: str) -> None:
+    def __init__(self, conn: sqlite3.Connection, vectors: VectorBackend, vector_status: str,
+                 migrated_from: int | None = None) -> None:
         self.conn = conn
         self.vectors = vectors
         self.vector_status = vector_status
+        # Set when open() upgraded an older-schema index in place. New tables
+        # start empty for already-indexed files, so the indexer treats this as
+        # a full rebuild (cheap: the embedding cache absorbs the cost).
+        self.migrated_from = migrated_from
 
     @classmethod
     def open(cls, path: Path, *, want_vectors: bool = True) -> IndexStore:
@@ -155,6 +167,7 @@ class IndexStore:
                 f"(schema {version} > {SCHEMA_VERSION}); rebuild with: brain index --full"
             )
         conn.executescript(_DDL)
+        migrated_from = version if 0 < version < SCHEMA_VERSION else None
         if version < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
@@ -165,7 +178,7 @@ class IndexStore:
         else:
             vectors = NullVectorBackend()
             status = "sqlite-vec unavailable — keyword-only search" if want_vectors else "vectors disabled"
-        return cls(conn, vectors, status)
+        return cls(conn, vectors, status, migrated_from)
 
     # ---- reads -------------------------------------------------------------
     def files(self) -> dict[str, str]:
@@ -211,6 +224,7 @@ class IndexStore:
         self.conn.executemany("DELETE FROM chunks_fts WHERE rowid = ?", [(i,) for i in ids])
         self.conn.execute("DELETE FROM chunks WHERE rel_path = ?", (rel_path,))
         self.conn.execute("DELETE FROM files WHERE rel_path = ?", (rel_path,))
+        self.conn.execute("DELETE FROM links WHERE src_rel_path = ?", (rel_path,))
         self.conn.commit()
 
     def add_file(
@@ -221,12 +235,19 @@ class IndexStore:
         chunks: list[Chunk],
         chunk_shas: list[str],
         vectors: list[bytes] | None,
+        links: list[tuple[str, int]] | None = None,
     ) -> None:
         cur = self.conn.cursor()
         cur.execute(
             "INSERT OR REPLACE INTO files(rel_path, sha256, space) VALUES (?, ?, ?)",
             (rel_path, sha256, space),
         )
+        if links:
+            cur.executemany(
+                "INSERT OR REPLACE INTO links(src_rel_path, target_rel_path, resolved) "
+                "VALUES (?, ?, ?)",
+                [(rel_path, target, resolved) for target, resolved in links],
+            )
         ids: list[int] = []
         for ch, csha in zip(chunks, chunk_shas):
             cur.execute(
