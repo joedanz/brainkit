@@ -59,11 +59,20 @@ uv tool install git+https://github.com/joedanz/brain
 </Steps>
 
 <Callout type="warning">
-  Re-run `brain compile` on **every** master change — wire it to a cron job or a
-  git `post-commit` hook. A person's device only ever sees the last compiled
-  output, so a stale compile means stale knowledge (never leaked knowledge —
-  the compiler fails closed).
+  A person's device only ever sees the last compiled output, so a stale compile
+  means stale knowledge (never leaked knowledge — the compiler fails closed).
+  Once people are editing, don't run `compile` by hand: schedule
+  [`brain cycle`](/reference/cli#brain-cycle) (write-back → sweep → recompile) on
+  a cron job or git `post-receive` hook, and gate it with
+  [`brain doctor`](/reference/cli#brain-doctor) to catch integrity problems
+  before anyone syncs.
 </Callout>
+
+```bash
+# ongoing loop (cron): refresh everyone, then health-check
+*/10 * * * * brain cycle  --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-cycle.log  2>&1
+0    * * * * brain doctor --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-doctor.log 2>&1
+```
 
 ## What you just built
 
