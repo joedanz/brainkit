@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,28 +133,34 @@ def _resolve_target(target: str, paths: set[str], by_stem: dict[str, str]) -> st
     return by_stem.get(_stem(target))
 
 
+def _reader_index(org: Org, rules: tuple[SpaceRule, ...]):
+    """Return a memoized `readers_of(space) -> frozenset[person_id]`."""
+    people = list(org.people.values())
+    cache: dict[str, frozenset[str]] = {}
+
+    def readers_of(space: str) -> frozenset[str]:
+        if space not in cache:
+            cache[space] = frozenset(
+                p.id for p in people if can_read(space, p, rules))
+        return cache[space]
+
+    return readers_of
+
+
 def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
     """A note in space S that links to a note in space T leaks T's *name* to
     everyone who can read S — even though the compiler guarantees the *file*
     never crosses. If some reader of S cannot read T, that link exposes a note
     (client, deal, person) they aren't cleared to see. Warn, not error: no file
-    crossed, but a human wrote a name into the wrong space. Plain-text mentions
-    (a client named without a wikilink) are unstructured and out of scope."""
+    crossed, but a human wrote a name into the wrong space. Unlinked plain-text
+    mentions are caught separately by `_check_plain_refs`."""
     rels = _content_files(master)
     paths = set(rels)
     by_stem: dict[str, str] = {}
     for rel in rels:
         by_stem.setdefault(_stem(rel), rel)
 
-    people = list(org.people.values())
-    readers: dict[str, frozenset[str]] = {}
-
-    def readers_of(space: str) -> frozenset[str]:
-        if space not in readers:
-            readers[space] = frozenset(
-                p.id for p in people if can_read(space, p, rules))
-        return readers[space]
-
+    readers_of = _reader_index(org, rules)
     findings: list[Finding] = []
     for rel in rels:
         src_space = space_of_path(rel)
@@ -181,6 +188,69 @@ def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]
                     f"{rel} links to {tgt_space!r}, but {len(leaked)} reader(s) of "
                     f"{src_space!r} cannot see it: {', '.join(sorted(leaked))} — "
                     f"the name leaks even though the file does not"))
+    return findings
+
+
+_WIKILINK_STRIP = re.compile(r"!?\[\[[^\]]*\]\]")
+
+
+def _sensitive_names(master: Path, org: Org, readers_of) -> dict[str, str]:
+    """Map each restricted space's leaf name to its space path, for spaces some
+    person cannot read. Only names starting with a capital are kept: client and
+    deal folders are proper nouns (``Vandenberg``), while team/person identifiers
+    are lowercase (``sales``, ``marco``) and would collide with ordinary prose.
+    This is the deliberate false-positive guard — the trade is that a lowercase
+    client folder isn't scanned (name it ``Acme``, not ``acme``, to include it)."""
+    roster = frozenset(org.people)
+    names: dict[str, str] = {}
+    for space in enumerate_spaces(master):
+        leaf = space.split("/")[-1]
+        if not leaf[:1].isupper():
+            continue
+        if readers_of(space) >= roster:  # everyone can read it -> not sensitive
+            continue
+        names.setdefault(leaf, space)
+    return names
+
+
+def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+    """The unstructured sibling of `_check_cross_space_refs`: a restricted space's
+    name written into shared prose *without* a wikilink still leaks. The compiler
+    can only gate files, never redact text, so a client named in `Company/Memory`
+    reaches everyone who reads Company. We scan for restricted proper-noun space
+    names (whole word, case-sensitive) after stripping wikilinks (those are the
+    cross-refs check's job). Heuristic by nature — hence warn, not error."""
+    readers_of = _reader_index(org, rules)
+    sensitive = _sensitive_names(master, org, readers_of)
+    if not sensitive:
+        return []
+    matchers = {
+        name: re.compile(rf"(?<!\w){re.escape(name)}(?!\w)")
+        for name in sensitive
+    }
+    findings: list[Finding] = []
+    for rel in _content_files(master):
+        src_space = space_of_path(rel)
+        if src_space.startswith("People/"):
+            continue  # sole reader is the owner — see _check_cross_space_refs
+        src_readers = readers_of(src_space)
+        if not src_readers:
+            continue
+        text = _WIKILINK_STRIP.sub(" ", (master / rel).read_text())
+        flagged: set[str] = set()
+        for name, home_space in sensitive.items():
+            if home_space == src_space or home_space in flagged:
+                continue
+            leaked = src_readers - readers_of(home_space)
+            if not leaked:
+                continue
+            if matchers[name].search(text):
+                flagged.add(home_space)
+                findings.append(Finding(
+                    "warn", "plain-ref",
+                    f"{rel} mentions {name!r} ({home_space}) in prose, but "
+                    f"{len(leaked)} reader(s) of {src_space!r} cannot see that "
+                    f"space: {', '.join(sorted(leaked))}"))
     return findings
 
 
@@ -283,6 +353,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_space_coverage(master, rules)
     findings += _check_orphan_files(master)
     findings += _check_cross_space_refs(master, org, rules)
+    findings += _check_plain_refs(master, org, rules)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
     if out_root is not None:

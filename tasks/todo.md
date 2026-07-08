@@ -48,5 +48,9 @@ Files: `promotions.py` (sweep + `_resolved_ids`), `doctor.py` (`_check_orphan_fi
 (scaffold default), `spaces-and-permissions.mdx` + `cli.mdx` (docs),
 `test_promotions.py` +2, `test_doctor.py` +2, `test_e2e_lifecycle.py` (explicit spaces).
 
-Not done (out of scope, worth a follow-up): plain-text name mentions (no wikilink)
-are structurally undetectable and remain an authoring-discipline concern.
+Follow-up (shipped separately): `plain-ref` doctor check — scans shared prose for
+restricted **space names** (proper-noun/capitalized only, to bound false
+positives), same reader-set comparison as cross-refs. Space-names-only + warn
+were Joe's calls. Caught 4 real leaks on the travel demo unprompted. Residual
+gap: names that aren't folder names (nicknames, note titles) still can't be
+matched structurally.
