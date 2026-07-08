@@ -123,3 +123,31 @@ def test_drift_is_info_not_error(master, tmp_path):
     findings = run_doctor(master, out)
     drift = [f for f in findings if f.check == "compiled" and "awaiting writeback" in f.message]
     assert drift and all(f.severity == "info" for f in drift)
+
+
+def test_malformed_pending_promotion_is_warn(master):
+    seed_meta(master)
+    (master / "_meta/promotions/pending/broken.md").write_text("no frontmatter\n")
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "promotions")
+
+
+def test_stuck_draft_without_target_is_warn(master):
+    seed_meta(master)
+    d = master / "People/bob/Promotions"
+    d.mkdir(parents=True)
+    (d / "no-target.md").write_text("---\nsource: x\n---\nBody.\n")
+    findings = run_doctor(master)
+    assert any(
+        f.check == "promotions" and f.severity == "warn" and "no-target.md" in f.message
+        for f in findings
+    )
+
+
+def test_pending_count_is_info(master):
+    seed_meta(master)
+    from brain.promotions import draft_promotion
+    draft_promotion(master, "bob", "Company/Frameworks/SOP.md",
+                    "People/bob/x.md", "Body.\n", "p-1", "2026-07-07")
+    findings = run_doctor(master)
+    assert any(f.check == "promotions" and f.severity == "info" for f in findings)
