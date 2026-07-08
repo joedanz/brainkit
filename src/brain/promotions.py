@@ -27,6 +27,19 @@ def _pending_dir(master: Path) -> Path:
     return master / "_meta/promotions/pending"
 
 
+def _resolved_ids(master: Path) -> set[str]:
+    """Promotion ids already decided — approved or rejected. Sweep must never
+    re-queue these: their drafts get written back into a person's space on the
+    next cycle, and without this guard an approved item would resurface in the
+    queue (and a rejected one would come back for reconsideration) every cycle."""
+    ids: set[str] = set()
+    for state in ("approved", "rejected"):
+        d = master / "_meta/promotions" / state
+        if d.is_dir():
+            ids.update(f.stem for f in d.glob("*.md"))
+    return ids
+
+
 def _validate_target(target_path: str) -> None:
     space = space_of_path(target_path)
     if space is None:
@@ -139,6 +152,7 @@ def sweep(master: Path, today: str) -> list[Path]:
     target-path are left in place — never guessed at.
     """
     moved: list[Path] = []
+    resolved = _resolved_ids(master)
     for f in sorted(master.glob("People/*/Promotions/*.md")):
         if f.is_symlink():
             continue  # never read through links out of the person's space
@@ -149,6 +163,9 @@ def sweep(master: Path, today: str) -> list[Path]:
             continue
         target = meta.get("target-path", "")
         promo_id = f"{person_id}-{_slug(f.stem)}"
+        if promo_id in resolved:
+            f.unlink()  # already approved/rejected: clear the stale draft, don't re-queue
+            continue
         if (_pending_dir(master) / f"{promo_id}.md").exists():
             continue
         try:

@@ -152,3 +152,54 @@ def test_sweep_moves_agent_drafts_into_queue(master: Path):
     assert pending[0].target_path == "Company/Frameworks/Onboarding-SOP.md"
     assert not (d / "Onboarding SOP.md").exists()   # swept
     assert (d / "broken.md").exists()               # skipped, left in place
+
+
+def _draft(master: Path, title: str = "CBS Result") -> Path:
+    """Write an agent draft into bob's Promotions folder; return its path."""
+    d = master / "People/bob/Promotions"
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"{title}.md"
+    f.write_text(
+        "---\n"
+        "target-path: Company/Frameworks/CBS-Result.md\n"
+        "source: People/bob/Sessions/call.md\n"
+        "---\n"
+        "Conflict-based search scales to 40 robots.\n"
+    )
+    return f
+
+
+def test_sweep_does_not_resurrect_an_approved_promotion(master: Path):
+    """The bug: on the next cycle a person's already-approved draft gets written
+    back into their space and re-swept, resurfacing in the queue. Sweep must
+    treat an id already in approved/ as done and clear the stale draft."""
+    from brain.promotions import sweep
+
+    draft = _draft(master)
+    sweep(master, today="2026-07-07")
+    approve(master, "bob-cbs-result", approver="alice", date="2026-07-07")
+    assert list_pending(master) == []
+
+    # Simulate the next cycle: the draft reappears in bob's vault (writeback).
+    draft = _draft(master)
+    moved = sweep(master, today="2026-07-08")
+
+    assert moved == []                       # not re-queued
+    assert list_pending(master) == []        # queue stays empty
+    assert not draft.exists()                # stale draft cleared, won't recur
+
+
+def test_sweep_does_not_resurrect_a_rejected_promotion(master: Path):
+    from brain.promotions import sweep
+
+    _draft(master)
+    sweep(master, today="2026-07-07")
+    reject(master, "bob-cbs-result", reason="off-scope")
+    assert list_pending(master) == []
+
+    draft = _draft(master)                   # reappears next cycle
+    moved = sweep(master, today="2026-07-08")
+
+    assert moved == []                       # a rejected idea does not come back
+    assert list_pending(master) == []
+    assert not draft.exists()
