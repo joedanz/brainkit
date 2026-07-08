@@ -8,11 +8,14 @@ seeing (e.g. edits awaiting writeback).
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from brain.compiler import MANIFEST_NAME
 from brain.resolver import _match_rule, enumerate_spaces
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
 
@@ -84,6 +87,59 @@ def _check_space_coverage(master: Path, rules: tuple[SpaceRule, ...]) -> list[Fi
     return findings
 
 
+def _check_symlinks(master: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    for p in sorted(master.rglob("*")):
+        if ".git" in p.parts:
+            continue
+        if p.is_symlink():
+            findings.append(Finding(
+                "error", "symlinks",
+                f"{p.relative_to(master)} is a symlink — compiler and writeback "
+                "skip links, so this content is dead weight or an escape attempt"))
+    return findings
+
+
+def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    for person in org.people.values():
+        vault = out_root / person.id
+        for tomb in (out_root / f".{person.id}.old", out_root / f".{person.id}.building"):
+            if tomb.exists():
+                findings.append(Finding(
+                    "error", "compiled",
+                    f"{tomb.name}: leftover from a crashed compile — "
+                    "next compile will attempt recovery; investigate first"))
+        if not vault.is_dir():
+            findings.append(Finding(
+                "warn", "compiled", f"{person.id}: no compiled vault yet"))
+            continue
+        if (vault / "_meta").exists():
+            findings.append(Finding(
+                "error", "compiled",
+                f"{person.id}: _meta/ present inside compiled vault — "
+                "SECURITY: server-only data leaked to a person"))
+        manifest_path = vault / MANIFEST_NAME
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (FileNotFoundError, ValueError) as e:
+            findings.append(Finding(
+                "error", "compiled", f"{person.id}: unreadable manifest ({e})"))
+            continue
+        drifted = 0
+        for rel, sha in manifest["compiled"].items():
+            f = vault / rel
+            if not f.is_file():
+                drifted += 1
+            elif hashlib.sha256(f.read_bytes()).hexdigest() != sha:
+                drifted += 1
+        if drifted:
+            findings.append(Finding(
+                "info", "compiled",
+                f"{person.id}: {drifted} file(s) awaiting writeback"))
+    return findings
+
+
 def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
@@ -91,4 +147,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
     findings += _check_space_coverage(master, rules)
+    findings += _check_symlinks(master)
+    if out_root is not None:
+        findings += _check_compiled(master, org, out_root)
     return findings
