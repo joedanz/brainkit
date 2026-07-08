@@ -25,7 +25,7 @@ docs.json                     navigation + theme
 index.mdx                     overview
 getting-started.mdx           operator quickstart
 guides/                       per-employee-setup, deployment
-concepts/                     spaces-and-permissions, the-compiler, promotions
+concepts/                     spaces-and-permissions, the-compiler, promotions, retrieval
 reference/                    cli, configuration
 ```
 
