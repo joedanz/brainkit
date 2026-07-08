@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from brain.resolver import space_of_path
 
@@ -32,6 +32,8 @@ def _validate_target(target_path: str) -> None:
         raise PromotionError(f"target {target_path!r} is not inside any space")
     if space.startswith("People/"):
         raise PromotionError("promotions must target a shared space, not People/")
+    if len(PurePosixPath(target_path).parts) <= len(space.split("/")):
+        raise PromotionError(f"target {target_path!r} names a space root, not a file in it")
 
 
 def draft_promotion(
@@ -80,7 +82,13 @@ def list_pending(master: Path) -> list[Promotion]:
     d = _pending_dir(master)
     if not d.exists():
         return []
-    return [_parse(p) for p in sorted(d.glob("*.md"))]
+    pending: list[Promotion] = []
+    for p in sorted(d.glob("*.md")):
+        try:
+            pending.append(_parse(p))
+        except (KeyError, ValueError):
+            continue  # malformed file stays on disk for manual inspection
+    return pending
 
 
 def _find_pending(master: Path, promo_id: str) -> Path:
@@ -93,6 +101,9 @@ def _find_pending(master: Path, promo_id: str) -> Path:
 def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
     pending = _find_pending(master, promo_id)
     promo = _parse(pending)
+    # Pending files sit on disk between draft and approve; re-validate so a
+    # hand-edited target can't escape the master root.
+    _validate_target(promo.target_path)
     target = master / promo.target_path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
@@ -133,6 +144,8 @@ def sweep(master: Path, today: str) -> list[Path]:
     """
     moved: list[Path] = []
     for f in sorted(master.glob("People/*/Promotions/*.md")):
+        if f.is_symlink():
+            continue  # never read through links out of the person's space
         rel = f.relative_to(master)
         person_id = rel.parts[1]
         text = f.read_text()
