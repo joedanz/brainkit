@@ -98,7 +98,7 @@ def cmd_init(args) -> int:
 
 def cmd_cycle(args) -> int:
     report = run_cycle(Path(args.master), Path(args.out),
-                       today=date.today().isoformat())
+                       today=date.today().isoformat(), index=args.index)
     if args.json:
         payload = asdict(report)
         payload["ok"] = report.ok
@@ -114,6 +114,10 @@ def cmd_cycle(args) -> int:
         print(f"swept {report.swept} draft(s); "
               f"compiled {report.compiled} vault(s); "
               f"{report.pending} promotion(s) pending")
+        if args.index:
+            print(f"indexed {report.indexed} vault(s)")
+        for w in report.index_warnings:
+            print(f"  index warning: {w}", file=sys.stderr)
     return 0 if report.ok else 1
 
 
@@ -223,6 +227,8 @@ def build_parser() -> argparse.ArgumentParser:
     y.add_argument("--master", required=True)
     y.add_argument("--out", required=True)
     y.add_argument("--json", action="store_true")
+    y.add_argument("--index", action="store_true",
+                   help="also refresh each vault's search index after compile")
     y.set_defaults(func=cmd_cycle)
 
     ix = sub.add_parser("index", help="build/refresh the search index for a compiled vault")
