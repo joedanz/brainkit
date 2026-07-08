@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from brain.resolver import _match_rule, enumerate_spaces
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
 
@@ -27,11 +29,11 @@ def _check_meta(master: Path) -> tuple[list[Finding], Org | None, tuple[SpaceRul
     org = rules = None
     try:
         org = load_org(master / "_meta/org.yaml")
-    except (SchemaError, FileNotFoundError, OSError) as e:
+    except (SchemaError, OSError, yaml.YAMLError) as e:
         findings.append(Finding("error", "meta", f"org.yaml: {e}"))
     try:
         rules = load_spaces(master / "_meta/spaces.yaml")
-    except (SchemaError, FileNotFoundError, OSError) as e:
+    except (SchemaError, OSError, yaml.YAMLError) as e:
         findings.append(Finding("error", "meta", f"spaces.yaml: {e}"))
     return findings, org, rules
 

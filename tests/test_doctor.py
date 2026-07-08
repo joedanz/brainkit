@@ -23,6 +23,13 @@ def test_broken_org_yaml_is_error_and_stops_dependent_checks(master):
     assert not [f for f in findings if f.check == "subjects"]  # skipped
 
 
+def test_malformed_yaml_is_error_not_crash(master):
+    seed_meta(master)
+    (master / "_meta/org.yaml").write_text("people: {unclosed\n")  # invalid YAML
+    findings = run_doctor(master)  # must not raise
+    assert any(f.check == "meta" and f.severity == "error" for f in findings)
+
+
 def test_unknown_person_subject_is_error(master):
     seed_meta(master)
     (master / "_meta/spaces.yaml").write_text(
