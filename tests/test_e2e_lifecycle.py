@@ -7,6 +7,7 @@ teams exercise every read/write path, and asserts the isolation invariants that
 are the product's core security claim.
 """
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -203,3 +204,84 @@ def test_full_multiuser_lifecycle(tmp_path: Path, capsys):
     before = _commit_count(compiled / "alice")
     assert main(["compile", "--master", str(master), "--out", str(compiled)]) == 0
     assert _commit_count(compiled / "alice") == before  # no-op compile, no new commit
+
+
+def test_cycle_and_doctor_e2e(tmp_path: Path, capsys):
+    """The scheduled operator loop (`brain cycle`) plus the `brain doctor` gate,
+    driven end-to-end through the CLI exactly as cron/a git hook would.
+    """
+    master = tmp_path / "master"
+    compiled = tmp_path / "compiled"
+
+    assert main(["init", str(master), "--company", "Northwind Traders"]) == 0
+    _populate(master)
+
+    # First compile materializes every vault.
+    assert main(["compile", "--master", str(master), "--out", str(compiled)]) == 0
+
+    # doctor on a clean master + compiled root: no error findings, exit 0. ---- #
+    capsys.readouterr()  # drop buffered compile output
+    assert main(["doctor", "--master", str(master), "--out", str(compiled),
+                 "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is True
+    assert not [f for f in report["findings"] if f["severity"] == "error"]
+
+    # One cycle with a valid edit + a promotion draft, and one out-of-scope
+    # edit that must be rejected without blocking anyone else. ---------------- #
+    av = compiled / "alice"
+    (av / "People/alice/Memory.md").write_text("alice updated via cycle.\n")
+    _write(av, "People/alice/Promotions/acme-sso.md",
+           "---\ntarget-path: Clients/acme/Meeting Notes.md\n"
+           "source: People/alice/Memory.md\n---\nAcme wants SSO by Q4.\n")
+    bv = compiled / "bob"
+    (bv / "Company/Home.md").write_text("bob defaced this\n")  # read-only for bob
+    before_home = (master / "Company/Home.md").read_text()
+
+    # writeback-all -> sweep -> recompile in one command; bob's rejection -> 1.
+    capsys.readouterr()
+    assert main(["cycle", "--master", str(master), "--out", str(compiled),
+                 "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is False
+    statuses = {w["person_id"]: w["status"] for w in report["writebacks"]}
+    assert statuses["alice"] == "applied"
+    assert statuses["bob"] == "rejected"
+    assert report["swept"] == 1
+    assert report["compiled"] == len(PEOPLE)
+    assert report["pending"] == 1
+
+    # alice's edit and draft landed in master; bob's deface never did.
+    assert "alice updated via cycle" in (master / "People/alice/Memory.md").read_text()
+    assert (master / "_meta/promotions/pending/alice-acme-sso.md").exists()
+    assert (master / "Company/Home.md").read_text() == before_home
+    # Recompile refreshed the vaults: alice's swept draft is gone, and bob's
+    # out-of-scope deface was reverted from his slice.
+    assert not (compiled / "alice/People/alice/Promotions/acme-sso.md").exists()
+    assert "defaced" not in (compiled / "bob/Company/Home.md").read_text()
+
+    # doctor catches injected corruption across all three surfaces. ---------- #
+    (compiled / "alice/_meta").mkdir()
+    (compiled / "alice/_meta/org.yaml").write_text("people: {}\n")   # _meta leak
+    (master / "Company/evil.md").symlink_to(master / "People/bob/Memory.md")
+    (compiled / "bob/.brain-manifest.json").write_text("{}")  # valid JSON, wrong shape
+
+    capsys.readouterr()
+    assert main(["doctor", "--master", str(master), "--out", str(compiled),
+                 "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is False
+    checks = {(f["check"], f["severity"]) for f in report["findings"]}
+    assert ("symlinks", "error") in checks
+    assert ("compiled", "error") in checks
+    messages = " ".join(f["message"] for f in report["findings"])
+    assert "_meta/ present" in messages          # security leak surfaced
+    assert "unreadable manifest" in messages     # wrong-shape manifest, not a crash
+
+    # Without --out, doctor skips compiled-vault checks but still flags the
+    # master-side symlink.
+    capsys.readouterr()
+    assert main(["doctor", "--master", str(master), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert any(f["check"] == "symlinks" for f in report["findings"])
+    assert not [f for f in report["findings"] if f["check"] == "compiled"]
