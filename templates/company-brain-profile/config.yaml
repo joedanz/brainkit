@@ -1,0 +1,18 @@
+# company-brain profile — provisioned defaults
+# Set terminal.cwd to the employee's synced vault before install.
+
+terminal:
+  backend: local
+  cwd: "REPLACE_WITH_VAULT_PATH"
+
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  write_approval: true
+  # No external memory provider: the vault is the single source of truth.
+
+skills:
+  write_approval: true
+
+display:
+  tool_progress: new
