@@ -1,0 +1,58 @@
+---
+title: The Compiler
+description: The single deterministic component that makes privacy structural instead of promised.
+icon: lock
+---
+
+The compiler is the security boundary. It is one deterministic function:
+
+```
+(master commit, person) → filtered vault
+```
+
+Everything else in the system — sync, agents, devices — is downstream of it and cannot leak content the compiler never materialized. If the compiler is correct, the system is private.
+
+## What a slice contains
+
+- Only the spaces the person may **read**, resolved from `spaces.yaml`.
+- Generated agent context files (`AGENTS.md`, `CLAUDE.md`) scoped to that person.
+- Nothing from `_meta/`, and never the master-root `AGENTS.md` (the server
+  chief-of-staff protocol, which grants full access).
+
+It runs on every master commit, and the output is committed to that person's per-person repo.
+
+## Fail closed
+
+<Callout type="info">
+  On **any** error, the previous compiled output stands. A failure can only ever
+  mean a person temporarily sees *less* than they should — never more. There is
+  no error path that widens visibility.
+</Callout>
+
+Concretely, the compiler builds each new vault beside the old one and swaps them with a two-phase rename. If the process dies mid-swap, the previous vault (its content **and** its `.git`) is fully restored. A half-written slice never becomes the live one.
+
+## The tenant boundary is enforced, not trusted
+
+Two classes of attack are closed structurally rather than by convention:
+
+- **Symlinks are never followed** during materialization. A symlink in the
+  master that points outside a person's readable spaces cannot smuggle content
+  into their slice.
+- **Path traversal is rejected.** `..` segments and absolute paths resolve to
+  *no* space, so they are excluded rather than escaping the master root.
+
+## Link stubbing
+
+Cross-space wikilinks are allowed in the master, but a slice must not resolve a link to a note the person can't read. When the compiler finds a link whose target is outside the slice, it replaces it with an explicit stub — the reader sees that *something* is referenced, but never its contents.
+
+## How we know it holds
+
+The privacy claim is tested adversarially, not just asserted:
+
+- A **randomized no-leak property test** generates arbitrary org and vault
+  shapes, compiles them, and asserts that no foreign `People/` content — and no
+  armed honeypot instruction — ever survives into any compiled vault.
+- Targeted tests cover the symlink, `..`-traversal, and absolute-path attacks
+  above, plus the crash-recovery swap.
+
+The compiler's contract — `(commit, person) → vault` — is the one thing that never changes as the system scales from 5 people to 150+. Everything below it (per-person repos today, object storage later; direct file reads today, a search index later) can be swapped without touching the boundary.

@@ -1,0 +1,35 @@
+---
+title: Deployment Rule
+description: Where a personal agent may run — the one operational constraint that keeps tenants isolated.
+icon: server
+---
+
+<Callout type="warning">
+  **Agent profiles are not a filesystem sandbox.** A Hermes profile isolates
+  config, memory, and sessions — but the agent still has the operating-system
+  user's full file access. If two employees' agents share one uncontained host,
+  each can read the other's vault. The profile boundary is not the tenant wall.
+</Callout>
+
+The tenant wall in this system is *physical*: it holds only where a personal agent can literally reach one person's files and no one else's. So a personal agent runs only in one of these two places:
+
+<CardGroup cols={2}>
+  <Card title="On the employee's own device" icon="laptop">
+    Against their synced vault. This is the default and the simplest safe option
+    — the OS account already scopes file access to that person.
+  </Card>
+  <Card title="Server-side, in a container" icon="box">
+    A container (e.g. a Hermes Docker terminal backend) that mounts **only** that
+    person's compiled vault. The mount is the boundary.
+  </Card>
+</CardGroup>
+
+**Never** co-host multiple employees' agent profiles side-by-side on one uncontained host. That is the single configuration that turns a structural guarantee back into a promise an agent could break.
+
+## Why the compiler doesn't save you here
+
+The compiler guarantees that a person's *vault* contains only what they may see. That guarantee is about what gets written to disk. It says nothing about what a process running as your OS user can `open()` elsewhere on that disk. Keeping agents to one-vault-per-host (device or container mount) is what preserves the boundary at runtime.
+
+## Server-side jobs are different
+
+The **server chief-of-staff** agent is *supposed* to have full master access — it ingests transcripts, routes knowledge, and maintains dashboards across all spaces. Run it with master access, on cron and on Inbox drops. The deployment rule above is about *personal* agents, which must never see more than their one slice.
