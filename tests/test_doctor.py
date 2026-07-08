@@ -108,6 +108,39 @@ def test_cross_space_reference_warns_and_same_space_is_silent(master):
     assert "bob" in home[0].message           # the reader who cannot see it
 
 
+def _restrict_vandenberg(master):
+    """Add a Vandenberg client space readable only by alice."""
+    (master / "_meta/spaces.yaml").write_text(
+        SPACES_YAML
+        + '  - {path: "Clients/Vandenberg", read: ["person:alice"], write: ["person:alice"]}\n')
+    (master / "Clients/Vandenberg").mkdir(parents=True, exist_ok=True)
+    (master / "Clients/Vandenberg/Vandenberg.md").write_text("# Vandenberg\nprivate.\n")
+
+
+def test_plain_text_client_name_in_shared_prose_is_warn(master):
+    seed_meta(master)
+    _restrict_vandenberg(master)
+    # Company is everyone-readable; naming the client in prose (no wikilink) leaks
+    # the name to bob, who cannot see that client.
+    (master / "Company/Memory.md").write_text(
+        "We learned a lot from the Vandenberg expedition.\n")
+    refs = [f for f in run_doctor(master) if f.check == "plain-ref"]
+    mem = [f for f in refs if f.message.startswith("Company/Memory.md")]
+    assert mem and mem[0].severity == "warn"
+    assert "Vandenberg" in mem[0].message and "bob" in mem[0].message
+
+
+def test_plain_ref_skips_wikilinks_and_lowercase_names(master):
+    seed_meta(master)
+    _restrict_vandenberg(master)
+    # A wikilink mention is cross-refs' job, not plain-ref; and a lowercase
+    # restricted space (Teams/sales) is never scanned (would collide with prose).
+    (master / "Company/Memory.md").write_text(
+        "See [[Vandenberg]] for context. Our sales pipeline is healthy.\n")
+    refs = [f for f in run_doctor(master) if f.check == "plain-ref"]
+    assert not any(f.message.startswith("Company/Memory.md") for f in refs)
+
+
 def test_compiled_checks_clean_and_missing_vault(master, tmp_path):
     seed_meta(master)
     out = _compile(master, tmp_path)
