@@ -29,6 +29,7 @@
       "pages": [
         "getting-started",
         "guides/per-employee-setup",
+        "guides/getting-things-in",
         "guides/deployment"
       ]
     },

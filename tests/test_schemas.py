@@ -88,3 +88,54 @@ def test_scalar_read_rejected(tmp_path: Path):
     f.write_text("spaces:\n  - {path: Company, read: everyone, write: []}\n")
     with pytest.raises(SchemaError, match="'Company'.*read must be a list"):
         load_spaces(f)
+
+
+def test_email_loaded_and_defaults_empty(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text(
+        "people:\n"
+        "  alice: {name: Alice, email: alice@acme.com}\n"
+        "  bob: {name: Bob}\n"
+    )
+    org = load_org(f)
+    assert org.people["alice"].email == "alice@acme.com"
+    assert org.people["bob"].email == ""
+
+
+def test_duplicate_email_rejected(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text(
+        "people:\n"
+        "  alice: {name: Alice, email: Bob@Acme.com}\n"
+        "  bob: {name: Bob, email: bob@acme.com}\n"
+    )
+    with pytest.raises(SchemaError, match="duplicate email"):
+        load_org(f)
+
+
+def test_non_string_email_rejected(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text("people:\n  alice: {name: Alice, email: [x]}\n")
+    with pytest.raises(SchemaError, match="'alice'.*email must be a string"):
+        load_org(f)
+
+
+def test_whitespace_email_rejected(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text('people:\n  alice: {name: Alice, email: "a b@acme.com"}\n')
+    with pytest.raises(SchemaError, match="email must not contain whitespace"):
+        load_org(f)
+
+
+def test_person_by_email(tmp_path: Path):
+    f = tmp_path / "org.yaml"
+    f.write_text(
+        "people:\n"
+        "  alice: {name: Alice, email: alice@acme.com}\n"
+        "  bob: {name: Bob}\n"
+    )
+    org = load_org(f)
+    assert org.person_by_email("  ALICE@acme.com ").id == "alice"
+    assert org.person_by_email("nobody@evil.com") is None
+    assert org.person_by_email("") is None  # never matches bob's empty email
+    assert org.person_by_email("   ") is None

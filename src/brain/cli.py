@@ -12,6 +12,7 @@ from pathlib import Path
 from brain.compiler import compile_all, compile_vault
 from brain.cycle import run_cycle
 from brain.doctor import run_doctor
+from brain.ingest import IngestError, ingest_note
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
 from brain.writeback import ManifestError, apply_writeback
@@ -93,6 +94,63 @@ def cmd_init(args) -> int:
     dest.mkdir(parents=True, exist_ok=True)
     created = scaffold_master(dest, args.company)
     print(f"initialized {args.company} master vault at {dest} ({len(created)} files)")
+    return 0
+
+
+def cmd_ingest(args) -> int:
+    master = Path(args.master)
+    org, rules = _load(master)
+
+    if args.sender is not None:
+        person = org.person_by_email(args.sender)
+        if person is None:
+            print(f"no person with email {args.sender!r} — refusing to ingest",
+                  file=sys.stderr)
+            return 1
+    else:
+        person = org.people.get(args.person)
+        if person is None:
+            print(f"unknown person: {args.person}", file=sys.stderr)
+            return 1
+
+    if args.file:
+        try:
+            body = Path(args.file).read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"cannot read {args.file}: {e}", file=sys.stderr)
+            return 1
+    else:
+        body = sys.stdin.read()
+    if not body.strip():
+        print("empty note — nothing to ingest", file=sys.stderr)
+        return 1
+
+    created = (args.date or date.today()).isoformat()
+    if args.title:
+        title = args.title
+    elif args.file:
+        title = Path(args.file).stem
+    else:
+        first = next((ln.strip().lstrip("# ").strip()
+                      for ln in body.splitlines() if ln.strip()), "")
+        title = first or "note"
+    sender = args.sender if args.sender is not None else (person.email or person.id)
+    original_name = Path(args.file).name if args.file else ""
+
+    try:
+        result = ingest_note(
+            master, person, rules, body,
+            title=title, source=args.source, sender=sender,
+            created=created, original_name=original_name,
+        )
+    except IngestError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps({**asdict(result), "ok": True}, indent=2))
+    else:
+        print(f"ingested {result.rel_path} (source={result.source})")
     return 0
 
 
@@ -229,6 +287,21 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("dir")
     i.add_argument("--company", required=True)
     i.set_defaults(func=cmd_init)
+
+    g = sub.add_parser("ingest", help="write one note into a person's Inbox in master")
+    g.add_argument("--master", required=True)
+    who = g.add_mutually_exclusive_group(required=True)
+    who.add_argument("--person")
+    who.add_argument("--from", dest="sender", metavar="EMAIL",
+                     help="resolve the person by org.yaml email (unknown senders are refused)")
+    g.add_argument("--file", help="note content to ingest (default: read stdin)")
+    g.add_argument("--title", help="note title (default: from --file name or first line)")
+    g.add_argument("--source", default="manual",
+                   help="intake channel, e.g. email|chat|voice|upload|manual")
+    g.add_argument("--date", type=date.fromisoformat, default=None,
+                   help="provenance date, YYYY-MM-DD (default: today)")
+    g.add_argument("--json", action="store_true")
+    g.set_defaults(func=cmd_ingest)
 
     y = sub.add_parser("cycle", help="writeback all, sweep promotions, recompile")
     y.add_argument("--master", required=True)

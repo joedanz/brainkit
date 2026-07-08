@@ -7,8 +7,9 @@ from pathlib import Path
 
 ORG_YAML = """\
 people:
-  # id: {name: Full Name, roles: [admin], teams: [sales]}
-  founder: {name: Founder, roles: [admin], teams: []}
+  # id: {name: Full Name, roles: [admin], teams: [sales], email: name@example.com}
+  # email is optional and must be unique; it's the auth key for `brain ingest --from`.
+  founder: {name: Founder, roles: [admin], teams: [], email: founder@example.com}
 """
 
 SPACES_YAML = """\

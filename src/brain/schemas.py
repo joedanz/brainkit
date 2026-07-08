@@ -21,11 +21,25 @@ class Person:
     name: str
     roles: tuple[str, ...] = ()
     teams: tuple[str, ...] = ()
+    email: str = ""  # optional; the auth key for `brain ingest --from`
 
 
 @dataclass(frozen=True)
 class Org:
     people: dict[str, Person]
+
+    def person_by_email(self, email: str) -> Person | None:
+        """Resolve a person by their org.yaml email, case/whitespace-insensitive.
+
+        An empty needle never matches (people without an email have "").
+        """
+        needle = email.strip().lower()
+        if not needle:
+            return None
+        for p in self.people.values():
+            if p.email and p.email.lower() == needle:
+                return p
+        return None
 
 
 @dataclass(frozen=True)
@@ -58,15 +72,32 @@ def load_org(path: Path) -> Org:
     if not isinstance(people_raw, dict) or not people_raw:
         raise SchemaError("org.yaml must define a non-empty 'people' mapping")
     people: dict[str, Person] = {}
+    emails_seen: dict[str, str] = {}  # lowercased email -> pid, for uniqueness
     for pid, attrs in people_raw.items():
         attrs = attrs or {}
         if not isinstance(attrs, dict):
             raise SchemaError(f"person {pid!r}: value must be a mapping")
+        email = attrs.get("email", "")
+        if not isinstance(email, str):
+            raise SchemaError(f"person {pid!r}: email must be a string")
+        if email and email != email.strip():
+            raise SchemaError(f"person {pid!r}: email must not have surrounding whitespace")
+        if email and (len(email.split()) != 1):
+            raise SchemaError(f"person {pid!r}: email must not contain whitespace")
+        if email:
+            # Email is an auth key for intake; a duplicate would let one address
+            # resolve to two people. Reject rather than pick one.
+            prior = emails_seen.get(email.lower())
+            if prior is not None:
+                raise SchemaError(
+                    f"duplicate email {email!r}: {prior!r} and {pid!r}")
+            emails_seen[email.lower()] = pid
         people[pid] = Person(
             id=pid,
             name=attrs.get("name", pid),
             roles=_string_list(attrs.get("roles"), f"person {pid!r}", "roles"),
             teams=_string_list(attrs.get("teams"), f"person {pid!r}", "teams"),
+            email=email,
         )
     return Org(people=people)
 
