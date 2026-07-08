@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from brain.cli import main
@@ -68,3 +69,34 @@ def test_cycle_skips_vault_without_manifest(master, tmp_path):
     assert all(w.status == "skipped" for w in report.writebacks)
     assert report.compiled == 2          # first compile creates the vaults
     assert (out / "bob/People/bob/Memory.md").exists()
+
+
+def test_cli_cycle_json_and_exit_codes(master, tmp_path, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    capsys.readouterr()  # drop compile output
+
+    (out / "alice/People/alice/Memory.md").write_text("note\n")
+    code = main(["cycle", "--master", str(master), "--out", str(out), "--json"])
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is True
+    assert {w["person_id"]: w["status"] for w in report["writebacks"]} == {
+        "alice": "applied", "bob": "applied",
+    }
+
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    code = main(["cycle", "--master", str(master), "--out", str(out), "--json"])
+    assert code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is False
+
+
+def test_cli_cycle_human_output(master, tmp_path, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    capsys.readouterr()
+    code = main(["cycle", "--master", str(master), "--out", str(out)])
+    assert code == 0
+    text = capsys.readouterr().out
+    assert "swept" in text and "compiled" in text
