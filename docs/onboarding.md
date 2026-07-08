@@ -6,6 +6,8 @@
     # edit /srv/brain/master/_meta/org.yaml  — add people, roles, teams
     # edit /srv/brain/master/_meta/spaces.yaml — adjust visibility if needed
     brain compile --master /srv/brain/master --out /srv/brain/compiled
+    brain doctor --master /srv/brain/master --out /srv/brain/compiled
+    # run after setup and from cron; nonzero exit = integrity error
 
 Re-run `brain compile` on every master change (cron or a git post-commit hook).
 
@@ -29,9 +31,14 @@ Re-run `brain compile` on every master change (cron or a git post-commit hook).
 
 - Transcripts and notes drop into `People/<you>/Inbox/`; the agent ingests
   and routes them.
-- Edits sync back; the server runs `brain writeback` per person, then
-  `brain promotions sweep` (agent drafts -> pending queue), then
-  `brain compile` to refresh everyone.
+- Edits sync back; the server runs one command per interval (cron or
+  post-receive hook):
+
+      brain cycle --master /srv/brain/master --out /srv/brain/compiled --json
+
+  It applies every person's writeback (rejections are reported and revert
+  on the next compile), sweeps agent drafts into the pending queue, and
+  recompiles all vaults. Nonzero exit = at least one rejected writeback.
 - Sharing: the agent drafts promotions; approve with
   `brain promotions approve <id> --master ... --approver <you>`.
 
