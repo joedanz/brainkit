@@ -159,3 +159,23 @@ def test_baseline_file_replaced_by_symlink_is_a_delete(master: Path, tmp_path: P
     assert ("delete", "People/bob/Memory.md") in changes
     assert ("modify", "People/bob/Memory.md") not in changes
     assert ("add", "People/bob/Memory.md") not in changes
+
+
+def test_local_dot_dirs_do_not_reject_writeback(master: Path, tmp_path: Path):
+    """A vault carrying machine-local state (.brain index, .obsidian config)
+    plus a legitimate edit: the dot-dirs are outside every space, so they must
+    be ignored, not treated as out-of-scope changes that reject the whole set."""
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / ".brain").mkdir()
+    (vault / ".brain/index.db").write_bytes(b"\x00sqlite\x00")
+    (vault / ".obsidian").mkdir()
+    (vault / ".obsidian/app.json").write_text("{}\n")
+    (vault / "People/bob/Memory.md").write_text("Bob updated memory.\n")
+    # Neither dot-dir appears in the diff at all.
+    changes = {c.path for c in diff_vault(vault)}
+    assert not any(p.startswith(".brain") or p.startswith(".obsidian") for p in changes)
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert result.violations == []
+    assert any(c.path == "People/bob/Memory.md" for c in result.applied)

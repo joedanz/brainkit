@@ -8,8 +8,16 @@ This is the operator's path: create a master vault, describe your people, and co
 
 ## Prerequisites
 
-- Python 3.11+ and [uv](https://docs.astral.sh/uv/) (or any way to install the `brain` package).
+- Python 3.12+ and [uv](https://docs.astral.sh/uv/) (or any way to install the `brain` package).
 - `git` on your PATH — the compiler and write-back service operate on real git repos.
+
+<Callout type="info">
+  Semantic search loads the `sqlite-vec` SQLite extension, which needs a Python
+  built with extension loading enabled — the uv-managed and Homebrew CPython
+  builds have it; the macOS python.org framework build does not. If it can't
+  load, search silently runs keyword-only. This only affects the *vector* leg;
+  everything else works on any Python 3.12+.
+</Callout>
 
 Install the CLI from the repo:
 
@@ -18,7 +26,7 @@ uv tool install git+https://github.com/joedanz/brain
 # or, from a clone:  uv pip install -e .
 ```
 
-`brain --help` should now list the `compile`, `writeback`, `promotions`, and `init` subcommands.
+`brain --help` should now list the `init`, `compile`, `writeback`, `promotions`, `cycle`, `index`, `search`, `mcp`, and `doctor` subcommands.
 
 ## Stand up a company brain
 
@@ -74,6 +82,13 @@ uv tool install git+https://github.com/joedanz/brain
 0    * * * * brain doctor --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-doctor.log 2>&1
 ```
 
+<Callout type="info">
+  Add `--index` to the `cycle` line to also refresh each vault's
+  [search index](/concepts/retrieval) server-side. Employees who run their agent
+  on their own device build the index locally instead — see
+  [Per-employee setup](/guides/per-employee-setup).
+</Callout>
+
 ## What you just built
 
 ```
@@ -84,6 +99,7 @@ uv tool install git+https://github.com/joedanz/brain
     AGENTS.md             # server chief-of-staff protocol (master only)
   compiled/
     alice/                # Alice's slice — her People/, her Teams/, Company/
+      .brain/             # local search index — machine-local, gitignored
     bob/                  # Bob's slice — his People/, his Teams/, Company/
 ```
 

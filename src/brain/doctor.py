@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from brain.compiler import MANIFEST_NAME
+from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_target
 from brain.resolver import _match_rule, enumerate_spaces
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
@@ -124,17 +125,12 @@ def _check_promotions(master: Path) -> list[Finding]:
     for f in sorted(master.glob("People/*/Promotions/*.md")):
         if f.is_symlink():
             continue
-        text = f.read_text()
         rel = f.relative_to(master)
-        if text.count("---\n") < 2:
+        meta, _ = split_frontmatter(f.read_text())
+        if not meta:
             findings.append(Finding(
                 "warn", "promotions", f"{rel}: draft has no frontmatter, sweep skips it"))
             continue
-        _, fm, _ = text.split("---\n", 2)
-        meta = dict(
-            (line.partition(": ")[0], line.partition(": ")[2])
-            for line in fm.strip().splitlines()
-        )
         try:
             _validate_target(meta.get("target-path", ""))
         except PromotionError as e:

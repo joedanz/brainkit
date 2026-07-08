@@ -98,7 +98,7 @@ def cmd_init(args) -> int:
 
 def cmd_cycle(args) -> int:
     report = run_cycle(Path(args.master), Path(args.out),
-                       today=date.today().isoformat())
+                       today=date.today().isoformat(), index=args.index)
     if args.json:
         payload = asdict(report)
         payload["ok"] = report.ok
@@ -114,6 +114,10 @@ def cmd_cycle(args) -> int:
         print(f"swept {report.swept} draft(s); "
               f"compiled {report.compiled} vault(s); "
               f"{report.pending} promotion(s) pending")
+        if args.index:
+            print(f"indexed {report.indexed} vault(s)")
+        for w in report.index_warnings:
+            print(f"  index warning: {w}", file=sys.stderr)
     return 0 if report.ok else 1
 
 
@@ -133,6 +137,68 @@ def cmd_doctor(args) -> int:
         print(f"{len(errors)} error(s), {warns} warning(s), "
               f"{len(findings)} finding(s) total")
     return 1 if errors else 0
+
+
+def cmd_index(args) -> int:
+    from brain.embeddings import EmbeddingCache, default_cache_path, provider_from_config
+    from brain.indexer import build_index
+
+    provider = provider_from_config()
+    cache = EmbeddingCache(default_cache_path()) if provider else None
+    try:
+        report = build_index(Path(args.vault), provider=provider, cache=cache, full=args.full)
+    except ManifestError as e:
+        print(f"cannot index: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps({**asdict(report), "ok": True}, indent=2))
+    else:
+        print(f"indexed {report.files_indexed} file(s) "
+              f"({report.files_removed} removed, {report.files_unchanged} unchanged); "
+              f"embedded {report.chunks_embedded} chunk(s) "
+              f"({report.chunks_from_cache} cached) [{report.mode}]")
+        for w in report.warnings:
+            print(f"  warning: {w}", file=sys.stderr)
+    return 0
+
+
+def cmd_search(args) -> int:
+    from brain.embeddings import provider_from_config
+    from brain.search import search_index
+
+    vault = Path(args.vault)
+    index = vault / ".brain" / "index.db"
+    if not index.exists():
+        print(f"no index at {index} — run: brain index --vault {args.vault}", file=sys.stderr)
+        return 1
+    provider = None if args.keyword_only else provider_from_config()
+    report = search_index(
+        vault, args.query, k=args.k, provider=provider, keyword_only=args.keyword_only
+    )
+    if args.json:
+        print(json.dumps({
+            "query": report.query,
+            "mode": report.mode,
+            "hits": [asdict(h) for h in report.hits],
+            "warnings": report.warnings,
+        }, indent=2))
+    else:
+        if not report.hits:
+            print("no results")
+        for i, h in enumerate(report.hits, 1):
+            loc = h.rel_path + (f" — {h.heading_path}" if h.heading_path else "")
+            print(f"{i}. {loc}  ({h.score})")
+            print(f"   {h.snippet}")
+        for w in report.warnings:
+            print(f"  warning: {w}", file=sys.stderr)
+    return 0
+
+
+def cmd_mcp(args) -> int:
+    from brain.mcp import serve
+
+    serve(Path(args.vault))
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -168,7 +234,30 @@ def build_parser() -> argparse.ArgumentParser:
     y.add_argument("--master", required=True)
     y.add_argument("--out", required=True)
     y.add_argument("--json", action="store_true")
+    y.add_argument("--index", action="store_true",
+                   help="also refresh each vault's search index after compile")
     y.set_defaults(func=cmd_cycle)
+
+    ix = sub.add_parser("index", help="build/refresh the search index for a compiled vault")
+    ix.add_argument("--vault", required=True)
+    ix.add_argument("--full", action="store_true", help="rebuild from scratch")
+    ix.add_argument("--json", action="store_true")
+    ix.set_defaults(func=cmd_index)
+
+    sp = sub.add_parser("search", help="hybrid search over a compiled vault's index")
+    sp.add_argument("query")
+    sp.add_argument("--vault", required=True)
+    sp.add_argument("--k", type=int, default=8)
+    sp.add_argument("--keyword-only", action="store_true")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_search)
+
+    mc = sub.add_parser(
+        "mcp",
+        help="run a stdio MCP server over a vault "
+             "(register: claude mcp add brain -- brain mcp --vault ~/brain)")
+    mc.add_argument("--vault", required=True)
+    mc.set_defaults(func=cmd_mcp)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
     d.add_argument("--master", required=True)

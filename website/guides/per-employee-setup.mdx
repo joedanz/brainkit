@@ -48,6 +48,26 @@ Once [the master is compiled](/getting-started), each employee needs two things:
       </Tab>
     </Tabs>
   </Step>
+
+  <Step title="Build the search index and register it as a tool">
+    ```bash
+    brain index --vault ~/brain
+    claude mcp add brain -- brain mcp --vault ~/brain
+    ```
+
+    `brain index` builds a local hybrid [search index](/concepts/retrieval) so
+    the agent can query the vault instead of reading files by hand; the MCP
+    server exposes it as `brain_search` / `brain_read` tools. The index is
+    keyword-only until an embedding provider is configured
+    ([`BRAIN_EMBED_*`](/reference/configuration#embeddings)) — set one to add
+    semantic search.
+
+    <Callout type="info">
+      `.brain/` is machine-local and gitignored, so it never syncs — each device
+      builds its own index. Because it's built only from this compiled slice, it
+      can never surface anything the person can't already read.
+    </Callout>
+  </Step>
 </Steps>
 
 ## The daily flow
@@ -63,6 +83,9 @@ Once [the master is compiled](/getting-started), each employee needs two things:
 - **Sharing:** the agent drafts a promotion; an owner approves it with
   `brain promotions approve <id> --master … --approver <you>`. See
   [Promotions](/concepts/promotions).
+- **Search:** after each pull, the agent runs `brain index --vault ~/brain`
+  (cheap — only changed files re-embed) and queries the vault through the
+  `brain_search` MCP tool. See [Retrieval](/concepts/retrieval).
 
 Read the [deployment rule](/guides/deployment) before running any personal agent
 server-side — it is the one operational mistake that breaks the tenant wall.

@@ -27,6 +27,16 @@ Re-run `brain compile` on every master change (cron or a git post-commit hook).
    Claude Code users need no install — the vault's CLAUDE.md carries the
    same protocol.
 
+4. Build the local search index and register it as an agent tool:
+
+       brain index --vault ~/brain
+       claude mcp add brain -- brain mcp --vault ~/brain
+
+   `brain index` is keyword-only until an embedding provider is configured
+   (see reference/configuration — `BRAIN_EMBED_BASE_URL` etc.); set one to add
+   semantic search. The `.brain/` index is machine-local and gitignored, so it
+   never syncs — each device builds its own.
+
 ## 2. Daily flow
 
 - Transcripts and notes drop into `People/<you>/Inbox/`; the agent ingests
@@ -41,6 +51,12 @@ Re-run `brain compile` on every master change (cron or a git post-commit hook).
   recompiles all vaults. Nonzero exit = at least one rejected writeback.
 - Sharing: the agent drafts promotions; approve with
   `brain promotions approve <id> --master ... --approver <you>`.
+- Search: after pulling, the agent refreshes its index (`brain index --vault
+  ~/brain` — cheap, only changed files re-embed) and queries via the `brain`
+  MCP tools. For server-hosted agents, add `--index` to the cycle so indexes
+  refresh centrally:
+
+      brain cycle --master /srv/brain/master --out /srv/brain/compiled --index --json
 
 ## Deployment rule
 
