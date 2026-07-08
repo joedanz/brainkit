@@ -73,8 +73,6 @@ def diff_vault(vault: Path) -> list[Change]:
     changes: list[Change] = []
     present: set[str] = set()
     for f in sorted(vault.rglob("*")):
-        if ".git" in f.parts:
-            continue
         # Symlinks never cross the tenant boundary (same invariant as the
         # compiler): a client-planted link would otherwise leak its TARGET
         # bytes into master. Skipping links also means a baseline path that
@@ -83,6 +81,12 @@ def diff_vault(vault: Path) -> list[Change]:
         if f.is_symlink() or not f.is_file():
             continue
         rel = str(f.relative_to(vault))
+        # Top-level dot-entries (.git, .brain index, .obsidian config) are
+        # outside every space — resolver.space_of_path returns None for them,
+        # so they can never be a legal write. Ignore them here rather than let
+        # them surface as out-of-scope changes that reject the whole set.
+        if rel.split("/", 1)[0].startswith("."):
+            continue
         if rel in generated:
             continue
         present.add(rel)

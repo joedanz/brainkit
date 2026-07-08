@@ -34,13 +34,39 @@ class CycleReport:
     swept: int
     compiled: int
     pending: int
+    indexed: int = 0
+    index_warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
+        # Retrieval is a convenience layer; a failed index warns but never fails
+        # the cycle. Only a rejected writeback (a security-relevant event) does.
         return all(w.status != "rejected" for w in self.writebacks)
 
 
-def run_cycle(master: Path, out_root: Path, today: str) -> CycleReport:
+def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
+    from brain.embeddings import EmbeddingCache, default_cache_path, provider_from_config
+    from brain.indexer import build_index
+
+    provider = provider_from_config()
+    cache = EmbeddingCache(master / "_meta/cache/embeddings.db") if provider else None
+    indexed = 0
+    warnings: list[str] = []
+    for person in org.people.values():
+        vault = out_root / person.id
+        if not (vault / MANIFEST_NAME).is_file():
+            continue
+        try:
+            rep = build_index(vault, provider=provider, cache=cache)
+        except Exception as e:  # never let indexing abort the cycle
+            warnings.append(f"{person.id}: index failed: {e}")
+            continue
+        indexed += 1
+        warnings.extend(f"{person.id}: {w}" for w in rep.warnings)
+    return indexed, warnings
+
+
+def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) -> CycleReport:
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
 
@@ -71,6 +97,13 @@ def run_cycle(master: Path, out_root: Path, today: str) -> CycleReport:
     swept = len(sweep(master, today=today))
     compiled = len(compile_all(master, org, rules, out_root))
     pending = len(list_pending(master))
+
+    indexed = 0
+    index_warnings: list[str] = []
+    if index:
+        indexed, index_warnings = _refresh_indexes(master, out_root, org)
+
     return CycleReport(
-        writebacks=writebacks, swept=swept, compiled=compiled, pending=pending
+        writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
+        indexed=indexed, index_warnings=index_warnings,
     )

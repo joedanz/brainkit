@@ -173,3 +173,46 @@ def test_writable_spaces_never_stubbed(master, tmp_path):
     compile_vault(master, BOB, RULES, out)
     # People/bob is writable for bob → byte-identical copy, link untouched
     assert (out / "People/bob/Notes.md").read_text() == "See [[Q3 Pipeline]].\n"
+
+
+def test_brain_index_dir_preserved_across_recompile(master: Path, tmp_path: Path):
+    """The local search index at <vault>/.brain survives a recompile, exactly
+    like .git — it is machine-local state, not compiled output."""
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    (out / ".brain").mkdir()
+    (out / ".brain/index.db").write_bytes(b"\x00sqlite-index\x00")
+    compile_vault(master, BOB, RULES, out)
+    assert (out / ".brain/index.db").read_bytes() == b"\x00sqlite-index\x00"
+
+
+def test_gitignore_generated_and_in_manifest(master: Path, tmp_path: Path):
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    gi = out / ".gitignore"
+    assert gi.is_file()
+    body = gi.read_text()
+    assert ".brain/" in body and ".obsidian/" in body
+    manifest = json.loads((out / MANIFEST_NAME).read_text())
+    assert ".gitignore" in manifest["generated"]
+    # generated files are never counted as user-editable baseline
+    assert ".gitignore" not in manifest["compiled"]
+
+
+def test_compile_all_never_tracks_brain_index(master: Path, tmp_path: Path):
+    import subprocess
+    from brain.compiler import compile_all
+    from tests.conftest import ORG
+    out_root = tmp_path / "compiled"
+    compile_all(master, ORG, RULES, out_root)
+    bob = out_root / "bob"
+    (bob / ".brain").mkdir()
+    (bob / ".brain/index.db").write_bytes(b"\x00")
+    compile_all(master, ORG, RULES, out_root)
+    tracked = subprocess.run(
+        ["git", "-C", str(bob), "ls-files"], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    # .brain-manifest.json IS tracked (compiled baseline); the .brain/ index dir
+    # must not be.
+    assert not any(p.startswith(".brain/") for p in tracked)
+    assert (bob / ".brain/index.db").exists()

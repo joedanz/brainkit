@@ -104,6 +104,13 @@ def generate_context_files(
         (vault / fname).write_text(root_text)
         written.append(fname)
 
+    # Keep machine-local state out of the vault's git history: the search index
+    # (.brain/) is rebuilt locally and per-device, and Obsidian's workspace
+    # config (.obsidian/) is personal. Both would otherwise be committed by the
+    # compiler's `git add -A`.
+    (vault / ".gitignore").write_text(".brain/\n.obsidian/\n")
+    written.append(".gitignore")
+
     for space, writable in spaces_rw:
         owner = space == f"People/{person.id}"
         if not owner and not space.startswith("Clients/"):

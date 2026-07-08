@@ -140,3 +140,56 @@ def test_cli_writeback_corrupt_manifest_is_clean_error(master, tmp_path, capsys)
     err = capsys.readouterr().err
     assert "cannot write back" in err and "manifest" in err
     assert "Traceback" not in err  # handled, not a crash
+
+
+# ---- retrieval integration (brain cycle --index) ------------------------- #
+
+class _CountingFake:
+    """Module-level spy so counts persist across the fresh provider_from_config
+    call each cycle makes."""
+    model = "fake-32"
+    dim = 32
+
+    def __init__(self):
+        self.embed_texts = 0
+
+    def embed(self, texts):
+        from brain.embeddings import FakeEmbeddingProvider
+        self.embed_texts += len(texts)
+        return FakeEmbeddingProvider().embed(texts)
+
+
+def test_cycle_index_builds_per_person_indexes(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    spy = _CountingFake()
+    monkeypatch.setattr("brain.embeddings.provider_from_config", lambda: spy)
+
+    report = run_cycle(master, out, today="2026-07-07", index=True)
+    assert report.ok
+    assert report.indexed == 2  # alice + bob
+    assert (out / "alice/.brain/index.db").is_file()
+    assert (out / "bob/.brain/index.db").is_file()
+    assert spy.embed_texts > 0
+
+
+def test_cycle_index_reuses_cache_on_second_run(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    spy = _CountingFake()
+    monkeypatch.setattr("brain.embeddings.provider_from_config", lambda: spy)
+
+    run_cycle(master, out, today="2026-07-07", index=True)
+    after_first = spy.embed_texts
+    assert after_first > 0
+    # nothing changed in master → the second cycle re-embeds nothing
+    run_cycle(master, out, today="2026-07-08", index=True)
+    assert spy.embed_texts == after_first
+
+
+def test_cycle_without_index_flag_builds_no_index(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    run_cycle(master, out, today="2026-07-07")
+    assert not (out / "alice/.brain").exists()
+    assert not (out / "bob/.brain").exists()

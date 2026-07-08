@@ -55,4 +55,4 @@ The privacy claim is tested adversarially, not just asserted:
 - Targeted tests cover the symlink, `..`-traversal, and absolute-path attacks
   above, plus the crash-recovery swap.
 
-The compiler's contract — `(commit, person) → vault` — is the one thing that never changes as the system scales from 5 people to 150+. Everything below it (per-person repos today, object storage later; direct file reads today, a search index later) can be swapped without touching the boundary.
+The compiler's contract — `(commit, person) → vault` — is the one thing that never changes as the system scales from 5 people to 150+. Everything below it (per-person repos today, object storage later; direct file reads today, a [search index](/concepts/retrieval) already) can be swapped without touching the boundary.
