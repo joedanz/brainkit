@@ -7,7 +7,7 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,compile,writeback,promotions,cycle,doctor} …
+brain {init,compile,writeback,promotions,cycle,index,search,mcp,doctor} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
@@ -93,7 +93,9 @@ brain cycle --master <master> --out <out> [--json]
 | `--out` | yes | Compiled-vault root — the same `--out` you pass to `compile`. |
 | `--json` | no | Emit a single JSON summary object on stdout instead of human lines. |
 
-The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion drafts) in the master *before* the sweep reads them, and the recompile runs *last* so every vault reflects the updated master. A rejected write-back never halts the cycle — the sweep and recompile still run, and the fresh compile reverts the rejected edits server-side (fail closed). Any rejection flips the summary's `ok` to `false` and the command exits `1`, so cron alerts.
+| `--index` | no | After recompiling, refresh each vault's search index (see [`brain index`](#brain-index)). Index failures warn but never fail the cycle. |
+
+The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion drafts) in the master *before* the sweep reads them, and the recompile runs *last* so every vault reflects the updated master. A rejected write-back never halts the cycle — the sweep and recompile still run, and the fresh compile reverts the rejected edits server-side (fail closed). Any rejection flips the summary's `ok` to `false` and the command exits `1`, so cron alerts. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns — only a rejected write-back flips `ok`.
 
 <Callout type="info">
   This is the one command to run on a schedule — a cron entry or a git
@@ -109,6 +111,56 @@ The ordering is load-bearing: write-back lands each person's edits (including fr
 # every 10 minutes
 */10 * * * * brain cycle --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-cycle.log 2>&1
 ```
+
+## `brain index`
+
+Build or refresh the hybrid search index for one compiled vault. See [Retrieval](/concepts/retrieval) for how the index inherits the compiler's boundary.
+
+```bash
+brain index --vault <vault> [--full] [--json]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--vault` | yes | A compiled vault (must contain `.brain-manifest.json`). |
+| `--full` | no | Rebuild from scratch instead of diffing the manifest. |
+| `--json` | no | Emit a JSON report (`files_indexed`, `chunks_embedded`, `chunks_from_cache`, `mode`, …). |
+
+Incremental by default: only files whose manifest sha changed are re-chunked, and only cache-miss chunks are embedded. Embeddings come from the configured provider (see [Configuration](/reference/configuration)); with none set, indexing is **keyword-only** — still fully searchable, just no semantic leg. A model change forces a full rebuild.
+
+## `brain search`
+
+Query a compiled vault's index. Fuses keyword (FTS5) and semantic (vector) ranking with reciprocal-rank fusion.
+
+```bash
+brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--json]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `query` | yes | The search query (positional). |
+| `--vault` | yes | The compiled vault to search. |
+| `--k` | no | Max results (default 8). |
+| `--keyword-only` | no | Skip the vector leg even if a provider is configured. |
+| `--json` | no | Emit `{"query", "mode", "hits": [...], "warnings"}`. |
+
+Each hit carries the file path, heading path, a highlighted snippet, a fused score, and which legs matched. A missing index exits `1` with the exact `brain index` command to build it.
+
+## `brain mcp`
+
+Run a stdio [MCP](https://modelcontextprotocol.io) server over a vault so any MCP client can search it as a tool.
+
+```bash
+brain mcp --vault <vault>
+```
+
+Register it once with a client — for Claude Code:
+
+```bash
+claude mcp add brain -- brain mcp --vault ~/brain
+```
+
+It exposes two tools: `brain_search` (hybrid search) and `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
 
 ## `brain doctor`
 

@@ -38,7 +38,8 @@
       "pages": [
         "concepts/spaces-and-permissions",
         "concepts/the-compiler",
-        "concepts/promotions"
+        "concepts/promotions",
+        "concepts/retrieval"
       ]
     },
     {

@@ -65,3 +65,34 @@ When a space matches both an exact rule and a wildcard, the exact rule wins. Def
 ## Changing the org
 
 Adding a person, a team, or a space is an edit to these two files plus a `brain compile`. There is no migration step: the compiler reads the current `org.yaml` / `spaces.yaml` on every run, so the next compile reflects the change for everyone.
+
+## Embeddings
+
+Retrieval's semantic leg needs an embedding provider. Without one, `brain index` and `brain search` still work in **keyword-only** mode — configure a provider to add the vector leg. Any OpenAI-compatible `/embeddings` endpoint works (OpenAI, Together, a company proxy, a local `llama-server`).
+
+Configure via environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BRAIN_EMBED_BASE_URL` | — | Endpoint base, e.g. `https://api.openai.com/v1`. **Set this to enable vectors.** |
+| `BRAIN_EMBED_API_KEY` | — | Bearer token for the endpoint. |
+| `BRAIN_EMBED_MODEL` | `text-embedding-3-small` | Embedding model id. |
+| `BRAIN_EMBED_DIM` | `512` | Output dimension (sent as `dimensions`). |
+| `BRAIN_EMBED_CACHE` | `~/.cache/brain/embeddings.db` | Embedding cache location. |
+
+Or a config file at `~/.config/brain/config.yaml` (override the path with `BRAIN_CONFIG`):
+
+```yaml
+embeddings:
+  base_url: https://api.openai.com/v1
+  model: text-embedding-3-small
+  dim: 512
+  api_key_env: OPENAI_API_KEY   # the key is read from this env var, never stored here
+```
+
+<Callout type="warning">
+  Configuring a provider means each note's text is sent to that endpoint to be
+  embedded. On the server, `brain cycle --index` caches embeddings under
+  `_meta/cache/` so a chunk shared across people is embedded once. A model
+  change forces a full re-embed of every chunk.
+</Callout>
