@@ -4,13 +4,13 @@ description: Every brain subcommand, its flags, and its exit codes.
 icon: terminal
 ---
 
-The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, and manage promotions.
+The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,compile,writeback,promotions} …
+brain {init,compile,writeback,promotions,cycle,doctor} …
 ```
 
-Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
+Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
 
 ## `brain init`
 
@@ -79,10 +79,68 @@ brain promotions {list,sweep,approve,reject} [id] --master <master> [--approver 
 
 `approve` re-validates the target path at publish time, so a tampered pending file cannot write outside the master root or into a private space.
 
+## `brain cycle`
+
+Run the whole server-side loop once: write back every person's edits, sweep agent drafts into the pending queue, then recompile all vaults.
+
+```bash
+brain cycle --master <master> --out <out> [--json]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--master` | yes | Path to the master vault. |
+| `--out` | yes | Compiled-vault root — the same `--out` you pass to `compile`. |
+| `--json` | no | Emit a single JSON summary object on stdout instead of human lines. |
+
+The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion drafts) in the master *before* the sweep reads them, and the recompile runs *last* so every vault reflects the updated master. A rejected write-back never halts the cycle — the sweep and recompile still run, and the fresh compile reverts the rejected edits server-side (fail closed). Any rejection flips the summary's `ok` to `false` and the command exits `1`, so cron alerts.
+
+<Callout type="info">
+  This is the one command to run on a schedule — a cron entry or a git
+  post-receive hook. It replaces running `writeback`, `promotions sweep`, and
+  `compile` by hand. A person whose vault has never been compiled is `skipped`
+  (not an error); the recompile creates it.
+</Callout>
+
+```bash
+# every 10 minutes
+*/10 * * * * brain cycle --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-cycle.log 2>&1
+```
+
+## `brain doctor`
+
+Check a master — and optionally its compiled vaults — for integrity problems that otherwise fail silently. Read-only: `doctor` never mutates anything.
+
+```bash
+brain doctor --master <master> [--out <out>] [--json]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--master` | yes | Path to the master vault. |
+| `--out` | no | Compiled-vault root. When given, adds per-vault checks (tombstones, `_meta/` leakage, manifest drift). |
+| `--json` | no | Emit `{"ok": bool, "findings": [...]}` on stdout instead of human lines. |
+
+Findings carry one of three severities:
+
+| Severity | Meaning | Examples |
+|---|---|---|
+| `error` | An invariant is broken. Exits `1`. | Malformed `org.yaml`/`spaces.yaml`, an unknown `person:` in a rule, a symlink in the master, a crashed-compile tombstone, an unreadable manifest, or `_meta/` leaked into a compiled vault. |
+| `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, or a promotion draft the sweep will silently skip. |
+| `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval. |
+
+Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into CI or a pre-cron gate. Run it after setup and on a schedule.
+
+<Callout type="info">
+  Vault drift — a compiled file whose contents differ from the manifest
+  baseline — is the *normal* "edits awaiting write-back" state, so it is
+  reported as `info`, never an error.
+</Callout>
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Handled error — unknown person, rejected write-back, or invalid/missing promotion. The message is on stderr. |
+| `1` | Handled error — unknown person, rejected write-back, invalid/missing promotion, or (for `doctor`) an `error`-severity finding. The message is on stderr. |
 | `2` | Usage error from argument parsing (unknown subcommand, missing required flag). |
