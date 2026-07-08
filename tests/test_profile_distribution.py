@@ -1,0 +1,27 @@
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1] / "templates/company-brain-profile"
+
+
+def test_required_files_exist():
+    for rel in ("README.md", "SOUL.md", "config.yaml",
+                "skills/brain-protocol/SKILL.md"):
+        assert (ROOT / rel).exists(), rel
+
+
+def test_config_enforces_policies():
+    cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
+    assert cfg["memory"]["write_approval"] is True
+    assert "provider" not in cfg["memory"]          # external memory OFF by policy
+    assert cfg["skills"]["write_approval"] is True
+    assert "REPLACE_WITH_VAULT_PATH" in cfg["terminal"]["cwd"]
+
+
+def test_soul_and_skill_reference_the_vault_protocol():
+    soul = (ROOT / "SOUL.md").read_text()
+    assert "AGENTS.md" in soul
+    skill = (ROOT / "skills/brain-protocol/SKILL.md").read_text()
+    assert "promotion" in skill.lower()
+    assert "Inbox" in skill
