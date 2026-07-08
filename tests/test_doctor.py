@@ -1,8 +1,15 @@
 from pathlib import Path
 
 from brain.doctor import run_doctor
+from brain.cli import main
 
 from .test_cli import ORG_YAML, SPACES_YAML, seed_meta
+
+
+def _compile(master, tmp_path):
+    out = tmp_path / "compiled"
+    main(["compile", "--master", str(master), "--out", str(out)])
+    return out
 
 
 def _severities(findings, check):
@@ -71,3 +78,48 @@ def test_space_with_no_rule_is_warn(master):
     )
     findings = run_doctor(master)
     assert "warn" in _severities(findings, "space-coverage")
+
+
+def test_symlink_in_master_is_error(master):
+    seed_meta(master)
+    (master / "Company/evil.md").symlink_to(master / "People/bob/Memory.md")
+    findings = run_doctor(master)
+    assert "error" in _severities(findings, "symlinks")
+
+
+def test_compiled_checks_clean_and_missing_vault(master, tmp_path):
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    findings = run_doctor(master, out)
+    assert not [f for f in findings if f.severity == "error"]
+
+    import shutil
+    shutil.rmtree(out / "bob")
+    findings = run_doctor(master, out)
+    assert "warn" in _severities(findings, "compiled")  # bob never compiled
+
+
+def test_meta_inside_vault_is_security_error(master, tmp_path):
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    (out / "alice/_meta").mkdir()
+    (out / "alice/_meta/org.yaml").write_text("people: {}\n")
+    findings = run_doctor(master, out)
+    assert "error" in _severities(findings, "compiled")
+
+
+def test_crashed_compile_tombstone_is_error(master, tmp_path):
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    (out / ".bob.old").mkdir()
+    findings = run_doctor(master, out)
+    assert "error" in _severities(findings, "compiled")
+
+
+def test_drift_is_info_not_error(master, tmp_path):
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("edited, not yet written back\n")
+    findings = run_doctor(master, out)
+    drift = [f for f in findings if f.check == "compiled" and "awaiting writeback" in f.message]
+    assert drift and all(f.severity == "info" for f in drift)
