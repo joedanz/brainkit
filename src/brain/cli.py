@@ -158,6 +158,38 @@ def cmd_index(args) -> int:
     return 0
 
 
+def cmd_search(args) -> int:
+    from brain.embeddings import provider_from_config
+    from brain.search import search_index
+
+    vault = Path(args.vault)
+    index = vault / ".brain" / "index.db"
+    if not index.exists():
+        print(f"no index at {index} — run: brain index --vault {args.vault}", file=sys.stderr)
+        return 1
+    provider = None if args.keyword_only else provider_from_config()
+    report = search_index(
+        vault, args.query, k=args.k, provider=provider, keyword_only=args.keyword_only
+    )
+    if args.json:
+        print(json.dumps({
+            "query": report.query,
+            "mode": report.mode,
+            "hits": [asdict(h) for h in report.hits],
+            "warnings": report.warnings,
+        }, indent=2))
+    else:
+        if not report.hits:
+            print("no results")
+        for i, h in enumerate(report.hits, 1):
+            loc = h.rel_path + (f" — {h.heading_path}" if h.heading_path else "")
+            print(f"{i}. {loc}  ({h.score})")
+            print(f"   {h.snippet}")
+        for w in report.warnings:
+            print(f"  warning: {w}", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -198,6 +230,14 @@ def build_parser() -> argparse.ArgumentParser:
     ix.add_argument("--full", action="store_true", help="rebuild from scratch")
     ix.add_argument("--json", action="store_true")
     ix.set_defaults(func=cmd_index)
+
+    sp = sub.add_parser("search", help="hybrid search over a compiled vault's index")
+    sp.add_argument("query")
+    sp.add_argument("--vault", required=True)
+    sp.add_argument("--k", type=int, default=8)
+    sp.add_argument("--keyword-only", action="store_true")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_search)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
     d.add_argument("--master", required=True)
