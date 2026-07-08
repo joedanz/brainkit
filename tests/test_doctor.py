@@ -173,3 +173,13 @@ def test_pending_count_is_info(master):
                     "People/bob/x.md", "Body.\n", "p-1", "2026-07-07")
     findings = run_doctor(master)
     assert any(f.check == "promotions" and f.severity == "info" for f in findings)
+
+
+def test_manifest_missing_compiled_key_is_error_not_crash(master, tmp_path):
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    from brain.compiler import MANIFEST_NAME
+    (out / "bob" / MANIFEST_NAME).write_text("{}")   # valid JSON, wrong shape
+    findings = run_doctor(master, out)               # must not raise
+    assert any(f.check == "compiled" and f.severity == "error"
+               and "bob" in f.message for f in findings)

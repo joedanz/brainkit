@@ -165,17 +165,17 @@ def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
         manifest_path = vault / MANIFEST_NAME
         try:
             manifest = json.loads(manifest_path.read_text())
-        except (FileNotFoundError, ValueError) as e:
+            drifted = 0
+            for rel, sha in manifest["compiled"].items():
+                f = vault / rel
+                if not f.is_file():
+                    drifted += 1
+                elif hashlib.sha256(f.read_bytes()).hexdigest() != sha:
+                    drifted += 1
+        except (FileNotFoundError, ValueError, KeyError) as e:
             findings.append(Finding(
                 "error", "compiled", f"{person.id}: unreadable manifest ({e})"))
             continue
-        drifted = 0
-        for rel, sha in manifest["compiled"].items():
-            f = vault / rel
-            if not f.is_file():
-                drifted += 1
-            elif hashlib.sha256(f.read_bytes()).hexdigest() != sha:
-                drifted += 1
         if drifted:
             findings.append(Finding(
                 "info", "compiled",
