@@ -1,0 +1,50 @@
+{
+  "$schema": "https://holocron.so/docs.json",
+  "name": "Company Brain",
+  "colors": {
+    "primary": "#6366f1"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "navbar": {
+    "links": [
+      { "type": "github", "href": "https://github.com/joedanz/brain" }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get Started",
+      "href": "/getting-started"
+    }
+  },
+  "navigation": [
+    {
+      "group": "Overview",
+      "icon": "compass",
+      "pages": ["index"]
+    },
+    {
+      "group": "Getting Started",
+      "icon": "rocket",
+      "pages": [
+        "getting-started",
+        "guides/per-employee-setup",
+        "guides/deployment"
+      ]
+    },
+    {
+      "group": "Concepts",
+      "icon": "map",
+      "pages": [
+        "concepts/spaces-and-permissions",
+        "concepts/the-compiler",
+        "concepts/promotions"
+      ]
+    },
+    {
+      "group": "Reference",
+      "icon": "book",
+      "pages": ["reference/cli", "reference/configuration"]
+    }
+  ]
+}

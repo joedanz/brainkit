@@ -1,0 +1,67 @@
+---
+title: Configuration
+description: The org.yaml and spaces.yaml schema that drives compilation and permissions.
+icon: settings
+---
+
+Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and who sees what (`spaces.yaml`). Both are plain YAML, validated on load — a malformed file is a clear error, never a silent misconfiguration.
+
+## `org.yaml`
+
+```yaml
+people:
+  alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
+  bob:   {name: Bob Rivera, teams: [ops]}
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `people` | map of `id → person` | yes | The key is the person's id (used in vault paths and grants). |
+| `name` | string | yes | Display name. |
+| `roles` | list of strings | no | Roles this person holds; resolved against `role:` grants. Defaults to none. |
+| `teams` | list of strings | no | Teams this person belongs to; resolved against `team:` grants. Defaults to none. |
+
+Field **types** are validated: a scalar where a list is expected (`roles: admin` instead of `roles: [admin]`) is rejected rather than silently coerced.
+
+## `spaces.yaml`
+
+```yaml
+spaces:
+  - {path: Company,     read: [everyone],        write: ["role:admin"]}
+  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}
+  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}
+  - {path: "Clients/*", read: [everyone],        write: ["role:admin"]}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `path` | string | The space path. A trailing `/*` makes it a wildcard over one segment. |
+| `read` | list of grants | Who may read notes in this space. |
+| `write` | list of grants | Who may write them. |
+
+### Grants
+
+| Grant | Matches |
+|---|---|
+| `everyone` | Every person in `org.yaml`. |
+| `role:<name>` | Anyone whose `roles` include `<name>`. |
+| `team:<name>` | Anyone whose `teams` include `<name>`. |
+| `person:<id>` | Exactly that person. |
+
+### The `{name}` binding
+
+In a wildcard rule, `{name}` binds to the matched path segment. `Teams/*` with `read: ["team:{name}"]` means "the `Teams/sales` space is readable by the `sales` team" — one rule covers every team without enumerating them.
+
+### Exact beats wildcard
+
+When a space matches both an exact rule and a wildcard, the exact rule wins. Define `Teams/*` for the general case and add a specific `Teams/leadership` rule to carve one exception — the wildcard still governs every other team.
+
+<Callout type="warning">
+  A path that matches **no** rule resolves to no space. The compiler excludes it
+  from every slice and write-back rejects edits to it. Unmatched is closed, not
+  open — there is no implicit "readable by default."
+</Callout>
+
+## Changing the org
+
+Adding a person, a team, or a space is an edit to these two files plus a `brain compile`. There is no migration step: the compiler reads the current `org.yaml` / `spaces.yaml` on every run, so the next compile reflects the change for everyone.

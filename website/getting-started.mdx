@@ -1,0 +1,82 @@
+---
+title: Getting Started
+description: Stand up a company master vault and compile per-person slices.
+icon: rocket
+---
+
+This is the operator's path: create a master vault, describe your people, and compile everyone's slice. It takes about five minutes.
+
+## Prerequisites
+
+- Python 3.11+ and [uv](https://docs.astral.sh/uv/) (or any way to install the `brain` package).
+- `git` on your PATH — the compiler and write-back service operate on real git repos.
+
+Install the CLI from the repo:
+
+```bash
+uv tool install git+https://github.com/joedanz/brain
+# or, from a clone:  uv pip install -e .
+```
+
+`brain --help` should now list the `compile`, `writeback`, `promotions`, and `init` subcommands.
+
+## Stand up a company brain
+
+<Steps>
+  <Step title="Scaffold the master vault">
+    ```bash
+    brain init /srv/brain/master --company "Acme Co"
+    ```
+    This creates the space layout (`Company/`, `Teams/`, `People/`, `Clients/`),
+    seeds `_meta/org.yaml` and `_meta/spaces.yaml`, writes the server
+    chief-of-staff protocol to the master-root `AGENTS.md`, and makes the
+    initial git commit.
+  </Step>
+
+  <Step title="Add your people">
+    Edit `/srv/brain/master/_meta/org.yaml` — one entry per person, with their
+    roles and teams:
+
+    ```yaml
+    people:
+      alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
+      bob:   {name: Bob Rivera, teams: [ops]}
+    ```
+
+    Adjust `_meta/spaces.yaml` only if the default visibility (Company readable
+    by everyone, Teams/People scoped by membership) doesn't fit. See
+    [Configuration](/reference/configuration) for the schema.
+  </Step>
+
+  <Step title="Compile everyone's vault">
+    ```bash
+    brain compile --master /srv/brain/master --out /srv/brain/compiled
+    ```
+    Each person gets a `compiled/<person-id>/` vault containing only the spaces
+    they may read, plus generated `AGENTS.md` / `CLAUDE.md` context files scoped
+    to them. Add `--person alice` to compile a single slice.
+  </Step>
+</Steps>
+
+<Callout type="warning">
+  Re-run `brain compile` on **every** master change — wire it to a cron job or a
+  git `post-commit` hook. A person's device only ever sees the last compiled
+  output, so a stale compile means stale knowledge (never leaked knowledge —
+  the compiler fails closed).
+</Callout>
+
+## What you just built
+
+```
+/srv/brain/
+  master/                 # the single source of truth (one git repo)
+    Company/ Teams/ People/ Clients/
+    _meta/                # org.yaml, spaces.yaml, promotions/ — never compiled out
+    AGENTS.md             # server chief-of-staff protocol (master only)
+  compiled/
+    alice/                # Alice's slice — her People/, her Teams/, Company/
+    bob/                  # Bob's slice — his People/, his Teams/, Company/
+```
+
+Next, hand each person sync access to their slice — see
+[Per-employee setup](/guides/per-employee-setup).
