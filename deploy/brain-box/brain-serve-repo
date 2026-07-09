@@ -1,0 +1,26 @@
+#!/bin/sh
+# Forced command for per-person deploy keys: one key syncs exactly one repo.
+#
+# Install once on the brain box:
+#   install -m 755 brain-serve-repo /usr/local/bin/brain-serve-repo
+#
+# Then each person's line in /home/brain-sync/.ssh/authorized_keys:
+#   command="/usr/local/bin/brain-serve-repo /srv/brain/compiled/<person>",restrict ssh-ed25519 AAAA...
+#
+# `restrict` disables pty/forwarding/X11; this wrapper allows only git's two
+# sync commands, and only against the single repo baked into the line.
+set -eu
+
+repo="${1:?usage: brain-serve-repo <repo-path>}"
+cmd="${SSH_ORIGINAL_COMMAND:-}"
+
+case "$cmd" in
+    "git-upload-pack '$repo'" | "git-receive-pack '$repo'" | \
+    "git upload-pack '$repo'" | "git receive-pack '$repo'")
+        exec git shell -c "$cmd"
+        ;;
+    *)
+        echo "access denied: this key only syncs $repo" >&2
+        exit 1
+        ;;
+esac

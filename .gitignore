@@ -3,3 +3,6 @@
 .venv/
 __pycache__/
 .pytest_cache/
+
+# deploy secrets
+deploy/agents-box/.env
