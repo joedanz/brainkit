@@ -102,6 +102,34 @@ Add the **brain dashboard first** — it answers "what does my assistant actuall
   authenticated proxy.
 </Callout>
 
+## The life of a note
+
+The whole system, traced through one piece of knowledge — twice.
+
+**Capturing something private (the everyday case):**
+
+1. **9:02 am — Alice's phone.** She voice-memos her bot: *"the client agreed to the March timeline."*
+2. **Seconds later — her container.** Her agent transcribes it, writes a note into her Inbox in its local clone, commits, and replies "Saved." Already durable — this works even if the brain box is down.
+3. **Within ~5 minutes — both boxes.** Her container pushes; the next [`brain cycle`](/reference/cli#brain-cycle) validates and applies it to the master and recompiles her vault.
+4. **Any time after.** "What did we agree with the client?" — answered from the local index, instantly. *Visible to Alice only, at every step.*
+
+**Sharing with the team (the human-gated case):**
+
+1. **2:14 pm.** Alice: *"share the March timeline with the team."*
+2. **Seconds later.** Her agent drafts a [promotion](/concepts/promotions) — nothing is shared yet; a draft is still hers.
+3. **Within ~5 minutes.** The next cycle sweeps the draft into the master's pending queue. *Now visible to Alice + the approver.*
+4. **When a human decides.** The approver reviews and approves — the gate no agent can open.
+5. **Next cycle.** The note materializes into the Team space; every affected vault recompiles.
+6. **Within ~5 minutes.** Bob's container pulls; his agent can now answer with it. Alice's agent tells her it went live. *Now visible to the whole team.*
+
+<Callout type="info">
+  **The two-sentence mental model for employees:** anything you tell your
+  assistant is yours alone, instantly. If you ask it to share something, a person
+  approves it first — you'll get a message when it's live. Private knowledge
+  moves at machine speed (~one cycle); shared knowledge costs a few
+  machine-minutes plus one human decision — and that latency is the feature.
+</Callout>
+
 ## The runbook
 
 Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new employee. Phase 5 is the steady state.
