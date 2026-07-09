@@ -152,7 +152,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     `org.yaml` / `spaces.yaml` details):
 
     ```bash
-    uv tool install brainkit
+    uv tool install git+https://github.com/joedanz/brain  # brainkit is not on PyPI
     brain init /srv/brain/master --company "Acme Co"
     brain compile --master /srv/brain/master --out /srv/brain/compiled
     brain doctor  --master /srv/brain/master --out /srv/brain/compiled
@@ -225,7 +225,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   </Step>
 
   <Step title="Operate — minutes per week">
-    - **Approvals:** `ssh brain-box brain promotions approve <id> --approver <you>`;
+    - **Approvals:** `ssh brain-box brain promotions approve <id> --master /srv/brain/master --approver <you>`;
       review in the dashboard over an SSH tunnel on the tailnet.
     - **Watch two numbers:** the cycle and doctor exit codes (already wired to
       your alert URL).
@@ -246,7 +246,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 | -------- | ------- |
 | Brain box down | Agents keep chatting and capturing on local clones; commits drain on recovery. Users notice nothing. |
 | Agents box down | Chat goes quiet; zero data lost. `docker compose up -d` restores everything from volumes. |
-| Agent volumes lost | Fresh container, `hermes import` the person's latest backup zip — memories, pairing, and deploy key all return; the vault re-clones itself. |
+| Agent volumes lost | Fresh container, `hermes import <zip> --force` with the person's latest backup, then `docker restart` (re-fixes key file modes) — memories, pairing, and deploy key all return; the vault re-clones itself. |
 | Agents box compromised | Rotate deploy keys, rebuild containers from the image — the master's history is intact and trustworthy. |
 | Brain box lost | Restore the offsite mirror, recompile, re-point remotes. |
 
