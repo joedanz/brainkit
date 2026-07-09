@@ -24,7 +24,7 @@ only the spaces {name} may read. Anything not present here is not accessible.
 
 {space_lines}
 
-Read-only spaces are maintained by the company chief-of-staff. Edits belong in
+Read-only spaces are maintained by the company assistant. Edits belong in
 writable spaces; the write-back service rejects changes to read-only paths.
 
 ## Routing rules (apply when processing new information)

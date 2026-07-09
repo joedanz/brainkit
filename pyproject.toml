@@ -1,7 +1,7 @@
 [project]
 name = "brainkit"
 version = "0.1.0"
-description = "Multi-tenant AI Chief-of-Staff company brain on Obsidian-compatible vaults"
+description = "Multi-tenant company brain on Obsidian-compatible vaults — a private AI assistant for every employee"
 requires-python = ">=3.12"
 dependencies = ["pyyaml>=6.0", "sqlite-vec>=0.1.9", "aiohttp>=3.10"]
 

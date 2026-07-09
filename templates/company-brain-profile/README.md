@@ -1,6 +1,6 @@
 # company-brain — Hermes profile distribution
 
-Provisions an employee's personal Chief-of-Staff agent against their compiled
+Provisions an employee's personal assistant agent against their compiled
 brain vault.
 
 ## Install (per employee)
