@@ -212,6 +212,59 @@
   }
   .surfaces .verdict { font-style: italic; }
 
+  /* ---- life of a note ---- */
+  .stories {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+    gap: clamp(2rem, 4vw, 3.5rem);
+  }
+  .story h3 {
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+  .timeline { list-style: none; padding: 0; margin: 0 0 0 0.4rem; }
+  .timeline li {
+    position: relative;
+    padding: 0 0 1.15rem 1.6rem;
+    border-left: 1px solid var(--hair);
+  }
+  .timeline li:last-child { border-left-color: transparent; }
+  .timeline li::before {
+    content: "";
+    position: absolute;
+    left: -4.5px; top: 0.4em;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .timeline .t {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.15rem;
+  }
+  .timeline p { font-size: 0.97rem; color: var(--ink2); }
+  .timeline p strong { color: var(--ink); font-weight: 600; }
+  .timeline .who {
+    display: inline-block;
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    padding: 0.12rem 0.6rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    margin-top: 0.35rem;
+  }
+
   footer {
     margin-top: 3rem;
     max-width: 68ch;
@@ -672,6 +725,117 @@
 <section class="plate">
   <div class="plate-head">
     <div class="kicker">Company Brain · Deployment Plate №4</div>
+    <h2>The life of a note</h2>
+    <p class="lede">The whole system, traced through one piece of knowledge — twice. Once
+    for the common case (a private capture) and once for the rarer, human-gated case
+    (sharing). Each step says <em>when it happens</em> and <em>who can see it</em>.</p>
+  </div>
+
+  <div class="stories">
+    <div class="story">
+      <h3>① Capturing something private — the everyday case</h3>
+      <ol class="timeline">
+        <li>
+          <span class="t">9:02 am · Alice's phone</span>
+          <p>Alice voice-memos her bot on WhatsApp: <strong>"the client agreed to the
+          March timeline."</strong></p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">seconds later · her container</span>
+          <p>Her agent transcribes it, writes a note into <strong>her Inbox in its local
+          clone</strong>, commits, and replies "Saved." The note is already durable on the
+          agents box — this step works even if the brain box is down.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">within ~5 minutes · both boxes</span>
+          <p>Her container's cron pushes; the next <strong>brain cycle</strong> validates
+          the path, applies it to the master, and recompiles her vault. The note now lives
+          in two places — three after the nightly offsite mirror.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">any time after · her phone</span>
+          <p>"What did we agree with the client?" — her agent answers from its
+          <strong>local index</strong>, instantly, network or no network.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+      </ol>
+    </div>
+
+    <div class="story">
+      <h3>② Sharing with the team — the human-gated case</h3>
+      <ol class="timeline">
+        <li>
+          <span class="t">2:14 pm · Alice's phone</span>
+          <p>Alice: <strong>"share the March timeline with the team."</strong></p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">seconds later · her container</span>
+          <p>Her agent drafts a <strong>promotion</strong> into her Promotions folder and
+          tells her exactly what will happen next. Nothing is shared yet — a draft is
+          still hers.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">within ~5 minutes · brain box</span>
+          <p>The push lands; the next cycle sweeps the draft into the master's
+          <strong>pending queue</strong>.</p>
+          <span class="who">visible to: Alice + the approver</span>
+        </li>
+        <li>
+          <span class="t">when a human decides · operator</span>
+          <p>The approver reviews it (dashboard or
+          <strong>brain promotions approve</strong>) and says yes. This is the gate —
+          no agent, however confused or manipulated, can open it.</p>
+          <span class="who">visible to: Alice + the approver</span>
+        </li>
+        <li>
+          <span class="t">next cycle · brain box</span>
+          <p>The note materializes into the <strong>Team space</strong> and every affected
+          person's vault recompiles to include it.</p>
+          <span class="who">visible to: the whole team</span>
+        </li>
+        <li>
+          <span class="t">within ~5 minutes · Bob's container</span>
+          <p>Bob's cron pulls. His agent can now answer with it — <strong>"when's the
+          client deadline?" → "March."</strong> Alice's agent tells her it went live.</p>
+          <span class="who">visible to: the whole team</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div>
+      <h2><span class="n">①</span>Private is fast and unconditional</h2>
+      <p>A capture is durable on the agents box in <strong>seconds</strong> and settled
+      into the master within <strong>one cycle (~5 minutes)</strong>. No approval, no
+      waiting on people — private knowledge flows at machine speed because it never
+      crosses a visibility boundary.</p>
+    </div>
+    <div>
+      <h2><span class="n">②</span>Shared is minutes + one decision</h2>
+      <p>Sharing costs a few machine-minutes plus <strong>however long the human takes</strong>.
+      That latency is the feature: the promotion queue is the only path across spaces, so
+      the approver's yes is the exact moment knowledge changes hands — never a sync
+      accident, never an agent's judgment call.</p>
+    </div>
+    <div>
+      <h2><span class="n">✓</span>What users should be told</h2>
+      <p>Two sentences cover it: <em>"Anything you tell your assistant is yours alone,
+      instantly. If you ask it to share something, a person approves it first — you'll
+      get a message when it's live."</em> That's the entire mental model an employee
+      needs.</p>
+    </div>
+  </section>
+</section>
+
+<section class="plate">
+  <div class="plate-head">
+    <div class="kicker">Company Brain · Deployment Plate №5</div>
     <h2>The deployment runbook</h2>
     <p class="lede">Everything to stand this up, in order. Phases 1–3 happen once and take
     an afternoon. Phase 4 is the ~10 minutes you spend per new employee. Phase 5 is the
