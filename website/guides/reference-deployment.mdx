@@ -229,9 +229,12 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
       review in the dashboard over an SSH tunnel on the tailnet.
     - **Watch two numbers:** the cycle and doctor exit codes (already wired to
       your alert URL).
-    - **Backups, both halves:** the master mirror covers knowledge; the agents
-      box **volumes** hold agent memories, sessions, and pairing state — snapshot
-      them nightly.
+    - **Backups, both halves:** the master mirror covers knowledge; agent
+      memories, sessions, pairing, and deploy keys live on the **state volumes** —
+      back them up nightly with [`deploy/agents-box/backup-agents.sh`](https://github.com/joedanz/brain/blob/main/deploy/agents-box/backup-agents.sh)
+      (`hermes backup` inside each container, consistent even while the gateway
+      runs) and ship the zips off-box encrypted — they hold keys and chat history.
+      Vault volumes need no backup: they re-clone from the brain box.
     - **Offboarding:** remove from `org.yaml`, delete their `authorized_keys`
       line, remove their container.
   </Step>
@@ -243,6 +246,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 | -------- | ------- |
 | Brain box down | Agents keep chatting and capturing on local clones; commits drain on recovery. Users notice nothing. |
 | Agents box down | Chat goes quiet; zero data lost. `docker compose up -d` restores everything from volumes. |
+| Agent volumes lost | Fresh container, `hermes import` the person's latest backup zip — memories, pairing, and deploy key all return; the vault re-clones itself. |
 | Agents box compromised | Rotate deploy keys, rebuild containers from the image — the master's history is intact and trustworthy. |
 | Brain box lost | Restore the offsite mirror, recompile, re-point remotes. |
 
