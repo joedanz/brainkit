@@ -1,0 +1,209 @@
+---
+title: "Reference Deployment: Two Boxes, Chat-Only"
+description: The worked example of the container branch of the deployment rule — non-technical users, server-side agents, one container per person.
+icon: boxes
+---
+
+This guide is the end-to-end worked example of the [deployment rule's](/guides/deployment) container branch: every personal agent runs server-side, in a container that mounts only that person's compiled vault. It fits teams where employees are **non-technical and chat is the entire product** — they message their own agent on WhatsApp or Telegram and never see git, files, or the word "vault."
+
+<Callout type="info">
+  **In plain English:** every employee texts their own private AI assistant. The
+  assistant keeps their notes in a private notebook only they can see. A separate
+  "librarian" machine holds the company's shared knowledge: when someone chooses to
+  share something, a human approves it, and it then appears in everyone's notebook.
+  Nothing is shared by accident, because each assistant is physically given only its
+  own person's notebook — there is no setting to get wrong.
+</Callout>
+
+## The shape
+
+Two small VPSes, same provider and region, joined by one tailnet. No public ports anywhere.
+
+```text
+Employees ── WhatsApp / Telegram ──┐  (chat is the only user surface)
+                                   ▼
+┌─ AGENTS BOX — one VPS, Docker ─────────────────────────────┐
+│  ┌─ container: alice ─┐ ┌─ container: bob ─┐ ┌─ carol… ─┐  │
+│  │ hermes gateway     │ │ hermes gateway   │ │          │  │
+│  │ + agent            │ │ + agent          │ │          │  │
+│  │ /vault = alice/    │ │ /vault = bob/    │ │          │  │
+│  │ .brain index + MCP │ │ .brain index+MCP │ │          │  │
+│  └────────────────────┘ └──────────────────┘ └──────────┘  │
+└───────────────▲─────────────────▲──────────────────────────┘
+                │ git over Tailscale — the only link,
+                │ per-person deploy keys, one key → one repo
+                ▼
+┌─ BRAIN BOX — master host, AGENT-FREE ──────────────────────┐
+│  master vault ─→ brain cycle (cron) ─→ compiled/<person>   │
+│  promotion queue · brain doctor · localhost dashboard      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+<CardGroup cols={2}>
+  <Card title="Brain box — plumbing" icon="server">
+    git + cron + the `brain` CLI, nothing else. **No LLM ever runs here**, so
+    nothing here can be talked into leaking. 2 GB of RAM is plenty.
+  </Card>
+  <Card title="Agents box — one container per person" icon="box">
+    Each container holds a complete personal world: hermes gateway + agent, its
+    own bot token and memory, and a clone of **only** that person's compiled
+    vault. ≈300 MB each; LLM compute happens at the API, not here.
+  </Card>
+</CardGroup>
+
+**Why two boxes instead of one?** The agents box runs LLM-driven processes with chat-reachable attack surface; the brain box holds every person's private space. Separate hardware makes the boundary structural — there is no compose line that can drift into exposing the master. The entire cost of that guarantee is one extra $5–10/month VPS.
+
+## How the sync works
+
+An agent never addresses the master. It addresses *its own vault's git remote*, which happens to live on the brain box:
+
+1. The agent edits its own spaces in its local clone and commits — captures go to its `Inbox/`, share drafts to `People/<me>/Promotions/`. This works even when the brain box is down.
+2. `git push` — the entire client interaction. Pushes are **accepted as-is**; validation is asynchronous.
+3. [`brain cycle`](/reference/cli#brain-cycle) (cron, every few minutes) validates every pushed path server-side, applies what's legal, reverts the rest on the next compile (fail closed), sweeps promotion drafts into the [pending queue](/concepts/promotions), and recompiles every vault.
+4. `git pull` — the verdict returns: rejected edits vanish, approved shared knowledge arrives.
+
+<Callout type="info">
+  **Never in the hot path.** Agents hold zero credentials to the brain system —
+  the only secret in a container is one SSH key that reaches one repo. And the
+  brain box needs no availability SLA: if it's down, agents keep chatting and
+  capturing against local clones; commits queue in git history and drain on
+  recovery.
+</Callout>
+
+## Sizing
+
+| Headcount | Agents box RAM |
+| --------- | -------------- |
+| ~5        | 4 GB           |
+| ~15       | 8 GB           |
+| ~30       | 16 GB          |
+
+The driver is one idle hermes gateway process per person (≈300–400 MB, near-zero idle CPU). Containers themselves add roughly nothing — they share the base image and have no per-container VM. If headcount outgrows one box, split the compose file across two; nothing about the architecture changes.
+
+## Visual surfaces (optional, phased)
+
+Chat stays the primary product, but each container can expose visual surfaces. Sessions live in the container's shared `state.db`, so a conversation started on WhatsApp continues in the browser or desktop app — same brain, different doors.
+
+| Surface | What the employee gets | Setup | Risk surface |
+| ------- | ---------------------- | ----- | ------------ |
+| **Chat** (default) | Capture, ask, share — the full agent | Pairing code, once | Nothing new |
+| **Brain dashboard** | Read-only view of their own knowledge: what's new, search, the graph, a capture box | None — a URL | Lowest: read-only by construction |
+| **Hermes web UI** | Browser chat with streaming, tool activity, sessions (`hermes serve`) | None — a URL | Full agent control — gate it well |
+| **Hermes Desktop** | Native app attached to their container: chat, files, voice | Laptop install + sign-in | Same as web UI |
+
+Add the **brain dashboard first** — it answers "what does my assistant actually know?" without handing anyone a control panel. Hermes Desktop attaches to a remote backend natively: the container runs `hermes serve`, and the user signs in under **Settings → Gateway**.
+
+<Callout type="warning">
+  Exposing `hermes serve` means remote control of that agent. Credentials must be
+  **per-person, per-container** — never shared — and the auth gate must map each
+  identity to exactly one container. Pilot: keep visual surfaces tailnet-only.
+  Wider rollout: one SSO reverse proxy (OIDC / Nous OAuth) with per-person routes.
+  The brain dashboard has no auth of its own — off-loopback it must sit behind the
+  authenticated proxy.
+</Callout>
+
+## The runbook
+
+Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new employee. Phase 5 is the steady state.
+
+<Steps>
+  <Step title="Provision — once">
+    Two VPSes, same provider and region. Ubuntu LTS, key-only SSH,
+    unattended-upgrades. Join both to one tailnet; open no other inbound ports.
+
+    ```bash
+    # on both boxes
+    curl -fsSL https://tailscale.com/install.sh | sh
+    tailscale up   # names: brain-box, agents-box
+    ```
+  </Step>
+
+  <Step title="Brain box — once">
+    Install brainkit, scaffold the master, and let cron be the whole
+    orchestration layer (see [Getting Started](/getting-started) for the
+    `org.yaml` / `spaces.yaml` details):
+
+    ```bash
+    uv tool install brainkit
+    brain init /srv/brain/master --company "Acme Co"
+    brain compile --master /srv/brain/master --out /srv/brain/compiled
+    brain doctor  --master /srv/brain/master --out /srv/brain/compiled
+    adduser --disabled-password brain-sync   # per-person keys, one repo each
+    ```
+
+    ```bash
+    # crontab
+    */5 * * * * brain cycle --master /srv/brain/master \
+      --out /srv/brain/compiled --index --json \
+      >> /var/log/brain/cycle.jsonl || curl -fsS $ALERT_URL
+    17 3 * * *  brain doctor --master /srv/brain/master \
+      --out /srv/brain/compiled || curl -fsS $ALERT_URL
+    23 4 * * *  git -C /srv/brain/master push --mirror offsite   # backup
+    ```
+
+    A nonzero `cycle` means a rejected write-back; a nonzero `doctor` means an
+    integrity error — both ping the alert URL. Optionally set an
+    [embedding provider](/reference/configuration#embeddings) so `--index`
+    builds semantic (not just keyword) indexes.
+  </Step>
+
+  <Step title="Agents box — once">
+    Install Docker, build one hermes image with brainkit baked in, and write one
+    compose stanza per person:
+
+    ```yaml
+    services:
+      agent-alice:
+        image: hermes-brain:latest
+        restart: unless-stopped
+        environment:
+          - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN}
+          - ANTHROPIC_API_KEY=${LLM_KEY}
+          - BRAIN_EMBED_BASE_URL=${EMBED_URL}  # optional
+        volumes:
+          - alice-state:/root/.hermes   # memory, sessions, pairing
+          - alice-vault:/vault          # her compiled vault clone
+    ```
+
+    Each container's first boot installs the `company-brain` hermes profile
+    (SOUL.md, `terminal.cwd: /vault`, the brain skills), clones
+    `brain-sync@brain-box:/srv/brain/compiled/<person>` with that container's
+    deploy key, runs [`brain index`](/reference/cli#brain-index), and starts the
+    profile's cron: pull → index → push.
+  </Step>
+
+  <Step title="Onboard an employee — ~10 minutes">
+    1. Add them to `org.yaml`; the next cycle compiles their vault.
+    2. Brain box: generate their deploy key; append one `authorized_keys` line
+       forced to their repo.
+    3. Telegram: `@BotFather → /newbot` → copy the token (WhatsApp: link a
+       number via the hermes WhatsApp adapter).
+    4. Agents box: copy-paste a compose stanza, `docker compose up -d`.
+    5. They message their bot; approve the one-time pairing code.
+    6. Send them one line: *"This is your assistant — tell it things, ask it
+       things."* That's their entire onboarding.
+  </Step>
+
+  <Step title="Operate — minutes per week">
+    - **Approvals:** `ssh brain-box brain promotions approve <id> --approver <you>`;
+      review in the dashboard over an SSH tunnel on the tailnet.
+    - **Watch two numbers:** the cycle and doctor exit codes (already wired to
+      your alert URL).
+    - **Backups, both halves:** the master mirror covers knowledge; the agents
+      box **volumes** hold agent memories, sessions, and pairing state — snapshot
+      them nightly.
+    - **Offboarding:** remove from `org.yaml`, delete their `authorized_keys`
+      line, remove their container.
+  </Step>
+</Steps>
+
+## Failure drills
+
+| Scenario | Outcome |
+| -------- | ------- |
+| Brain box down | Agents keep chatting and capturing on local clones; commits drain on recovery. Users notice nothing. |
+| Agents box down | Chat goes quiet; zero data lost. `docker compose up -d` restores everything from volumes. |
+| Agents box compromised | Rotate deploy keys, rebuild containers from the image — the master's history is intact and trustworthy. |
+| Brain box lost | Restore the offsite mirror, recompile, re-point remotes. |
+
+The full plate-style version of this plan — diagrams, transport alternatives (public SSH, forge-hosted remotes), and the visual-layer wiring — lives in the repo at [`docs/deployments/two-box-chat-only.html`](https://github.com/joedanz/brain/blob/main/docs/deployments/two-box-chat-only.html).

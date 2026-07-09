@@ -30,7 +30,8 @@
         "getting-started",
         "guides/per-employee-setup",
         "guides/getting-things-in",
-        "guides/deployment"
+        "guides/deployment",
+        "guides/reference-deployment"
       ]
     },
     {
