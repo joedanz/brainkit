@@ -152,7 +152,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     `org.yaml` / `spaces.yaml` details):
 
     ```bash
-    uv tool install git+https://github.com/joedanz/brain  # brainkit is not on PyPI
+    uv tool install git+https://github.com/joedanz/brainkit  # brainkit is not on PyPI
     brain init /srv/brain/master --company "Acme Co"
     brain compile --master /srv/brain/master --out /srv/brain/compiled
     brain doctor  --master /srv/brain/master --out /srv/brain/compiled
@@ -177,7 +177,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 
   <Step title="Agents box — once">
     Install Docker and build the `hermes-brain` image — it ships in the repo at
-    [`deploy/agents-box/`](https://github.com/joedanz/brain/tree/main/deploy/agents-box),
+    [`deploy/agents-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box),
     based on the official `nousresearch/hermes-agent` image with brainkit baked
     in. One compose stanza per person:
 
@@ -231,7 +231,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
       your alert URL).
     - **Backups, both halves:** the master mirror covers knowledge; agent
       memories, sessions, pairing, and deploy keys live on the **state volumes** —
-      back them up nightly with [`deploy/agents-box/backup-agents.sh`](https://github.com/joedanz/brain/blob/main/deploy/agents-box/backup-agents.sh)
+      back them up nightly with [`deploy/agents-box/backup-agents.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/backup-agents.sh)
       (`hermes backup` inside each container, consistent even while the gateway
       runs) and ship the zips off-box encrypted — they hold keys and chat history.
       Vault volumes need no backup: they re-clone from the brain box.
@@ -250,4 +250,4 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 | Agents box compromised | Rotate deploy keys, rebuild containers from the image — the master's history is intact and trustworthy. |
 | Brain box lost | Restore the offsite mirror, recompile, re-point remotes. |
 
-The full plate-style version of this plan — diagrams, transport alternatives (public SSH, forge-hosted remotes), and the visual-layer wiring — lives in the repo at [`docs/deployments/two-box-chat-only.html`](https://github.com/joedanz/brain/blob/main/docs/deployments/two-box-chat-only.html).
+The full plate-style version of this plan — diagrams, transport alternatives (public SSH, forge-hosted remotes), and the visual-layer wiring — lives in the repo at [`docs/deployments/two-box-chat-only.html`](https://github.com/joedanz/brainkit/blob/main/docs/deployments/two-box-chat-only.html).

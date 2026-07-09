@@ -18,7 +18,7 @@ Works") reviewed directly.
 
 ## Fixed (10 issues)
 
-- [x] two-box HTML: `uv tool install brainkit` → `git+https://github.com/joedanz/brain`
+- [x] two-box HTML: `uv tool install brainkit` → `git+https://github.com/joedanz/brainkit`
   (brainkit is not on PyPI; install would fail).
 - [x] two-box HTML: 5× "cron: pull → index → push" / "her container's cron" /
   "Bob's cron" → "sync loop" (the agent-side sync is an s6-supervised
