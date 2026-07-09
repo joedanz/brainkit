@@ -58,6 +58,8 @@ flowchart LR
     frontmatter (`promoted-by`, `approved-by`, `source`, `date`). Rejections move
     to `rejected/` with the reason — a training signal for what this company
     considers shareable.
+
+    The admin [`brain dashboard`](/reference/cli#brain-dashboard) exposes this same gate as a live surface: the **Promotions** tab renders each pending item with its destination, a warning naming exactly who will be able to read it, and its full body, with **Approve** / **Reject** (reason required) and **Sweep drafts** actions wired to these same primitives. It never bypasses the human gate — it *is* the human gate, with a nicer view.
   </Step>
 </Steps>
 
