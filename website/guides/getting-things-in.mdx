@@ -86,6 +86,10 @@ brain ingest --master /srv/brain/master --person bob --file "$DROPPED_FILE" --so
 
 With `--file`, the original filename is recorded as `original-name` and, absent `--title`, becomes the note's title.
 
+### The dashboard's Capture button
+
+The live [`brain dashboard`](/reference/cli#brain-dashboard) is itself a capture surface: a **Capture** composer in the header writes a note straight into your Inbox, and the composer names the exact destination (`People/<you>/Inbox`) before you save. It reuses the same constructed-path, sanitized-frontmatter, symlink-refusing builder as `brain ingest` — the difference is only *where* the note lands first. Under the admin (master) lens it calls `brain ingest` directly and commits immediately; under a person's own vault lens (the compiled slice, which has no master to write) it writes into that slice's `People/<you>/Inbox/`, and the next [`brain cycle`](/reference/cli#brain-cycle)'s [write-back](/concepts/write-back) carries it to master — the same trust boundary Obsidian edits already pass through.
+
 <Callout type="warning">
   Ingest writes directly to master; the next cycle compiles it out. A heavy
   pipeline should funnel through one queue rather than run many ingests
