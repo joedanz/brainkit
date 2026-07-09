@@ -197,8 +197,12 @@ def provider_from_config() -> EmbeddingProvider | None:
         )
 
     path = _config_path()
-    if path.is_file():
-        data = yaml.safe_load(path.read_text()) or {}
+    try:
+        text = path.read_text() if path.is_file() else None
+    except OSError:
+        text = None  # e.g. HOME pointing somewhere unreadable — no config, not a crash
+    if text is not None:
+        data = yaml.safe_load(text) or {}
         emb = data.get("embeddings")
         if isinstance(emb, dict) and emb.get("base_url"):
             api_key = os.environ.get(emb.get("api_key_env", ""), "")

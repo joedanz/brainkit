@@ -4,6 +4,13 @@
 # s6-setuidgid); safe to invoke manually too: docker exec <c> vault-sync
 set -u
 
+# `docker exec` runs as root; the supervised loop runs us as hermes. Drop
+# privileges ourselves — as root, git refuses the hermes-owned repo
+# ("dubious ownership") and `brain index` would leave root-owned files.
+if [ "$(id -u)" -eq 0 ]; then
+    exec /command/s6-setuidgid hermes "$0" "$@"
+fi
+
 export HOME=/opt/data/home   # where first boot put the deploy key
 V=/vault
 
