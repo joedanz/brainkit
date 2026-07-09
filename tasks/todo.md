@@ -1,56 +1,64 @@
-# Batch: promotion + privacy integrity fixes
+# Batch: Phase 3 — hermes-brain image + compose (agents box)
 
-Investigated from the luxury-travel-agency e2e demo. Scope refined after reading
-the code: the original "rule-path typo" check is already covered by
-`doctor._check_rule_paths`, so it's dropped.
+Implements Phase 3 of the two-box runbook (docs/deployments/two-box-chat-only.html,
+website/guides/reference-deployment.mdx): one Docker image for every per-person
+agent container, plus the compose file and onboarding helper.
+
+Design decisions (from research):
+- Base on the official `nousresearch/hermes-agent` image (s6-overlay PID 1,
+  `/opt/data` state volume, supervised gateway) rather than hand-rolling the
+  hermes install. Derived-image pattern is documented upstream.
+- brainkit is NOT on PyPI — bake it from this repo's source (build context =
+  repo root), in its own venv so the hermes venv is untouched.
+- Vault sync = s6 `services.d` longrun (pull → `brain index` → push), NOT
+  hermes cron (that schedules LLM prompts, not shell jobs).
+- Deploy key is generated INSIDE the container on first boot; pubkey printed
+  to `docker logs` + saved at `/opt/data/deploy-key.pub`. Private key never
+  leaves the container. Clone retries until the operator authorizes the key.
+- Gap found: `compiler.py:200` git-inits compiled vaults but never sets
+  `receive.denyCurrentBranch` — agent pushes would bounce. Onboarding
+  checklist must run `git config receive.denyCurrentBranch updateInstead`.
+- Doc fix needed: merged docs say `alice-state:/root/.hermes`; the official
+  image's state volume is `/opt/data`.
 
 ## Tasks
 
-- [x] **A. Sweep resurrection fix** (`src/brain/promotions.py`)
-  - `sweep()` dedups only against `pending/`, so an already **approved** or
-    **rejected** promotion gets re-queued on the next `cycle` (its draft is
-    written back from the person's vault, then re-swept).
-  - Fix: skip a draft whose id already exists in pending/ OR approved/ OR
-    rejected/. Unlink the resolved leftover draft so it stops lingering.
-  - Tests: approve->re-draft->sweep (not re-queued, draft cleaned); reject variant.
-
-- [x] **B. Orphan loose-file doctor check** (`src/brain/doctor.py`)
-  - A `.md` directly under `Teams/`/`People/`/`Clients/` (not in a subfolder)
-    belongs to no space and compiles into NO vault — vanishes silently.
-  - Fix: new `_check_orphan_files` -> warn, check "orphan-files".
-
-- [x] **C. Cross-space reference privacy check** (`src/brain/doctor.py`)
-  - A wikilink in space S resolving to a file in space T where some reader of S
-    cannot read T = the name leaks even though the file never crosses.
-  - Fix: new `_check_cross_space_refs(master, org, rules)` -> warn, "cross-refs".
-    Master-wide stem map, resolve links, compare reader sets, dedupe per
-    (source, target-space). Plain-text mentions out of scope.
-
-- [x] **D. Deny-by-default scaffold + docs** (`templates.py`, docs, e2e)
-  - Scaffold `Clients/*` default -> `read/write: ["role:admin"]` + grant pattern.
-  - Decouple `test_e2e_lifecycle._populate` with its own explicit spaces.yaml.
-  - Docs: `spaces-and-permissions.mdx` per-client rules + keep-names-out rule.
+- [x] **A. deploy/agents-box/Dockerfile** — FROM nousresearch/hermes-agent,
+  brainkit venv via uv, company-brain profile staged at /opt/brain-profile,
+  cont-init + services.d scripts installed.
+- [x] **B. First boot script** (`scripts/03-brain-first-boot`) — install
+  profile (SOUL.md, config.yaml with terminal.cwd=/vault + brain MCP server +
+  tool-loop hard stops, skills), mint deploy key, print pubkey banner, chown.
+- [x] **C. Sync scripts** (`scripts/vault-sync`, `scripts/vault-sync-run`) —
+  single pass (clone-or: commit strays, pull -X theirs, index, push) + s6 loop.
+- [x] **D. docker-compose.yml + .env.example** — x-agent-base anchor, one
+  example person, named volumes `<p>-state:/opt/data`, `<p>-vault:/vault`.
+- [x] **E. add-agent.sh** — prints per-person compose stanza + full operator
+  checklist (org.yaml, BotFather, deploy-key authorization line, updateInstead).
+- [x] **F. deploy/brain-box/brain-serve-repo** — forced-command wrapper: one
+  key → one repo (upload-pack/receive-pack only).
+- [x] **G. README.md** — build, first-boot flow, verification, failure modes.
+- [x] **H. Doc corrections** — reference-deployment.mdx + two-box HTML:
+  `/opt/data` volume path, point Phase 3/4 at deploy/agents-box/.
+- [x] **I. Verify** — see review.
 
 ## Review
 
-All four shipped; full suite **218 passed**. Verified live on the travel demo:
-approve → double `cycle` leaves the queue empty and clears the stale draft
-(resurrection fixed); `doctor` now emits 22 real `cross-refs` warnings and the
-`orphan-files` check; fresh `brain init` is deny-by-default for Clients.
+Static: shellcheck clean (5 scripts); compose + generated config.yaml parse.
+Live (Docker Desktop, image built at 3.96 GB): booted a container against a
+REAL compiled vault (`brain init` + `brain compile` fixture) and verified the
+full life-of-a-note loop — first boot installs profile + mints deploy key
+(banner in `docker logs`), supervised vault-sync clones + indexes, an
+agent-written Inbox note auto-commits and pushes (updateInstead), `brain
+cycle` applies it (`applied: 1`), the compile commit pulls back, the index
+refreshes, and `brain search` finds the note. Container restart preserved
+everything (s6 reconciler). Website build + 265 pytest green.
 
-Refinement made during implementation: `cross-refs` exempts `People/*` sources —
-a personal space has a single reader (its owner), so a name there can't leak to
-anyone else. Without this, every private note referencing a restricted doc
-produced an "owner cannot see it" false positive (24 → 22 findings on the demo).
+Bugs caught by testing:
+- first-boot chowned /vault before ensuring it exists → `mkdir -p` added.
+- (fixture-only) bind-mounting a compiled vault breaks on compile's two-phase
+  directory swap — irrelevant over SSH, which re-resolves paths per connection.
 
-Files: `promotions.py` (sweep + `_resolved_ids`), `doctor.py` (`_check_orphan_files`,
-`_check_cross_space_refs`, `_content_files`, `_resolve_target`), `templates.py`
-(scaffold default), `spaces-and-permissions.mdx` + `cli.mdx` (docs),
-`test_promotions.py` +2, `test_doctor.py` +2, `test_e2e_lifecycle.py` (explicit spaces).
-
-Follow-up (shipped separately): `plain-ref` doctor check — scans shared prose for
-restricted **space names** (proper-noun/capitalized only, to bound false
-positives), same reader-set comparison as cross-refs. Space-names-only + warn
-were Joe's calls. Caught 4 real leaks on the travel demo unprompted. Residual
-gap: names that aren't folder names (nicknames, note titles) still can't be
-matched structurally.
+Known trade-offs: config.yaml written by first boot is schema-migrated by the
+stock hook on the NEXT boot (harmless — gateway migrates at startup too);
+sync conflict policy is `-X theirs` (brain box is arbiter).
