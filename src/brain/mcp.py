@@ -75,19 +75,13 @@ def _tool_search(vault: Path, args: dict, provider) -> tuple[str, bool]:
 
 
 def _tool_read(vault: Path, args: dict) -> tuple[str, bool]:
-    from brain.resolver import space_of_path
+    from brain.notes import NoteAccessError, read_note
 
     rel = args.get("rel_path", "")
-    if space_of_path(rel) is None:
-        return f"refused: {rel!r} is not inside any readable space", True
-    target = vault / rel
     try:
-        inside = target.resolve().is_relative_to(vault.resolve())
-    except OSError:
-        inside = False
-    if not inside or target.is_symlink() or not target.is_file():
-        return f"refused: {rel!r} is not a readable file in this vault", True
-    return target.read_text(encoding="utf-8", errors="replace"), False
+        return read_note(vault, rel), False
+    except NoteAccessError as e:
+        return f"refused: {e}", True
 
 
 def _handle(vault: Path, provider, msg: dict):

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>brain — live dashboard</title>
+<link rel="stylesheet" href="/assets/vendor/fonts/fonts.css">
+<link rel="stylesheet" href="/assets/css/dashboard.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1 id="title">brain</h1>
+    <div id="page-meta"></div>
+  </div>
+  <div class="header-right" id="header-right">
+    <div class="status" id="status">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">connecting…</span>
+    </div>
+  </div>
+</header>
+<nav class="tabs" id="tabs" role="tablist" aria-label="Dashboard sections"></nav>
+<main id="app" role="tabpanel" tabindex="-1"></main>
+<!-- d3 as a classic global (window.d3); three.js is imported lazily by the 3D tab -->
+<script src="/assets/vendor/d3.v7.min.js"></script>
+<script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>

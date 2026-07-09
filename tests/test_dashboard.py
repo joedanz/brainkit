@@ -102,3 +102,31 @@ def test_cli_dashboard_writes_file_and_opens(master, tmp_path, monkeypatch, caps
     # --vault with --out is a usage error
     assert main(["dashboard", "--vault", str(vault), "--out", "x",
                  "--html", str(out)]) == 2
+
+
+def test_cli_dashboard_serves_live_by_default(master, tmp_path, monkeypatch):
+    vault = _vault(master, tmp_path)
+    calls = []
+
+    def fake_run_server(lens, *, host, port, open_browser):
+        calls.append({"lens": lens, "host": host, "port": port,
+                      "open_browser": open_browser})
+        return 0
+
+    monkeypatch.setattr("brain.server.run_server", fake_run_server)
+
+    # bare invocation → live server, loopback defaults, opens browser
+    assert main(["dashboard", "--vault", str(vault)]) == 0
+    assert len(calls) == 1
+    c = calls[0]
+    assert c["lens"].kind == "vault" and c["host"] == "127.0.0.1"
+    assert c["port"] == 8765 and c["open_browser"] is True
+
+    # flags flow through; --no-open suppresses the browser
+    assert main(["dashboard", "--vault", str(vault),
+                 "--no-open", "--port", "0"]) == 0
+    assert calls[1]["port"] == 0 and calls[1]["open_browser"] is False
+
+    # a nonexistent target fails fast without starting a server
+    assert main(["dashboard", "--vault", str(tmp_path / "gone")]) == 1
+    assert len(calls) == 2
