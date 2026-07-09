@@ -55,7 +55,7 @@ The deeper story — link stubbing, symlink and path-traversal defenses, the two
 
 brainkit is runtime-friendly but runtime-independent: underneath it's plain markdown and git, with no hard dependency on any AI vendor.
 
-- **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the chief-of-staff protocol, scoped to that person.
+- **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the assistant protocol, scoped to that person.
 - **Hermes Agent** ([NousResearch](https://github.com/NousResearch)) — first-class support via `hermes profile install`, plus a ready-to-run Docker image in [`deploy/agents-box`](deploy/agents-box).
 - **Any MCP client** — `brain mcp` exposes search and note reading over the Model Context Protocol, so Claude Desktop, Cursor, Codex, and friends can use the vault as a tool.
 - **Or no agent at all** — the vault is just files. Obsidian, `grep`, and your editor all work.

@@ -37,7 +37,7 @@ uv tool install git+https://github.com/joedanz/brainkit
     ```
     This creates the space layout (`Company/`, `Teams/`, `People/`, `Clients/`),
     seeds `_meta/org.yaml` and `_meta/spaces.yaml`, writes the server
-    chief-of-staff protocol to the master-root `AGENTS.md`, and makes the
+    assistant protocol to the master-root `AGENTS.md`, and makes the
     initial git commit.
   </Step>
 
@@ -98,7 +98,7 @@ uv tool install git+https://github.com/joedanz/brainkit
   master/                 # the single source of truth (one git repo)
     Company/ Teams/ People/ Clients/
     _meta/                # org.yaml, spaces.yaml, promotions/ — never compiled out
-    AGENTS.md             # server chief-of-staff protocol (master only)
+    AGENTS.md             # server assistant protocol (master only)
   compiled/
     alice/                # Alice's slice — her People/, her Teams/, Company/
       .brain/             # local search index — machine-local, gitignored

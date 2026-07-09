@@ -16,7 +16,7 @@ not in any channel:
 - Each intake is its own git commit under a distinct identity, so ``git log``
   tells authenticated write-backs apart from channel intake.
 
-Routing the note out of the Inbox stays the chief-of-staff agent's job; ingest
+Routing the note out of the Inbox stays the company assistant's job; ingest
 only lands the raw note where that agent will find it.
 """
 

@@ -154,7 +154,7 @@ def test_init_scaffolds_master(tmp_path: Path):
     assert (dest / "_meta/spaces.yaml").exists()
     assert (dest / "_meta/promotions/pending/.gitkeep").exists()
     protocol = (dest / "AGENTS.md").read_text()
-    assert "chief-of-staff" in protocol.lower()
+    assert "assistant" in protocol.lower()
     assert "Needs-Routing" in protocol
     assert (dest / ".git").is_dir()
     # org/spaces parse cleanly

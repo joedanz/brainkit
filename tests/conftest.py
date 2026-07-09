@@ -29,7 +29,7 @@ def master(tmp_path: Path) -> Path:
         "People/bob/Sessions/Bob Private Note.md": "Bob only.\n",
         "Clients/acme/Overview.md": "Acme overview.\n",
         "_meta/org.yaml": "people: {}\n",
-        "AGENTS.md": "# Chief-of-staff protocol (server only)\n",
+        "AGENTS.md": "# Assistant protocol (server only)\n",
     }
     for rel, content in files.items():
         p = m / rel

@@ -25,10 +25,10 @@ spaces:
   - {path: "Clients/*", read: ["role:admin"], write: ["role:admin"]}
 """
 
-CHIEF_OF_STAFF_PROTOCOL = """\
-# Chief-of-Staff Protocol (server — full master vault)
+ASSISTANT_PROTOCOL = """\
+# Assistant Protocol (server — full master vault)
 
-This is the master vault. You are the company chief-of-staff agent with full
+This is the master vault. You are the company assistant with full
 access. Personal agents see only their compiled slice; you maintain the whole.
 
 ## Transcript pipeline
@@ -65,7 +65,7 @@ owner, pending promotions, recent decisions.
 def _home_md(company: str) -> str:
     return (
         f"# {company} — Home\n\n"
-        "## Priorities\n\n(maintained by the chief-of-staff agent)\n\n"
+        "## Priorities\n\n(maintained by the company assistant)\n\n"
         "## Links\n\n- [[Memory]]\n- Decisions/\n- Frameworks/\n- Templates/\n"
     )
 
@@ -74,14 +74,14 @@ def _memory_md(company: str) -> str:
     return (
         f"# {company} — Company Memory\n\n"
         "Business overview, positioning, offers, team structure. Maintained by\n"
-        "the chief-of-staff agent; substantive changes arrive via promotions or\n"
+        "the company assistant; substantive changes arrive via promotions or\n"
         "admin edits.\n"
     )
 
 
 def scaffold_master(dest: Path, company: str) -> list[str]:
     files: dict[str, str] = {
-        "AGENTS.md": CHIEF_OF_STAFF_PROTOCOL,
+        "AGENTS.md": ASSISTANT_PROTOCOL,
         "Company/Home.md": _home_md(company),
         "Company/Memory.md": _memory_md(company),
         "Company/Decisions/.gitkeep": "",
