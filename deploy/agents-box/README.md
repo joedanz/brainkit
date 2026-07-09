@@ -70,6 +70,44 @@ docker exec agent-alice brain status --vault /vault
 docker exec agent-alice hermes gateway status
 ```
 
+## Backups
+
+Only the **state volume** (`<person>-state:/opt/data`) is irreplaceable — it
+holds sessions, memories, Telegram pairing approvals, `.env`, and the deploy
+key (`home/.ssh/id_ed25519`). The `/vault` volume is derived data: lose it and
+vault-sync re-clones from the brain box and `brain index` rebuilds. The image
+rebuilds from this repo. (The knowledge itself lives on the brain box —
+back up `/srv/brain` as its own job.)
+
+Nightly, from **host cron** (hermes cron schedules LLM prompts, not shell jobs):
+
+```bash
+15 3 * * * /opt/brain/deploy/agents-box/backup-agents.sh /srv/backups/agents
+```
+
+[`backup-agents.sh`](backup-agents.sh) runs `hermes backup` inside every
+running `agent-*` container — SQLite's `backup()` API makes the snapshot
+consistent while the gateway is running (a raw tar of the live volume is
+not) — copies the zip out, and prunes by age (`BACKUP_RETENTION_DAYS`,
+default 14; `BACKUP_QUICK=1` for fast state-only snapshots).
+
+**Restore** (dead container / new box):
+
+```bash
+docker compose up -d agent-alice                 # fresh volumes, first boot runs
+docker cp alice.zip agent-alice:/tmp/restore.zip
+docker exec agent-alice hermes import /tmp/restore.zip --force
+docker restart agent-alice
+```
+
+Nothing else: the deploy key is inside the zip, so the container reconnects
+to the brain box without re-authorizing a new key, pairing survives, and
+vault-sync re-clones `/vault` on its own.
+
+Two rules: **backup zips are secrets** (deploy key, `.env`, bot token, full
+chat history — encrypt off-box, e.g. restic/borg), and **never restore one
+person's zip into another person's container**.
+
 ## Failure modes
 
 | Symptom | Cause / fix |
