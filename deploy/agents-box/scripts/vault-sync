@@ -1,0 +1,45 @@
+#!/bin/sh
+# One vault sync pass: clone if needed, else commit strays → pull → index →
+# push. Runs as the hermes user (the supervised loop wraps it in
+# s6-setuidgid); safe to invoke manually too: docker exec <c> vault-sync
+set -u
+
+export HOME=/opt/data/home   # where first boot put the deploy key
+V=/vault
+
+# --- first contact: clone-with-retry lives here ------------------------------
+if [ ! -d "$V/.git" ]; then
+    if ! git clone -q "${BRAIN_GIT_REMOTE:?BRAIN_GIT_REMOTE not set}" "$V"; then
+        echo "[vault-sync] clone failed — deploy key not authorized on the" \
+             "brain box yet, or the vault is not compiled. Retrying." >&2
+        exit 1
+    fi
+    git -C "$V" config user.name "${BRAIN_PERSON:-agent} (agent)"
+    git -C "$V" config user.email "${BRAIN_PERSON:-agent}@agents.brain.local"
+    brain index --vault "$V" || true
+    echo "[vault-sync] vault cloned and indexed — agent is live"
+    exit 0
+fi
+
+# --- steady state -------------------------------------------------------------
+# Commit anything the agent left uncommitted so it can never block the pull.
+if [ -n "$(git -C "$V" status --porcelain)" ]; then
+    git -C "$V" add -A
+    git -C "$V" commit -q -m "agent: sync $(date -u +%FT%TZ)" || true
+fi
+
+# The brain box is the arbiter. On a conflicting hunk, take its side: its
+# compile output is authoritative (a conflict only happens when the compiler
+# rewrote a file the agent also touched — exactly the case where the server
+# must win, e.g. a reverted illegal edit).
+if ! git -C "$V" pull -q --no-rebase --no-edit -s recursive -X theirs; then
+    git -C "$V" merge --abort 2>/dev/null || true
+    echo "[vault-sync] pull failed — retrying next interval" >&2
+fi
+
+# Refresh the local search index; an index failure never blocks the sync.
+brain index --vault "$V" || echo "[vault-sync] index refresh failed (non-fatal)" >&2
+
+# Push may bounce if it races a brain cycle (updateInstead refuses a dirty
+# worktree); commits stay queued in local history and drain next interval.
+git -C "$V" push -q || echo "[vault-sync] push refused — will retry next interval" >&2

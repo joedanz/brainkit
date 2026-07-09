@@ -1,0 +1,85 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# hermes-brain first boot: install the company-brain profile, mint this
+# container's deploy key, and hand the volumes to the hermes runtime user.
+#
+# Runs as root from s6 cont-init on EVERY container start (after the stock
+# 01-hermes-setup hook has seeded hermes defaults) — everything here must be
+# idempotent. The actual vault clone happens in the supervised vault-sync
+# service, never here: boot must not block on the operator authorizing the key.
+set -eu
+
+DATA=/opt/data
+SUBHOME="$DATA/home"   # HOME for hermes tool subprocesses (git, ssh)
+
+if [ -z "${BRAIN_PERSON:-}" ]; then
+    echo "[brain] BRAIN_PERSON not set — skipping brain first-boot (plain hermes container)"
+    exit 0
+fi
+
+# --- 1. company-brain profile (once) ---------------------------------------
+if [ ! -f "$DATA/.company-brain-installed" ]; then
+    cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
+    mkdir -p "$DATA/skills"
+    cp -R /opt/brain-profile/skills/. "$DATA/skills/"
+
+    # Profile config with the vault path filled in, plus the pieces that only
+    # make sense server-side: the brain MCP server and tool-loop hard stops
+    # (an unattended gateway has no human watching repeated tool-call warnings).
+    sed 's|REPLACE_WITH_VAULT_PATH|/vault|' /opt/brain-profile/config.yaml \
+        > "$DATA/config.yaml"
+    cat >> "$DATA/config.yaml" <<'EOF'
+
+# --- appended by hermes-brain first boot ---
+mcp_servers:
+  brain:
+    command: /usr/local/bin/brain
+    args: ["mcp", "--vault", "/vault"]
+
+tool_loop_guardrails:
+  hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 5
+    idempotent_no_progress: 5
+EOF
+    date -u +%FT%TZ > "$DATA/.company-brain-installed"
+    echo "[brain] company-brain profile installed for $BRAIN_PERSON"
+fi
+
+# --- 2. deploy key (once) — the private key never leaves this container ----
+if [ ! -f "$SUBHOME/.ssh/id_ed25519" ]; then
+    mkdir -p "$SUBHOME/.ssh"
+    ssh-keygen -q -t ed25519 -N "" -C "brain-agent-$BRAIN_PERSON" \
+        -f "$SUBHOME/.ssh/id_ed25519"
+    cat > "$SUBHOME/.ssh/config" <<'EOF'
+Host *
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+  StrictHostKeyChecking accept-new
+EOF
+    chmod 700 "$SUBHOME/.ssh"
+    chmod 600 "$SUBHOME/.ssh/id_ed25519" "$SUBHOME/.ssh/config"
+    cp "$SUBHOME/.ssh/id_ed25519.pub" "$DATA/deploy-key.pub"
+fi
+
+# Until the clone has succeeded, surface the pubkey on every boot so it is
+# always one `docker logs <container>` away.
+if [ ! -d /vault/.git ]; then
+    echo "============================================================"
+    echo "[brain] deploy key for '$BRAIN_PERSON' — authorize it on the brain box:"
+    echo
+    cat "$DATA/deploy-key.pub"
+    echo
+    echo "[brain] (see deploy/agents-box/add-agent.sh for the exact authorized_keys line)"
+    echo "[brain] vault-sync retries the clone every 30s until the key works."
+    echo "============================================================"
+fi
+
+# --- 3. ownership -----------------------------------------------------------
+# The stock 01 hook fixes /opt/data before we run; fix what we created after
+# it, plus the fresh /vault volume (named volumes are born root-owned).
+# mkdir covers a bare `docker run` without the vault mount.
+mkdir -p /vault
+chown -R hermes:hermes /vault "$SUBHOME/.ssh" "$DATA/skills"
+chown hermes:hermes "$DATA/SOUL.md" "$DATA/config.yaml" \
+    "$DATA/deploy-key.pub" "$DATA/.company-brain-installed"
