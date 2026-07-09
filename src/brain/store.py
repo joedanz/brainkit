@@ -180,6 +180,37 @@ class IndexStore:
             status = "sqlite-vec unavailable — keyword-only search" if want_vectors else "vectors disabled"
         return cls(conn, vectors, status, migrated_from)
 
+    @classmethod
+    def open_readonly(cls, path: Path, *, want_vectors: bool = True) -> IndexStore:
+        """Open an existing index for reading only.
+
+        Unlike :meth:`open`, this never creates the file, mkdir's its parent,
+        switches journal mode, runs DDL, or bumps the schema version — it opens
+        the ``file:...?mode=ro`` URI, so a search or status request can never
+        mutate a vault (or contend for the write lock a concurrent ``brain
+        index`` holds). The caller must ensure the database already exists;
+        a missing file raises ``sqlite3.OperationalError``.
+        """
+        from urllib.parse import quote
+
+        path = Path(path)
+        uri = f"file:{quote(str(path), safe='/:')}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version > SCHEMA_VERSION:
+            conn.close()
+            raise StoreError(
+                f"index at {path} was built by a newer brainkit "
+                f"(schema {version} > {SCHEMA_VERSION}); rebuild with: brain index --full"
+            )
+        if want_vectors and _try_load_vec(conn):
+            vectors: VectorBackend = SqliteVecBackend(conn)
+            status = "ok"
+        else:
+            vectors = NullVectorBackend()
+            status = "sqlite-vec unavailable — keyword-only search" if want_vectors else "vectors disabled"
+        return cls(conn, vectors, status, None)
+
     # ---- reads -------------------------------------------------------------
     def files(self) -> dict[str, str]:
         return {rel: sha for rel, sha in self.conn.execute("SELECT rel_path, sha256 FROM files")}

@@ -106,10 +106,35 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ro_connect(db: Path) -> sqlite3.Connection:
+def ro_connect(db: Path) -> sqlite3.Connection:
     # URI filenames must be percent-encoded (spaces, '?', '#'); keep '/' and
-    # ':' literal so absolute paths survive.
+    # ':' literal so absolute paths survive. Read-only by construction: opening
+    # the index read-write would create it, switch it to WAL and bump the schema.
     return sqlite3.connect(f"file:{quote(str(db), safe='/:')}?mode=ro", uri=True)
+
+
+def _manifest_candidates(manifest: dict) -> dict[str, str]:
+    """The person's own notes (rel_path -> sha256) from a compiled manifest —
+    real ``.md`` files, excluding compiler-generated ones. This is the set that
+    should be indexed, so it drives both space counts and pending-reindex."""
+    generated = set(manifest["generated"])
+    return {
+        rel: sha
+        for rel, sha in manifest["compiled"].items()
+        if rel.endswith(".md") and rel not in generated
+    }
+
+
+def pending_reindex(vault: Path, conn: sqlite3.Connection) -> list[str]:
+    """Files whose indexed sha differs from the compiled manifest, plus indexed
+    files no longer in the manifest — i.e. what ``brain index`` would touch.
+    `conn` must be an open read-only index connection for `vault`."""
+    candidates = _manifest_candidates(_load_manifest(vault))
+    indexed = dict(conn.execute("SELECT rel_path, sha256 FROM files"))
+    return sorted(
+        [rel for rel, sha in candidates.items() if indexed.get(rel) != sha]
+        + [rel for rel in indexed if rel not in candidates]
+    )
 
 
 def _git_log(repo: Path, limit: int) -> tuple[list[CommitInfo], str | None]:
@@ -183,12 +208,7 @@ def collect_vault_stats(
     vault = Path(vault)
     manifest = _load_manifest(vault)  # raises ManifestError if uncompiled
     person = manifest.get("person", "")
-    generated = set(manifest["generated"])
-    candidates = {
-        rel: sha
-        for rel, sha in manifest["compiled"].items()
-        if rel.endswith(".md") and rel not in generated
-    }
+    candidates = _manifest_candidates(manifest)
 
     warnings: list[str] = []
     notes_by_space: dict[str, int] = {}
@@ -210,7 +230,7 @@ def collect_vault_stats(
     conn: sqlite3.Connection | None = None
     if db.is_file():
         try:
-            conn = _ro_connect(db)
+            conn = ro_connect(db)
             meta = dict(conn.execute("SELECT key, value FROM index_meta"))
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             index_info = IndexInfo(
@@ -219,11 +239,7 @@ def collect_vault_stats(
                 dim=meta.get("dim", ""),
                 schema_version=version,
             )
-            indexed = dict(conn.execute("SELECT rel_path, sha256 FROM files"))
-            pending = sorted(
-                [rel for rel, sha in candidates.items() if indexed.get(rel) != sha]
-                + [rel for rel in indexed if rel not in candidates]
-            )
+            pending = pending_reindex(vault, conn)
             chunks_by_space = dict(conn.execute(
                 "SELECT space, count(*) FROM chunks GROUP BY space"))
             chunks_total = sum(chunks_by_space.values())
@@ -374,7 +390,7 @@ def _read_index_built_at(vault: Path) -> str | None:
     if not db.is_file():
         return None
     try:
-        conn = _ro_connect(db)
+        conn = ro_connect(db)
         try:
             row = conn.execute(
                 "SELECT value FROM index_meta WHERE key = 'built_at'").fetchone()

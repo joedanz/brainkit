@@ -190,3 +190,19 @@ def test_ingest_resolves_org_email_end_to_end(master: Path):
     org = load_org(master / "_meta/org.yaml")
     assert org.person_by_email("bob@acme.com").id == "bob"
     assert org.person_by_email("alice@acme.com").id == "alice"
+
+
+def test_build_inbox_note_is_pure(tmp_path):
+    """build_inbox_note constructs a note without writing it or needing rules."""
+    from brain.ingest import build_inbox_note
+    built = build_inbox_note(tmp_path, "alice", "the body",
+                             title="A Title", source="dashboard", sender="", created="2026-07-09")
+    assert built.rel_path == "People/alice/Inbox/2026-07-09-a-title.md"
+    assert "title: A Title" in built.text and built.text.endswith("the body")
+    assert not (tmp_path / built.rel_path).exists()  # pure: nothing written
+
+
+def test_build_inbox_note_rejects_empty_body(tmp_path):
+    from brain.ingest import IngestError, build_inbox_note
+    with pytest.raises(IngestError):
+        build_inbox_note(tmp_path, "alice", "   ", title="x", source="s", sender="", created="2026-07-09")
