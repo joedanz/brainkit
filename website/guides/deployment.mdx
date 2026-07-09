@@ -26,6 +26,13 @@ The tenant wall in this system is *physical*: it holds only where a personal age
 
 **Never** co-host multiple employees' agent profiles side-by-side on one uncontained host. That is the single configuration that turns a structural guarantee back into a promise an agent could break.
 
+<Callout type="info">
+  Want the container branch end-to-end? The
+  [two-box reference deployment](/guides/reference-deployment) is the worked
+  example: chat-only users, one hermes container per person, the sync plane,
+  sizing, and a full runbook.
+</Callout>
+
 ## Why the compiler doesn't save you here
 
 The compiler guarantees that a person's *vault* contains only what they may see. That guarantee is about what gets written to disk. It says nothing about what a process running as your OS user can `open()` elsewhere on that disk. Keeping agents to one-vault-per-host (device or container mount) is what preserves the boundary at runtime.
