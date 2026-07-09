@@ -1,0 +1,39 @@
+# Agents box — one hermes-brain container per person.
+#
+# Adding a person = one stanza (run ./add-agent.sh <name> to generate it),
+# two named volumes, and one token line in .env (see .env.example).
+#
+# Build + start everything:   docker compose up -d --build
+# First-boot key handshake:   docker logs agent-alice   (shows the deploy key)
+#
+# No ports are published: chat platforms long-poll outward, and the vault
+# syncs over ssh to the brain box. The visual layer (hermes dashboard, brain
+# dashboard) is a later, tailnet-only phase — see the deployment doc.
+
+x-agent-base: &agent-base
+  image: hermes-brain:latest
+  build:
+    context: ../..                          # repo root: bakes brainkit from source
+    dockerfile: deploy/agents-box/Dockerfile
+  restart: unless-stopped
+  command: gateway run
+  mem_limit: 1g                             # one runaway agent can't starve the others
+
+services:
+  # --- alice (copy this stanza per person; only the name/token change) ------
+  agent-alice:
+    <<: *agent-base
+    container_name: agent-alice
+    environment:
+      - BRAIN_PERSON=alice
+      - BRAIN_GIT_REMOTE=brain-sync@brain-box:/srv/brain/compiled/alice
+      - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN:?set ALICE_BOT_TOKEN in .env}
+      - ANTHROPIC_API_KEY=${LLM_KEY:?set LLM_KEY in .env}
+      - BRAIN_EMBED_BASE_URL=${EMBED_URL:-}  # optional: semantic search
+    volumes:
+      - alice-state:/opt/data                # hermes state: memory, sessions, pairing, deploy key
+      - alice-vault:/vault                   # her compiled vault clone — and ONLY hers
+
+volumes:
+  alice-state:
+  alice-vault:

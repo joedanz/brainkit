@@ -1,0 +1,22 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# s6 longrun: keep this person's vault in sync with the brain box.
+# pull → brain index → push, every BRAIN_SYNC_INTERVAL seconds (default 300);
+# a 30s fast loop while the initial clone is still waiting on key approval.
+# s6-supervise restarts this service if it ever dies, same as the gateway.
+
+if [ -z "${BRAIN_PERSON:-}" ] || [ -z "${BRAIN_GIT_REMOTE:-}" ]; then
+    echo "[vault-sync] BRAIN_PERSON / BRAIN_GIT_REMOTE not set — sync disabled"
+    exec sleep infinity
+fi
+
+INTERVAL="${BRAIN_SYNC_INTERVAL:-300}"
+
+while :; do
+    s6-setuidgid hermes /usr/local/bin/vault-sync || true
+    if [ -d /vault/.git ]; then
+        sleep "$INTERVAL"
+    else
+        sleep 30
+    fi
+done

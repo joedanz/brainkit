@@ -176,37 +176,49 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   </Step>
 
   <Step title="Agents box — once">
-    Install Docker, build one hermes image with brainkit baked in, and write one
-    compose stanza per person:
+    Install Docker and build the `hermes-brain` image — it ships in the repo at
+    [`deploy/agents-box/`](https://github.com/joedanz/brain/tree/main/deploy/agents-box),
+    based on the official `nousresearch/hermes-agent` image with brainkit baked
+    in. One compose stanza per person:
 
     ```yaml
     services:
       agent-alice:
         image: hermes-brain:latest
         restart: unless-stopped
+        command: gateway run
         environment:
+          - BRAIN_PERSON=alice
+          - BRAIN_GIT_REMOTE=brain-sync@brain-box:/srv/brain/compiled/alice
           - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN}
           - ANTHROPIC_API_KEY=${LLM_KEY}
           - BRAIN_EMBED_BASE_URL=${EMBED_URL}  # optional
         volumes:
-          - alice-state:/root/.hermes   # memory, sessions, pairing
-          - alice-vault:/vault          # her compiled vault clone
+          - alice-state:/opt/data   # hermes state: memory, sessions, pairing, deploy key
+          - alice-vault:/vault      # her compiled vault clone
     ```
 
     Each container's first boot installs the `company-brain` hermes profile
-    (SOUL.md, `terminal.cwd: /vault`, the brain skills), clones
-    `brain-sync@brain-box:/srv/brain/compiled/<person>` with that container's
-    deploy key, runs [`brain index`](/reference/cli#brain-index), and starts the
-    profile's cron: pull → index → push.
+    (SOUL.md, `terminal.cwd: /vault`, the brain MCP server and skills) and
+    **generates its own deploy key** — the public half lands in `docker logs`,
+    the private half never leaves the container. A supervised sync loop then
+    clones `$BRAIN_GIT_REMOTE`, runs [`brain index`](/reference/cli#brain-index),
+    and keeps syncing: pull → index → push every five minutes.
   </Step>
 
   <Step title="Onboard an employee — ~10 minutes">
-    1. Add them to `org.yaml`; the next cycle compiles their vault.
-    2. Brain box: generate their deploy key; append one `authorized_keys` line
-       forced to their repo.
-    3. Telegram: `@BotFather → /newbot` → copy the token (WhatsApp: link a
+    `deploy/agents-box/add-agent.sh <name>` prints the compose stanza and this
+    exact checklist:
+
+    1. Add them to `org.yaml`; the next cycle compiles their vault. Set
+       `receive.denyCurrentBranch updateInstead` on the compiled repo so it
+       accepts the agent's pushes.
+    2. Telegram: `@BotFather → /newbot` → copy the token (WhatsApp: link a
        number via the hermes WhatsApp adapter).
-    4. Agents box: copy-paste a compose stanza, `docker compose up -d`.
+    3. Agents box: paste the compose stanza, `docker compose up -d`.
+    4. `docker logs agent-<name>` shows the container's deploy key — append one
+       `authorized_keys` line on the brain box (the `brain-serve-repo` forced
+       command locks the key to that one repo). The clone lands within 30s.
     5. They message their bot; approve the one-time pairing code.
     6. Send them one line: *"This is your assistant — tell it things, ask it
        things."* That's their entire onboarding.

@@ -886,39 +886,51 @@ adduser --disabled-password brain-sync</pre>
       <h3><span class="n">3</span>Agents box — once</h3>
       <ol>
         <li>Install Docker + the compose plugin.</li>
-        <li>Build one hermes image with <code>brainkit</code> baked in (agents need
-        <code>brain index / search / mcp</code> locally).</li>
+        <li>Build the <code>hermes-brain</code> image — it ships in the repo at
+        <code>deploy/agents-box/</code>, derived from the official
+        <code>nousresearch/hermes-agent</code> image with <code>brainkit</code> baked in
+        (agents need <code>brain index / search / mcp</code> locally).</li>
         <li>Set an LLM provider key once, shared via compose env.</li>
       </ol>
-      <pre><span class="c"># docker-compose.yml — one stanza per person</span>
+      <pre><span class="c"># deploy/agents-box/docker-compose.yml — one stanza per person</span>
 services:
   agent-alice:
     image: hermes-brain:latest
     restart: unless-stopped
+    command: gateway run
     environment:
+      - BRAIN_PERSON=alice
+      - BRAIN_GIT_REMOTE=brain-sync@brain-box:/srv/brain/compiled/alice
       - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN}
       - ANTHROPIC_API_KEY=${LLM_KEY}
       - BRAIN_EMBED_BASE_URL=${EMBED_URL}  <span class="c"># optional: semantic search</span>
     volumes:
-      - alice-state:/root/.hermes   <span class="c"># memory, sessions, pairing</span>
-      - alice-vault:/vault          <span class="c"># her compiled vault clone</span></pre>
+      - alice-state:/opt/data   <span class="c"># memory, sessions, pairing, deploy key</span>
+      - alice-vault:/vault      <span class="c"># her compiled vault clone</span></pre>
       <p>Each container's first boot: install the <code>company-brain</code> hermes profile
-      (SOUL.md, <code>terminal.cwd: /vault</code>, brain skills), clone
-      <code>brain-sync@brain-box:/srv/brain/compiled/&lt;person&gt;</code> with that
-      container's deploy key, run <code>brain index</code>, and start the profile's cron:
-      pull → index → push every few minutes.</p>
+      (SOUL.md, <code>terminal.cwd: /vault</code>, the brain MCP server + skills) and
+      <strong>mint the container's own deploy key</strong> — the public half lands in
+      <code>docker logs</code>, the private half never leaves the container. A supervised
+      sync loop then clones <code>$BRAIN_GIT_REMOTE</code>, runs <code>brain index</code>,
+      and keeps syncing: pull → index → push every five minutes.</p>
     </div>
 
     <div class="phase">
       <h3><span class="n">4</span>Onboard an employee — ~10 min each</h3>
+      <p><code>deploy/agents-box/add-agent.sh &lt;name&gt;</code> prints the compose
+      stanza and this exact checklist:</p>
       <ol>
-        <li>Add them to <code>org.yaml</code>; the next cycle compiles their vault.</li>
-        <li>Brain box: generate their deploy key, append one
-        <code>authorized_keys</code> line forced to their repo.</li>
+        <li>Add them to <code>org.yaml</code>; the next cycle compiles their vault. Set
+        <code>receive.denyCurrentBranch updateInstead</code> on the compiled repo so it
+        accepts the agent's pushes.</li>
         <li>Telegram: <code>@BotFather → /newbot</code> → copy the token
         (WhatsApp: link a number via the hermes WhatsApp adapter).</li>
-        <li>Agents box: copy-paste a compose stanza, set the token,
+        <li>Agents box: paste the compose stanza, set the token,
         <code>docker compose up -d agent-&lt;name&gt;</code>.</li>
+        <li><code>docker logs agent-&lt;name&gt;</code> shows the container's deploy key —
+        append one <code>authorized_keys</code> line on the brain box (the
+        <code>brain-serve-repo</code> forced command locks the key to that one repo).
+        The clone lands within 30 seconds.</li>
         <li>They message their bot; you approve the one-time pairing code.</li>
         <li>Send them one line: <em>"This is your assistant — tell it things,
         ask it things."</em> That's their entire onboarding.</li>
