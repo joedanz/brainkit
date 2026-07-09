@@ -72,6 +72,82 @@ def _clean(value: str, field: str) -> str:
     return value
 
 
+@dataclass
+class BuiltNote:
+    rel_path: str  # People/<pid>/Inbox/<created>-<slug>.md
+    text: str      # sanitized frontmatter + body, ready to write
+    title: str     # sanitized, defaulted
+    source: str    # sanitized
+
+
+def build_inbox_note(
+    root: Path,
+    person_id: str,
+    body: str,
+    *,
+    title: str,
+    source: str,
+    sender: str,
+    created: str,
+    original_name: str = "",
+) -> BuiltNote:
+    """Construct a provenance-stamped Inbox note under ``root`` without writing it.
+
+    ``root`` is the tree the note lands in — the master vault (server-side ingest,
+    committed immediately) or a compiled slice (dashboard capture, carried to
+    master by write-back on the next cycle). The path is CONSTRUCTED from
+    ``person_id`` (never caller input), a collision-free name is chosen against
+    ``root``'s Inbox, symlinked ancestors are refused, and provenance is
+    sanitized so channel content can't inject frontmatter. Returns the relative
+    path and text; the caller decides how to persist it.
+    """
+    title = _clean(title, "title").strip()
+    source = _clean(source, "source").strip()
+    sender = _clean(sender, "from").strip()
+    original_name = _clean(original_name, "original-name").strip()
+    if not body.strip():
+        raise IngestError("empty note — nothing to ingest")
+    if not title:
+        title = "note"
+
+    slug = _slug(title)[:_MAX_SLUG].strip("-") or "note"
+
+    inbox_rel = f"People/{person_id}/Inbox"
+    # Refuse if any ancestor of the Inbox is a symlink — a planted link would let
+    # bytes land outside the person's space. Checked before we construct a name.
+    ancestor = root
+    for part in Path(inbox_rel).parts:
+        ancestor = ancestor / part
+        if ancestor.is_symlink():
+            raise IngestError(f"{inbox_rel} contains a symlink — refusing to write")
+
+    inbox = root / inbox_rel
+    fname = f"{created}-{slug}.md"
+    n = 2
+    while (inbox / fname).exists() or (inbox / fname).is_symlink():
+        fname = f"{created}-{slug}-{n}.md"
+        n += 1
+
+    rel_path = f"{inbox_rel}/{fname}"
+    # Belt and braces: the path is constructed, but confirm it resolves to the
+    # person's own space before anyone touches disk.
+    if space_of_path(rel_path) != f"People/{person_id}":
+        raise IngestError(f"refusing to write outside {inbox_rel}")
+
+    front = [
+        "---",
+        f"title: {title}",
+        f"source: {source}",
+        f"from: {sender}",
+        f"created: {created}",
+    ]
+    if original_name:
+        front.append(f"original-name: {original_name}")
+    front.append("---\n")
+    return BuiltNote(rel_path=rel_path, text="\n".join(front) + body,
+                     title=title, source=source)
+
+
 def ingest_note(
     master: Path,
     person: Person,
@@ -89,56 +165,16 @@ def ingest_note(
     ``created`` is an ISO date supplied by the caller (the CLI edge defaults it to
     today) — never read from the clock here, matching the rest of the codebase.
     """
-    title = _clean(title, "title").strip()
-    source = _clean(source, "source").strip()
-    sender = _clean(sender, "from").strip()
-    original_name = _clean(original_name, "original-name").strip()
-    if not body.strip():
-        raise IngestError("empty note — nothing to ingest")
-    if not title:
-        title = "note"
-
-    slug = _slug(title)[:_MAX_SLUG].strip("-") or "note"
-
-    inbox_rel = f"People/{person.id}/Inbox"
-    # Refuse if any ancestor of the Inbox is a symlink — a planted link would let
-    # bytes land outside the person's space. Checked before we construct a name.
-    ancestor = master
-    for part in Path(inbox_rel).parts:
-        ancestor = ancestor / part
-        if ancestor.is_symlink():
-            raise IngestError(f"{inbox_rel} contains a symlink — refusing to write")
-
-    inbox = master / inbox_rel
-    fname = f"{created}-{slug}.md"
-    n = 2
-    while (inbox / fname).exists() or (inbox / fname).is_symlink():
-        fname = f"{created}-{slug}-{n}.md"
-        n += 1
-
-    rel_path = f"{inbox_rel}/{fname}"
-    # Belt and braces: the path is constructed, but confirm it resolves to the
-    # person's own space and that they may write there before touching disk.
-    if space_of_path(rel_path) != f"People/{person.id}":
-        raise IngestError(f"refusing to write outside {inbox_rel}")
+    built = build_inbox_note(master, person.id, body, title=title, source=source,
+                             sender=sender, created=created, original_name=original_name)
+    rel_path, title, source = built.rel_path, built.title, built.source
     if not can_write_path(rel_path, person, rules):
-        raise IngestError(f"{person.id} has no write access to {inbox_rel}")
+        raise IngestError(f"{person.id} has no write access to People/{person.id}/Inbox")
 
-    front = [
-        "---",
-        f"title: {title}",
-        f"source: {source}",
-        f"from: {sender}",
-        f"created: {created}",
-    ]
-    if original_name:
-        front.append(f"original-name: {original_name}")
-    front.append("---\n")
-    note = "\n".join(front) + body
-
-    target = inbox / fname
+    fname = Path(rel_path).name
+    target = master / rel_path
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(note)
+    target.write_text(built.text)
 
     committed = False
     try:

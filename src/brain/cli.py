@@ -297,6 +297,18 @@ def cmd_status(args) -> int:
 
 
 def cmd_dashboard(args) -> int:
+    if args.vault and args.out:
+        print("--out only applies to the admin lens (--master)", file=sys.stderr)
+        return 2
+
+    # --html writes a static, self-contained snapshot (the original behavior).
+    # Without it, the default is a live server that updates as the brain changes.
+    if args.html:
+        return _dashboard_static(args)
+    return _dashboard_serve(args)
+
+
+def _dashboard_static(args) -> int:
     import webbrowser
 
     import yaml
@@ -304,10 +316,6 @@ def cmd_dashboard(args) -> int:
     from brain.dashboard import write_dashboard
     from brain.schemas import SchemaError
     from brain.stats import collect_master_stats, collect_vault_stats
-
-    if args.vault and args.out:
-        print("--out only applies to the admin lens (--master)", file=sys.stderr)
-        return 2
 
     try:
         if args.vault:
@@ -329,6 +337,27 @@ def cmd_dashboard(args) -> int:
     if args.open_browser:
         webbrowser.open(path.resolve().as_uri())
     return 0
+
+
+def _dashboard_serve(args) -> int:
+    from brain.server import run_server
+    from brain.watch import Lens
+
+    # Fail fast on an obviously wrong target rather than serving only errors.
+    if args.vault:
+        if not Path(args.vault).is_dir():
+            print(f"cannot read vault: {args.vault} is not a directory", file=sys.stderr)
+            return 1
+        lens = Lens(kind="vault", vault=Path(args.vault))
+    else:
+        if not (Path(args.master) / "_meta" / "org.yaml").is_file():
+            print(f"cannot read master: no _meta/org.yaml under {args.master}",
+                  file=sys.stderr)
+            return 1
+        lens = Lens(kind="master", master=Path(args.master),
+                    out_root=Path(args.out) if args.out else None)
+    return run_server(lens, host=args.host, port=args.port,
+                      open_browser=not args.no_open)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -412,15 +441,25 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--json", action="store_true")
     st.set_defaults(func=cmd_status)
 
-    db = sub.add_parser("dashboard", help="generate a self-contained HTML dashboard")
+    db = sub.add_parser(
+        "dashboard",
+        help="serve a live dashboard (default) or write a static HTML snapshot with --html")
     dlens = db.add_mutually_exclusive_group(required=True)
     dlens.add_argument("--vault", help="a compiled per-person vault (user lens)")
     dlens.add_argument("--master", help="the master vault (admin lens)")
     db.add_argument("--out", help="compiled output root (admin lens; enables per-person checks)")
-    db.add_argument("--html", default="brain-dashboard.html",
-                    help="output HTML file path (default: %(default)s)")
+    db.add_argument("--html", metavar="PATH",
+                    help="write a static self-contained HTML file to PATH and exit "
+                         "(instead of serving the live dashboard)")
+    db.add_argument("--host", default="127.0.0.1",
+                    help="live server bind address (default: %(default)s; "
+                         "WARNING: a non-loopback host exposes the vault with no auth)")
+    db.add_argument("--port", type=int, default=8765,
+                    help="live server port (default: %(default)s; 0 picks a free port)")
+    db.add_argument("--no-open", action="store_true",
+                    help="do not open a browser when serving the live dashboard")
     db.add_argument("--open", action="store_true", dest="open_browser",
-                    help="open the generated file in a browser")
+                    help="open the file in a browser (static --html mode only)")
     db.set_defaults(func=cmd_dashboard)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")

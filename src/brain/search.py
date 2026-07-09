@@ -54,7 +54,15 @@ def search_index(
     keyword_only: bool = False,
 ) -> SearchReport:
     vault = Path(vault)
-    store = IndexStore.open(_index_db(vault), want_vectors=not keyword_only)
+    db = _index_db(vault)
+    if not db.is_file():
+        # No index yet: report the gap rather than *creating* an empty one as a
+        # side effect (which would mask the "run brain index" hint everywhere).
+        return SearchReport(
+            query=query, mode="", hits=[],
+            warnings=[f"no index at {db} — run: brain index --vault {vault}"],
+        )
+    store = IndexStore.open_readonly(db, want_vectors=not keyword_only)
 
     fts_hits = store.fts(query, _LEG_DEPTH)
     fts_rank = [cid for cid, _, _ in fts_hits]
