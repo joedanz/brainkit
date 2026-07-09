@@ -47,20 +47,20 @@ EOF
 fi
 
 # --- 2. deploy key (once) — the private key never leaves this container ----
+# ssh finds it via /etc/ssh/ssh_config.d/brain.conf (absolute paths, baked
+# into the image): OpenSSH resolves ~ from the passwd entry, not $HOME, so a
+# per-user config here would never be read.
 if [ ! -f "$SUBHOME/.ssh/id_ed25519" ]; then
     mkdir -p "$SUBHOME/.ssh"
     ssh-keygen -q -t ed25519 -N "" -C "brain-agent-$BRAIN_PERSON" \
         -f "$SUBHOME/.ssh/id_ed25519"
-    cat > "$SUBHOME/.ssh/config" <<'EOF'
-Host *
-  IdentityFile ~/.ssh/id_ed25519
-  IdentitiesOnly yes
-  StrictHostKeyChecking accept-new
-EOF
-    chmod 700 "$SUBHOME/.ssh"
-    chmod 600 "$SUBHOME/.ssh/id_ed25519" "$SUBHOME/.ssh/config"
     cp "$SUBHOME/.ssh/id_ed25519.pub" "$DATA/deploy-key.pub"
 fi
+# Every boot, not just creation: `hermes import` restores don't preserve file
+# modes — an 0644 key is refused by ssh and sync dies. The documented restore
+# flow ends in a restart, so healing here makes restores just work.
+chmod 700 "$SUBHOME/.ssh"
+chmod 600 "$SUBHOME/.ssh/id_ed25519"
 
 # Until the clone has succeeded, surface the pubkey on every boot so it is
 # always one `docker logs <container>` away.
