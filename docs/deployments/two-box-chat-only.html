@@ -348,7 +348,7 @@
   <circle class="num-dot" cx="218" cy="428" r="9.5"/><text class="t-num" x="218" y="432" text-anchor="middle">2</text>
   <text class="t-flow-a" x="290" y="425">local</text>
   <text class="t-flow-a" x="290" y="441">reads</text>
-  <text class="t-body" x="128" y="548">cron: pull → index → push</text>
+  <text class="t-body" x="128" y="548">sync loop: pull → index → push</text>
   <text class="t-body" x="128" y="568">one deploy key → one repo</text>
 
   <!-- container: bob -->
@@ -364,7 +364,7 @@
   <path class="loop" d="M592 462 V400" marker-end="url(#arr-a)"/>
   <text class="t-flow-a" x="610" y="425">local</text>
   <text class="t-flow-a" x="610" y="441">reads</text>
-  <text class="t-body" x="448" y="548">cron: pull → index → push</text>
+  <text class="t-body" x="448" y="548">sync loop: pull → index → push</text>
   <text class="t-body" x="448" y="568">one deploy key → one repo</text>
 
   <!-- container: carol -->
@@ -380,7 +380,7 @@
   <path class="loop" d="M912 462 V400" marker-end="url(#arr-a)"/>
   <text class="t-flow-a" x="930" y="425">local</text>
   <text class="t-flow-a" x="930" y="441">reads</text>
-  <text class="t-body" x="768" y="548">cron: pull → index → push</text>
+  <text class="t-body" x="768" y="548">sync loop: pull → index → push</text>
   <text class="t-body" x="768" y="568">one deploy key → one repo</text>
 
   <!-- optional company bot -->
@@ -750,7 +750,7 @@
         </li>
         <li>
           <span class="t">within ~5 minutes · both boxes</span>
-          <p>Her container's cron pushes; the next <strong>brain cycle</strong> validates
+          <p>Her container's sync loop pushes; the next <strong>brain cycle</strong> validates
           the path, applies it to the master, and recompiles her vault. The note now lives
           in two places — three after the nightly offsite mirror.</p>
           <span class="who">visible to: Alice only</span>
@@ -800,7 +800,7 @@
         </li>
         <li>
           <span class="t">within ~5 minutes · Bob's container</span>
-          <p>Bob's cron pulls. His agent can now answer with it — <strong>"when's the
+          <p>Bob's sync loop pulls. His agent can now answer with it — <strong>"when's the
           client deadline?" → "March."</strong> Alice's agent tells her it went live.</p>
           <span class="who">visible to: the whole team</span>
         </li>
@@ -858,7 +858,7 @@ tailscale up   <span class="c"># names: brain-box, agents-box</span></pre>
 
     <div class="phase">
       <h3><span class="n">2</span>Brain box — once</h3>
-      <pre>uv tool install brainkit
+      <pre>uv tool install git+https://github.com/joedanz/brain  <span class="c"># brainkit is not on PyPI — install from source</span>
 brain init /srv/brain/master --company "Acme Co"
 $EDITOR /srv/brain/master/_meta/org.yaml     <span class="c"># people, roles, teams</span>
 $EDITOR /srv/brain/master/_meta/spaces.yaml  <span class="c"># visibility rules</span>
@@ -988,9 +988,10 @@ alice-brain.agents.example.com → agent-alice:8787</pre>
         clones; commits queue and drain on recovery. Users notice nothing.</li>
         <li><strong>Agents box down:</strong> chat goes quiet, zero data lost;
         <code>docker compose up -d</code> restores everything from volumes.</li>
-        <li><strong>Agent volumes lost:</strong> fresh container, <code>hermes import</code>
-        the person's latest backup zip — memories, pairing, and deploy key all return;
-        the vault re-clones itself.</li>
+        <li><strong>Agent volumes lost:</strong> fresh container, <code>hermes import
+        &lt;zip&gt; --force</code> with the person's latest backup, then <code>docker
+        restart</code> (the restart re-fixes key file modes) — memories, pairing, and
+        deploy key all return; the vault re-clones itself.</li>
         <li><strong>Agents box compromised:</strong> rotate deploy keys, rebuild containers
         from the image — the master's history is intact and trustworthy.</li>
         <li><strong>Brain box lost:</strong> restore the mirror, recompile, re-point

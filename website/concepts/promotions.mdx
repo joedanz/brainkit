@@ -67,4 +67,4 @@ flowchart LR
 
 A pending file sits on disk between draft and approval, where a human edit, a bad merge, or a compromised process could tamper with its `target-path`. So `approve` re-validates the target at the moment it publishes — a hand-edited path that tries to escape the master root, or one that names a private space or a bare space root, is refused. Validation at draft time is not trusted to still hold at approve time.
 
-See the [CLI reference](/reference/cli#promotions) for every promotions subcommand and its exit codes.
+See the [CLI reference](/reference/cli#brain-promotions) for every promotions subcommand and its exit codes.
