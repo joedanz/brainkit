@@ -239,29 +239,57 @@ brain status --master <master> [--out <out>] [--json]  # admin lens
 
 ## `brain dashboard`
 
-Generate a **self-contained HTML dashboard** — one file, inline styles and scripts, no network requests ever. Open it in any browser, email it, or drop it on a share.
+Serve a **live dashboard** that updates in real time as the brain changes, or — with `--html` — write the original **self-contained HTML snapshot** (one file, inline styles and scripts, no network requests) for emailing or archiving.
 
 ```bash
-brain dashboard --vault <vault> [--html dash.html] [--open]
-brain dashboard --master <master> [--out <out>] [--html dash.html] [--open]
+# live server (default): starts on http://127.0.0.1:8765 and opens a browser
+brain dashboard --vault <vault>
+brain dashboard --master <master> --out <out>
+
+# static snapshot (original behavior): write one HTML file and exit
+brain dashboard --vault <vault> --html dash.html --open
 ```
 
 | Flag | Required | Meaning |
 |---|---|---|
 | `--vault` / `--master` | one of the two | Same two lenses as `status`. |
-| `--out` | no | Compiled-vault root (admin lens only). |
-| `--html` | no | Output file path (default `brain-dashboard.html`). |
-| `--open` | no | Open the generated file in the default browser. |
+| `--out` | no | Compiled-vault root (admin lens; enables per-person graph/query). |
+| `--html PATH` | no | Write a static self-contained HTML file to `PATH` and exit, instead of serving. |
+| `--host` | no | Live server bind address (default `127.0.0.1`). |
+| `--port` | no | Live server port (default `8765`; `0` picks a free port). |
+| `--no-open` | no | Do not open a browser when serving. |
+| `--open` | no | Open the file in a browser (static `--html` mode only). |
 
-The **user view** shows stat tiles, a notes-by-space breakdown, recent git activity, and an interactive **context graph** of the vault's wikilinks — colored by space, sized by connectedness, click a note to see what links in and out.
+<Callout type="warning">
+  **Behavior change:** a bare `brain dashboard --vault X` now *serves* the live
+  dashboard rather than writing `brain-dashboard.html`. Scripts that relied on
+  the old default file must pass `--html brain-dashboard.html` explicitly.
+</Callout>
 
-The **admin view** shows company-wide tiles, a per-person vault table (size, notes, index age, write-back drift), the promotion queue, a spaces × people permission matrix, and `doctor` findings with severity badges.
+The live dashboard is organized into tabs. The **user lens** (`--vault`) shows:
+
+- **Overview** — a lead figure and, only when something is actually pending, a "needs attention" list (inbox, open actions, notes awaiting reindex) over notes-by-space, most-linked notes, and recent activity.
+- **Inbox** and **Actions** — the "what needs me" worklists: notes waiting in your Inbox (newest first) and every open `- [ ]` action across your Actions notes, each row opening the source note.
+- **Graph** — an interactive D3 force graph of the vault's wikilinks (zoom/pan/drag, click a note to see what links in and out, a legend to toggle spaces, a highlight box, and a **3D view** toggle powered by three.js).
+- **Query** — hybrid keyword+semantic search with structured filter chips (space, unresolved links, pending reindex, modified-after, path substring, keyword-only) and a **rendered** note reader: Markdown with clickable `[[wikilinks]]`, the note's **backlinks** (linked-from / links-to / unresolved), and a raw-text toggle. Keyboard: `/` focuses search, arrows move the highlight, Enter opens, Esc closes.
+
+A **Capture** button (or `c`) is always in the header: jot a note straight into your Inbox. The composer names the exact destination (`People/<you>/Inbox`) before you save — under the user lens it writes into your compiled slice and write-back carries it to master on the next `brain cycle`; there is no way to write outside your own Inbox. From an open note you can also **Propose to share**, drafting a promotion an admin approves. The header carries a light/dark **theme toggle** (system by default, your choice persisted).
+
+The **admin lens** (`--master`) adds tabs for **People** (per-person vault size, notes, index age, write-back drift), **Permissions** (a spaces × people read/write matrix), **Promotions**, and **Doctor** (integrity findings with severity badges). The **Promotions** tab is a live review surface: each pending item shows its destination, a warning naming exactly who will be able to read it, and its rendered body, with **Approve** / **Reject** (reason required) actions and a **Sweep drafts** button — the whole human gate the promotion queue exists for. A count badge on the tab surfaces new arrivals from any tab. The Graph and Query tabs gain a person selector that reads the chosen person's compiled vault under `--out`; Capture can file into any person's Inbox via the hardened `brain ingest` primitive.
+
+As `brain cycle`/`brain index` run (or you commit to a vault), the page updates within a couple of seconds over a WebSocket — new notes spring into the graph and pulse, tiles retick, the connection dot stays green, and a disconnect shows a "data may be stale" notice until it self-heals.
 
 <Callout type="info">
-  Privacy is structural here too: the user dashboard reads only the compiled
-  vault, so it can only ever visualize what that person is allowed to see.
-  Settings shown in the admin view are read-only — changes stay in
-  `_meta/org.yaml` and `_meta/spaces.yaml`, where git audits them.
+  Privacy stays structural: the user dashboard reads only the compiled vault, so
+  it can only ever visualize what that person is allowed to see. Writes go
+  exclusively through the same safe primitives the rest of the system uses —
+  capture constructs a `People/<you>/Inbox/…` path (never caller input) and
+  promotions still pass the human gate — so the dashboard can add to the brain
+  without widening the trust boundary. The server binds `127.0.0.1`, rejects
+  cross-origin `Host`/`Origin` headers, and requires a same-origin JSON `POST`
+  for every write (CSRF defense); there is no authentication, so a non-loopback
+  `--host` (which prints a warning) exposes the vault to anyone who can reach the
+  port. `org.yaml`/`spaces.yaml` remain read-only — edit them in git.
 </Callout>
 
 ## Exit codes

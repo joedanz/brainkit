@@ -75,6 +75,63 @@ def draft_promotion(
     return dest
 
 
+def draft_into_space(
+    root: Path,
+    person_id: str,
+    target_path: str,
+    source: str,
+    body: str,
+    created: str,
+) -> str:
+    """Write a promotion *draft* into the person's own ``Promotions/`` space and
+    return its vault-relative path.
+
+    This is the employee-side half of the flow: an agent or the dashboard drops a
+    draft here (a writable space they own), and ``sweep`` later moves it into the
+    human-gated pending queue. Unlike ``draft_promotion`` (which writes the queue
+    entry directly in master), ``root`` may be a compiled slice — write-back
+    carries the draft to master, where the next cycle's sweep picks it up. The
+    target must be a real shared-space file; single-line fields only, no
+    frontmatter injection; symlinked ancestors refused.
+    """
+    for field, value in (("target-path", target_path), ("source", source)):
+        if "\n" in value or "\r" in value:
+            raise PromotionError(f"{field} must be a single line")
+    _validate_target(target_path)
+    if not body.strip():
+        raise PromotionError("empty promotion — nothing to share")
+
+    promo_rel = f"People/{person_id}/Promotions"
+    ancestor = root
+    for part in PurePosixPath(promo_rel).parts:
+        ancestor = ancestor / part
+        if ancestor.is_symlink():
+            raise PromotionError(f"{promo_rel} contains a symlink — refusing to write")
+
+    dir_ = root / promo_rel
+    base = _slug(PurePosixPath(target_path).stem) or "promotion"
+    fname = f"{created}-{base}.md"
+    n = 2
+    while (dir_ / fname).exists() or (dir_ / fname).is_symlink():
+        fname = f"{created}-{base}-{n}.md"
+        n += 1
+    rel_path = f"{promo_rel}/{fname}"
+    if space_of_path(rel_path) != f"People/{person_id}":
+        raise PromotionError(f"refusing to write outside {promo_rel}")
+
+    dest = root / rel_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        "---\n"
+        f"target-path: {target_path}\n"
+        f"source: {source}\n"
+        f"created: {created}\n"
+        "---\n"
+        f"{body}"
+    )
+    return rel_path
+
+
 def _parse(path: Path) -> Promotion:
     meta, body = split_frontmatter(path.read_text())
     return Promotion(

@@ -3,10 +3,10 @@ name = "brainkit"
 version = "0.1.0"
 description = "Multi-tenant AI Chief-of-Staff company brain on Obsidian-compatible vaults"
 requires-python = ">=3.12"
-dependencies = ["pyyaml>=6.0", "sqlite-vec>=0.1.9"]
+dependencies = ["pyyaml>=6.0", "sqlite-vec>=0.1.9", "aiohttp>=3.10"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-aiohttp>=1.0"]
 
 [project.scripts]
 brain = "brain.cli:main"
@@ -17,6 +17,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/brain"]
+# Vendored JS/CSS and the HTML shell are data files under the package; list them
+# explicitly so they land in the wheel even though they are not .py modules.
+artifacts = ["src/brain/assets/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
