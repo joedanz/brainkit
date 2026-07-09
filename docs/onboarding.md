@@ -13,6 +13,11 @@ Re-run `brain compile` on every master change (cron or a git post-commit hook).
 
 ## 1. Per-employee setup
 
+Running agents server-side instead of on employee devices? Follow the
+two-box reference deployment ([deployments/two-box-chat-only.html](deployments/two-box-chat-only.html)):
+steps 3–4 below happen inside each person's container at first boot, and the
+employee's entire setup is a chat pairing code.
+
 1. Give the employee sync access to `/srv/brain/compiled/<person-id>` ONLY
    (e.g., per-person deploy key or per-person remote). Never to the master.
 2. On their machine, clone it and open the folder in Obsidian:
@@ -66,3 +71,8 @@ Re-run `brain compile` on every master change (cron or a git post-commit hook).
 Personal agents run on the employee's device, or in a container mounting
 only that person's vault. Hermes profiles do not sandbox the filesystem —
 never co-host multiple employees' agents uncontained.
+
+The worked example of the container branch of this rule — two boxes,
+chat-only users, one hermes container per person, plus the sync plane,
+visual surfaces, and a full runbook — is
+[deployments/two-box-chat-only.html](deployments/two-box-chat-only.html).
