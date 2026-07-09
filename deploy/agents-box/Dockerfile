@@ -29,6 +29,19 @@ RUN uv venv /opt/brainkit --python 3.13 \
 # First boot copies it into /opt/data with terminal.cwd pointed at /vault.
 COPY templates/company-brain-profile /opt/brain-profile
 
+# OpenSSH resolves `~/.ssh` from the passwd entry (pw_dir = /opt/data), NOT
+# from $HOME (/opt/data/home for hermes tool subprocesses) — so the deploy key
+# minted at /opt/data/home/.ssh would never be found without absolute paths.
+# A system-wide drop-in pins them for every user and every caller (vault-sync
+# and agent-initiated git alike).
+RUN mkdir -p /etc/ssh/ssh_config.d && printf '%s\n' \
+    'Host *' \
+    '  IdentityFile /opt/data/home/.ssh/id_ed25519' \
+    '  IdentitiesOnly yes' \
+    '  StrictHostKeyChecking accept-new' \
+    '  UserKnownHostsFile /opt/data/home/.ssh/known_hosts' \
+    > /etc/ssh/ssh_config.d/brain.conf
+
 # First-boot hook runs from s6's cont-init stage (as root, after the stock
 # 01-hermes-setup seeds defaults); vault-sync is a supervised longrun.
 COPY deploy/agents-box/scripts/03-brain-first-boot /etc/cont-init.d/03-brain-first-boot
