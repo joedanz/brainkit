@@ -9,7 +9,7 @@
   },
   "navbar": {
     "links": [
-      { "type": "github", "href": "https://github.com/joedanz/brain" }
+      { "type": "github", "href": "https://github.com/joedanz/brainkit" }
     ],
     "primary": {
       "type": "button",

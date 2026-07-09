@@ -31,6 +31,8 @@ All claims trace to repo facts: `website/index.mdx` (diagram, design goals), `we
 
 ## Open items (pre-publication, outside this README)
 
-- **License**: no `LICENSE` file exists. README assumes MIT pending Joe's confirmation; add the file before flipping public.
-- **Remove `archive/`**: client-specific consulting material must not ship in the public repo.
-- **Repo rename**: `joedanz/brain` → `joedanz/brainkit`; install URLs in `website/` docs need the same update (GitHub redirects the old name).
+All resolved 2026-07-09, same branch:
+
+- **License**: MIT `LICENSE` file added (Joe approved).
+- **`archive/` removed**: client-specific consulting material deleted from the public tree (history retains it; repo history predates publication).
+- **URLs**: the GitHub repo was already named `joedanz/brainkit`; stale `joedanz/brain` URLs in `website/`, `docs/deployments/`, and `tasks/todo.md` were rewritten.
