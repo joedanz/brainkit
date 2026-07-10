@@ -42,7 +42,7 @@ flowchart TB
 
 Sharing something new goes through one door: your AI assistant drafts a suggestion ("this looks useful for the whole team"), and a person approves it before it's published. Nothing moves from private to shared any other way.
 
-Want it just for yourself — personal notes, family stuff? Run your own instance as a company of one: [A brain of one](website/guides/personal-brain.mdx).
+Want it just for yourself — personal notes, family stuff? Run your own instance as a company of one: [A brain of one](docs/guides/personal-brain.mdx).
 
 ## Your knowledge is protected by design
 
@@ -54,7 +54,7 @@ Most tools protect data with permission checks at read time — one misconfigure
 - **Every change is on the record.** Everything is a git commit with its own identity — a complete, tamper-evident history of who added what, when.
 - **Battle-tested, not just promised.** The test suite generates randomized company layouts seeded with trap notes that must never escape — and verifies they never do.
 
-The deeper story — link stubbing, symlink and path-traversal defenses, the two-phase swap — is in [The compiler](website/concepts/the-compiler.mdx).
+The deeper story — link stubbing, symlink and path-traversal defenses, the two-phase swap — is in [The compiler](docs/concepts/the-compiler.mdx).
 
 ## Works with the AI tools you already use
 
@@ -82,7 +82,7 @@ brainkit is runtime-friendly but runtime-independent: underneath it's plain mark
 
 **Everything runs on your infrastructure.** No SaaS, no accounts, no phoning home. Semantic search is optional and points at any OpenAI-compatible embedding endpoint — including one you host yourself, so note text never has to leave your network.
 
-The repo ships a documented [two-box reference deployment](website/guides/reference-deployment.mdx):
+The repo ships a documented [two-box reference deployment](docs/guides/reference-deployment.mdx):
 
 - A **brain box** holds the master vault and everyone's compiled copies, served over SSH with a restricted, single-purpose key.
 - An **agents box** runs one Docker container per person, each mounting *only* that person's vault. The mount is the boundary — an agent physically cannot read a colleague's notes.
@@ -122,7 +122,7 @@ brain index --vault ~/brain
 claude mcp add brain -- brain mcp --vault ~/brain   # Claude Code / any MCP client
 ```
 
-Full walkthrough: [Getting started](website/getting-started.mdx) · [Per-employee setup](website/guides/per-employee-setup.mdx)
+Full walkthrough: [Getting started](docs/getting-started.mdx) · [Per-employee setup](docs/guides/per-employee-setup.mdx)
 
 ## The `brain` command
 
@@ -142,7 +142,7 @@ Full walkthrough: [Getting started](website/getting-started.mdx) · [Per-employe
 | `brain dashboard` | Live local dashboard (or a static HTML snapshot) |
 | `brain doctor` | Read-only integrity audit, CI-friendly exit codes |
 
-Flags and exit codes: [CLI reference](website/reference/cli.mdx).
+Flags and exit codes: [CLI reference](docs/reference/cli.mdx).
 
 ## Requirements
 
@@ -152,15 +152,15 @@ Flags and exit codes: [CLI reference](website/reference/cli.mdx).
 
 ## Learn more
 
-- [Getting started](website/getting-started.mdx) — a working brain in five commands
-- [The compiler](website/concepts/the-compiler.mdx) — why the privacy guarantee is structural
-- [Spaces & permissions](website/concepts/spaces-and-permissions.mdx) — who sees what, and why deny-by-default
-- [Promotions](website/concepts/promotions.mdx) — the human-approved sharing queue
-- [Retrieval](website/concepts/retrieval.mdx) — hybrid search that inherits the boundary
-- [Getting things in](website/guides/getting-things-in.mdx) — email, chat, voice, webhooks, and uploads
-- [A brain of one](website/guides/personal-brain.mdx) — run it solo as a personal brain
-- [Reference deployment](website/guides/reference-deployment.mdx) — the secure two-box setup
-- [Configuration](website/reference/configuration.mdx) — `org.yaml` and `spaces.yaml`
+- [Getting started](docs/getting-started.mdx) — a working brain in five commands
+- [The compiler](docs/concepts/the-compiler.mdx) — why the privacy guarantee is structural
+- [Spaces & permissions](docs/concepts/spaces-and-permissions.mdx) — who sees what, and why deny-by-default
+- [Promotions](docs/concepts/promotions.mdx) — the human-approved sharing queue
+- [Retrieval](docs/concepts/retrieval.mdx) — hybrid search that inherits the boundary
+- [Getting things in](docs/guides/getting-things-in.mdx) — email, chat, voice, webhooks, and uploads
+- [A brain of one](docs/guides/personal-brain.mdx) — run it solo as a personal brain
+- [Reference deployment](docs/guides/reference-deployment.mdx) — the secure two-box setup
+- [Configuration](docs/reference/configuration.mdx) — `org.yaml` and `spaces.yaml`
 
 ## Contributing
 

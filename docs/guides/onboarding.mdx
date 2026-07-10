@@ -1,0 +1,118 @@
+---
+title: Pilot Onboarding
+description: The condensed operator runbook — company setup, per-employee setup, and the daily flow, end to end.
+icon: clipboard-list
+---
+
+This is the quick end-to-end checklist for running a pilot: stand the company brain up once, onboard each employee, then keep the daily loop turning. Each step links to the guide that covers it in depth.
+
+## 0. One-time company setup
+
+Do this once, as the operator:
+
+```bash
+brain init /srv/brain/master --company "Acme Co"
+# edit /srv/brain/master/_meta/org.yaml    — add people, roles, teams
+# edit /srv/brain/master/_meta/spaces.yaml — adjust visibility if needed
+brain compile --master /srv/brain/master --out /srv/brain/compiled
+brain doctor  --master /srv/brain/master --out /srv/brain/compiled
+# run after setup and from cron; nonzero exit = integrity error
+```
+
+Re-run `brain compile` on every master change (cron or a git `post-commit` hook). The full walkthrough is in [Getting started](/getting-started).
+
+## 1. Per-employee setup
+
+Running agents server-side instead of on employee devices? Follow the [two-box reference deployment](/guides/reference-deployment) — steps 3–4 below happen inside each person's container at first boot, and the employee's entire setup is a chat pairing code. The architecture at a glance is in [Where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6).
+
+<Steps>
+  <Step title="Grant sync access to their slice only">
+    Give the employee sync access to `/srv/brain/compiled/<person-id>` **only**
+    (e.g., a per-person deploy key or per-person remote). Never to the master.
+  </Step>
+
+  <Step title="Clone and open the vault">
+    On their machine, clone it and open the folder in Obsidian:
+
+    ```bash
+    git clone <their-vault-remote> ~/brain
+    ```
+  </Step>
+
+  <Step title="Install the agent profile (Hermes users)">
+    ```bash
+    hermes profile install github.com/<your-org>/company-brain --alias
+    # set terminal.cwd to ~/brain in the profile config before first run
+    ```
+
+    Claude Code users need no install — the vault's `CLAUDE.md` carries the same protocol.
+  </Step>
+
+  <Step title="Build the local index and register it as a tool">
+    ```bash
+    brain index --vault ~/brain
+    claude mcp add brain -- brain mcp --vault ~/brain
+    ```
+
+    `brain index` is keyword-only until an embedding provider is configured (see
+    [Configuration](/reference/configuration) — `BRAIN_EMBED_BASE_URL` etc.); set
+    one to add semantic search. The `.brain/` index is machine-local and
+    gitignored, so it never syncs — each device builds its own.
+  </Step>
+</Steps>
+
+See [Per-employee setup](/guides/per-employee-setup) for the detailed version.
+
+## 2. Daily flow
+
+- Transcripts and notes reach `People/<you>/Inbox/`; the agent ingests and routes
+  them. Drop a file directly, or feed a channel (email/chat/voice/upload) that
+  wraps the intake primitive:
+
+  ```bash
+  echo "decided X" | brain ingest --master /srv/brain/master --person <you> --source voice
+  ```
+
+  Services that push (Fathom, Zapier, Composio triggers) can deliver directly:
+  declare sources in `_meta/webhook.yaml` and run the signed receiver on the
+  server, behind a TLS reverse proxy:
+
+  ```bash
+  brain webhook --master /srv/brain/master
+  ```
+
+  See [Getting things in](/guides/getting-things-in) for every channel.
+
+- Edits sync back; the server runs one command per interval (cron or
+  `post-receive` hook):
+
+  ```bash
+  brain cycle --master /srv/brain/master --out /srv/brain/compiled --json
+  ```
+
+  It applies every person's writeback (rejections are reported and revert on the
+  next compile), sweeps agent drafts into the pending queue, and recompiles all
+  vaults. Nonzero exit = at least one rejected writeback.
+
+- **Sharing:** the agent drafts promotions; approve with
+  `brain promotions approve <id> --master ... --approver <you>`.
+
+- **Search:** after pulling, the agent refreshes its index (`brain index --vault
+  ~/brain` — cheap, only changed files re-embed) and queries via the `brain` MCP
+  tools. For server-hosted agents, add `--index` to the cycle so indexes refresh
+  centrally:
+
+  ```bash
+  brain cycle --master /srv/brain/master --out /srv/brain/compiled --index --json
+  ```
+
+## Deployment rule
+
+Personal agents run on the employee's device, or in a container mounting only
+that person's vault. Hermes profiles do not sandbox the filesystem — never
+co-host multiple employees' agents uncontained.
+
+The worked example of the container branch of this rule — two boxes, chat-only
+users, one Hermes container per person, plus the sync plane, visual surfaces, and
+a full runbook — is [Reference deployment](/guides/reference-deployment), with the
+architecture diagram in [Where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6).
