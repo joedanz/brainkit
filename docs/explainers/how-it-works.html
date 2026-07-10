@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Company Brain — How It Works</title>
+<style>
+  :root {
+    --paper: #f3f5f4;
+    --card: #ffffff;
+    --ink: #1c2b2f;
+    --ink-soft: #4c5e5c;
+    --line: #d8e0dd;
+    --accent: #0e6e5c;
+    --accent-ink: #0a5748;
+    --accent-wash: #e3efeb;
+    --human: #b36a1f;
+    --human-wash: #f6ecdd;
+    --co: #0e6e5c;       /* company space */
+    --team: #3b6ea8;     /* team space */
+    --you: #6b5ca8;      /* your private space */
+    --alice: #b36a1f;    /* someone else's private space */
+    --bob: #a8506b;      /* someone else's private space */
+    --client: #4c5e5c;   /* clients space */
+    --stub: #c9d3d0;
+    --display: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
+    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101b19;
+      --card: #172422;
+      --ink: #e6ecea;
+      --ink-soft: #9db0ac;
+      --line: #2a3a37;
+      --accent: #4fb597;
+      --accent-ink: #6cc9ad;
+      --accent-wash: #16302a;
+      --human: #d9964e;
+      --human-wash: #2e2415;
+      --co: #4fb597;
+      --team: #6f9fd4;
+      --you: #a093d6;
+      --alice: #d9964e;
+      --bob: #ce7d97;
+      --client: #8fa39f;
+      --stub: #35443f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101b19;
+    --card: #172422;
+    --ink: #e6ecea;
+    --ink-soft: #9db0ac;
+    --line: #2a3a37;
+    --accent: #4fb597;
+    --accent-ink: #6cc9ad;
+    --accent-wash: #16302a;
+    --human: #d9964e;
+    --human-wash: #2e2415;
+    --co: #4fb597;
+    --team: #6f9fd4;
+    --you: #a093d6;
+    --alice: #d9964e;
+    --bob: #ce7d97;
+    --client: #8fa39f;
+    --stub: #35443f;
+  }
+  :root[data-theme="light"] {
+    --paper: #f3f5f4;
+    --card: #ffffff;
+    --ink: #1c2b2f;
+    --ink-soft: #4c5e5c;
+    --line: #d8e0dd;
+    --accent: #0e6e5c;
+    --accent-ink: #0a5748;
+    --accent-wash: #e3efeb;
+    --human: #b36a1f;
+    --human-wash: #f6ecdd;
+    --co: #0e6e5c;
+    --team: #3b6ea8;
+    --you: #6b5ca8;
+    --alice: #b36a1f;
+    --bob: #a8506b;
+    --client: #4c5e5c;
+    --stub: #c9d3d0;
+  }
+
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+  .col { max-width: 680px; }
+
+  a { color: var(--accent-ink); }
+  p { margin: 0 0 1.1em; }
+  strong { color: var(--ink); }
+
+  h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(34px, 5.4vw, 54px); line-height: 1.12; letter-spacing: -0.01em; }
+  h2 { font-size: clamp(25px, 3.4vw, 33px); line-height: 1.2; margin-bottom: 14px; }
+  h3 { font-size: 20px; line-height: 1.3; }
+
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 14px;
+  }
+  section { padding: 64px 0 8px; }
+  .lede { font-size: 20px; line-height: 1.6; color: var(--ink-soft); }
+
+  /* ---- hero ---- */
+  header.hero { padding: 76px 0 20px; }
+  .hero .lede { margin-top: 22px; max-width: 640px; }
+  .one-idea {
+    margin-top: 34px;
+    background: var(--accent-wash);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 10px 10px 0;
+    padding: 20px 24px;
+    max-width: 640px;
+  }
+  .one-idea .eyebrow { margin-bottom: 6px; }
+  .one-idea p { margin: 0; font-size: 17px; }
+
+  /* ---- problem cards ---- */
+  .fail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 26px 0 22px; }
+  .fail {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+  .fail h3 { margin-bottom: 8px; }
+  .fail p { margin: 0; color: var(--ink-soft); font-size: 16px; }
+  .fail .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 99px;
+    margin-bottom: 12px;
+  }
+  .tag-starve { background: var(--stub); color: var(--ink); }
+  .tag-leak { background: var(--human-wash); color: var(--human); }
+
+  /* ---- architecture diagram ---- */
+  .diagram-band {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 30px 28px 24px;
+    margin: 28px 0 18px;
+    overflow-x: auto;
+  }
+  .arch {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    min-width: 640px;
+  }
+  .arch-col { flex: 1 1 0; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+  .vault {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px 16px;
+  }
+  .vault .vname { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+  .bars { display: flex; flex-direction: column; gap: 6px; }
+  .bar {
+    height: 14px;
+    border-radius: 4px;
+    position: relative;
+  }
+  .bar span {
+    position: absolute; inset: 0;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.95);
+    display: flex; align-items: center; padding-left: 8px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .b-co { background: var(--co); }
+  .b-team { background: var(--team); }
+  .b-you { background: var(--you); }
+  .b-alice { background: var(--alice); }
+  .b-bob { background: var(--bob); }
+  .b-client { background: var(--client); }
+  .b-stub {
+    background: repeating-linear-gradient(-45deg, var(--stub), var(--stub) 4px, transparent 4px, transparent 8px);
+    border: 1px dashed var(--stub);
+  }
+  .bar.b-stub span { color: var(--ink-soft); }
+
+  .arch-wall {
+    flex: 0 0 130px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 8px;
+    text-align: center;
+  }
+  .wall-visual { display: flex; align-items: center; width: 100%; }
+  .wall-visual .arrow-line { flex: 1; height: 2px; background: var(--line); position: relative; }
+  .wall-visual .arrow-line::after {
+    content: ""; position: absolute; right: -1px; top: -4px;
+    border-left: 7px solid var(--line);
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+  }
+  .wall-gate {
+    width: 46px; height: 64px;
+    border-radius: 8px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    flex: none;
+    margin: 0 4px;
+  }
+  .wall-gate svg { display: block; }
+  .arch-wall .wlabel { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); line-height: 1.4; }
+  .arch-wall .wlabel b { color: var(--accent-ink); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .legend div { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-soft); }
+  .swatch { width: 13px; height: 13px; border-radius: 3px; flex: none; }
+  .swatch.b-stub { border: 1px dashed var(--ink-soft); }
+
+  .caption { font-size: 14px; color: var(--ink-soft); margin: 0 0 26px; max-width: 680px; }
+
+  /* ---- component list ---- */
+  .pieces { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; margin-top: 8px; }
+  .piece {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .piece h3 { font-size: 17px; font-family: var(--body); font-weight: 700; margin-bottom: 6px; }
+  .piece p { margin: 0; font-size: 15px; color: var(--ink-soft); }
+  .piece.human-gated { border-color: var(--human); background: var(--human-wash); }
+  .piece.human-gated h3 { color: var(--human); }
+  .piece.human-gated p { color: var(--ink); }
+
+  /* ---- spaces table ---- */
+  .spaces { display: flex; flex-direction: column; gap: 10px; margin: 26px 0 20px; }
+  .space {
+    display: grid;
+    grid-template-columns: 16px 190px 1fr 150px;
+    gap: 16px;
+    align-items: baseline;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 18px;
+  }
+  .space .dot { width: 12px; height: 12px; border-radius: 3px; align-self: center; }
+  .space .sname { font-weight: 700; font-size: 15.5px; }
+  .space .sdesc { font-size: 15px; color: var(--ink-soft); }
+  .space .swho { font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); text-align: right; }
+
+  /* ---- intake paths ---- */
+  .intake { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 26px 0 10px; }
+  .intake-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 22px;
+  }
+  .intake-card .inum {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent-wash); color: var(--accent-ink);
+    font-family: var(--display); font-size: 16px; font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .intake-card h3 { font-family: var(--body); font-size: 16.5px; font-weight: 700; margin-bottom: 6px; }
+  .intake-card p { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+  .intake-note {
+    font-size: 14.5px; color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 6px 0 34px;
+    max-width: 680px;
+  }
+  .intake-note b { color: var(--ink); }
+
+  /* ---- timeline ---- */
+  .timeline { list-style: none; margin: 30px 0 10px; padding: 0; counter-reset: step; }
+  .timeline li {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 30px 62px;
+  }
+  .timeline li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: -2px;
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    background: var(--accent-wash);
+    color: var(--accent-ink);
+    font-family: var(--display);
+    font-size: 19px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .timeline li::after {
+    content: "";
+    position: absolute; left: 18.5px; top: 42px; bottom: 4px;
+    width: 1px; background: var(--line);
+  }
+  .timeline li:last-child::after { display: none; }
+  .timeline li.human::before { background: var(--human-wash); color: var(--human); }
+  .timeline h3 { font-family: var(--body); font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .timeline p { margin: 0; color: var(--ink-soft); font-size: 15.5px; max-width: 60ch; }
+  .timeline .who {
+    display: inline-block;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    border-radius: 99px; padding: 2px 9px; margin-left: 8px;
+    background: var(--accent-wash); color: var(--accent-ink);
+    vertical-align: 2px;
+  }
+  .timeline li.human .who { background: var(--human-wash); color: var(--human); }
+
+  /* ---- window in (dashboards) ---- */
+  .windows { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 26px 0 14px; }
+  .window-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+  .window-card h3 { font-size: 17px; font-family: var(--body); font-weight: 700; margin-bottom: 8px; }
+  .window-card p { margin: 0 0 0.9em; font-size: 15px; color: var(--ink-soft); }
+  .window-card p:last-child { margin-bottom: 0; }
+  .window-card .wtag {
+    display: inline-block;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 3px 10px; border-radius: 99px; margin-bottom: 12px;
+    background: var(--accent-wash); color: var(--accent-ink);
+  }
+  .window-card.operator .wtag { background: var(--human-wash); color: var(--human); }
+  .mini-graph {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line);
+    font-size: 13px; color: var(--ink-soft);
+  }
+  .mini-graph svg { flex: none; display: block; }
+
+  /* ---- guarantees ---- */
+  .guarantees { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 26px 0 8px; }
+  .guarantee {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+  .guarantee h3 { font-size: 17px; font-family: var(--body); font-weight: 700; margin-bottom: 8px; }
+  .guarantee p { margin: 0; font-size: 15px; color: var(--ink-soft); }
+  .analogy {
+    margin: 26px 0 10px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 12px 12px 0;
+    padding: 22px 26px;
+    max-width: 680px;
+  }
+  .analogy p { margin: 0; font-size: 16px; }
+  .analogy .eyebrow { margin-bottom: 8px; }
+
+  /* ---- benefits ---- */
+  .benefits { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 26px 0 12px; }
+  .benefit-col {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 26px 28px;
+  }
+  .benefit-col h3 { margin-bottom: 16px; }
+  .benefit-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  .benefit-col li { padding-left: 26px; position: relative; font-size: 15.5px; color: var(--ink-soft); }
+  .benefit-col li::before {
+    content: "";
+    position: absolute; left: 0; top: 7px;
+    width: 12px; height: 12px; border-radius: 3px;
+    background: var(--accent);
+  }
+  .benefit-col.company li::before { background: var(--team); }
+  .benefit-col li b { color: var(--ink); }
+
+  /* ---- footer ---- */
+  footer { margin-top: 70px; border-top: 1px solid var(--line); padding: 34px 0 60px; }
+  footer .tech {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 22px;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  footer .fine { font-size: 13.5px; color: var(--ink-soft); margin: 0; }
+
+  @media (max-width: 720px) {
+    .fail-grid, .pieces, .guarantees, .benefits, .intake, .windows { grid-template-columns: 1fr; }
+    .space { grid-template-columns: 16px 1fr; }
+    .space .sdesc { grid-column: 2; }
+    .space .swho { grid-column: 2; text-align: left; }
+    section { padding: 48px 0 8px; }
+    header.hero { padding: 52px 0 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">Company Brain</p>
+    <h1>One brain for the whole company. A private copy for every person.</h1>
+    <p class="lede">Every employee gets a personal knowledge vault, kept current by a personal AI assistant. The company gets a shared memory that grows from everyone's work — without anyone's private notes ever leaking to anyone else.</p>
+    <div class="one-idea">
+      <p class="eyebrow">The one idea to hold onto</p>
+      <p>There is a single master vault for the company. A piece of software called the <strong>compiler</strong> produces a filtered personal copy for each person. Anything you're not allowed to see is <strong>never written into your copy at all</strong> — so no app, no AI, and no mistake downstream can ever show it to you.</p>
+    </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">Why it exists</p>
+    <h2>Every company brain before this one failed in one of two ways</h2>
+    <div class="fail-grid">
+      <div class="fail">
+        <span class="tag tag-starve">Failure mode 1</span>
+        <h3>The wiki that starves</h3>
+        <p>The shared knowledge base nobody updates. Writing things down is extra work, so the wiki drifts out of date, people stop trusting it, and the company's real knowledge lives in inboxes and heads — and walks out the door with departures.</p>
+      </div>
+      <div class="fail">
+        <span class="tag tag-leak">Failure mode 2</span>
+        <h3>The sync that leaks</h3>
+        <p>The tool that copies everything everywhere so it's never stale. Now your private notes — compensation conversations, candid feedback, half-formed ideas — are one search away from the whole company.</p>
+      </div>
+    </div>
+    <div class="col">
+      <p>Company Brain is the middle path. Knowledge flows from personal notes into the shared brain continuously — but <strong>only through a step a human approves</strong>, and private material physically stays private. The shared brain neither starves nor leaks.</p>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The structure</p>
+    <h2>How the pieces fit together</h2>
+    <div class="col">
+      <p>All company knowledge lives in one sealed master vault, organized into color-coded areas. The compiler makes each person their own copy containing <em>only</em> the areas they may read. Watch what happens to the orange and rose bars below — private areas belonging to other people simply don't exist in your copy.</p>
+    </div>
+
+    <div class="diagram-band">
+      <div class="arch">
+        <div class="arch-col">
+          <div class="vault">
+            <div class="vname">Master vault · the whole company</div>
+            <div class="bars">
+              <div class="bar b-co"><span>Company — decisions, playbooks</span></div>
+              <div class="bar b-team"><span>Teams — team notes</span></div>
+              <div class="bar b-you"><span>People / You — private</span></div>
+              <div class="bar b-alice"><span>People / Alice — private</span></div>
+              <div class="bar b-bob"><span>People / Bob — private</span></div>
+              <div class="bar b-client"><span>Clients</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="arch-wall">
+          <div class="wall-visual">
+            <div class="arrow-line"></div>
+            <div class="wall-gate">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M3 4h18l-7 8v7l-4-2.5V12L3 4z" fill="rgba(255,255,255,0.95)"/>
+              </svg>
+            </div>
+            <div class="arrow-line"></div>
+          </div>
+          <div class="wlabel"><b>The compiler</b><br>copies only what each person may read</div>
+        </div>
+
+        <div class="arch-col">
+          <div class="vault">
+            <div class="vname">Your vault</div>
+            <div class="bars">
+              <div class="bar b-co"><span>Company</span></div>
+              <div class="bar b-team"><span>Your teams</span></div>
+              <div class="bar b-you"><span>You — private</span></div>
+              <div class="bar b-client"><span>Clients</span></div>
+              <div class="bar b-stub"><span>Others' private notes — absent</span></div>
+            </div>
+          </div>
+          <div class="vault">
+            <div class="vname">Alice's vault</div>
+            <div class="bars">
+              <div class="bar b-co"><span>Company</span></div>
+              <div class="bar b-team"><span>Her teams</span></div>
+              <div class="bar b-alice"><span>Alice — private</span></div>
+              <div class="bar b-client"><span>Clients</span></div>
+              <div class="bar b-stub"><span>Others' private notes — absent</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div><span class="swatch b-co"></span> Shared with everyone</div>
+        <div><span class="swatch b-team"></span> Shared with a team</div>
+        <div><span class="swatch b-you"></span> Your private space</div>
+        <div><span class="swatch b-alice"></span> Someone else's private space</div>
+        <div><span class="swatch b-stub"></span> Not copied — physically absent</div>
+      </div>
+    </div>
+    <p class="caption">The striped bar is the whole point: other people's private material isn't hidden, locked, or filtered out of your copy — it was never put there.</p>
+
+    <div class="pieces">
+      <div class="piece">
+        <h3>The master vault</h3>
+        <p>The single source of truth — one archive per company, holding every note as plain, readable files. Only the server ever touches it directly.</p>
+      </div>
+      <div class="piece">
+        <h3>The compiler</h3>
+        <p>The security wall. It rebuilds every personal copy each time the master changes, and it "fails closed": if anything goes wrong, the worst case is you briefly see <em>less</em> than you should — never more.</p>
+      </div>
+      <div class="piece">
+        <h3>Write-back</h3>
+        <p>When you edit your copy, the server checks every single change against what you're allowed to write before accepting it into the master. One out-of-bounds edit and the whole batch is declined.</p>
+      </div>
+      <div class="piece human-gated">
+        <h3>The promotion queue — the human gate</h3>
+        <p>The <em>only</em> way anything moves from a private area into a shared one. Your AI can draft a sanitized note and propose it; a person reviews and approves (or rejects) every single one.</p>
+      </div>
+      <div class="piece">
+        <h3>Your AI assistant</h3>
+        <p>Pointed at your vault alone. It files your meeting notes, tracks your action items, keeps your running memory current, and drafts what's worth sharing.</p>
+      </div>
+      <div class="piece">
+        <h3>Search</h3>
+        <p>Ask a question in plain language and get the right notes back — by keyword and by meaning. The index is built only from your own copy, so it inherits the same wall.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">What lives inside</p>
+    <h2>Where a note sits decides who sees it</h2>
+    <div class="col">
+      <p>There are no per-document permission checkboxes to get wrong. Every note lives in exactly one area, and the area itself is the permission.</p>
+    </div>
+    <div class="spaces">
+      <div class="space">
+        <span class="dot" style="background: var(--co)"></span>
+        <span class="sname">Company</span>
+        <span class="sdesc">The shared brain: a decision log with the reasoning behind each call, playbooks and standard procedures, reusable templates, and a running company overview.</span>
+        <span class="swho">Everyone</span>
+      </div>
+      <div class="space">
+        <span class="dot" style="background: var(--team)"></span>
+        <span class="sname">Teams</span>
+        <span class="sdesc">Working notes scoped to a team — visible to its members, invisible to the rest of the company.</span>
+        <span class="swho">Team members</span>
+      </div>
+      <div class="space">
+        <span class="dot" style="background: var(--you)"></span>
+        <span class="sname">People / You</span>
+        <span class="sdesc">Your world: an inbox where meeting transcripts land, your action tracker, session summaries, and your personal running memory.</span>
+        <span class="swho">Only you</span>
+      </div>
+      <div class="space">
+        <span class="dot" style="background: var(--client)"></span>
+        <span class="sname">Clients</span>
+        <span class="sdesc">Client files and account knowledge, shared company-wide by default and restrictable per client when needed.</span>
+        <span class="swho">Everyone*</span>
+      </div>
+      <div class="space">
+        <span class="dot b-stub" style="background: repeating-linear-gradient(-45deg, var(--stub), var(--stub) 3px, transparent 3px, transparent 6px); border: 1px dashed var(--ink-soft)"></span>
+        <span class="sname">The control room</span>
+        <span class="sdesc">Who's in the company, who may see what, the queue of pending shares — and the list of connected outside services. Lives only on the server — it's never copied into anyone's vault.</span>
+        <span class="swho">Server only</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The operation</p>
+    <h2>A day in the life of one meeting</h2>
+    <div class="col">
+      <p>First: how does anything get <em>in</em>? Every brain has an <strong>Inbox</strong>, and capture is meant to feel like everyday habits — no new app to learn. There are five natural ways to send something to your brain.</p>
+    </div>
+
+    <div class="intake">
+      <div class="intake-card">
+        <span class="inum">✉</span>
+        <h3>Email it</h3>
+        <p>Your brain has its own address. Forward a thread, or fire off a note to yourself, and it arrives in your Inbox. Because it's tied to your email, the system knows it's <em>you</em> — a message from an address it doesn't recognize is turned away, never filed onto the wrong person.</p>
+      </div>
+      <div class="intake-card">
+        <span class="inum">💬</span>
+        <h3>Message it</h3>
+        <p>Text or DM your own brain like you'd message a colleague. Each person's chat assistant is locked to them alone, so a quick thought on the go lands in your Inbox and nowhere else.</p>
+      </div>
+      <div class="intake-card">
+        <span class="inum">🎙</span>
+        <h3>Speak it</h3>
+        <p>Record a voice memo after a call or between meetings. It's transcribed and dropped into your Inbox — the fastest way to capture something before it slips away.</p>
+      </div>
+      <div class="intake-card">
+        <span class="inum">📎</span>
+        <h3>Drop, share, or type it</h3>
+        <p>Save a transcript into your Inbox folder, or use your phone's "share" button to send a document straight to your brain. Or just hit <strong>Capture</strong> in your dashboard and type a thought — it names the exact Inbox it lands in before you save. If it's a file, it's ingestible — the original name is kept for reference.</p>
+      </div>
+      <div class="intake-card">
+        <span class="inum">🔌</span>
+        <h3>Connect your tools</h3>
+        <p>Services that take notes <em>for</em> you can deliver them automatically: a meeting recorder like Fathom, or automations built in Zapier, Make, or Composio. Each connection gets its own verified delivery door — every incoming delivery must prove it came from the service you authorized (a cryptographic signature or a shared secret), and repeats are recognized and filed only once.</p>
+      </div>
+    </div>
+    <p class="intake-note"><b>Every one of these runs through a single, built-in intake step the company controls.</b> Whichever channel you use — including outside services delivering on their own — the note passes through one safe entry point that confirms who's allowed to write where, checks each automated delivery's credentials, and stamps every note with where it came from. Capture stays effortless without loosening the privacy wall. (A shared, company-level assistant can also take in org-wide material like all-hands recordings.)</p>
+
+    <div class="col">
+      <p>From there, everything is automatic. Here's the full journey of a single piece of information — say, the transcript of this morning's client call — from your Inbox to the company's shared memory.</p>
+    </div>
+    <ol class="timeline">
+      <li>
+        <h3>It lands in your Inbox <span class="who">You</span></h3>
+        <p>Via any of the routes above — emailed, messaged, spoken, dropped in, typed into the dashboard's Capture box, or delivered automatically by a connected tool. That's the entire effort required from you.</p>
+      </li>
+      <li>
+        <h3>Your AI files it <span class="who">Your AI</span></h3>
+        <p>Your assistant reads it, writes a summary, pulls out the decisions that were made and the action items (with owners and deadlines), and files each piece where it belongs. Anything it can't confidently place, it flags for you instead of guessing.</p>
+      </li>
+      <li>
+        <h3>Your edits sync back <span class="who">The server</span></h3>
+        <p>On a schedule, your changes flow back to the master vault — after the server verifies that every changed file is one you're allowed to write. Then everyone's personal copy is rebuilt fresh.</p>
+      </li>
+      <li>
+        <h3>Something looks worth sharing <span class="who">Your AI</span></h3>
+        <p>The call surfaced a pricing decision the whole company should know. Your AI drafts a <strong>sanitized</strong> version — only what's meant to be shared, with the source noted — and places it in your outgoing tray. It can propose; it can never publish. (You can propose one yourself, too, straight from a note in the dashboard.)</p>
+      </li>
+      <li class="human">
+        <h3>A person approves it <span class="who">A human</span></h3>
+        <p>A designated owner reviews the pending queue — in the CLI or right in the admin dashboard's Promotions tab — and approves or rejects each draft after reading it. Approved notes land in the shared brain stamped with who wrote it, who approved it, and where it came from. Rejections keep a written reason — which teaches everyone what this company considers shareable.</p>
+      </li>
+      <li>
+        <h3>The whole company can find it <span class="who">Everyone</span></h3>
+        <p>On the next rebuild, the note appears in every person's copy. Six months from now, anyone can ask "why did we price it that way?" and get the decision — with its reasoning — in seconds.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <p class="eyebrow">The window in</p>
+    <h2>A live view into what your brain knows</h2>
+    <div class="col">
+      <p>A brain you can't look inside is a brain you won't trust. So both sides of the system come with a dashboard — a <strong>live, local page</strong> that updates itself the moment the brain changes, served only to your own machine and reaching nothing but its own origin. (A single self-contained HTML snapshot is still one flag away when you want something to email or archive.)</p>
+    </div>
+    <div class="windows">
+      <div class="window-card">
+        <span class="wtag">For each person</span>
+        <h3>Your dashboard</h3>
+        <p>Open your vault in any browser and watch it stay current: how many notes you have and where they live, what's waiting in your inbox, your open action items, and an interactive <strong>map of your knowledge</strong> where every note is a dot connected to what it references — click one to see everything that links in and out.</p>
+        <p>Search by keyword and meaning, then <strong>read</strong> the note itself — rendered, with its backlinks beside it, in light or dark. And when a thought strikes, <strong>Capture</strong> writes it straight into your Inbox. Because it's built only from your copy, it can only ever show — and add to — what you're allowed to see.</p>
+        <div class="mini-graph">
+          <svg width="120" height="52" viewBox="0 0 120 52" aria-hidden="true">
+            <line x1="24" y1="26" x2="58" y2="12" stroke="var(--line)" stroke-width="1.5"/>
+            <line x1="24" y1="26" x2="52" y2="40" stroke="var(--line)" stroke-width="1.5"/>
+            <line x1="58" y1="12" x2="92" y2="24" stroke="var(--line)" stroke-width="1.5"/>
+            <line x1="52" y1="40" x2="92" y2="24" stroke="var(--line)" stroke-width="1.5"/>
+            <circle cx="24" cy="26" r="7" fill="var(--co)"/>
+            <circle cx="58" cy="12" r="5" fill="var(--team)"/>
+            <circle cx="52" cy="40" r="5" fill="var(--you)"/>
+            <circle cx="92" cy="24" r="6" fill="var(--client)"/>
+            <circle cx="106" cy="42" r="3.5" fill="var(--stub)"/>
+          </svg>
+          <span>Notes colored by area, sized by how connected they are.</span>
+        </div>
+      </div>
+      <div class="window-card operator">
+        <span class="wtag">For the operator</span>
+        <h3>The company view</h3>
+        <p>Whoever runs the system gets the whole picture at a glance: each person's vault — its size, how fresh its search index is, whether edits are waiting to sync back — the system's own health checks, and a table of exactly who may read and write each area.</p>
+        <p>It's also where the human gate lives: the <strong>Promotions</strong> tab shows each pending share with its destination, a warning naming who will be able to read it, and its full text — with Approve and Reject right there, and a badge that flags new arrivals from any tab. What stays read-only is the permission configuration itself: it's edited in the audited files where every change leaves a record.</p>
+      </div>
+    </div>
+    <p class="caption">The dashboards observe by default and write only through the same guarded doors as everything else — capture can reach nothing but your own Inbox, approval still passes the human gate, and no view can rebuild an index or change a permission.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">The trust story</p>
+    <h2>Privacy is a guarantee, not a promise</h2>
+    <div class="col">
+      <p>Most AI tools handle privacy with instructions: the system <em>tells</em> the AI not to reveal things and hopes it listens. Company Brain doesn't ask. It's built so that the sensitive material isn't there to reveal.</p>
+    </div>
+    <div class="analogy">
+      <p class="eyebrow">A useful analogy</p>
+      <p>Think of a briefing binder prepared for each executive before a board meeting. Nobody hands everyone the master file and asks them not to peek at each other's sections — each person's binder is <strong>assembled</strong> to contain only their pages. Company Brain does that, automatically, for every person, on every update.</p>
+    </div>
+    <div class="guarantees">
+      <div class="guarantee">
+        <h3>Absent, not hidden</h3>
+        <p>Your copy physically contains only what you may read. There's no lock to pick and no filter to fool — what you can't see was never written to your copy. Even links pointing at notes outside your view are replaced with a stub, so the contents can't travel through them.</p>
+      </div>
+      <div class="guarantee">
+        <h3>Failure only narrows, never widens</h3>
+        <p>If the rebuild ever hits an error, your previous copy stays in place untouched. Every failure path leads to seeing <em>less</em>, temporarily — there is no error that shows you more.</p>
+      </div>
+      <div class="guarantee">
+        <h3>The AI can propose, never publish</h3>
+        <p>Your assistant has no ability to write into shared areas. The only door from private to shared is the promotion queue, and a human holds the key to it — every time, with a named approver on record.</p>
+      </div>
+      <div class="guarantee">
+        <h3>Attacked on purpose, continuously</h3>
+        <p>The privacy claim is tested adversarially: automated tests generate thousands of random company shapes — including planted "honeypot" content designed to escape — and verify that no one's private material ever survives into anyone else's copy.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The payoff</p>
+    <h2>What you get, and what the company gets</h2>
+    <div class="benefits">
+      <div class="benefit-col">
+        <h3>For you</h3>
+        <ul>
+          <li><b>A memory that never lapses.</b> Every meeting summarized, every action item tracked with its owner and deadline, every decision on record — without you doing the filing.</li>
+          <li><b>An assistant with full context.</b> Your AI assistant reads from your always-current vault, so it never starts from zero and never confuses your work with someone else's.</li>
+          <li><b>Instant recall.</b> Ask in plain language — "what did we agree with the client in March?" — and get the actual notes back, by keyword and by meaning.</li>
+          <li><b>A live map you can act on.</b> Your dashboard shows what your brain holds and how it connects, updates as it changes, and lets you capture a new thought in a keystroke — so trust comes from looking, not believing.</li>
+          <li><b>Your private notes stay yours.</b> Candid drafts and personal working notes are structurally invisible to everyone else, including their AIs.</li>
+          <li><b>Files you own.</b> Everything is plain, readable documents on your machine — openable in Obsidian or any editor, with no lock-in.</li>
+        </ul>
+      </div>
+      <div class="benefit-col company">
+        <h3>For the company</h3>
+        <ul>
+          <li><b>Institutional memory that compounds.</b> Decisions with their reasoning, playbooks, and client knowledge accumulate in one trustworthy place — and stay when people leave.</li>
+          <li><b>A shared brain that feeds itself.</b> Because sharing is a one-click approval on an AI-prepared draft, the knowledge base actually gets updated — solving the failure that kills every wiki.</li>
+          <li><b>Faster onboarding and better decisions.</b> New hires and decision-makers get grounded, searchable context — including the <em>why</em> behind past calls, not just the what.</li>
+          <li><b>Operations you can see.</b> The company dashboard shows every vault's size, freshness, and pending activity, live — so the operator spots a stalled sync or a share awaiting approval the moment it happens.</li>
+          <li><b>Governance you can defend.</b> Every shared note carries provenance: who wrote it, who approved it, where it came from. Every rejection carries a reason.</li>
+          <li><b>Start small, grow without rebuilding.</b> A pilot runs with 5–25 people; scaling to 150+ means adding names to a roster, not re-architecting the system.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="tech">
+      For the technically curious: one git master vault per company · deterministic compiler, (master commit, person) → filtered slice · server-side write-back validation, all-or-nothing per change set · signed webhook intake (brain webhook: Standard Webhooks HMAC or shared-token verification, replay-deduped, fail-closed config in server-only _meta/webhook.yaml) feeding the same hardened ingest primitive as every other channel · human-gated promotion queue with provenance frontmatter · per-vault hybrid search (keyword + semantic, rank-fused), exposed to agents as MCP tools · wikilink graph materialized in the per-vault index · live localhost dashboard (aiohttp + WebSocket push on a change-fingerprint poll; D3 / three.js graph; rendered-note reader; capture + promotion approval through the same safe primitives, CSRF-guarded, 127.0.0.1-bound) with a self-contained HTML snapshot behind a flag · read-only status view · symlink and path-traversal attacks closed structurally · randomized no-leak property tests · plain markdown throughout, Obsidian-compatible, works with Claude Code and Hermes without depending on either.
+    </div>
+    <p class="fine">Company Brain (brainkit) — prepared from the project's own documentation. Open source under the MIT license at <a href="https://github.com/joedanz/brainkit">github.com/joedanz/brainkit</a>. All content in personal vaults remains plain, portable markdown owned by the company; no proprietary formats, no platform lock-in.</p>
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Company Brain — The Quick Version</title>
+<style>
+  :root {
+    --paper: #f2f5f4;
+    --card: #ffffff;
+    --ink: #1d2a2e;
+    --soft: #54655f;
+    --line: #d9e1de;
+    --accent: #0e6e5c;
+    --accent-wash: #e2efe9;
+    --human: #b36a1f;
+    --human-wash: #f7edda;
+    --you: #6b5ca8;
+    --you-wash: #ece8f7;
+    --absent: #c7d2ce;
+    --display: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
+    --body: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --space-sm: 12px;
+    --space-md: 24px;
+    --space-lg: 48px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101b18;
+      --card: #182622;
+      --ink: #e8eeec;
+      --soft: #9fb2ad;
+      --line: #2b3b36;
+      --accent: #52b899;
+      --accent-wash: #17332b;
+      --human: #dc9a4e;
+      --human-wash: #2f2513;
+      --you: #a294d8;
+      --you-wash: #262038;
+      --absent: #37453f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101b18;
+    --card: #182622;
+    --ink: #e8eeec;
+    --soft: #9fb2ad;
+    --line: #2b3b36;
+    --accent: #52b899;
+    --accent-wash: #17332b;
+    --human: #dc9a4e;
+    --human-wash: #2f2513;
+    --you: #a294d8;
+    --you-wash: #262038;
+    --absent: #37453f;
+  }
+  :root[data-theme="light"] {
+    --paper: #f2f5f4;
+    --card: #ffffff;
+    --ink: #1d2a2e;
+    --soft: #54655f;
+    --line: #d9e1de;
+    --accent: #0e6e5c;
+    --accent-wash: #e2efe9;
+    --human: #b36a1f;
+    --human-wash: #f7edda;
+    --you: #6b5ca8;
+    --you-wash: #ece8f7;
+    --absent: #c7d2ce;
+  }
+
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: clamp(36px, 6vw, 72px) clamp(20px, 4vw, 40px) 88px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    align-items: stretch;
+  }
+  .span2 { grid-column: 1 / -1; }
+
+  h1, h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h1 { font-size: clamp(34px, 4.6vw, 52px); line-height: 1.1; }
+  h2 { font-size: clamp(22px, 2.4vw, 27px); line-height: 1.25; margin-bottom: 12px; }
+  p { margin: 0; }
+  p + p { margin-top: 10px; }
+  strong { color: var(--ink); }
+  a { color: var(--accent); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+  /* ---- hero ---- */
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: clamp(24px, 4vw, 56px);
+    align-items: center;
+    padding: clamp(8px, 2vw, 24px) 0 clamp(12px, 2.5vw, 28px);
+  }
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-wash);
+    border-radius: 99px;
+    padding: 5px 14px;
+    margin-bottom: 18px;
+  }
+  .takeaway {
+    background: var(--accent-wash);
+    border-radius: 18px;
+    padding: clamp(22px, 2.6vw, 32px) clamp(24px, 2.8vw, 34px);
+  }
+  .takeaway p { font-size: clamp(18px, 1.9vw, 21px); line-height: 1.5; font-weight: 600; }
+  .takeaway .soft { font-weight: 400; font-size: 16px; margin-top: 12px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: clamp(22px, 2.8vw, 34px) clamp(22px, 3vw, 36px);
+    box-sizing: border-box;
+    min-width: 0;
+  }
+  .soft { color: var(--soft); font-size: 16px; }
+  .card > .soft { max-width: 62ch; }
+
+  /* ---- mini diagram ---- */
+  .diagram {
+    display: flex;
+    align-items: center;
+    gap: clamp(14px, 2.5vw, 34px);
+    margin: 22px 0 6px;
+  }
+  .dbox {
+    flex: 1;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px 18px 18px;
+    min-width: 0;
+  }
+  .dbox .dname {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--soft);
+    margin-bottom: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rows { display: flex; flex-direction: column; gap: 7px; }
+  .row {
+    height: 18px;
+    border-radius: 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.95);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .r-shared { background: var(--accent); }
+  .r-you { background: var(--you); }
+  .r-other { background: var(--human); }
+  .r-absent {
+    background: repeating-linear-gradient(-45deg, var(--absent), var(--absent) 4px, transparent 4px, transparent 8px);
+    border: 1px dashed var(--absent);
+    color: var(--soft);
+    height: 16px;
+  }
+  .darrow {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent);
+  }
+  .darrow svg { display: block; }
+  .darrow .dlabel {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--soft);
+    text-align: center;
+    line-height: 1.4;
+  }
+  .dcaption { font-size: 15px; color: var(--soft); margin-top: 14px; max-width: 68ch; }
+
+  /* ---- two things ---- */
+  .two { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+  .thing {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 15px 17px;
+  }
+  .thing .n {
+    flex: none;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fdfefe;
+    font-weight: 800;
+    font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 2px;
+  }
+  .thing p { font-size: 16.5px; }
+  .thing .sub { color: var(--soft); font-size: 15px; margin-top: 3px; }
+
+  /* ---- intake chips ---- */
+  .chips {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .chip {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 16px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .chip span { display: block; font-weight: 400; font-size: 14px; color: var(--soft); margin-top: 3px; }
+
+  /* ---- journey ---- */
+  .journey {
+    display: grid;
+    grid-template-columns: minmax(200px, 0.8fr) minmax(0, 1.6fr);
+    gap: clamp(24px, 4vw, 64px);
+  }
+  .journey-intro h2 { margin-bottom: 10px; }
+  .steps { list-style: none; margin: 4px 0 0; padding: 0; counter-reset: s; }
+  .steps li {
+    counter-increment: s;
+    position: relative;
+    padding: 0 0 26px 56px;
+  }
+  .steps li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: -2px;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: var(--accent-wash);
+    color: var(--accent);
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 17px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .steps li::after {
+    content: "";
+    position: absolute; left: 16.5px; top: 38px; bottom: 4px;
+    width: 1px; background: var(--line);
+  }
+  .steps li:last-child { padding-bottom: 0; }
+  .steps li:last-child::after { display: none; }
+  .steps li.human::before { background: var(--human-wash); color: var(--human); }
+  .steps b { display: block; font-size: 17px; }
+  .steps p { font-size: 15.5px; color: var(--soft); margin-top: 3px; max-width: 52ch; }
+  .whotag {
+    display: inline-block;
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+    border-radius: 99px; padding: 2px 8px; margin-left: 6px;
+    background: var(--accent-wash); color: var(--accent);
+    vertical-align: 2px;
+  }
+  li.human .whotag { background: var(--human-wash); color: var(--human); }
+
+  /* ---- trust ---- */
+  .trust {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .trow {
+    display: flex; gap: 13px; align-items: flex-start;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 15px 17px;
+  }
+  .trow .mark {
+    flex: none;
+    width: 22px; height: 22px;
+    border-radius: 7px;
+    background: var(--accent);
+    margin-top: 3px;
+    position: relative;
+  }
+  .trow .mark::after {
+    content: "";
+    position: absolute; left: 7px; top: 3px;
+    width: 5px; height: 10px;
+    border: solid #fdfefe;
+    border-width: 0 2.5px 2.5px 0;
+    transform: rotate(45deg);
+  }
+  .trow p { font-size: 16px; }
+  .trow b { display: block; }
+  .trow span { color: var(--soft); font-size: 15px; }
+
+  /* ---- closing ---- */
+  .human-card {
+    border-color: var(--human);
+    background: var(--human-wash);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .human-card h2 { color: var(--human); }
+  .human-card p { max-width: 58ch; font-size: 17px; }
+
+  footer {
+    grid-column: 1 / -1;
+    font-size: 14.5px;
+    color: var(--soft);
+    text-align: center;
+    margin-top: 10px;
+  }
+
+  /* ---- responsive ---- */
+  @media (max-width: 860px) {
+    .wrap { grid-template-columns: 1fr; gap: 18px; }
+    .hero { grid-template-columns: 1fr; gap: 20px; }
+    .journey { grid-template-columns: 1fr; gap: 8px; }
+    body { font-size: 17px; }
+  }
+  @media (max-width: 560px) {
+    .diagram { flex-direction: column; align-items: stretch; }
+    .darrow { flex-direction: row; justify-content: center; }
+    .darrow svg { transform: rotate(90deg); }
+    .row { font-size: 10px; padding: 0 8px; }
+    .steps li { padding-left: 48px; }
+    .steps li::before { width: 30px; height: 30px; font-size: 15px; }
+    .steps li::after { left: 14.5px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero span2">
+    <div>
+      <span class="badge">2-minute read</span>
+      <h1>Company Brain, the quick version</h1>
+    </div>
+    <div class="takeaway">
+      <p>One shared brain for the company. You get your own private copy. Anything that isn't yours to see is never put in your copy — so it can't leak. Ever.</p>
+      <p class="soft">That's the whole idea. Everything below is just detail.</p>
+    </div>
+  </header>
+
+  <section class="card span2">
+    <h2>The picture</h2>
+    <p class="soft">The company keeps one master vault of notes. A program copies out <strong>only what you're allowed to see</strong> into your personal vault.</p>
+    <div class="diagram">
+      <div class="dbox">
+        <div class="dname">Master vault (everything)</div>
+        <div class="rows">
+          <div class="row r-shared">Shared company notes</div>
+          <div class="row r-you">Your private notes</div>
+          <div class="row r-other">Alice's private notes</div>
+          <div class="row r-other">Bob's private notes</div>
+        </div>
+      </div>
+      <div class="darrow">
+        <svg width="40" height="22" viewBox="0 0 40 22" fill="none" aria-hidden="true">
+          <path d="M2 11h30M26 3l8 8-8 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="dlabel">copies only<br>your share</span>
+      </div>
+      <div class="dbox">
+        <div class="dname">Your vault (your copy)</div>
+        <div class="rows">
+          <div class="row r-shared">Shared company notes</div>
+          <div class="row r-you">Your private notes</div>
+          <div class="row r-absent">Everyone else's — not here</div>
+        </div>
+      </div>
+    </div>
+    <p class="dcaption">The striped bar is the point: other people's private notes aren't hidden or locked in your copy. They were <strong>never copied in</strong>. There's nothing to find.</p>
+  </section>
+
+  <section class="card">
+    <h2>You only do two things</h2>
+    <p class="soft">Your AI assistant handles the rest — filing, summarizing, tracking action items.</p>
+    <div class="two">
+      <div class="thing">
+        <div class="n">1</div>
+        <div>
+          <p><strong>Send stuff to your brain.</strong></p>
+          <p class="sub">Forward an email, text it, record a voice memo, or drop in a file. It all lands in your inbox.</p>
+        </div>
+      </div>
+      <div class="thing">
+        <div class="n">2</div>
+        <div>
+          <p><strong>Say yes or no when it wants to share.</strong></p>
+          <p class="sub">Your AI drafts things worth sharing with the team. Nothing is published until a person approves it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Ways to send stuff in</h2>
+    <p class="soft">Pick whichever fits the moment. They all go to the same safe inbox.</p>
+    <div class="chips">
+      <div class="chip">Email it<span>Forward a thread to your brain's address</span></div>
+      <div class="chip">Message it<span>Text your brain like a colleague</span></div>
+      <div class="chip">Speak it<span>Voice memo, transcribed for you</span></div>
+      <div class="chip">Drop it<span>Save a file or type a quick note</span></div>
+      <div class="chip">Connect it<span>Meeting tools &amp; apps (Fathom, Zapier) deliver automatically</span></div>
+    </div>
+  </section>
+
+  <section class="card span2">
+    <div class="journey">
+      <div class="journey-intro">
+        <h2>What happens to one note</h2>
+        <p class="soft">Say you send in this morning's meeting transcript. Here's its whole journey — you're only involved at the start, and (sometimes) for one click near the end.</p>
+      </div>
+      <ol class="steps">
+        <li>
+          <b>It lands in your inbox <span class="whotag">you</span></b>
+          <p>That's your entire job. Done in 10 seconds.</p>
+        </li>
+        <li>
+          <b>Your AI files it <span class="whotag">AI</span></b>
+          <p>Summary written, decisions logged, action items tracked with owners and deadlines.</p>
+        </li>
+        <li>
+          <b>It spots something worth sharing <span class="whotag">AI</span></b>
+          <p>It drafts a clean version for the team — with private details stripped out.</p>
+        </li>
+        <li class="human">
+          <b>A person approves it <span class="whotag">human</span></b>
+          <p>One click: yes or no. This is the <strong>only</strong> door from private to shared.</p>
+        </li>
+        <li>
+          <b>Now the whole company can find it <span class="whotag">everyone</span></b>
+          <p>Six months later, anyone can ask "why did we decide that?" and get the answer in seconds.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="card span2">
+    <h2>Why you can trust it</h2>
+    <div class="trust">
+      <div class="trow">
+        <div class="mark"></div>
+        <p><b>Private means absent, not hidden.</b><span>What you can't see isn't in your copy at all. No lock to pick, no filter to fool.</span></p>
+      </div>
+      <div class="trow">
+        <div class="mark"></div>
+        <p><b>When it breaks, it breaks safe.</b><span>Any error means you briefly see less than you should — never more.</span></p>
+      </div>
+      <div class="trow">
+        <div class="mark"></div>
+        <p><b>The AI can suggest, never publish.</b><span>A human approves every single share, by name, on the record.</span></p>
+      </div>
+      <div class="trow">
+        <div class="mark"></div>
+        <p><b>It's tested by attacking it.</b><span>Automated tests plant fake secrets designed to escape — and prove they never do.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card human-card span2">
+    <h2>If you remember one thing</h2>
+    <p>Your private notes stay yours — <strong>by construction, not by promise</strong>. And the company gets a shared memory that actually stays up to date, because sharing takes one click instead of an afternoon of wiki editing.</p>
+  </section>
+
+  <footer>
+    Want the full story? See the detailed explainer, or the project itself at
+    <a href="https://github.com/joedanz/brainkit">github.com/joedanz/brainkit</a>.
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where the Brain Lives — deployment architecture</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --paper:  light-dark(oklch(0.965 0.012 85), oklch(0.235 0.012 70));
+    --paper2: light-dark(oklch(0.935 0.016 85), oklch(0.275 0.014 70));
+    --ink:    light-dark(oklch(0.28 0.02 60),  oklch(0.90 0.015 80));
+    --ink2:   light-dark(oklch(0.45 0.02 60),  oklch(0.72 0.015 75));
+    --line:   light-dark(oklch(0.55 0.02 70),  oklch(0.55 0.02 75));
+    --hair:   light-dark(oklch(0.80 0.02 80),  oklch(0.40 0.015 70));
+    --accent: light-dark(oklch(0.50 0.13 40),  oklch(0.70 0.12 45));
+    --accent-soft: light-dark(oklch(0.50 0.13 40 / .09), oklch(0.70 0.12 45 / .13));
+    --serif: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: Seravek, "Avenir Next", "Gill Sans", "Helvetica Neue", sans-serif;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    line-height: 1.55;
+    padding: clamp(1.5rem, 4vw, 4rem) clamp(1rem, 5vw, 5rem) 5rem;
+  }
+  .sheet { max-width: 1160px; margin: 0 auto; }
+
+  header { margin-bottom: clamp(2rem, 4vw, 3.5rem); max-width: 62ch; }
+  .kicker {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.9rem;
+  }
+  h1 {
+    font-size: clamp(2rem, 4.5vw, 3.1rem);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.12;
+    margin-bottom: 1.1rem;
+  }
+  .lede { font-size: clamp(1.02rem, 1.6vw, 1.17rem); color: var(--ink2); }
+  .lede em { color: var(--ink); font-style: italic; }
+
+  figure { margin: 0 0 1rem; }
+  svg { width: 100%; height: auto; display: block; }
+
+  /* ---- SVG typography & strokes ---- */
+  .box      { fill: var(--paper); stroke: var(--line); stroke-width: 1.2; }
+  .box-tint { fill: var(--paper2); stroke: var(--line); stroke-width: 1.2; }
+  .zone     { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.3; stroke-dasharray: 7 5; }
+  .band     { fill: var(--paper2); stroke: var(--hair); stroke-width: 1; }
+  .flow     { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .flow-up  { stroke: var(--line); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  .flow-acc { stroke: var(--accent); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  .loop     { stroke: var(--accent); stroke-width: 1.4; fill: none; }
+  .hairline { stroke: var(--hair); stroke-width: 1; }
+
+  text { fill: var(--ink); }
+  .t-head   { font-family: var(--sans); font-size: 15.5px; font-weight: 600; letter-spacing: 0.01em; }
+  .t-zone   { font-family: var(--sans); font-size: 12.5px; font-weight: 600; letter-spacing: 0.16em; fill: var(--accent); }
+  .t-body   { font-family: var(--sans); font-size: 13.5px; fill: var(--ink2); }
+  .t-mono   { font-family: var(--sans); font-size: 13.5px; }
+  .t-flow   { font-family: var(--sans); font-size: 12.5px; fill: var(--ink2); font-style: italic; }
+  .t-flow-a { font-family: var(--sans); font-size: 12.5px; fill: var(--accent); font-style: italic; }
+  .t-num    { font-family: var(--sans); font-size: 12px; font-weight: 700; fill: var(--paper); }
+  .num-dot  { fill: var(--accent); }
+
+  /* ---- prose notes ---- */
+  .notes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: clamp(1.5rem, 3vw, 3rem);
+    margin-top: clamp(2.5rem, 4vw, 3.5rem);
+    padding-top: 2.2rem;
+    border-top: 1px solid var(--hair);
+  }
+  .notes h2 {
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 0.7rem;
+  }
+  .notes h2 .n {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.35rem; height: 1.35rem;
+    padding: 0 0.42rem;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--paper);
+    font-size: 0.72rem;
+    margin-right: 0.5rem;
+    vertical-align: -0.28em;
+  }
+  .notes p { font-size: 0.99rem; color: var(--ink2); }
+  .notes p strong { color: var(--ink); font-weight: 600; }
+  .notes code, .phase code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.86em;
+    background: var(--paper2);
+    padding: 0.08em 0.35em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+  .plate { margin-top: clamp(3.5rem, 6vw, 5.5rem); }
+  .plate-head { margin-bottom: clamp(1.5rem, 3vw, 2.5rem); max-width: 62ch; }
+  .plate-head h2 {
+    font-size: clamp(1.5rem, 3.2vw, 2.2rem);
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    line-height: 1.15;
+    margin-bottom: 0.9rem;
+  }
+
+  /* ---- runbook ---- */
+  .runbook {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr));
+    gap: clamp(1.8rem, 3vw, 3rem);
+  }
+  .phase h3 {
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 0.8rem;
+  }
+  .phase h3 .n {
+    display: inline-grid;
+    place-items: center;
+    min-width: 1.35rem; height: 1.35rem;
+    padding: 0 0.42rem;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--paper);
+    font-size: 0.72rem;
+    margin-right: 0.5rem;
+    vertical-align: -0.28em;
+  }
+  .phase p, .phase li { font-size: 0.96rem; color: var(--ink2); }
+  .phase p strong, .phase li strong { color: var(--ink); font-weight: 600; }
+  .phase ol { padding-left: 1.2rem; margin: 0.4rem 0 0.8rem; }
+  .phase li { margin-bottom: 0.45rem; }
+  .phase pre {
+    background: var(--paper2);
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    padding: 0.8rem 0.95rem;
+    overflow-x: auto;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.76rem;
+    line-height: 1.55;
+    color: var(--ink);
+    margin: 0.6rem 0 1rem;
+  }
+  .phase pre .c { color: var(--ink2); }
+
+  .plain {
+    background: var(--paper2);
+    border-radius: 8px;
+    padding: 1.2rem 1.5rem 1.3rem;
+    margin: 0 0 clamp(2rem, 4vw, 3rem);
+    max-width: 78ch;
+    font-size: 1.02rem;
+    color: var(--ink2);
+  }
+  .plain .tag {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+  .plain strong { color: var(--ink); }
+
+  .tablewrap { overflow-x: auto; margin-top: 0.5rem; }
+  .surfaces { width: 100%; border-collapse: collapse; font-size: 0.94rem; min-width: 56rem; }
+  .surfaces th {
+    font-family: var(--sans);
+    font-size: 0.74rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--accent);
+    text-align: left;
+    padding: 0.55rem 0.9rem 0.55rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .surfaces td {
+    padding: 0.75rem 0.9rem 0.75rem 0;
+    border-bottom: 1px solid var(--hair);
+    color: var(--ink2);
+    vertical-align: top;
+  }
+  .surfaces td:first-child {
+    font-family: var(--sans);
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .surfaces .verdict { font-style: italic; }
+
+  /* ---- life of a note ---- */
+  .stories {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+    gap: clamp(2rem, 4vw, 3.5rem);
+  }
+  .story h3 {
+    font-family: var(--sans);
+    font-size: 0.82rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+  .timeline { list-style: none; padding: 0; margin: 0 0 0 0.4rem; }
+  .timeline li {
+    position: relative;
+    padding: 0 0 1.15rem 1.6rem;
+    border-left: 1px solid var(--hair);
+  }
+  .timeline li:last-child { border-left-color: transparent; }
+  .timeline li::before {
+    content: "";
+    position: absolute;
+    left: -4.5px; top: 0.4em;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .timeline .t {
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.15rem;
+  }
+  .timeline p { font-size: 0.97rem; color: var(--ink2); }
+  .timeline p strong { color: var(--ink); font-weight: 600; }
+  .timeline .who {
+    display: inline-block;
+    font-family: var(--sans);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    padding: 0.12rem 0.6rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    margin-top: 0.35rem;
+  }
+
+  footer {
+    margin-top: 3rem;
+    max-width: 68ch;
+    font-style: italic;
+    color: var(--ink2);
+    font-size: 0.95rem;
+    border-left: 2px solid var(--accent);
+    padding-left: 1.1rem;
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <div class="kicker">Company Brain · Deployment Plate №1</div>
+  <h1>Where the brain lives</h1>
+  <p class="lede">The decided architecture: <em>two boxes</em>. Employees are non-technical
+  and chat is their entire product — they message their own agent on WhatsApp or Telegram
+  and never see git, files, or the word "vault." All agents run server-side, one container
+  per person, on the agents box; the master lives alone on the brain box.</p>
+</header>
+
+<div class="plain">
+  <span class="tag">In plain English</span>
+  Every employee texts their own private AI assistant, the way they'd text a person.
+  The assistant keeps their notes in a <strong>private notebook only they can see</strong>.
+  A separate "librarian" computer holds the company's shared knowledge: when someone chooses
+  to share something, a human approves it, and it then appears in everyone's notebook.
+  Nothing is shared by accident, because each assistant is physically given only its own
+  person's notebook — there is no setting to get wrong.
+</div>
+
+<figure aria-label="Two-box deployment architecture diagram">
+<svg viewBox="0 0 1160 1150" role="img">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/>
+    </marker>
+    <marker id="arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+    </marker>
+  </defs>
+
+  <!-- ══════════ EMPLOYEES ══════════ -->
+  <text class="t-zone" x="80" y="46">EMPLOYEES — NON-TECHNICAL · CHAT IS THE ENTIRE PRODUCT</text>
+  <rect class="box-tint" x="110" y="62" width="280" height="56" rx="6"/>
+  <text class="t-mono" x="130" y="86">Alice — WhatsApp</text>
+  <text class="t-body" x="130" y="106">messages her own bot</text>
+  <rect class="box-tint" x="430" y="62" width="280" height="56" rx="6"/>
+  <text class="t-mono" x="450" y="86">Bob — Telegram</text>
+  <text class="t-body" x="450" y="106">messages his own bot</text>
+  <rect class="box-tint" x="750" y="62" width="280" height="56" rx="6"/>
+  <text class="t-mono" x="770" y="86">Carol — Telegram</text>
+  <text class="t-body" x="770" y="106">messages her own bot</text>
+
+  <path class="flow" d="M250 118 V205" marker-end="url(#arr)"/>
+  <path class="flow" d="M570 118 V205" marker-end="url(#arr)"/>
+  <path class="flow" d="M890 118 V205" marker-end="url(#arr)"/>
+  <circle class="num-dot" cx="250" cy="150" r="9.5"/><text class="t-num" x="250" y="154" text-anchor="middle">1</text>
+  <text class="t-flow" x="268" y="147">chat — the only user surface;</text>
+  <text class="t-flow" x="268" y="163">a pairing code binds their phone to their bot</text>
+
+  <!-- ══════════ AGENTS BOX ══════════ -->
+  <rect class="box" x="80" y="210" width="1000" height="445" rx="10"/>
+  <text class="t-head" x="104" y="244">Agents box — one VPS, Docker</text>
+  <text class="t-body" x="104" y="266">one hermes container per person · ≈300 MB each, idle CPU ≈ 0 · LLM compute happens at the API, not here</text>
+  <line class="hairline" x1="104" y1="282" x2="1056" y2="282"/>
+
+  <!-- container: alice -->
+  <rect class="zone" x="110" y="300" width="300" height="280" rx="7"/>
+  <text class="t-zone" x="128" y="326">CONTAINER — ALICE ONLY</text>
+  <rect class="box-tint" x="128" y="340" width="264" height="54" rx="5"/>
+  <text class="t-mono" x="142" y="362">hermes gateway + agent</text>
+  <text class="t-body" x="142" y="381">her bot token · her memory</text>
+  <rect class="box-tint" x="128" y="468" width="264" height="54" rx="5"/>
+  <text class="t-mono" x="142" y="490">/vault — clone of alice/</text>
+  <text class="t-body" x="142" y="509">.brain index · brain MCP</text>
+  <path class="loop" d="M240 394 V462" marker-end="url(#arr-a)"/>
+  <path class="loop" d="M272 462 V400" marker-end="url(#arr-a)"/>
+  <circle class="num-dot" cx="218" cy="428" r="9.5"/><text class="t-num" x="218" y="432" text-anchor="middle">2</text>
+  <text class="t-flow-a" x="290" y="425">local</text>
+  <text class="t-flow-a" x="290" y="441">reads</text>
+  <text class="t-body" x="128" y="548">sync loop: pull → index → push</text>
+  <text class="t-body" x="128" y="568">one deploy key → one repo</text>
+
+  <!-- container: bob -->
+  <rect class="zone" x="430" y="300" width="300" height="280" rx="7"/>
+  <text class="t-zone" x="448" y="326">CONTAINER — BOB ONLY</text>
+  <rect class="box-tint" x="448" y="340" width="264" height="54" rx="5"/>
+  <text class="t-mono" x="462" y="362">hermes gateway + agent</text>
+  <text class="t-body" x="462" y="381">his bot token · his memory</text>
+  <rect class="box-tint" x="448" y="468" width="264" height="54" rx="5"/>
+  <text class="t-mono" x="462" y="490">/vault — clone of bob/</text>
+  <text class="t-body" x="462" y="509">.brain index · brain MCP</text>
+  <path class="loop" d="M560 394 V462" marker-end="url(#arr-a)"/>
+  <path class="loop" d="M592 462 V400" marker-end="url(#arr-a)"/>
+  <text class="t-flow-a" x="610" y="425">local</text>
+  <text class="t-flow-a" x="610" y="441">reads</text>
+  <text class="t-body" x="448" y="548">sync loop: pull → index → push</text>
+  <text class="t-body" x="448" y="568">one deploy key → one repo</text>
+
+  <!-- container: carol -->
+  <rect class="zone" x="750" y="300" width="300" height="280" rx="7"/>
+  <text class="t-zone" x="768" y="326">CONTAINER — CAROL ONLY</text>
+  <rect class="box-tint" x="768" y="340" width="264" height="54" rx="5"/>
+  <text class="t-mono" x="782" y="362">hermes gateway + agent</text>
+  <text class="t-body" x="782" y="381">her bot token · her memory</text>
+  <rect class="box-tint" x="768" y="468" width="264" height="54" rx="5"/>
+  <text class="t-mono" x="782" y="490">/vault — clone of carol/</text>
+  <text class="t-body" x="782" y="509">.brain index · brain MCP</text>
+  <path class="loop" d="M880 394 V462" marker-end="url(#arr-a)"/>
+  <path class="loop" d="M912 462 V400" marker-end="url(#arr-a)"/>
+  <text class="t-flow-a" x="930" y="425">local</text>
+  <text class="t-flow-a" x="930" y="441">reads</text>
+  <text class="t-body" x="768" y="548">sync loop: pull → index → push</text>
+  <text class="t-body" x="768" y="568">one deploy key → one repo</text>
+
+  <!-- optional company bot -->
+  <rect class="box-tint" x="110" y="598" width="960" height="42" rx="6"/>
+  <text class="t-body" x="128" y="624">optional, round 2: one shared company bot — its vault is a Company-space-only view, so shared sessions can't leak anything private</text>
+
+  <!-- ══════════ GIT LINK ══════════ -->
+  <path class="flow" d="M250 658 V687" marker-end="url(#arr)"/>
+  <path class="flow-up" d="M282 687 V661" marker-end="url(#arr)"/>
+  <path class="flow" d="M570 658 V687" marker-end="url(#arr)"/>
+  <path class="flow-up" d="M602 687 V661" marker-end="url(#arr)"/>
+  <path class="flow" d="M890 658 V687" marker-end="url(#arr)"/>
+  <path class="flow-up" d="M922 687 V661" marker-end="url(#arr)"/>
+
+  <rect class="band" x="80" y="692" width="1000" height="52" rx="6"/>
+  <text class="t-head" x="104" y="724">git</text>
+  <text class="t-body" x="145" y="724">over Tailscale / the provider's private network — the only link between the boxes · per-person deploy keys · no public ports (base setup)</text>
+  <circle class="num-dot" cx="1046" cy="718" r="9.5"/><text class="t-num" x="1046" y="722" text-anchor="middle">3</text>
+
+  <path class="flow" d="M554 748 V775" marker-end="url(#arr)"/>
+  <path class="flow-up" d="M586 775 V752" marker-end="url(#arr)"/>
+
+  <!-- ══════════ BRAIN BOX ══════════ -->
+  <rect class="zone" x="80" y="780" width="1000" height="290" rx="10"/>
+  <text class="t-zone" x="104" y="812">BRAIN BOX — MASTER HOST · AGENT-FREE ZONE</text>
+  <text class="t-body" x="104" y="834">git + cron + the brain CLI — deterministic plumbing; no LLM ever runs here, so nothing here can be talked into leaking</text>
+
+  <rect class="box" x="110" y="860" width="280" height="170" rx="6"/>
+  <text class="t-head" x="130" y="890">Master vault</text>
+  <line class="hairline" x1="130" y1="902" x2="368" y2="902"/>
+  <text class="t-mono" x="130" y="928">master/ — the one true store</text>
+  <text class="t-body" x="130" y="950">_meta/ org.yaml · spaces.yaml</text>
+  <text class="t-body" x="130" y="972">People / Teams / Company spaces</text>
+  <text class="t-body" x="130" y="994">promotion queue (pending)</text>
+
+  <rect class="box" x="430" y="860" width="280" height="170" rx="6"/>
+  <text class="t-head" x="450" y="890">brain cycle — every 5 min</text>
+  <line class="hairline" x1="450" y1="902" x2="688" y2="902"/>
+  <text class="t-body" x="450" y="928">validate write-backs (fail closed)</text>
+  <text class="t-body" x="450" y="950">sweep drafts → promotion queue</text>
+  <text class="t-body" x="450" y="972">recompile + reindex all vaults</text>
+  <text class="t-body" x="450" y="994">brain doctor — nightly integrity</text>
+
+  <rect class="box" x="750" y="860" width="280" height="170" rx="6"/>
+  <text class="t-head" x="770" y="890">Compiled vaults</text>
+  <line class="hairline" x1="770" y1="902" x2="1008" y2="902"/>
+  <rect class="box-tint" x="770" y="916" width="240" height="30" rx="4"/>
+  <text class="t-mono" x="784" y="936">alice/ — her view only</text>
+  <rect class="box-tint" x="770" y="954" width="240" height="30" rx="4"/>
+  <text class="t-mono" x="784" y="974">bob/ — his view only</text>
+  <rect class="box-tint" x="770" y="992" width="240" height="30" rx="4"/>
+  <text class="t-mono" x="784" y="1012">carol/ — her view only</text>
+
+  <path class="flow" d="M390 945 H425" marker-end="url(#arr)"/>
+  <path class="flow" d="M710 945 H745" marker-end="url(#arr)"/>
+  <circle class="num-dot" cx="410" cy="928" r="9.5"/><text class="t-num" x="410" y="932" text-anchor="middle">4</text>
+
+  <!-- operator -->
+  <circle class="num-dot" cx="90" cy="1103" r="9.5"/><text class="t-num" x="90" y="1107" text-anchor="middle">5</text>
+  <text class="t-flow-a" x="108" y="1108">the operator (you) — ssh over the tailnet: brain promotions approve · brain doctor · dashboard through a tunnel</text>
+  <text class="t-body" x="108" y="1130">employees never see this side; their agent tells them when something they shared goes live</text>
+</svg>
+</figure>
+
+<section class="notes">
+  <div>
+    <h2><span class="n">1–2</span>Chat is the whole product</h2>
+    <p>"Remember X" → the agent writes it into <code>Inbox/</code> in its own clone.
+    Questions → local search over the compiled vault. "Share this with the team" → the
+    agent drafts a promotion. Users never touch git, Obsidian, or files; the
+    <strong>pairing-code flow</strong> is the entire IT setup they ever experience.</p>
+  </div>
+  <div>
+    <h2><span class="n">2</span>One container per person</h2>
+    <p>Isolation is structural: a container <strong>cannot</strong> read another person's
+    vault because it was never mounted — the only defense that survives prompt injection.
+    Cost is ≈300 MB RAM each, idle CPU near zero: <strong>~5 people → 4 GB · ~15 → 8 GB ·
+    ~30 → 16 GB</strong>. Adding an employee is one compose stanza.</p>
+  </div>
+  <div>
+    <h2><span class="n">3–5</span>Two boxes, one boundary</h2>
+    <p>The master's isolation is <strong>hardware, not configuration</strong> — there is no
+    compose line that can drift into exposing it. If the agents box is ever compromised:
+    rotate deploy keys, rebuild containers, the master's history is intact. If the brain
+    box is down, agents keep working on local clones and sync drains later.</p>
+  </div>
+</section>
+
+<section class="plate">
+  <div class="plate-head">
+    <div class="kicker">Company Brain · Deployment Plate №2</div>
+    <h2>How agents route back</h2>
+    <p class="lede">An agent never addresses the master. It addresses <em>its own vault's
+    git remote</em> — which happens to live on the brain box. Everything an agent wants to
+    tell the company is a commit; the master extracts meaning from pushes on its own
+    schedule, asynchronously and fail-closed.</p>
+  </div>
+
+  <figure aria-label="Sync plane diagram — the round trip, three transports, and side channels">
+  <svg viewBox="0 0 1160 790" role="img">
+
+    <!-- ── the round trip ── -->
+    <rect class="box" x="80" y="50" width="340" height="220" rx="8"/>
+    <text class="t-head" x="104" y="84">Any agent container</text>
+    <text class="t-body" x="104" y="106">on the agents box</text>
+    <line class="hairline" x1="104" y1="120" x2="396" y2="120"/>
+    <rect class="box-tint" x="104" y="134" width="292" height="54" rx="5"/>
+    <text class="t-mono" x="120" y="156">/vault — local clone</text>
+    <text class="t-body" x="120" y="176">.brain/ index — machine-local</text>
+    <circle class="num-dot" cx="113" cy="212" r="9.5"/><text class="t-num" x="113" y="216" text-anchor="middle">1</text>
+    <text class="t-body" x="131" y="217">edit own spaces · commit locally</text>
+    <text class="t-body" x="131" y="241">drafts → People/me/Promotions/ ·</text>
+    <text class="t-body" x="131" y="261">capture → own Inbox/ · works offline</text>
+
+    <rect class="box" x="740" y="50" width="340" height="220" rx="8"/>
+    <text class="t-head" x="764" y="84">Brain box</text>
+    <text class="t-body" x="764" y="106">pushes accepted as-is — validation is async</text>
+    <line class="hairline" x1="764" y1="120" x2="1056" y2="120"/>
+    <circle class="num-dot" cx="773" cy="147" r="9.5"/><text class="t-num" x="773" y="151" text-anchor="middle">3</text>
+    <text class="t-body" x="791" y="152">brain cycle — validate every path</text>
+    <text class="t-body" x="791" y="176">apply what's legal, revert the rest</text>
+    <text class="t-body" x="791" y="196">(fail closed — next compile erases it)</text>
+    <text class="t-body" x="791" y="224">sweep drafts → pending queue ·</text>
+    <text class="t-body" x="791" y="244">recompile every vault</text>
+
+    <path class="flow" d="M420 122 H735" marker-end="url(#arr)"/>
+    <circle class="num-dot" cx="440" cy="102" r="9.5"/><text class="t-num" x="440" y="106" text-anchor="middle">2</text>
+    <text class="t-flow" x="458" y="107">git push — the entire client interaction</text>
+
+    <text class="t-flow-a" x="578" y="168" text-anchor="middle">one SSH key → one repo</text>
+    <text class="t-flow-a" x="578" y="185" text-anchor="middle">the only network crossing</text>
+
+    <path class="flow-up" d="M740 226 H425" marker-end="url(#arr)"/>
+    <circle class="num-dot" cx="440" cy="250" r="9.5"/><text class="t-num" x="440" y="254" text-anchor="middle">4</text>
+    <text class="t-flow" x="458" y="248">git pull — the verdict returns: rejected</text>
+    <text class="t-flow" x="458" y="264">edits vanish, approved knowledge arrives</text>
+
+    <!-- ── transports ── -->
+    <text class="t-zone" x="80" y="326">THE TRANSPORT — WE CHOSE A; B AND C REMAIN AVAILABLE, THE LOOP NEVER CHANGES</text>
+
+    <rect class="zone" x="80" y="344" width="320" height="286" rx="8"/>
+    <text class="t-head" x="102" y="378">A · Tailscale + restricted SSH</text>
+    <text class="t-flow-a" x="102" y="399">chosen — the link between the boxes</text>
+    <line class="hairline" x1="102" y1="413" x2="378" y2="413"/>
+    <text class="t-body" x="102" y="440">no public ports on the brain box at all</text>
+    <rect class="box-tint" x="102" y="456" width="276" height="54" rx="5"/>
+    <text class="t-mono" x="116" y="478">brain-sync@brain-box:</text>
+    <text class="t-mono" x="116" y="498">/srv/brain/compiled/alice</text>
+    <text class="t-body" x="102" y="536">authorized_keys forced command —</text>
+    <text class="t-body" x="102" y="556">each key opens exactly one repo</text>
+    <text class="t-body" x="102" y="588">also carries the operator's admin</text>
+    <text class="t-body" x="102" y="608">ssh and the dashboard tunnel</text>
+
+    <rect class="box" x="420" y="344" width="320" height="286" rx="8"/>
+    <text class="t-head" x="442" y="378">B · Public SSH + deploy keys</text>
+    <text class="t-body" x="442" y="399">kept in reserve</text>
+    <line class="hairline" x1="442" y1="413" x2="718" y2="413"/>
+    <text class="t-body" x="442" y="440">port 22 open · keys only, no passwords</text>
+    <text class="t-body" x="442" y="464">same per-key repo restriction as A</text>
+    <text class="t-body" x="442" y="496">only needed if an agent ever runs</text>
+    <text class="t-body" x="442" y="516">outside the tailnet — a serverless</text>
+    <text class="t-body" x="442" y="536">sandbox, a partner's machine</text>
+    <text class="t-body" x="442" y="588">mixes freely with A — tailnet for pets,</text>
+    <text class="t-body" x="442" y="608">public SSH for cattle</text>
+
+    <rect class="box" x="760" y="344" width="320" height="286" rx="8"/>
+    <text class="t-head" x="782" y="378">C · GitHub / Gitea as the hub</text>
+    <text class="t-body" x="782" y="399">outsource the multi-tenancy</text>
+    <line class="hairline" x1="782" y1="413" x2="1058" y2="413"/>
+    <text class="t-body" x="782" y="440">brain box keeps zero inbound surface —</text>
+    <text class="t-body" x="782" y="460">it only dials out</text>
+    <text class="t-body" x="782" y="492">cycle wrapped in mirror push / pull;</text>
+    <text class="t-body" x="782" y="512">one private repo per person,</text>
+    <text class="t-body" x="782" y="532">per-repo deploy keys — auth outsourced</text>
+    <text class="t-body" x="782" y="568">costs: company knowledge rests at the</text>
+    <text class="t-body" x="782" y="588">forge, and sync becomes polling-shaped</text>
+
+    <!-- ── side channels ── -->
+    <rect class="band" x="80" y="662" width="1000" height="92" rx="6"/>
+    <text class="t-head" x="104" y="694">side channels</text>
+    <text class="t-body" x="104" y="718">capture with no agent attached (a forwarding address or brain webhook) — both call brain ingest on the brain box; everything else flows through agents</text>
+    <text class="t-body" x="104" y="740">approvals stay human — ssh brain-box "brain promotions approve &lt;id&gt;" · dashboard reviewed over a tunnel, never a public port</text>
+  </svg>
+  </figure>
+
+  <section class="notes">
+    <div>
+      <h2><span class="n">2</span>One key, one repo</h2>
+      <p>Agents hold <strong>zero credentials to the brain system itself</strong> — no API
+      tokens, no service accounts. The only secret in any container is one SSH key that
+      reaches one compiled vault. Compromise an agent and the blast radius is: push garbage
+      to its own vault (reverted by validation) and read what its person could already read.</p>
+    </div>
+    <div>
+      <h2><span class="n">4</span>Never in the hot path</h2>
+      <p>The brain box needs <strong>no availability SLA</strong> for agents to function. If
+      it's down, every agent keeps chatting, reading, and capturing against its local clone;
+      commits queue in local git history and drain when it returns. The master is a batch
+      consolidator, not a dependency any agent waits on.</p>
+    </div>
+    <div>
+      <h2><span class="n">A</span>Transport is swappable</h2>
+      <p>We chose <strong>Tailscale (A)</strong>: both boxes join one tailnet, the brain box
+      exposes no public ports (unless you opt into webhook intake), and the same net carries your admin SSH and the dashboard
+      tunnel. If agents ever run outside the tailnet, add <strong>B</strong> for just those;
+      move to <strong>a forge (C)</strong> only if you'd rather not operate SSH at all.</p>
+    </div>
+  </section>
+</section>
+
+<section class="plate">
+  <div class="plate-head">
+    <div class="kicker">Company Brain · Deployment Plate №3</div>
+    <h2>The visual layer — seeing your agent</h2>
+    <p class="lede">Chat stays the primary product, but every container can also expose
+    visual surfaces. Because sessions live in the container's shared <em>state.db</em>, a
+    conversation started on WhatsApp continues in the browser or the desktop app —
+    <em>same brain, different doors</em>. The one rule: the auth gate must map identity to
+    container, so Alice can only ever reach Alice's backend.</p>
+  </div>
+
+  <figure aria-label="Visual surfaces diagram — devices, auth gate, per-person backends">
+  <svg viewBox="0 0 1160 430" role="img">
+    <!-- devices -->
+    <text class="t-zone" x="80" y="46">ALICE'S DEVICES</text>
+    <rect class="box-tint" x="80" y="62" width="280" height="52" rx="6"/>
+    <text class="t-mono" x="98" y="84">WhatsApp / Telegram</text>
+    <text class="t-body" x="98" y="103">the default — zero setup</text>
+    <rect class="box-tint" x="80" y="134" width="280" height="52" rx="6"/>
+    <text class="t-mono" x="98" y="156">Browser — her dashboard URL</text>
+    <text class="t-body" x="98" y="175">no install, works anywhere</text>
+    <rect class="box-tint" x="80" y="206" width="280" height="52" rx="6"/>
+    <text class="t-mono" x="98" y="228">Hermes Desktop app</text>
+    <text class="t-body" x="98" y="247">native chat · files · voice</text>
+
+    <!-- chat path over the top -->
+    <path class="flow" d="M360 82 C 560 40, 640 40, 776 66" marker-end="url(#arr)"/>
+    <text class="t-flow" x="470" y="36">through the chat platforms — exactly as today</text>
+
+    <!-- auth gate -->
+    <rect class="zone" x="450" y="134" width="230" height="180" rx="8"/>
+    <text class="t-zone" x="468" y="162">AUTH GATE</text>
+    <text class="t-body" x="468" y="188">Tailscale (pilot) or an</text>
+    <text class="t-body" x="468" y="208">SSO reverse proxy (later)</text>
+    <text class="t-body" x="468" y="240">identity → route:</text>
+    <text class="t-body" x="468" y="260">alice reaches only</text>
+    <text class="t-body" x="468" y="280">alice's container</text>
+
+    <path class="flow" d="M360 160 H445" marker-end="url(#arr)"/>
+    <path class="flow" d="M360 232 H445" marker-end="url(#arr)"/>
+    <path class="flow" d="M680 190 H771" marker-end="url(#arr)"/>
+    <path class="flow" d="M680 262 H771" marker-end="url(#arr)"/>
+
+    <!-- container -->
+    <rect class="zone" x="776" y="40" width="304" height="360" rx="8"/>
+    <text class="t-zone" x="794" y="66">CONTAINER — ALICE ONLY</text>
+    <rect class="box-tint" x="794" y="80" width="268" height="46" rx="5"/>
+    <text class="t-mono" x="808" y="100">hermes gateway — chat</text>
+    <text class="t-body" x="808" y="118">Telegram / WhatsApp adapter</text>
+    <rect class="box-tint" x="794" y="168" width="268" height="46" rx="5"/>
+    <text class="t-mono" x="808" y="188">hermes serve :9119</text>
+    <text class="t-body" x="808" y="206">backend for desktop app + web UI</text>
+    <rect class="box-tint" x="794" y="240" width="268" height="46" rx="5"/>
+    <text class="t-mono" x="808" y="260">brain dashboard :8787</text>
+    <text class="t-body" x="808" y="278">read-only vault view + capture</text>
+    <line class="hairline" x1="794" y1="308" x2="1062" y2="308"/>
+    <text class="t-body" x="794" y="334">one state.db — the same sessions</text>
+    <text class="t-body" x="794" y="354">on every surface · one /vault —</text>
+    <text class="t-body" x="794" y="374">the same knowledge everywhere</text>
+  </svg>
+  </figure>
+
+  <div class="tablewrap">
+  <table class="surfaces">
+    <thead>
+      <tr><th>Surface</th><th>What Alice gets</th><th>Setup burden</th><th>Risk surface</th><th>Verdict</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Chat (today)</td>
+        <td>Capture, ask, share — full agent via WhatsApp/Telegram</td>
+        <td>None — pairing code once</td>
+        <td>Nothing new</td>
+        <td class="verdict">The product. Everything else is optional.</td>
+      </tr>
+      <tr>
+        <td>Brain dashboard</td>
+        <td>A quiet read-only view of her own knowledge: what's new, search,
+        the graph, a capture box (<code>brain dashboard</code>, our own surface)</td>
+        <td>None — she opens a URL</td>
+        <td>Lowest: read-only by construction; writes route through <code>ingest</code></td>
+        <td class="verdict">Add first. Purpose-built for employees.</td>
+      </tr>
+      <tr>
+        <td>Hermes web UI</td>
+        <td>Browser chat with streaming and tool activity, session list,
+        artifacts preview (<code>hermes serve</code> + browser)</td>
+        <td>None — same URL pattern</td>
+        <td>Full agent control — the gate must be per-person and solid</td>
+        <td class="verdict">Add for power users once auth is SSO-grade.</td>
+      </tr>
+      <tr>
+        <td>Hermes Desktop</td>
+        <td>Native app attached to her container: chat, file browser, voice,
+        drag-and-drop — sessions shared with her chat history</td>
+        <td>Install + sign-in on her laptop</td>
+        <td>Same as web UI, plus a laptop install to support</td>
+        <td class="verdict">Offer to the few who ask. Fully supported.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <section class="notes">
+    <div>
+      <h2><span class="n">✓</span>Yes, the desktop app attaches</h2>
+      <p>Hermes Desktop has first-class <strong>remote-backend</strong> support: the
+      container runs <code>hermes serve --host … --port 9119</code> (the same headless
+      backend the app uses locally), a non-loopback bind auto-engages the auth gate, and
+      Alice enters her URL under <strong>Settings → Gateway</strong> and signs in. The app
+      runs as a GUI-only "lite" client — no local agent installed on her laptop.</p>
+    </div>
+    <div>
+      <h2><span class="n">1</span>The brain dashboard is the sleeper</h2>
+      <p>We already ship the right first visual surface: the vault's own live dashboard —
+      employee-first, read-only, typographic, built to show <strong>what's new, what links
+      where, and what needs attention</strong>. It answers "what does my assistant actually
+      know?" without handing anyone a control panel, which is exactly the right amount of
+      power for a non-technical org's first step.</p>
+    </div>
+    <div>
+      <h2><span class="n">!</span>Auth is the real decision</h2>
+      <p>Exposing <code>hermes serve</code> means remote control of that agent, so
+      credentials must be <strong>per-person, per-container</strong> — never shared. Pilot:
+      keep all visual surfaces tailnet-only. Wider rollout: one SSO reverse proxy
+      (OIDC / Nous OAuth) mapping each login to exactly one container's ports. Basic-auth
+      on the public internet is explicitly discouraged by the hermes docs.</p>
+    </div>
+  </section>
+</section>
+
+<section class="plate">
+  <div class="plate-head">
+    <div class="kicker">Company Brain · Deployment Plate №4</div>
+    <h2>The life of a note</h2>
+    <p class="lede">The whole system, traced through one piece of knowledge — twice. Once
+    for the common case (a private capture) and once for the rarer, human-gated case
+    (sharing). Each step says <em>when it happens</em> and <em>who can see it</em>.</p>
+  </div>
+
+  <div class="stories">
+    <div class="story">
+      <h3>① Capturing something private — the everyday case</h3>
+      <ol class="timeline">
+        <li>
+          <span class="t">9:02 am · Alice's phone</span>
+          <p>Alice voice-memos her bot on WhatsApp: <strong>"the client agreed to the
+          March timeline."</strong></p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">seconds later · her container</span>
+          <p>Her agent transcribes it, writes a note into <strong>her Inbox in its local
+          clone</strong>, commits, and replies "Saved." The note is already durable on the
+          agents box — this step works even if the brain box is down.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">within ~5 minutes · both boxes</span>
+          <p>Her container's sync loop pushes; the next <strong>brain cycle</strong> validates
+          the path, applies it to the master, and recompiles her vault. The note now lives
+          in two places — three after the nightly offsite mirror.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">any time after · her phone</span>
+          <p>"What did we agree with the client?" — her agent answers from its
+          <strong>local index</strong>, instantly, network or no network.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+      </ol>
+    </div>
+
+    <div class="story">
+      <h3>② Sharing with the team — the human-gated case</h3>
+      <ol class="timeline">
+        <li>
+          <span class="t">2:14 pm · Alice's phone</span>
+          <p>Alice: <strong>"share the March timeline with the team."</strong></p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">seconds later · her container</span>
+          <p>Her agent drafts a <strong>promotion</strong> into her Promotions folder and
+          tells her exactly what will happen next. Nothing is shared yet — a draft is
+          still hers.</p>
+          <span class="who">visible to: Alice only</span>
+        </li>
+        <li>
+          <span class="t">within ~5 minutes · brain box</span>
+          <p>The push lands; the next cycle sweeps the draft into the master's
+          <strong>pending queue</strong>.</p>
+          <span class="who">visible to: Alice + the approver</span>
+        </li>
+        <li>
+          <span class="t">when a human decides · operator</span>
+          <p>The approver reviews it (dashboard or
+          <strong>brain promotions approve</strong>) and says yes. This is the gate —
+          no agent, however confused or manipulated, can open it.</p>
+          <span class="who">visible to: Alice + the approver</span>
+        </li>
+        <li>
+          <span class="t">next cycle · brain box</span>
+          <p>The note materializes into the <strong>Team space</strong> and every affected
+          person's vault recompiles to include it.</p>
+          <span class="who">visible to: the whole team</span>
+        </li>
+        <li>
+          <span class="t">within ~5 minutes · Bob's container</span>
+          <p>Bob's sync loop pulls. His agent can now answer with it — <strong>"when's the
+          client deadline?" → "March."</strong> Alice's agent tells her it went live.</p>
+          <span class="who">visible to: the whole team</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+
+  <section class="notes">
+    <div>
+      <h2><span class="n">①</span>Private is fast and unconditional</h2>
+      <p>A capture is durable on the agents box in <strong>seconds</strong> and settled
+      into the master within <strong>one cycle (~5 minutes)</strong>. No approval, no
+      waiting on people — private knowledge flows at machine speed because it never
+      crosses a visibility boundary.</p>
+    </div>
+    <div>
+      <h2><span class="n">②</span>Shared is minutes + one decision</h2>
+      <p>Sharing costs a few machine-minutes plus <strong>however long the human takes</strong>.
+      That latency is the feature: the promotion queue is the only path across spaces, so
+      the approver's yes is the exact moment knowledge changes hands — never a sync
+      accident, never an agent's judgment call.</p>
+    </div>
+    <div>
+      <h2><span class="n">✓</span>What users should be told</h2>
+      <p>Two sentences cover it: <em>"Anything you tell your assistant is yours alone,
+      instantly. If you ask it to share something, a person approves it first — you'll
+      get a message when it's live."</em> That's the entire mental model an employee
+      needs.</p>
+    </div>
+  </section>
+</section>
+
+<section class="plate">
+  <div class="plate-head">
+    <div class="kicker">Company Brain · Deployment Plate №5</div>
+    <h2>The deployment runbook</h2>
+    <p class="lede">Everything to stand this up, in order. Phases 1–3 happen once and take
+    an afternoon. Phase 4 is the ~10 minutes you spend per new employee. Phase 5 is the
+    steady state — a few minutes a week.</p>
+  </div>
+
+  <div class="runbook">
+    <div class="phase">
+      <h3><span class="n">1</span>Provision — once</h3>
+      <ol>
+        <li><strong>Two VPSes, same provider &amp; region.</strong> Brain box: 2 GB is plenty.
+        Agents box: ≈300–400 MB per employee plus 2 GB headroom (15 people ≈ 8 GB).</li>
+        <li>Ubuntu LTS, key-only SSH, unattended-upgrades on both.</li>
+        <li>Join both to one tailnet; no other inbound ports anywhere — with one opt-in exception: enabling webhook intake (<code>brain webhook</code>) later adds a single TLS-fronted public port on the brain box.</li>
+      </ol>
+      <pre><span class="c"># on both boxes</span>
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up   <span class="c"># names: brain-box, agents-box</span></pre>
+    </div>
+
+    <div class="phase">
+      <h3><span class="n">2</span>Brain box — once</h3>
+      <pre>uv tool install git+https://github.com/joedanz/brainkit  <span class="c"># brainkit is not on PyPI — install from source</span>
+brain init /srv/brain/master --company "Acme Co"
+$EDITOR /srv/brain/master/_meta/org.yaml     <span class="c"># people, roles, teams</span>
+$EDITOR /srv/brain/master/_meta/spaces.yaml  <span class="c"># visibility rules</span>
+brain compile --master /srv/brain/master --out /srv/brain/compiled
+brain doctor  --master /srv/brain/master --out /srv/brain/compiled
+
+<span class="c"># one sync user; per-person keys locked to one repo each</span>
+adduser --disabled-password brain-sync</pre>
+      <pre><span class="c"># crontab — the whole orchestration layer</span>
+*/5 * * * * brain cycle --master /srv/brain/master \
+  --out /srv/brain/compiled --index --json \
+  &gt;&gt; /var/log/brain/cycle.jsonl || curl -fsS $ALERT_URL
+17 3 * * *  brain doctor --master /srv/brain/master \
+  --out /srv/brain/compiled || curl -fsS $ALERT_URL
+23 4 * * *  git -C /srv/brain/master push --mirror offsite</pre>
+      <p>The <code>$ALERT_URL</code> is a healthchecks.io-style ping — a nonzero
+      <code>cycle</code> means a rejected write-back; a nonzero <code>doctor</code> means an
+      integrity error. The nightly mirror push to one private offsite remote backs up the
+      master. Optional: set <code>BRAIN_EMBED_BASE_URL</code> (an embedding API reachable
+      from both boxes) to upgrade keyword search to semantic — <code>cycle --index</code>
+      and each container's <code>brain index</code> pick it up from the environment.</p>
+    </div>
+
+    <div class="phase">
+      <h3><span class="n">3</span>Agents box — once</h3>
+      <ol>
+        <li>Install Docker + the compose plugin.</li>
+        <li>Build the <code>hermes-brain</code> image — it ships in the repo at
+        <code>deploy/agents-box/</code>, derived from the official
+        <code>nousresearch/hermes-agent</code> image with <code>brainkit</code> baked in
+        (agents need <code>brain index / search / mcp</code> locally).</li>
+        <li>Set an LLM provider key once, shared via compose env.</li>
+      </ol>
+      <pre><span class="c"># deploy/agents-box/docker-compose.yml — one stanza per person</span>
+services:
+  agent-alice:
+    image: hermes-brain:latest
+    restart: unless-stopped
+    command: gateway run
+    environment:
+      - BRAIN_PERSON=alice
+      - BRAIN_GIT_REMOTE=brain-sync@brain-box:/srv/brain/compiled/alice
+      - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN}
+      - ANTHROPIC_API_KEY=${LLM_KEY}
+      - BRAIN_EMBED_BASE_URL=${EMBED_URL}  <span class="c"># optional: semantic search</span>
+    volumes:
+      - alice-state:/opt/data   <span class="c"># memory, sessions, pairing, deploy key</span>
+      - alice-vault:/vault      <span class="c"># her compiled vault clone</span></pre>
+      <p>Each container's first boot: install the <code>company-brain</code> hermes profile
+      (SOUL.md, <code>terminal.cwd: /vault</code>, the brain MCP server + skills) and
+      <strong>mint the container's own deploy key</strong> — the public half lands in
+      <code>docker logs</code>, the private half never leaves the container. A supervised
+      sync loop then clones <code>$BRAIN_GIT_REMOTE</code>, runs <code>brain index</code>,
+      and keeps syncing: pull → index → push every five minutes.</p>
+    </div>
+
+    <div class="phase">
+      <h3><span class="n">4</span>Onboard an employee — ~10 min each</h3>
+      <p><code>deploy/agents-box/add-agent.sh &lt;name&gt;</code> prints the compose
+      stanza and this exact checklist:</p>
+      <ol>
+        <li>Add them to <code>org.yaml</code>; the next cycle compiles their vault. Set
+        <code>receive.denyCurrentBranch updateInstead</code> on the compiled repo so it
+        accepts the agent's pushes.</li>
+        <li>Telegram: <code>@BotFather → /newbot</code> → copy the token
+        (WhatsApp: link a number via the hermes WhatsApp adapter).</li>
+        <li>Agents box: paste the compose stanza, set the token,
+        <code>docker compose up -d agent-&lt;name&gt;</code>.</li>
+        <li><code>docker logs agent-&lt;name&gt;</code> shows the container's deploy key —
+        append one <code>authorized_keys</code> line on the brain box (the
+        <code>brain-serve-repo</code> forced command locks the key to that one repo).
+        The clone lands within 30 seconds.</li>
+        <li>They message their bot; you approve the one-time pairing code.</li>
+        <li>Send them one line: <em>"This is your assistant — tell it things,
+        ask it things."</em> That's their entire onboarding.</li>
+      </ol>
+    </div>
+
+    <div class="phase">
+      <h3><span class="n">5</span>Operate — minutes per week</h3>
+      <ol>
+        <li><strong>Approvals:</strong> <code>ssh brain-box brain promotions list</code> /
+        <code>approve &lt;id&gt; --approver joe</code>; review in the dashboard over
+        <code>ssh -L</code> on the tailnet.</li>
+        <li><strong>Watch two numbers:</strong> cycle exit ≠ 0 (rejected write-back) and
+        doctor exit ≠ 0 (integrity) — both already ping your alert URL.</li>
+        <li><strong>Updates:</strong> <code>uv tool upgrade brainkit</code> on the brain box;
+        rebuild the hermes image and <code>docker compose up -d</code> to roll agents.</li>
+        <li><strong>Backups, both halves:</strong> the master mirror covers knowledge; the
+        state volumes hold what git doesn't — <strong>agent memories, sessions, pairing,
+        and deploy keys</strong>. Nightly host cron: <code>deploy/agents-box/backup-agents.sh</code>
+        runs <code>hermes backup</code> inside each container (consistent while the gateway
+        runs — a raw volume tar is not) and prunes by age. Ship the zips off-box encrypted;
+        they contain keys and chat history. Vault volumes re-clone themselves — skip them.</li>
+        <li><strong>Offboarding:</strong> remove from <code>org.yaml</code>, delete their
+        <code>authorized_keys</code> line, <code>docker compose rm</code> their container.</li>
+      </ol>
+    </div>
+
+    <div class="phase">
+      <h3><span class="n">6</span>Visual layer — optional, phased</h3>
+      <ol>
+        <li><strong>Bake the extras into the image:</strong> <code>.[web,pty]</code> for
+        <code>hermes serve</code>; brainkit is already there for the brain dashboard.</li>
+        <li><strong>Pilot (tailnet-only):</strong> expose each container's two ports on the
+        agents box's tailscale IP; work devices join the tailnet.</li>
+        <li><strong>Wider rollout:</strong> one SSO reverse proxy (Caddy/Traefik + OIDC or
+        Nous OAuth via <code>hermes dashboard register</code>) with per-person routes.</li>
+      </ol>
+      <pre><span class="c"># inside each container (supervised alongside the gateway)</span>
+hermes serve --host 0.0.0.0 --port 9119   <span class="c"># desktop + web backend</span>
+brain dashboard --vault /vault --host 0.0.0.0 --port 8787
+
+<span class="c"># proxy routes — identity must map to container</span>
+alice.agents.example.com       → agent-alice:9119
+alice-brain.agents.example.com → agent-alice:8787</pre>
+      <p>Per-person credentials in each container's <code>.env</code>
+      (<code>HERMES_DASHBOARD_BASIC_AUTH_*</code> on the tailnet; OAuth beyond it). The
+      brain dashboard has <strong>no auth of its own</strong> — off-loopback it must sit
+      behind the authenticated proxy, never exposed directly.</p>
+    </div>
+
+    <div class="phase">
+      <h3><span class="n">✓</span>Failure drills — reassuringly boring</h3>
+      <ol>
+        <li><strong>Brain box down:</strong> agents keep chatting and capturing on local
+        clones; commits queue and drain on recovery. Users notice nothing.</li>
+        <li><strong>Agents box down:</strong> chat goes quiet, zero data lost;
+        <code>docker compose up -d</code> restores everything from volumes.</li>
+        <li><strong>Agent volumes lost:</strong> fresh container, <code>hermes import
+        &lt;zip&gt; --force</code> with the person's latest backup, then <code>docker
+        restart</code> (the restart re-fixes key file modes) — memories, pairing, and
+        deploy key all return; the vault re-clones itself.</li>
+        <li><strong>Agents box compromised:</strong> rotate deploy keys, rebuild containers
+        from the image — the master's history is intact and trustworthy.</li>
+        <li><strong>Brain box lost:</strong> restore the mirror, recompile, re-point
+        remotes. The offsite mirror is the whole plan.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<footer>
+  The rule of thumb: the brain box is plumbing with a permanent address; every individual
+  brain travels with its agent on the agents box; and the boundary between them is hardware,
+  not configuration — the cheapest security control this system will ever buy.
+</footer>
+
+</div>
+</body>
+</html>

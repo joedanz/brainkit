@@ -23,7 +23,7 @@ Re-run `brain compile` on every master change (cron or a git `post-commit` hook)
 
 ## 1. Per-employee setup
 
-Running agents server-side instead of on employee devices? Follow the [two-box reference deployment](/guides/reference-deployment) — steps 3–4 below happen inside each person's container at first boot, and the employee's entire setup is a chat pairing code. The architecture at a glance is in [Where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6).
+Running agents server-side instead of on employee devices? Follow the [two-box reference deployment](/guides/reference-deployment) — steps 3–4 below happen inside each person's container at first boot, and the employee's entire setup is a chat pairing code. The architecture at a glance is in [Where the brain lives](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/two-box-chat-only.html).
 
 <Steps>
   <Step title="Grant sync access to their slice only">
@@ -115,4 +115,4 @@ co-host multiple employees' agents uncontained.
 The worked example of the container branch of this rule — two boxes, chat-only
 users, one Hermes container per person, plus the sync plane, visual surfaces, and
 a full runbook — is [Reference deployment](/guides/reference-deployment), with the
-architecture diagram in [Where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6).
+architecture diagram in [Where the brain lives](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/two-box-chat-only.html).

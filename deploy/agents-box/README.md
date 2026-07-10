@@ -1,6 +1,6 @@
 # hermes-brain — the agents-box image
 
-Phase 3 of the [two-box reference deployment](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6):
+Phase 3 of the [two-box reference deployment](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/two-box-chat-only.html):
 one Docker image, one container per person, each mounting **only** that
 person's compiled vault. The mount is the tenant boundary.
 
@@ -121,7 +121,7 @@ person's zip into another person's container**.
 
 - **No published ports.** Telegram/WhatsApp long-poll outward; the vault syncs
   outward over ssh. The visual layer (hermes dashboard on 9119, brain dashboard)
-  is Phase 6 — tailnet-only first, then an SSO proxy.
+  is Phase 6 — private-network-only first (tailnet or equivalent), then an SSO proxy.
 - **No master access, no brain credentials.** The only secret that touches the
   brain system is one ssh key that can reach one repo.
 - **One person per container.** Never mount a second vault; never point two
