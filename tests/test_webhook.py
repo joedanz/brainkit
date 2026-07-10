@@ -257,6 +257,100 @@ async def test_failed_ingest_stays_retryable(aiohttp_client, hook_master):
     assert (await resp.json()).get("duplicate") is None
 
 
+# ---- rate limiting ---------------------------------------------------------------
+
+LIMITED_CONFIG = CONFIG + """\
+  - id: trickle
+    person: alice
+    verify: token
+    secret_env: TEST_WEBHOOK_ZAPIER
+    rate_limit: 2
+"""
+
+
+def _note(i: int) -> bytes:
+    return json.dumps({"body": f"note {i}"}).encode()
+
+
+async def test_rate_limit_refuses_excess_with_retry_after(aiohttp_client, hook_master):
+    _write_config(hook_master, LIMITED_CONFIG)
+    client = await aiohttp_client(_app(hook_master))
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    for i in range(2):
+        assert (await client.post("/hook/trickle", data=_note(i),
+                                  headers=auth)).status == 200
+    third = await client.post("/hook/trickle", data=_note(3), headers=auth)
+    assert third.status == 429
+    assert int(third.headers["Retry-After"]) >= 1
+    assert len(_inbox(hook_master, "alice")) == 2  # the refused one never ingested
+
+
+async def test_rate_limit_refills_with_time(aiohttp_client, hook_master):
+    _write_config(hook_master, LIMITED_CONFIG)
+    t = [float(NOW)]
+    client = await aiohttp_client(
+        create_webhook_app(hook_master, clock=lambda: t[0]))
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    for i in range(2):
+        assert (await client.post("/hook/trickle", data=_note(i),
+                                  headers=auth)).status == 200
+    assert (await client.post("/hook/trickle", data=_note(3),
+                              headers=auth)).status == 429
+    t[0] += 30.0  # 2/min refills one token per 30s
+    resp = await client.post("/hook/trickle", data=_note(4), headers=auth)
+    assert resp.status == 200
+    assert len(_inbox(hook_master, "alice")) == 3
+
+
+async def test_unauthenticated_requests_spend_no_budget(aiohttp_client, hook_master):
+    """An attacker without the secret can't starve the legitimate sender."""
+    _write_config(hook_master, LIMITED_CONFIG)
+    client = await aiohttp_client(_app(hook_master))
+    for i in range(10):
+        assert (await client.post("/hook/trickle", data=_note(i),
+                                  headers={"Authorization": "Bearer nope"})
+                ).status == 401
+    resp = await client.post("/hook/trickle", data=_note(99),
+                             headers={"Authorization": f"Bearer {TOKEN}"})
+    assert resp.status == 200
+
+
+async def test_duplicate_deliveries_spend_no_budget(aiohttp_client, hook_master):
+    """Provider retry storms of an already-ingested id stay cheap acks."""
+    _write_config(hook_master, LIMITED_CONFIG + """\
+  - id: signed-trickle
+    person: alice
+    verify: standard-webhooks
+    secret_env: TEST_WEBHOOK_FATHOM
+    body_field: transcript
+    rate_limit: 2
+""")
+    client = await aiohttp_client(_app(hook_master))
+    body = json.dumps({"transcript": "once"}).encode()
+    headers = _sign(body, msg_id="msg_storm")
+    assert (await client.post("/hook/signed-trickle", data=body,
+                              headers=headers)).status == 200
+    for _ in range(5):
+        resp = await client.post("/hook/signed-trickle", data=body, headers=headers)
+        assert resp.status == 200
+        assert (await resp.json())["duplicate"] is True
+    fresh = json.dumps({"transcript": "second"}).encode()
+    resp = await client.post("/hook/signed-trickle", data=fresh,
+                             headers=_sign(fresh, msg_id="msg_fresh"))
+    assert resp.status == 200  # only 1 of 2 budget slots was spent
+
+
+async def test_rate_limits_are_per_source(aiohttp_client, hook_master):
+    _write_config(hook_master, LIMITED_CONFIG)
+    client = await aiohttp_client(_app(hook_master))
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    for i in range(3):
+        await client.post("/hook/trickle", data=_note(i), headers=auth)
+    other = json.dumps({"email": "bob@acme.com", "body": "unaffected"}).encode()
+    resp = await client.post("/hook/zapier-intake", data=other, headers=auth)
+    assert resp.status == 200  # trickle's exhausted bucket is not zapier-intake's
+
+
 # ---- config validation (fail closed at startup) -----------------------------------
 
 def test_missing_secret_env_refuses_startup(hook_master, monkeypatch):
@@ -289,6 +383,14 @@ sources:
     ("sources:\n  - {id: a, verify: token, secret_env: E, route: magic}", "sender-email"),
     ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice}\n"
      "  - {id: a, verify: token, secret_env: E, person: alice}", "duplicate"),
+    ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice, rate_limit: 0}",
+     "rate_limit"),
+    ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice, rate_limit: -5}",
+     "rate_limit"),
+    ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice, rate_limit: fast}",
+     "rate_limit"),
+    ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice, rate_limit: true}",
+     "rate_limit"),
 ])
 def test_config_rejects(tmp_path, snippet, match):
     cfg = tmp_path / "webhook.yaml"

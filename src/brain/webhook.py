@@ -30,6 +30,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -42,6 +43,7 @@ from aiohttp import web
 CONFIG_NAME = "webhook.yaml"  # under _meta/
 VERIFY_MODES = ("standard-webhooks", "token")
 REPLAY_TOLERANCE = 300.0  # seconds; Standard Webhooks / Composio SDK default
+DEFAULT_RATE_LIMIT = 60  # accepted deliveries per minute per source
 _TOKEN_HEADER = "X-Brain-Token"
 _MAX_SEEN = 4096  # replay-cache entries before a lazy prune
 _ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
@@ -72,6 +74,7 @@ class WebhookSource:
     source: str = ""   # provenance label on the note (default: id)
     body_field: str = "body"     # payload field for the note body (dotted path ok)
     title_field: str = "title"   # payload field for the title (optional in payload)
+    rate_limit: int = DEFAULT_RATE_LIMIT  # accepted deliveries per minute
 
 
 def _str_field(entry: dict, key: str, sid: str, *, default: str = "",
@@ -126,6 +129,13 @@ def load_webhook_config(path: Path) -> tuple[WebhookSource, ...]:
             raise WebhookConfigError(
                 f"source {sid!r}: unknown route {route!r} (only sender-email)")
 
+        rate_limit = entry.get("rate_limit", DEFAULT_RATE_LIMIT)
+        if not isinstance(rate_limit, int) or isinstance(rate_limit, bool) \
+                or rate_limit < 1:
+            raise WebhookConfigError(
+                f"source {sid!r}: rate_limit must be a positive integer "
+                "(accepted deliveries per minute)")
+
         sources.append(WebhookSource(
             id=sid,
             verify=verify,
@@ -138,6 +148,7 @@ def load_webhook_config(path: Path) -> tuple[WebhookSource, ...]:
                                   default="body", pattern=_FIELD_RE),
             title_field=_str_field(entry, "title_field", sid,
                                    default="title", pattern=_FIELD_RE),
+            rate_limit=rate_limit,
         ))
     return tuple(sources)
 
@@ -217,6 +228,22 @@ def _replay_check(app: web.Application, key: tuple[str, str], now: float) -> boo
     return seen.get(key, 0.0) >= now
 
 
+def _rate_limit(app: web.Application, source: WebhookSource, now: float) -> int:
+    """Token bucket per source. Budget is spent only by verified,
+    non-duplicate deliveries, so unsigned probes can't starve a legitimate
+    sender. Returns 0 to admit, else whole seconds until the next slot
+    (the Retry-After value) — refused deliveries were never marked in the
+    replay cache, so the sender's retry redelivers them cleanly."""
+    per_second = source.rate_limit / 60.0
+    tokens, last = app["buckets"].get(source.id, (float(source.rate_limit), now))
+    tokens = min(float(source.rate_limit), tokens + (now - last) * per_second)
+    if tokens >= 1.0:
+        app["buckets"][source.id] = (tokens - 1.0, now)
+        return 0
+    app["buckets"][source.id] = (tokens, now)
+    return max(1, math.ceil((1.0 - tokens) / per_second))
+
+
 def _resolve_person(app: web.Application, source: WebhookSource, payload: dict):
     from brain.schemas import Org
 
@@ -262,6 +289,21 @@ async def handle_hook(request: web.Request) -> web.Response:
     replay_key = (source.id, msg_id)
     if msg_id and _replay_check(app, replay_key, now):
         return web.json_response({"ok": True, "duplicate": True})
+
+    retry_after = _rate_limit(app, source, now)
+    if retry_after:
+        if source.id not in app["limit_warned"]:
+            # One line per limiting episode, not per refused request — the
+            # operator should hear about a flood without the warning being one.
+            app["limit_warned"].add(source.id)
+            import sys
+            print(f"WARNING: source {source.id!r} hit its rate limit "
+                  f"({source.rate_limit}/min); refusing with 429 + Retry-After "
+                  "until it drains", file=sys.stderr, flush=True)
+        raise web.HTTPTooManyRequests(
+            reason=f"rate limit exceeded ({source.rate_limit}/min for this source)",
+            headers={"Retry-After": str(retry_after)})
+    app["limit_warned"].discard(source.id)
 
     try:
         payload = json.loads(raw)
@@ -347,6 +389,8 @@ def create_webhook_app(master: Path, *, max_body: int = 5 * 1024 * 1024,
     app["secrets"] = secrets
     app["clock"] = clock
     app["seen"] = {}  # (source id, webhook-id) -> replay-window expiry
+    app["buckets"] = {}  # source id -> (tokens, last refill time)
+    app["limit_warned"] = set()  # sources currently in a limiting episode
 
     app.router.add_post("/hook/{source}", handle_hook)
     app.router.add_get("/healthz", handle_health)
@@ -378,8 +422,8 @@ def run_webhook_server(master: Path, *, host: str = "127.0.0.1",
         print(f"webhook receiver on http://{host}:{actual}/hook/<source>  (Ctrl-C to stop)")
         for s in app["sources"].values():
             routing = s.person or f"by sender email ({s.email_field})"
-            print(f"  /hook/{s.id}  verify={s.verify}  ->  {routing}  source={s.source}",
-                  flush=True)
+            print(f"  /hook/{s.id}  verify={s.verify}  ->  {routing}  "
+                  f"source={s.source}  limit={s.rate_limit}/min", flush=True)
         try:
             await asyncio.Event().wait()
         finally:

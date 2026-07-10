@@ -27,8 +27,9 @@ In rough priority order:
    approval.
 3. **Intake spoofing** — getting a note filed as someone else, or frontmatter/
    path injection through a capture channel — including the webhook receiver:
-   signature forgery or verification bypass, replay past the dedup window, or
-   routing a delivery to a person the source shouldn't reach.
+   signature forgery or verification bypass, replay past the dedup window,
+   bypassing a source's rate limit, or routing a delivery to a person the
+   source shouldn't reach.
 4. **Dashboard issues** — CSRF, XSS, or any action reachable without the
    guarded primitives.
 

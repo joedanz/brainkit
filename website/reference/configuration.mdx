@@ -98,6 +98,7 @@ sources:
 | `email_field` | no | Payload field for sender-email routing. Default `email`. |
 | `source` | no | Provenance label stamped on each note. Default: the source id. |
 | `body_field` / `title_field` | no | Payload fields for the note body and title (dotted paths reach nested JSON). Defaults `body` / `title`. |
+| `rate_limit` | no | Max accepted deliveries per minute for this source. Default `60`. Excess deliveries get a retryable `429` with a `Retry-After` header — providers redeliver them, so a backfill slows down rather than dropping notes. Raise it before a bulk import; lower it for a source that should stay quiet. |
 
 Validation fails closed: any invalid entry rejects the whole file, and `brain doctor` reports config errors and unset secret variables.
 
