@@ -6,3 +6,7 @@ __pycache__/
 
 # deploy secrets
 deploy/agents-box/.env
+
+# internal working notes — kept local, not part of the public repo
+tasks/
+docs/superpowers/
