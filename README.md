@@ -9,6 +9,8 @@ Every person on your team gets an AI-assisted notebook. The company gets a knowl
 ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
 ![MCP](https://img.shields.io/badge/MCP-supported-green)
 
+![60-second demo: a private note in the master vault never reaches another person's compiled vault](scripts/demo/demo.gif)
+
 Every team hits the same wall with shared knowledge:
 
 - A wiki nobody updates goes **stale**.
