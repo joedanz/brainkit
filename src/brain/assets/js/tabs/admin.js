@@ -68,10 +68,30 @@ export function renderPromotions(container, ctx) {
   }
   // Each promotion is the ONLY path from a private space to a shared one, and a
   // human gates every one. Review the body + destination before deciding.
-  d.promotions_pending.forEach((p) => container.appendChild(promoCard(p)));
+  d.promotions_pending.forEach((p) => container.appendChild(promoCard(p, d.people)));
 }
 
-function promoCard(p) {
+// The approver select is the only identity signal on approve, so it is
+// constrained to the org roster; the last choice is remembered per browser.
+const APPROVER_KEY = "brain.approver";
+
+function approverSelect(people) {
+  const sel = el("select");
+  sel.setAttribute("aria-label", "Approver");
+  const ph = el("option", null, "approving as…");
+  ph.value = ""; ph.disabled = true;
+  sel.appendChild(ph);
+  people.forEach((per) => {
+    const o = el("option", null, per.name + " (" + per.person_id + ")");
+    o.value = per.person_id;
+    sel.appendChild(o);
+  });
+  const stored = localStorage.getItem(APPROVER_KEY);
+  sel.value = (stored && people.some((per) => per.person_id === stored)) ? stored : "";
+  return sel;
+}
+
+function promoCard(p, people) {
   const card = el("div", "promo");
   const h = el("div", "promo-head");
   h.appendChild(el("span", "promo-target", p.target_path));
@@ -105,13 +125,17 @@ function promoCard(p) {
 
   const actions = el("div", "promo-actions");
   actions.appendChild(reviewBtn);
-  const approver = el("input"); approver.type = "text"; approver.placeholder = "your name (approver)";
-  approver.setAttribute("aria-label", "Approver name");
+  const approver = approverSelect(people);
   const approve = el("button", "btn primary", "Approve");
   const reject = el("button", "btn", "Reject");
+  approve.disabled = !approver.value;
+  approver.addEventListener("change", () => {
+    approve.disabled = !approver.value;
+    if (approver.value) localStorage.setItem(APPROVER_KEY, approver.value);
+  });
   approve.addEventListener("click", async () => {
     setBusy(actions, true);
-    try { await api.approvePromotion(p.id, { approver: approver.value.trim() }); card.remove(); }
+    try { await api.approvePromotion(p.id, { approver: approver.value }); card.remove(); }
     catch (e) { cardError(card, actions, "Approve failed: " + e.message); setBusy(actions, false); }
   });
 
