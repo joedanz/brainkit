@@ -2,7 +2,9 @@
 
 **The self-hosted company brain that keeps private notes private.**
 
-Every person on your team gets an AI-assisted notebook. The company gets a knowledge base that grows from everyone's work — with security built into the architecture, not bolted on.
+Every person on your team gets an AI-assisted notebook. The company gets a shared knowledge base that grows from everyone's work — reachable by people and their agents alike, each held to the same permission boundary. Security is built into the architecture, not bolted on.
+
+**Production- and enterprise-ready.** What you clone here is the complete system — the same code built to run a company's shared brain, not a demo or a cut-down edition.
 
 ![Tests](https://github.com/joedanz/brainkit/actions/workflows/tests.yml/badge.svg)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
@@ -10,6 +12,8 @@ Every person on your team gets an AI-assisted notebook. The company gets a knowl
 ![MCP](https://img.shields.io/badge/MCP-supported-green)
 
 ![60-second demo: a private note in the master vault never reaches another person's compiled vault](scripts/demo/demo.gif)
+
+**Prefer pictures?** Three visual walkthroughs, shallow to deep: [the quick version](https://claude.ai/code/artifact/fc1eb4ce-775e-4eaa-84bb-758bc6adbbd4), [how it works](https://claude.ai/code/artifact/d198eb64-b9a7-4aab-bba6-92ab9129cc6a), and [where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6) — the production deployment architecture.
 
 Every team hits the same wall with shared knowledge:
 
@@ -58,7 +62,7 @@ The deeper story — link stubbing, symlink and path-traversal defenses, the two
 
 ## Works with the AI tools you already use
 
-brainkit is runtime-friendly but runtime-independent: underneath it's plain markdown and git, with no hard dependency on any AI vendor.
+The brain is a shared platform for people *and* software. Your team works in Obsidian; Hermes agents and any MCP client reach the same vault as a tool — and every one of them inherits the boundary, so an agent can only ever see what its person can see. It's runtime-independent, too: underneath it's plain markdown and git, with no hard dependency on any AI vendor.
 
 - **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the assistant protocol, scoped to that person.
 - **Hermes Agent** ([NousResearch](https://github.com/NousResearch)) — first-class support via `hermes profile install`, plus a ready-to-run Docker image in [`deploy/agents-box`](deploy/agents-box).
@@ -71,18 +75,31 @@ brainkit is runtime-friendly but runtime-independent: underneath it's plain mark
 |---|---|
 | **Capture** | Email, chat (Telegram), voice, file uploads, and signed webhooks (`brain webhook` — Fathom, Zapier, Composio triggers) all funnel through `brain ingest` — one hardened path that refuses unknown senders and path tricks |
 | **Search** | Hybrid keyword + semantic search (`brain search`), built per-vault so it can only ever surface notes you're allowed to see |
-| **Dashboard** | `brain dashboard` — live inbox, actions, an interactive map of how notes connect, plus an admin lens with a permissions matrix and the sharing review queue |
+| **Live user dashboard** | `brain dashboard` in a person's vault — inbox, open actions, notes-by-space, an interactive 2D/3D map of how their notes connect, and search across everything they may see. Updates live over WebSocket; `--html` writes a static snapshot |
+| **Admin dashboard** | `brain dashboard` on the master — every person's vault at a glance, the sharing review queue, a read/write permissions matrix, and live `brain doctor` findings (including the name-leak check) |
 | **Sharing queue** | `brain promotions` — agents draft, humans approve; the only private→shared path |
 | **Write-back** | Edits flow back to the master vault with every path validated server-side; one out-of-bounds edit rejects the whole batch |
 | **Automation** | `brain cycle` — one cron-able command: apply edits, sweep drafts, rebuild everyone's copy |
 | **Health checks** | `brain doctor` — read-only audit for CI or cron; even flags a restricted client's name typed into a shared note |
 | **Plain files** | Obsidian-compatible markdown + git — portable, diff-able, yours |
 
+## Built-in dashboards
+
+Run `brain dashboard` and you get a live, self-hosted view of the brain — no extra service, no SaaS. It updates in real time over a WebSocket, and can also export a static HTML snapshot with `--html`. There are two lenses.
+
+**Each person's live dashboard** shows their own vault, and only their own: what's waiting in the inbox, open actions, notes by space, their most-linked notes, an interactive 2D/3D map of how those notes connect, and search across everything they're allowed to see. Notes can be captured straight from the dashboard, too.
+
+![A person's live dashboard — notes, inbox and open-action cards, a notes-by-space chart, and most-linked notes](scripts/demo/dashboard-user.png)
+
+**The admin dashboard** is the operator's view of the whole company: every person's vault at a glance, the human-approval sharing queue, live `brain doctor` findings — and a read/write **permissions matrix** that makes "who can see what" impossible to get wrong by accident.
+
+![The admin permissions matrix — every space by every person, read / write / none](scripts/demo/dashboard-admin.png)
+
 ## Deploy it securely
 
 **Everything runs on your infrastructure.** No SaaS, no accounts, no phoning home. Semantic search is optional and points at any OpenAI-compatible embedding endpoint — including one you host yourself, so note text never has to leave your network.
 
-The repo ships a documented [two-box reference deployment](docs/guides/reference-deployment.mdx):
+The repo ships the documented [two-box reference deployment](docs/guides/reference-deployment.mdx) used in production:
 
 - A **brain box** holds the master vault and everyone's compiled copies, served over SSH with a restricted, single-purpose key.
 - An **agents box** runs one Docker container per person, each mounting *only* that person's vault. The mount is the boundary — an agent physically cannot read a colleague's notes.
