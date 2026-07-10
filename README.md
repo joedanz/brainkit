@@ -4,6 +4,7 @@
 
 Every person on your team gets an AI-assisted notebook. The company gets a knowledge base that grows from everyone's work — with security built into the architecture, not bolted on.
 
+![Tests](https://github.com/joedanz/brainkit/actions/workflows/tests.yml/badge.svg)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
 ![MCP](https://img.shields.io/badge/MCP-supported-green)
