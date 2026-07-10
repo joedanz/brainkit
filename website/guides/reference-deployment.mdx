@@ -138,6 +138,8 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   <Step title="Provision — once">
     Two VPSes, same provider and region. Ubuntu LTS, key-only SSH,
     unattended-upgrades. Join both to one tailnet; open no other inbound ports.
+    (One documented exception exists: opting into webhook intake, below, adds a
+    single TLS-fronted public port on the brain box.)
 
     ```bash
     # on both boxes
@@ -173,6 +175,26 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     integrity error — both ping the alert URL. Optionally set an
     [embedding provider](/reference/configuration#embeddings) so `--index`
     builds semantic (not just keyword) indexes.
+
+    **Recommended — webhook intake.** A brain that only receives what people
+    remember to send it starves; letting services push — every Fathom meeting
+    transcript, a Zapier or Composio trigger on email and chat — is usually the
+    single highest-value intake. `brain init` scaffolds a commented
+    [`_meta/webhook.yaml.example`](/reference/configuration#webhookyaml) next to
+    `org.yaml`; copy it to `webhook.yaml`, fill in your sources, and run
+    [`brain webhook`](/reference/cli#brain-webhook) on this box as a supervised
+    service with a TLS reverse proxy in front of its loopback port. Both halves
+    ship ready to install in
+    [`deploy/brain-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/brain-box):
+    `brain-webhook.service` (systemd, secrets from an `EnvironmentFile`) and
+    `Caddyfile.webhook` (TLS, exposes only `/hook/*` and `/healthz`).
+
+    Go in eyes open: outside providers can't join your tailnet, so this is the
+    one place the brain box gains a public HTTPS surface. The receiver
+    authenticates every request before parsing a byte, every delivery lands
+    through the same `brain ingest` primitive the cron loop already audits, and
+    the failure drills below bound the worst case — but if your deployment
+    genuinely has no push sources, skip it and keep zero inbound.
   </Step>
 
   <Step title="Agents box — once">
@@ -249,5 +271,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 | Agent volumes lost | Fresh container, `hermes import <zip> --force` with the person's latest backup, then `docker restart` (re-fixes key file modes) — memories, pairing, and deploy key all return; the vault re-clones itself. |
 | Agents box compromised | Rotate deploy keys, rebuild containers from the image — the master's history is intact and trustworthy. |
 | Brain box lost | Restore the offsite mirror, recompile, re-point remotes. |
+| Webhook secret leaked (if webhook intake is enabled) | Worst case is note spam into the Inboxes that source routes to — a webhook source can never read anything or write outside an Inbox. Rotate the `secret_env` value and restart the receiver; the old secret is dead immediately. Every accepted delivery is its own audited `Brain Ingest` commit, so cleanup is `git revert`. |
+| Webhook endpoint probed | Unauthenticated requests are refused before the payload is parsed (`401`/`404`), nothing is written, and oversized or compressed bodies are rejected outright. The receiver holds no read paths — there is no query to leak a note through. |
 
 The full plate-style version of this plan — diagrams, transport alternatives (public SSH, forge-hosted remotes), and the visual-layer wiring — lives in the repo at [`docs/deployments/two-box-chat-only.html`](https://github.com/joedanz/brainkit/blob/main/docs/deployments/two-box-chat-only.html).

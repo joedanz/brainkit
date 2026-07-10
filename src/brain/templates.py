@@ -25,6 +25,41 @@ spaces:
   - {path: "Clients/*", read: ["role:admin"], write: ["role:admin"]}
 """
 
+WEBHOOK_YAML_EXAMPLE = """\
+# Webhook intake — let outside services push notes straight into Inboxes:
+# meeting recorders (Fathom), automation platforms (Zapier, Make, n8n),
+# Composio triggers watching email or chat. Recommended for any deployment
+# that wants the brain to feed itself.
+#
+# To enable:
+#   1. copy this file to webhook.yaml and edit the sources below
+#   2. set each secret's environment variable (secrets never live in this file)
+#   3. run the receiver behind a TLS reverse proxy:  brain webhook --master <master>
+#      (deploy/brain-box/ ships a systemd unit and Caddy snippet)
+#
+# Each source is one URL path (POST /hook/<id>), one verify mode, one routing
+# rule. Unknown senders are refused; every delivery lands via `brain ingest`.
+#
+# sources:
+#   # A meeting recorder delivering one person's transcripts.
+#   # `standard-webhooks` verifies the HMAC signature Fathom/Composio send.
+#   - id: fathom-founder
+#     person: founder
+#     verify: standard-webhooks
+#     secret_env: WEBHOOK_FATHOM_SECRET
+#     source: fathom
+#     body_field: transcript
+#
+#   # A Zapier/Make automation. These can't sign requests, so `token` checks a
+#   # shared secret in the Authorization or X-Brain-Token header, and
+#   # `route: sender-email` files each note by the payload's email via org.yaml.
+#   - id: zapier-intake
+#     route: sender-email
+#     verify: token
+#     secret_env: WEBHOOK_ZAPIER_TOKEN
+#     source: zapier
+"""
+
 ASSISTANT_PROTOCOL = """\
 # Assistant Protocol (server — full master vault)
 
@@ -92,6 +127,7 @@ def scaffold_master(dest: Path, company: str) -> list[str]:
         "Clients/.gitkeep": "",
         "_meta/org.yaml": ORG_YAML,
         "_meta/spaces.yaml": SPACES_YAML,
+        "_meta/webhook.yaml.example": WEBHOOK_YAML_EXAMPLE,
         "_meta/promotions/pending/.gitkeep": "",
         "_meta/promotions/approved/.gitkeep": "",
         "_meta/promotions/rejected/.gitkeep": "",

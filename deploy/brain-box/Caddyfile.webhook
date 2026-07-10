@@ -1,0 +1,20 @@
+# TLS front for the webhook receiver — the one public port the brain box
+# gains when you opt into push intake. Caddy obtains and renews the
+# certificate automatically; point your providers (Fathom, Zapier, Composio)
+# at https://<your-host>/hook/<source-id>.
+#
+# Install: apt install caddy, replace the hostname below, then merge this
+# into /etc/caddy/Caddyfile and `systemctl reload caddy`.
+
+brain.example.com {
+	# Expose only the intake routes; nothing else on this box is public.
+	handle /hook/* {
+		reverse_proxy 127.0.0.1:8766
+	}
+	handle /healthz {
+		reverse_proxy 127.0.0.1:8766
+	}
+	handle {
+		respond 404
+	}
+}

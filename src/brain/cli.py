@@ -154,6 +154,22 @@ def cmd_ingest(args) -> int:
     return 0
 
 
+def cmd_webhook(args) -> int:
+    from brain.webhook import CONFIG_NAME, WebhookConfigError, run_webhook_server
+
+    master = Path(args.master)
+    if not (master / "_meta" / CONFIG_NAME).is_file():
+        print(f"no _meta/{CONFIG_NAME} under {master} — declare your sources there first",
+              file=sys.stderr)
+        return 1
+    try:
+        return run_webhook_server(master, host=args.host, port=args.port,
+                                  max_body=args.max_body_mb * 1024 * 1024)
+    except WebhookConfigError as e:
+        print(f"cannot start webhook receiver: {e}", file=sys.stderr)
+        return 1
+
+
 def cmd_cycle(args) -> int:
     report = run_cycle(Path(args.master), Path(args.out),
                        today=date.today().isoformat(), index=args.index)
@@ -403,6 +419,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="provenance date, YYYY-MM-DD (default: today)")
     g.add_argument("--json", action="store_true")
     g.set_defaults(func=cmd_ingest)
+
+    wh = sub.add_parser(
+        "webhook",
+        help="serve the signed webhook intake receiver "
+             "(sources from _meta/webhook.yaml; notes land via brain ingest)")
+    wh.add_argument("--master", required=True)
+    wh.add_argument("--host", default="127.0.0.1",
+                    help="bind address (default: %(default)s; non-loopback needs "
+                         "TLS in front — requests authenticate, transport doesn't)")
+    wh.add_argument("--port", type=int, default=8766,
+                    help="port (default: %(default)s; 0 picks a free port)")
+    wh.add_argument("--max-body-mb", type=int, default=5,
+                    help="largest accepted request body in MB (default: %(default)s)")
+    wh.set_defaults(func=cmd_webhook)
 
     y = sub.add_parser("cycle", help="writeback all, sweep promotions, recompile")
     y.add_argument("--master", required=True)

@@ -29,7 +29,7 @@ Creates the space layout, `_meta/org.yaml` and `_meta/spaces.yaml`, the `_meta/p
 
 ## `brain ingest`
 
-Write one provenance-stamped note into a person's `Inbox/` in the master. The safe, server-side intake used by [email, chat, voice, and upload channels](/guides/getting-things-in).
+Write one provenance-stamped note into a person's `Inbox/` in the master. The safe, server-side intake used by [email, chat, voice, and upload channels](/guides/getting-things-in) — and by [`brain webhook`](#brain-webhook) for services that push.
 
 ```bash
 brain ingest --master <master> (--person <id> | --from <email>) [--file <path>] [--title <t>] [--source <channel>] [--date <YYYY-MM-DD>] [--json]
@@ -47,6 +47,23 @@ brain ingest --master <master> (--person <id> | --from <email>) [--file <path>] 
 | `--json` | no | Emit `{"person_id", "rel_path", "title", "source", "committed", "ok"}`. |
 
 The note lands at `People/<id>/Inbox/<date>-<slug>.md` — the path is constructed (never derived from input), then re-checked with `can_write_path`, so intake can only ever write into that person's own Inbox. Provenance metadata is rejected if it contains newlines (no frontmatter injection). Each intake is a separate git commit under `Brain Ingest <ingest@brain.local>`, distinct from write-back. Exactly one of `--person`/`--from` is required; passing neither or both is a usage error (exit `2`). An unknown person/sender or an unwritable target exits `1`.
+
+## `brain webhook`
+
+Serve the authenticated webhook intake receiver — the always-listening counterpart to the [channel recipes](/guides/getting-things-in#webhooks--automatic-intake-from-other-services). External services (Fathom, Composio triggers, Zapier, Make, n8n) POST to `/hook/<source-id>`; each verified delivery becomes one `brain ingest` into the routed person's Inbox.
+
+```bash
+brain webhook --master <master> [--host <addr>] [--port <n>] [--max-body-mb <n>]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--master` | yes | Path to the master vault (sources come from `_meta/webhook.yaml`). |
+| `--host` | no | Bind address. Default `127.0.0.1`; a non-loopback bind expects a TLS reverse proxy in front. |
+| `--port` | no | Port. Default `8766`; `0` picks a free port. |
+| `--max-body-mb` | no | Largest accepted request body in MB. Default `5` (transcripts are large). |
+
+Sources are declared in `_meta/webhook.yaml` — server-only, never compiled into any vault. Each source sets a verify mode (`standard-webhooks` for HMAC-signed senders with replay protection, or `token` for a shared-secret header), names its secret's **environment variable** (secrets never live in the file), and routes deliveries either to a fixed `person:` or by `route: sender-email` lookup against `org.yaml` — unknown senders are refused. A source whose secret variable is unset refuses to start. Failed verification is `401`, an unknown source path is `404`, an unroutable or malformed payload is `400`, and duplicate deliveries (by `webhook-id`) are acknowledged without re-ingesting. Compressed request bodies are refused; the body-size cap is enforced before buffering.
 
 ## `brain compile`
 

@@ -397,7 +397,7 @@
 
   <rect class="band" x="80" y="692" width="1000" height="52" rx="6"/>
   <text class="t-head" x="104" y="724">git</text>
-  <text class="t-body" x="145" y="724">over Tailscale / the provider's private network — the only link between the boxes · per-person deploy keys · no public ports anywhere</text>
+  <text class="t-body" x="145" y="724">over Tailscale / the provider's private network — the only link between the boxes · per-person deploy keys · no public ports (base setup)</text>
   <circle class="num-dot" cx="1046" cy="718" r="9.5"/><text class="t-num" x="1046" y="722" text-anchor="middle">3</text>
 
   <path class="flow" d="M554 748 V775" marker-end="url(#arr)"/>
@@ -561,7 +561,7 @@
     <!-- ── side channels ── -->
     <rect class="band" x="80" y="662" width="1000" height="92" rx="6"/>
     <text class="t-head" x="104" y="694">side channels</text>
-    <text class="t-body" x="104" y="718">capture with no agent attached (a forwarding email address) — a wrapper on the brain box calls brain ingest; everything else flows through agents</text>
+    <text class="t-body" x="104" y="718">capture with no agent attached (a forwarding address or brain webhook) — both call brain ingest on the brain box; everything else flows through agents</text>
     <text class="t-body" x="104" y="740">approvals stay human — ssh brain-box "brain promotions approve &lt;id&gt;" · dashboard reviewed over a tunnel, never a public port</text>
   </svg>
   </figure>
@@ -584,7 +584,7 @@
     <div>
       <h2><span class="n">A</span>Transport is swappable</h2>
       <p>We chose <strong>Tailscale (A)</strong>: both boxes join one tailnet, the brain box
-      exposes no public ports, and the same net carries your admin SSH and the dashboard
+      exposes no public ports (unless you opt into webhook intake), and the same net carries your admin SSH and the dashboard
       tunnel. If agents ever run outside the tailnet, add <strong>B</strong> for just those;
       move to <strong>a forge (C)</strong> only if you'd rather not operate SSH at all.</p>
     </div>
@@ -849,7 +849,7 @@
         <li><strong>Two VPSes, same provider &amp; region.</strong> Brain box: 2 GB is plenty.
         Agents box: ≈300–400 MB per employee plus 2 GB headroom (15 people ≈ 8 GB).</li>
         <li>Ubuntu LTS, key-only SSH, unattended-upgrades on both.</li>
-        <li>Join both to one tailnet; no other inbound ports anywhere.</li>
+        <li>Join both to one tailnet; no other inbound ports anywhere — with one opt-in exception: enabling webhook intake (<code>brain webhook</code>) later adds a single TLS-fronted public port on the brain box.</li>
       </ol>
       <pre><span class="c"># on both boxes</span>
 curl -fsSL https://tailscale.com/install.sh | sh

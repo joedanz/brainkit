@@ -370,6 +370,7 @@ class MasterStats:
     people: list[PersonVaultStats]
     promotions_pending: list[PromotionSummary]
     findings: list[Finding]
+    webhook_sources: int | None = None  # None = no _meta/webhook.yaml (or unreadable)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -449,6 +450,18 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
         for p in list_pending(master)
     ]
 
+    # A count, not a health check: doctor (included in findings below) already
+    # reports a broken webhook.yaml, so an unreadable config just stays None.
+    webhook_sources: int | None = None
+    webhook_cfg = master / "_meta" / "webhook.yaml"
+    if webhook_cfg.is_file():
+        from brain.webhook import WebhookConfigError, load_webhook_config
+
+        try:
+            webhook_sources = len(load_webhook_config(webhook_cfg))
+        except (WebhookConfigError, OSError):
+            pass
+
     return MasterStats(
         kind="master",
         master=str(master),
@@ -461,6 +474,7 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
         people=people,
         promotions_pending=promotions,
         findings=run_doctor(master, Path(out_root) if out_root else None),
+        webhook_sources=webhook_sources,
         warnings=warnings,
     )
 
@@ -529,6 +543,11 @@ def format_master_status(s: MasterStats) -> str:
     lines.append(
         f"people: {s.people_count}; spaces: {len(s.spaces)}; "
         f"promotions pending: {len(s.promotions_pending)}")
+    if s.webhook_sources is None:
+        lines.append("webhook intake: not configured "
+                     "(_meta/webhook.yaml.example shows how)")
+    else:
+        lines.append(f"webhook intake: {s.webhook_sources} source(s)")
     if s.uncovered_spaces:
         lines.append("uncovered spaces: " + ", ".join(s.uncovered_spaces))
 
