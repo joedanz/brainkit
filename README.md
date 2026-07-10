@@ -13,7 +13,7 @@ Every person on your team gets an AI-assisted notebook. The company gets a share
 
 ![60-second demo: a private note in the master vault never reaches another person's compiled vault](scripts/demo/demo.gif)
 
-**Prefer pictures?** Three visual walkthroughs, shallow to deep: [the quick version](https://claude.ai/code/artifact/fc1eb4ce-775e-4eaa-84bb-758bc6adbbd4), [how it works](https://claude.ai/code/artifact/d198eb64-b9a7-4aab-bba6-92ab9129cc6a), and [where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6) — the production deployment architecture.
+**Prefer pictures?** Three visual walkthroughs, shallow to deep: [the quick version](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/quick-version.html), [how it works](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/how-it-works.html), and [where the brain lives](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/two-box-chat-only.html) — the production deployment architecture.
 
 Every team hits the same wall with shared knowledge:
 
