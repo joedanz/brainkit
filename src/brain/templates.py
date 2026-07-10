@@ -39,6 +39,9 @@ WEBHOOK_YAML_EXAMPLE = """\
 #
 # Each source is one URL path (POST /hook/<id>), one verify mode, one routing
 # rule. Unknown senders are refused; every delivery lands via `brain ingest`.
+# Sources accept up to 60 deliveries/minute by default (excess gets a
+# retryable 429); set `rate_limit:` on a source to change that — raise it
+# before a big backfill, lower it for a source that should stay quiet.
 #
 # sources:
 #   # A meeting recorder delivering one person's transcripts.
