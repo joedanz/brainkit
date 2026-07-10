@@ -28,6 +28,7 @@
       "icon": "rocket",
       "pages": [
         "getting-started",
+        "guides/onboarding",
         "guides/per-employee-setup",
         "guides/getting-things-in",
         "guides/deployment",

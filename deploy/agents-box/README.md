@@ -1,6 +1,6 @@
 # hermes-brain — the agents-box image
 
-Phase 3 of the [two-box reference deployment](../../docs/deployments/two-box-chat-only.html):
+Phase 3 of the [two-box reference deployment](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6):
 one Docker image, one container per person, each mounting **only** that
 person's compiled vault. The mount is the tenant boundary.
 
