@@ -24,7 +24,7 @@ Your company keeps **one master vault** of notes — plain markdown files, reada
 
 ```mermaid
 flowchart TB
-    In["Notes come in<br/>email · chat · voice · uploads"]
+    In["Notes come in<br/>email · chat · voice · webhooks · uploads"]
     M[("Master vault<br/>one git repo per company")]
     C{{"The compiler<br/>builds each person's copy"}}
     V["Per-person vaults<br/>only what each person may read"]
@@ -69,7 +69,7 @@ brainkit is runtime-friendly but runtime-independent: underneath it's plain mark
 
 | | |
 |---|---|
-| **Capture** | Email, chat (Telegram), voice, and file uploads all funnel through `brain ingest` — one hardened path that refuses unknown senders and path tricks |
+| **Capture** | Email, chat (Telegram), voice, file uploads, and signed webhooks (`brain webhook` — Fathom, Zapier, Composio triggers) all funnel through `brain ingest` — one hardened path that refuses unknown senders and path tricks |
 | **Search** | Hybrid keyword + semantic search (`brain search`), built per-vault so it can only ever surface notes you're allowed to see |
 | **Dashboard** | `brain dashboard` — live inbox, actions, an interactive map of how notes connect, plus an admin lens with a permissions matrix and the sharing review queue |
 | **Sharing queue** | `brain promotions` — agents draft, humans approve; the only private→shared path |
@@ -130,6 +130,7 @@ Full walkthrough: [Getting started](website/getting-started.mdx) · [Per-employe
 |---|---|
 | `brain init` | Scaffold a new master vault with the default layout and config |
 | `brain ingest` | Safely file an incoming note into one person's inbox |
+| `brain webhook` | Receive signed webhooks (Fathom, Composio, Zapier…) as inbox notes |
 | `brain compile` | Build each person's filtered copy from the master vault |
 | `brain writeback` | Apply a person's edits to the master, validating every path |
 | `brain promotions` | List, approve, or reject drafts waiting to be shared |
@@ -156,7 +157,7 @@ Flags and exit codes: [CLI reference](website/reference/cli.mdx).
 - [Spaces & permissions](website/concepts/spaces-and-permissions.mdx) — who sees what, and why deny-by-default
 - [Promotions](website/concepts/promotions.mdx) — the human-approved sharing queue
 - [Retrieval](website/concepts/retrieval.mdx) — hybrid search that inherits the boundary
-- [Getting things in](website/guides/getting-things-in.mdx) — email, chat, voice, and uploads
+- [Getting things in](website/guides/getting-things-in.mdx) — email, chat, voice, webhooks, and uploads
 - [A brain of one](website/guides/personal-brain.mdx) — run it solo as a personal brain
 - [Reference deployment](website/guides/reference-deployment.mdx) — the secure two-box setup
 - [Configuration](website/reference/configuration.mdx) — `org.yaml` and `spaces.yaml`

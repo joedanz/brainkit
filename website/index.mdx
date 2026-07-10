@@ -25,7 +25,7 @@ flowchart TB
     E[Employee device + personal agent]
     W{{Write-back service<br/>server-side validation}}
     Q[Promotion queue<br/>human-approved]
-    In["Intake<br/>email · chat · voice · uploads"]
+    In["Intake<br/>email · chat · voice · webhooks · uploads"]
 
     In -->|brain ingest| M
     M -->|every commit| C
@@ -39,7 +39,7 @@ flowchart TB
     Q -->|human approves| M
 ```
 
-- **Intake** — notes reach a person's Inbox through `brain ingest`, the safe server-side primitive that email, chat, voice, and upload channels wrap. It can only ever write into that one person's space.
+- **Intake** — notes reach a person's Inbox through `brain ingest`, the safe server-side primitive that email, chat, voice, and upload channels wrap — and that `brain webhook` serves over signed HTTP for services that push (Fathom, Zapier, Composio triggers). It can only ever write into that one person's space.
 - **Master vault** — the single source of truth and the hard tenant wall. One git repo per company.
 - **Compiler** — deterministic `(master commit, person) → filtered vault`. Copies only readable spaces, stubs links to notes the person can't see, and fails closed so a bug can only ever show *less*.
 - **Write-back** — validates every changed path against the person's write permissions server-side, then applies to master. One out-of-scope edit rejects the whole change set.

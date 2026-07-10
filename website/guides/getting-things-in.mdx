@@ -86,6 +86,41 @@ brain ingest --master /srv/brain/master --person bob --file "$DROPPED_FILE" --so
 
 With `--file`, the original filename is recorded as `original-name` and, absent `--title`, becomes the note's title.
 
+### Webhooks — automatic intake from other services
+
+For services that can push events — meeting-notes tools (Fathom), automation platforms (Zapier, Make, n8n), or [Composio](https://composio.dev) triggers watching your email and chat — brainkit ships a small authenticated receiver:
+
+```bash
+brain webhook --master /srv/brain/master
+```
+
+Unlike the recipes above, this one **is** a running service, because webhook senders need a URL that's always listening. Sources are declared in `_meta/webhook.yaml` (server-only, never compiled into any vault):
+
+```yaml
+sources:
+  - id: fathom-alice                # POST /hook/fathom-alice
+    person: alice                   # every delivery lands in alice's Inbox
+    verify: standard-webhooks       # HMAC signatures (Fathom, Composio, …)
+    secret_env: WEBHOOK_FATHOM_ALICE_SECRET
+    source: fathom                  # provenance label on the note
+    body_field: transcript          # payload field holding the note text
+
+  - id: zapier-intake
+    route: sender-email             # resolve the person from the payload's
+    email_field: email              #   email via org.yaml — unknown senders refused
+    verify: token                   # shared-secret header, for senders that can't sign
+    secret_env: WEBHOOK_ZAPIER_TOKEN
+    source: zapier
+```
+
+Secrets never live in the file — each source names an environment variable, and a source whose variable is unset refuses to start. Two verify modes cover the sender landscape: `standard-webhooks` checks the [Standard Webhooks](https://www.standardwebhooks.com/) HMAC signature (with replay protection) that Fathom, Composio, and a growing list of providers send; `token` checks a shared secret in the `Authorization: Bearer` or `X-Brain-Token` header for platforms like Zapier and Make that can add headers but not sign requests. Duplicate deliveries (providers retry) are detected by `webhook-id` and ingested once.
+
+After authentication, every delivery goes through the same `brain ingest` primitive as every other channel — same constructed path, same write-permission check, same frontmatter sanitizing, same audit commit. The receiver decides *who may deliver*; it never decides *where bytes land*.
+
+The receiver binds `127.0.0.1` by default. To accept deliveries from the internet, put a TLS reverse proxy (Caddy, nginx) in front and point providers at `https://your-host/hook/<source-id>`. `brain doctor` checks that `webhook.yaml` parses, its people exist, and every secret variable is set.
+
+Getting started is deliberately short: `brain init` scaffolds a commented `_meta/webhook.yaml.example` you can copy and fill in, `brain status` reminds you when intake isn't configured yet, and [`deploy/brain-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/brain-box) ships a ready-to-install systemd unit (`brain-webhook.service`) and Caddy snippet (`Caddyfile.webhook`).
+
 ### The dashboard's Capture button
 
 The live [`brain dashboard`](/reference/cli#brain-dashboard) is itself a capture surface: a **Capture** composer in the header writes a note straight into your Inbox, and the composer names the exact destination (`People/<you>/Inbox`) before you save. It reuses the same constructed-path, sanitized-frontmatter, symlink-refusing builder as `brain ingest` — the difference is only *where* the note lands first. Under the admin (master) lens it calls `brain ingest` directly and commits immediately; under a person's own vault lens (the compiled slice, which has no master to write) it writes into that slice's `People/<you>/Inbox/`, and the next [`brain cycle`](/reference/cli#brain-cycle)'s [write-back](/reference/cli#brain-writeback) carries it to master — the same trust boundary Obsidian edits already pass through.

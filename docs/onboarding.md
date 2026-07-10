@@ -49,6 +49,12 @@ employee's entire setup is a chat pairing code.
   that wraps the intake primitive:
 
       echo "decided X" | brain ingest --master /srv/brain/master --person <you> --source voice
+
+  Services that push (Fathom, Zapier, Composio triggers) can deliver directly:
+  declare sources in `_meta/webhook.yaml` and run the signed receiver on the
+  server, behind a TLS reverse proxy —
+
+      brain webhook --master /srv/brain/master
 - Edits sync back; the server runs one command per interval (cron or
   post-receive hook):
 

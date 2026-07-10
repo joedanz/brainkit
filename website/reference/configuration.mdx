@@ -4,7 +4,7 @@ description: The org.yaml and spaces.yaml schema that drives compilation and per
 icon: settings
 ---
 
-Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and who sees what (`spaces.yaml`). Both are plain YAML, validated on load — a malformed file is a clear error, never a silent misconfiguration.
+Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and who sees what (`spaces.yaml`) — plus an optional third, `webhook.yaml`, when you run the [webhook intake receiver](/guides/getting-things-in#webhooks--automatic-intake-from-other-services). All are plain YAML, validated on load — a malformed file is a clear error, never a silent misconfiguration. Nothing under `_meta/` is ever compiled into a person's vault.
 
 ## `org.yaml`
 
@@ -20,7 +20,7 @@ people:
 | `name` | string | yes | Display name. |
 | `roles` | list of strings | no | Roles this person holds; resolved against `role:` grants. Defaults to none. |
 | `teams` | list of strings | no | Teams this person belongs to; resolved against `team:` grants. Defaults to none. |
-| `email` | string | no | The person's address, used by [`brain ingest --from`](/guides/getting-things-in#email-in) to resolve email intake to them. Must be unique across people; a duplicate is a load error. |
+| `email` | string | no | The person's address, used by [`brain ingest --from`](/guides/getting-things-in#email-in) and [`brain webhook`](/reference/cli#brain-webhook) sender-email routing to resolve intake to them. Must be unique across people; a duplicate is a load error. |
 
 Field **types** are validated: a scalar where a list is expected (`roles: admin` instead of `roles: [admin]`) is rejected rather than silently coerced.
 
@@ -66,6 +66,40 @@ When a space matches both an exact rule and a wildcard, the exact rule wins. Def
 ## Changing the org
 
 Adding a person, a team, or a space is an edit to these two files plus a `brain compile`. There is no migration step: the compiler reads the current `org.yaml` / `spaces.yaml` on every run, so the next compile reflects the change for everyone.
+
+## `webhook.yaml`
+
+Declares the sources [`brain webhook`](/reference/cli#brain-webhook) serves — opt-in to activate, but recommended for any deployment with push sources (meeting recorders, automation platforms). `brain init` scaffolds a commented `_meta/webhook.yaml.example`; copy it to `webhook.yaml` to enable. Each source is one URL path (`/hook/<id>`), one verification mode, and one routing rule:
+
+```yaml
+sources:
+  - id: fathom-alice                # POST /hook/fathom-alice
+    person: alice                   # fixed routing
+    verify: standard-webhooks       # HMAC-signed senders (Fathom, Composio, …)
+    secret_env: WEBHOOK_FATHOM_ALICE_SECRET
+    source: fathom                  # provenance label; defaults to the id
+    body_field: transcript          # payload field for the note body (dotted paths ok)
+    title_field: title              # payload field for the title (optional)
+
+  - id: zapier-intake
+    route: sender-email             # resolve the person from the payload
+    email_field: email              # …via this field, against org.yaml emails
+    verify: token                   # shared-secret header (Zapier, Make)
+    secret_env: WEBHOOK_ZAPIER_TOKEN
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | yes | URL path segment; lowercase letters, digits, hyphens. Must be unique. |
+| `verify` | yes | `standard-webhooks` (HMAC-SHA256 signatures with replay protection) or `token` (`Authorization: Bearer` / `X-Brain-Token` header). |
+| `secret_env` | yes | Name of the **environment variable** holding the secret. The secret itself never lives in this file; an unset variable refuses startup. |
+| `person` | one of | Route every delivery to this person's Inbox. |
+| `route: sender-email` | one of | Resolve the person from the payload's `email_field` against `org.yaml` emails — unknown senders are refused. Exactly one of `person`/`route` per source. |
+| `email_field` | no | Payload field for sender-email routing. Default `email`. |
+| `source` | no | Provenance label stamped on each note. Default: the source id. |
+| `body_field` / `title_field` | no | Payload fields for the note body and title (dotted paths reach nested JSON). Defaults `body` / `title`. |
+
+Validation fails closed: any invalid entry rejects the whole file, and `brain doctor` reports config errors and unset secret variables.
 
 ## Embeddings
 

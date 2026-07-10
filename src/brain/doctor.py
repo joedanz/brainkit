@@ -304,6 +304,38 @@ def _check_promotions(master: Path) -> list[Finding]:
     return findings
 
 
+def _check_webhook(master: Path, org: Org) -> list[Finding]:
+    """Webhook intake is optional; when _meta/webhook.yaml exists, surface the
+    config problems that would otherwise appear only when the receiver refuses
+    to start (or, worse, when a provider's deliveries silently 404)."""
+    import os
+
+    from brain.webhook import CONFIG_NAME, WebhookConfigError, load_webhook_config
+
+    path = master / "_meta" / CONFIG_NAME
+    if not path.is_file():
+        return []
+    try:
+        sources = load_webhook_config(path)
+    except (WebhookConfigError, OSError) as e:
+        return [Finding("error", "webhook", str(e))]
+
+    findings: list[Finding] = []
+    for s in sources:
+        if s.person and s.person not in org.people:
+            findings.append(Finding(
+                "error", "webhook",
+                f"source {s.id!r}: person {s.person!r} not in org.yaml"))
+        if not os.environ.get(s.secret_env):
+            findings.append(Finding(
+                "warn", "webhook",
+                f"source {s.id!r}: {s.secret_env} is unset in this environment — "
+                "the receiver will refuse to start"))
+    findings.append(Finding(
+        "info", "webhook", f"{len(sources)} webhook source(s) configured"))
+    return findings
+
+
 def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for person in org.people.values():
@@ -356,6 +388,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_plain_refs(master, org, rules)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
+    findings += _check_webhook(master, org)
     if out_root is not None:
         findings += _check_compiled(master, org, out_root)
     return findings

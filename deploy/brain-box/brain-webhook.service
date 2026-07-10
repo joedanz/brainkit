@@ -1,0 +1,42 @@
+# systemd unit for the brainkit webhook intake receiver (`brain webhook`).
+#
+# Install once on the brain box:
+#   1. Declare sources in /srv/brain/master/_meta/webhook.yaml
+#      (the master ships a commented webhook.yaml.example next to it).
+#   2. Put the secret variables named by each source's `secret_env` in
+#      /etc/brain/webhook.env (chmod 600, root-owned):
+#         WEBHOOK_FATHOM_SECRET=whsec_...
+#         WEBHOOK_ZAPIER_TOKEN=...
+#   3. Adjust User= and the ExecStart path (`which brain`) for your install,
+#      then:
+#         install -m 644 brain-webhook.service /etc/systemd/system/
+#         systemctl enable --now brain-webhook
+#
+# The receiver binds loopback only; pair it with a TLS reverse proxy
+# (Caddyfile.webhook in this directory) for the public leg. The service
+# refuses to start if any source's secret variable is unset — check
+# `journalctl -u brain-webhook` and `brain doctor` if it won't come up.
+
+[Unit]
+Description=brainkit webhook intake receiver
+Documentation=https://github.com/joedanz/brainkit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=brain
+EnvironmentFile=/etc/brain/webhook.env
+ExecStart=/usr/local/bin/brain webhook --master /srv/brain/master --port 8766
+Restart=on-failure
+RestartSec=5
+
+# The receiver writes only into the master vault (each delivery is one
+# `brain ingest` commit); lock everything else down.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/brain/master
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

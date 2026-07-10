@@ -26,7 +26,7 @@ uv tool install git+https://github.com/joedanz/brainkit
 # or, from a clone:  uv pip install -e .
 ```
 
-`brain --help` should now list the `init`, `ingest`, `compile`, `writeback`, `promotions`, `cycle`, `index`, `search`, `mcp`, `status`, `dashboard`, and `doctor` subcommands.
+`brain --help` should now list the `init`, `ingest`, `webhook`, `compile`, `writeback`, `promotions`, `cycle`, `index`, `search`, `mcp`, `status`, `dashboard`, and `doctor` subcommands.
 
 ## Stand up a company brain
 
@@ -36,9 +36,11 @@ uv tool install git+https://github.com/joedanz/brainkit
     brain init /srv/brain/master --company "Acme Co"
     ```
     This creates the space layout (`Company/`, `Teams/`, `People/`, `Clients/`),
-    seeds `_meta/org.yaml` and `_meta/spaces.yaml`, writes the server
-    assistant protocol to the master-root `AGENTS.md`, and makes the
-    initial git commit.
+    seeds `_meta/org.yaml` and `_meta/spaces.yaml` (plus a commented
+    `_meta/webhook.yaml.example` for when you want services
+    [pushing notes in](/guides/getting-things-in#webhooks--automatic-intake-from-other-services)),
+    writes the server assistant protocol to the master-root `AGENTS.md`, and
+    makes the initial git commit.
   </Step>
 
   <Step title="Add your people">
