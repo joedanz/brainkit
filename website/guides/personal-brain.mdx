@@ -1,0 +1,68 @@
+---
+title: A brain of one
+description: Run brainkit as a personal brain — the same tool, a company of one.
+icon: user
+---
+
+brainkit is built for teams, but nothing about it requires more than one person. If the question is *"can I use this for personal notes — journals, family stuff, health records?"* the answer is yes: run **your own instance**, where you are the company.
+
+## Why your own instance, and not the company vault
+
+It's tempting to keep personal notes in your `People/` space at work — after all, nobody else's compiled vault can ever contain them. But be clear about the direction of the guarantee:
+
+<Callout type="warning">
+  The compiler protects your notes from **other people's vaults**. It does not
+  protect them from whoever administers the master repo. The master vault is one
+  git repo owned by the company: anyone with access to it can read every space,
+  and when you leave, your notes stay behind in the company's history.
+</Callout>
+
+Notes about your employer's work belong in your employer's brain. Notes about your life belong in a brain you own — same tool, different repo.
+
+## Set it up
+
+The setup is [Getting started](/getting-started) with an org of one — about two minutes instead of five:
+
+```bash
+brain init ~/brain/master --company "Just Me"
+```
+
+Then make yourself the only entry in `~/brain/master/_meta/org.yaml`:
+
+```yaml
+people:
+  me: {name: Your Name, roles: [admin], email: you@example.com}
+```
+
+Compile your slice and work in it exactly as an employee would:
+
+```bash
+brain compile --master ~/brain/master --out ~/brain/compiled
+brain index --vault ~/brain/compiled/me
+claude mcp add brain -- brain mcp --vault ~/brain/compiled/me
+```
+
+With a single person, the permission machinery has nobody to hide anything from — it sits idle until the day you add someone. And adding someone later is just an edit to `org.yaml` plus a recompile, no migration: a "family brain" that starts as yours alone can grow a second reader whenever you want, with the same structural guarantees a company gets.
+
+## What still earns its keep solo
+
+Most of the toolbox has nothing to do with multi-tenancy:
+
+- **Intake** — [email, chat, voice, and uploads](/guides/getting-things-in) into your Inbox, from anywhere.
+- **Search** — hybrid keyword + semantic [retrieval](/concepts/retrieval), served to any MCP client.
+- **Dashboard** — `brain dashboard` for the live inbox, actions, and note map.
+- **Plain files** — Obsidian-compatible markdown in a git repo you control, with full history.
+- **The loop** — `brain cycle` and `brain doctor` on cron keep it maintained without you thinking about it.
+
+The parts that stay quiet are the ones you'd expect: the promotion queue has no one to share with, and the permissions matrix has one row.
+
+## Two brains
+
+The common end state is two instances of the same tool: the company brain at work, a personal brain at home. Your assistant can use both — register each vault under its own MCP server name:
+
+```bash
+claude mcp add brain-work -- brain mcp --vault ~/work-brain
+claude mcp add brain-home -- brain mcp --vault ~/brain/compiled/me
+```
+
+Two repos, two owners, one habit. That separation isn't a workaround — it's the point: the boundary between your employer's knowledge and your own is exactly as structural as every other boundary in brainkit.

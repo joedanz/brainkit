@@ -42,6 +42,8 @@ flowchart TB
 
 Sharing something new goes through one door: your AI assistant drafts a suggestion ("this looks useful for the whole team"), and a person approves it before it's published. Nothing moves from private to shared any other way.
 
+Want it just for yourself — personal notes, family stuff? Run your own instance as a company of one: [A brain of one](website/guides/personal-brain.mdx).
+
 ## Your knowledge is protected by design
 
 Most tools protect data with permission checks at read time — one misconfigured rule and the note is on screen. brainkit is different: **if a note isn't yours to read, it is never copied to your machine at all.** There is nothing for an app, an AI agent, or a sync bug to leak.
@@ -155,6 +157,7 @@ Flags and exit codes: [CLI reference](website/reference/cli.mdx).
 - [Promotions](website/concepts/promotions.mdx) — the human-approved sharing queue
 - [Retrieval](website/concepts/retrieval.mdx) — hybrid search that inherits the boundary
 - [Getting things in](website/guides/getting-things-in.mdx) — email, chat, voice, and uploads
+- [A brain of one](website/guides/personal-brain.mdx) — run it solo as a personal brain
 - [Reference deployment](website/guides/reference-deployment.mdx) — the secure two-box setup
 - [Configuration](website/reference/configuration.mdx) — `org.yaml` and `spaces.yaml`
 
