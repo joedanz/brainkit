@@ -273,8 +273,9 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   </Step>
 
   <Step title="Operate — minutes per week">
-    - **Approvals:** `ssh brain-box brain promotions approve <id> --master /srv/brain/master --approver <you>`;
-      review in the dashboard over an SSH tunnel.
+    - **Approvals:** `ssh brain-box brain promotions approve <id> --master /srv/brain/master --approver <you>`
+      (`<you>` is your person id from `org.yaml`); or review in the dashboard
+      over an SSH tunnel and approve there — pick your name from the dropdown.
     - **Watch two numbers:** the cycle and doctor exit codes (already wired to
       your alert URL).
     - **Backups, both halves:** the master mirror covers knowledge; agent

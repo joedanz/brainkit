@@ -69,6 +69,19 @@ def test_promotions_flow(master: Path, tmp_path: Path, capsys):
     assert (master / "Company/Frameworks/SOP.md").exists()
 
 
+def test_promotions_approve_requires_approver(master: Path, capsys):
+    seed_meta(master)
+    from brain.promotions import draft_promotion
+    draft_promotion(master, "bob", "Company/Frameworks/SOP2.md",
+                    "People/bob/Sessions/x.md", "Body.\n", "p-2", "2026-07-07")
+    assert main(["promotions", "approve", "p-2", "--master", str(master)]) == 2
+    assert "--approver" in capsys.readouterr().err
+    assert main(["promotions", "approve", "p-2", "--master", str(master),
+                 "--approver", "mallory"]) == 1
+    assert "mallory" in capsys.readouterr().err
+    assert not (master / "Company/Frameworks/SOP2.md").exists()
+
+
 def test_ingest_cli_by_person_stdin(master: Path, monkeypatch, capsys):
     seed_meta(master)
     monkeypatch.setattr("sys.stdin", io.StringIO("decided X\n"))

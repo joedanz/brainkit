@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
+from brain.schemas import load_org
 
 
 class PromotionError(ValueError):
@@ -165,6 +166,12 @@ def _find_pending(master: Path, promo_id: str) -> Path:
 
 
 def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
+    # Attribution must be real: approved-by is machine-resolved against the
+    # org roster, same as promoted-by.
+    if not approver.strip():
+        raise PromotionError("an approver is required")
+    if approver not in load_org(master / "_meta/org.yaml").people:
+        raise PromotionError(f"unknown approver {approver!r} — not a person in the org")
     pending = _find_pending(master, promo_id)
     promo = _parse(pending)
     # Pending files sit on disk between draft and approve; re-validate so a

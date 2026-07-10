@@ -95,7 +95,8 @@ See [Per-employee setup](/guides/per-employee-setup) for the detailed version.
   vaults. Nonzero exit = at least one rejected writeback.
 
 - **Sharing:** the agent drafts promotions; approve with
-  `brain promotions approve <id> --master ... --approver <you>`.
+  `brain promotions approve <id> --master ... --approver <you>` (`<you>` is
+  your person id from `org.yaml` — anything else is refused).
 
 - **Search:** after pulling, the agent refreshes its index (`brain index --vault
   ~/brain` — cheap, only changed files re-embed) and queries via the `brain` MCP

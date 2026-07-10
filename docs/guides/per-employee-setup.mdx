@@ -84,7 +84,8 @@ Once [the master is compiled](/getting-started), each employee needs two things:
   that order. (A rejected edit reverts on the recompile and the command exits
   non-zero, so cron alerts.)
 - **Sharing:** the agent drafts a promotion; an owner approves it with
-  `brain promotions approve <id> --master … --approver <you>`. See
+  `brain promotions approve <id> --master … --approver <you>` — `<you>` is a
+  person id from `org.yaml`; anything else is refused. See
   [Promotions](/concepts/promotions).
 - **Search:** after each pull, the agent runs `brain index --vault ~/brain`
   (cheap — only changed files re-embed) and queries the vault through the

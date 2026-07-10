@@ -63,6 +63,8 @@ def cmd_writeback(args) -> int:
 
 
 def cmd_promotions(args) -> int:
+    from brain.schemas import SchemaError
+
     master = Path(args.master)
     try:
         if args.action == "list":
@@ -72,13 +74,16 @@ def cmd_promotions(args) -> int:
             moved = sweep(master, today=date.today().isoformat())
             print(f"swept {len(moved)} draft(s) into the pending queue")
         elif args.action == "approve":
+            if not args.approver:
+                print("--approver is required for approve", file=sys.stderr)
+                return 2
             target = approve(master, args.id, approver=args.approver,
                              date=date.today().isoformat())
             print(f"approved {args.id} -> {target}")
         elif args.action == "reject":
             reject(master, args.id, reason=args.reason)
             print(f"rejected {args.id}")
-    except PromotionError as e:
+    except (PromotionError, SchemaError) as e:
         print(str(e), file=sys.stderr)
         return 1
     return 0

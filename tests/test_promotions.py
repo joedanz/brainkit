@@ -10,6 +10,16 @@ from brain.promotions import (
     reject,
 )
 
+ORG_YAML = """\
+people:
+  alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
+  bob:   {name: Bob Rivera, teams: [ops]}
+"""
+
+
+def _seed_org(master: Path) -> None:
+    (master / "_meta/org.yaml").write_text(ORG_YAML)
+
 
 def test_draft_and_list(master: Path):
     p = draft_promotion(
@@ -42,6 +52,7 @@ def test_draft_rejects_bad_targets(master: Path, bad_target: str):
 
 
 def test_approve_writes_target_with_provenance(master: Path):
+    _seed_org(master)
     draft_promotion(
         master, person_id="bob",
         target_path="Company/Frameworks/SOP.md",
@@ -71,6 +82,7 @@ def test_reject_records_reason(master: Path):
 
 
 def test_approve_revalidates_target(master: Path):
+    _seed_org(master)
     # A hand-edited/corrupted pending file with an absolute target must not
     # become an arbitrary file write (Path(master) / "/etc/..." discards master).
     (master / "_meta/promotions/pending/p-evil.md").write_text(
@@ -85,6 +97,22 @@ def test_approve_revalidates_target(master: Path):
     )
     with pytest.raises(PromotionError):
         approve(master, "p-evil", approver="alice", date="2026-07-08")
+
+
+@pytest.mark.parametrize("bad_approver", ["", "   ", "mallory"])
+def test_approve_rejects_missing_or_unknown_approver(master: Path, bad_approver: str):
+    _seed_org(master)
+    draft_promotion(
+        master, person_id="bob",
+        target_path="Company/Frameworks/SOP.md",
+        source="People/bob/Sessions/call.md",
+        body="Step one.\n", promo_id="p-010", created="2026-07-07",
+    )
+    with pytest.raises(PromotionError):
+        approve(master, "p-010", approver=bad_approver, date="2026-07-08")
+    # a failed approval must not consume the pending file
+    assert (master / "_meta/promotions/pending/p-010.md").exists()
+    assert not (master / "Company/Frameworks/SOP.md").exists()
 
 
 def test_list_pending_skips_malformed_files(master: Path):
@@ -173,6 +201,7 @@ def test_sweep_does_not_resurrect_an_approved_promotion(master: Path):
     """The bug: on the next cycle a person's already-approved draft gets written
     back into their space and re-swept, resurfacing in the queue. Sweep must
     treat an id already in approved/ as done and clear the stale draft."""
+    _seed_org(master)
     from brain.promotions import sweep
 
     draft = _draft(master)
