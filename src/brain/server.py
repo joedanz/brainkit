@@ -444,7 +444,10 @@ async def handle_promotion_action(request: web.Request) -> web.Response:
 
     def _do() -> None:
         if action == "approve":
-            approve(master, promo_id, str(data.get("approver") or "").strip(), _today())
+            approver = str(data.get("approver") or "").strip()
+            if approver not in request.app["people"]:
+                raise web.HTTPBadRequest(reason="approver must be a person in the org")
+            approve(master, promo_id, approver, _today())
         elif action == "reject":
             reason = str(data.get("reason") or "").strip()
             if not reason:

@@ -233,6 +233,23 @@ async def test_promotion_review_and_approve(aiohttp_client, master, tmp_path):
     assert (master / "Company/Shared/Promoted.md").is_file()
 
 
+async def test_approve_requires_known_approver(aiohttp_client, master, tmp_path):
+    app, _ = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+    await client.post("/api/promote", json={"person": "bob",
+        "target_path": "Company/Shared/A.md", "body": "b"}, headers=_LOCAL)
+    await client.post("/api/promotions/sweep", json={}, headers=_LOCAL)
+    pid = (await (await client.get("/api/stats")).json())["promotions_pending"][0]["id"]
+
+    for bad in ({}, {"approver": ""}, {"approver": "mallory"}):
+        resp = await client.post(f"/api/promotions/{pid}/approve", json=bad, headers=_LOCAL)
+        assert resp.status == 400, f"payload {bad!r} should be rejected"
+    assert not (master / "Company/Shared/A.md").exists()
+
+    assert (await client.post(f"/api/promotions/{pid}/approve",
+                              json={"approver": "alice"}, headers=_LOCAL)).status == 200
+
+
 async def test_reject_requires_reason(aiohttp_client, master, tmp_path):
     app, _ = _master_app(master, tmp_path)
     client = await aiohttp_client(app)
