@@ -17,7 +17,7 @@ This guide is the end-to-end worked example of the [deployment rule's](/guides/d
 
 ## The shape
 
-Two small VPSes, same provider and region, joined by one tailnet. No public ports anywhere.
+Two small hosts joined by one private git link. [Several transports work](#choosing-the-transport) — pick by situation; with a private network or a tailnet, there are no public ports anywhere.
 
 ```text
 Employees ── WhatsApp / Telegram ──┐  (chat is the only user surface)
@@ -30,7 +30,7 @@ Employees ── WhatsApp / Telegram ──┐  (chat is the only user surface)
 │  │ .brain index + MCP │ │ .brain index+MCP │ │          │  │
 │  └────────────────────┘ └──────────────────┘ └──────────┘  │
 └───────────────▲─────────────────▲──────────────────────────┘
-                │ git over Tailscale — the only link,
+                │ git over SSH — the only link between the boxes,
                 │ per-person deploy keys, one key → one repo
                 ▼
 ┌─ BRAIN BOX — master host, AGENT-FREE ──────────────────────┐
@@ -70,6 +70,26 @@ An agent never addresses the master. It addresses *its own vault's git remote*, 
   recovery.
 </Callout>
 
+## Choosing the transport
+
+The link between the boxes carries exactly one thing: git over SSH, one deploy key per person, each key locked to its one repo by a forced command. Anything that can carry restricted SSH works, so choose by situation — including the situation where the agents and the brain run at different providers and you can't install a VPN on one side.
+
+| Transport | Brain box exposure | Choose it when |
+| --------- | ------------------ | -------------- |
+| **Tailscale** (or any WireGuard-based mesh) | No public ports | You can install it on both hosts. Nice bonus: the same network carries your admin SSH and the dashboard tunnel. |
+| **Provider private network** | No public ports | Both hosts sit at the same provider and region — the private LAN is free and there's nothing extra to install or trust. |
+| **Public SSH + deploy keys** | One public port (22), keys only | The hosts can't share a private network — agents on a managed platform, a different provider, or anywhere you can't install a VPN. The forced-command restriction does the same work either way. |
+| **GitHub / Gitea as the hub** | None — the brain box only dials out | You'd rather not operate SSH at all. One private repo per person, per-repo deploy keys; both boxes push and pull against the forge. Costs: company knowledge rests at the forge, and sync becomes polling-shaped. |
+
+These mix freely within one deployment: containers that share a private network with the brain box can use it, while an agent running somewhere else uses public SSH or the forge.
+
+<Callout type="info">
+  The security properties don't depend on the transport. One key still opens
+  exactly one repo, the master still runs no agents, and validation is still
+  asynchronous and fail-closed. The transport only decides what the network
+  between the boxes looks like.
+</Callout>
+
 ## Sizing
 
 | Headcount | Agents box RAM |
@@ -96,8 +116,9 @@ Add the **brain dashboard first** — it answers "what does my assistant actuall
 <Callout type="warning">
   Exposing `hermes serve` means remote control of that agent. Credentials must be
   **per-person, per-container** — never shared — and the auth gate must map each
-  identity to exactly one container. Pilot: keep visual surfaces tailnet-only.
-  Wider rollout: one SSO reverse proxy (OIDC / Nous OAuth) with per-person routes.
+  identity to exactly one container. Pilot: keep visual surfaces reachable only
+  over your private network (tailnet or equivalent) or an SSH tunnel. Wider
+  rollout: one SSO reverse proxy (OIDC / Nous OAuth) with per-person routes.
   The brain dashboard has no auth of its own — off-loopback it must sit behind the
   authenticated proxy.
 </Callout>
@@ -136,15 +157,20 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 
 <Steps>
   <Step title="Provision — once">
-    Two VPSes, same provider and region. Ubuntu LTS, key-only SSH,
-    unattended-upgrades. Join both to one tailnet; open no other inbound ports.
-    (One documented exception exists: opting into webhook intake, below, adds a
-    single TLS-fronted public port on the brain box.)
+    Two VPSes — same provider and region if you can, so the private LAN is an
+    option. Ubuntu LTS, key-only SSH, unattended-upgrades. Then connect them
+    with [whichever transport fits](#choosing-the-transport) and open no other
+    inbound ports. (One documented exception exists: opting into webhook
+    intake, below, adds a single TLS-fronted public port on the brain box.)
 
     ```bash
-    # on both boxes
+    # e.g. with Tailscale, on both boxes:
     curl -fsSL https://tailscale.com/install.sh | sh
     tailscale up   # names: brain-box, agents-box
+
+    # or with a provider private network / public SSH: no install —
+    # just make "brain-box" resolve on the agents box:
+    echo "10.0.0.2  brain-box" >> /etc/hosts
     ```
   </Step>
 
@@ -189,8 +215,8 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     `brain-webhook.service` (systemd, secrets from an `EnvironmentFile`) and
     `Caddyfile.webhook` (TLS, exposes only `/hook/*` and `/healthz`).
 
-    Go in eyes open: outside providers can't join your tailnet, so this is the
-    one place the brain box gains a public HTTPS surface. The receiver
+    Go in eyes open: outside providers can't reach your private network, so
+    this is the one place the brain box gains a public HTTPS surface. The receiver
     authenticates every request before parsing a byte, every delivery lands
     through the same `brain ingest` primitive the cron loop already audits, and
     the failure drills below bound the worst case — but if your deployment
@@ -211,7 +237,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
         command: gateway run
         environment:
           - BRAIN_PERSON=alice
-          - BRAIN_GIT_REMOTE=brain-sync@brain-box:/srv/brain/compiled/alice
+          - BRAIN_GIT_REMOTE=brain-sync@brain-box:/srv/brain/compiled/alice  # "brain-box" = the brain host on your chosen transport
           - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN}
           - ANTHROPIC_API_KEY=${LLM_KEY}
           - BRAIN_EMBED_BASE_URL=${EMBED_URL}  # optional
@@ -248,7 +274,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 
   <Step title="Operate — minutes per week">
     - **Approvals:** `ssh brain-box brain promotions approve <id> --master /srv/brain/master --approver <you>`;
-      review in the dashboard over an SSH tunnel on the tailnet.
+      review in the dashboard over an SSH tunnel.
     - **Watch two numbers:** the cycle and doctor exit codes (already wired to
       your alert URL).
     - **Backups, both halves:** the master mirror covers knowledge; agent
@@ -274,4 +300,4 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 | Webhook secret leaked (if webhook intake is enabled) | Worst case is note spam into the Inboxes that source routes to, capped at the source's rate limit (60/minute by default) — a webhook source can never read anything or write outside an Inbox, and past the cap deliveries get `429`s while the receiver logs a warning. Rotate the `secret_env` value and restart the receiver; the old secret is dead immediately. Every accepted delivery is its own audited `Brain Ingest` commit, so cleanup is `git revert`. |
 | Webhook endpoint probed | Unauthenticated requests are refused before the payload is parsed (`401`/`404`), nothing is written, and oversized or compressed bodies are rejected outright. The receiver holds no read paths — there is no query to leak a note through. |
 
-The full plate-style version of this plan — diagrams, transport alternatives (public SSH, forge-hosted remotes), and the visual-layer wiring — is in [Where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6).
+The full plate-style version of this plan — diagrams, the transport menu, and the visual-layer wiring — is in [Where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6).

@@ -8,7 +8,7 @@
 #
 # No ports are published: chat platforms long-poll outward, and the vault
 # syncs over ssh to the brain box. The visual layer (hermes dashboard, brain
-# dashboard) is a later, tailnet-only phase — see the deployment doc.
+# dashboard) is a later, private-network-only phase — see the deployment doc.
 
 x-agent-base: &agent-base
   image: hermes-brain:latest
