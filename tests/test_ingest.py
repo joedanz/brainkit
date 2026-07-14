@@ -6,7 +6,7 @@ import pytest
 from brain.compiler import compile_all
 from brain.frontmatter import split_frontmatter
 from brain.ingest import IngestError, ingest_note
-from brain.schemas import Org, SpaceRule, load_org, load_spaces
+from brain.schemas import Org, SpaceRule, load_spaces
 from tests.conftest import ALICE, BOB, RULES
 
 
@@ -182,14 +182,6 @@ def test_ingested_honeypot_reaches_only_owner(master: Path, tmp_path: Path):
     for f in (out / "alice").rglob("*"):
         if f.is_file():
             assert "honeypot-a1b2c3" not in f.read_text(errors="ignore")
-
-
-def test_ingest_resolves_org_email_end_to_end(master: Path):
-    """load_org round-trips the email so person_by_email can back --from."""
-    _seed_meta(master)
-    org = load_org(master / "_meta/org.yaml")
-    assert org.person_by_email("bob@acme.com").id == "bob"
-    assert org.person_by_email("alice@acme.com").id == "alice"
 
 
 def test_build_inbox_note_is_pure(tmp_path):

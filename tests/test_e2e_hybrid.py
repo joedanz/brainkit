@@ -16,7 +16,7 @@ import pytest
 
 from brain.cli import main
 from brain.compiler import compile_vault
-from tests.conftest import ALICE, RULES
+from tests.conftest import ALICE, RULES, requires_vectors
 
 _DIM = 64
 
@@ -80,6 +80,7 @@ def hybrid_env(monkeypatch, tmp_path):
         yield srv
 
 
+@requires_vectors
 def test_cli_index_and_search_hybrid_over_http(master, tmp_path, hybrid_env, capsys):
     vault = tmp_path / "alice"
     compile_vault(master, ALICE, RULES, vault)
@@ -98,6 +99,7 @@ def test_cli_index_and_search_hybrid_over_http(master, tmp_path, hybrid_env, cap
     assert any("vector" in h["sources"] for h in result["hits"])
 
 
+@requires_vectors
 def test_incremental_reindex_hits_provider_zero_times(master, tmp_path, hybrid_env, capsys):
     vault = tmp_path / "alice"
     compile_vault(master, ALICE, RULES, vault)

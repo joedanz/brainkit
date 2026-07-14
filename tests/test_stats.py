@@ -6,15 +6,7 @@ from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.stats import collect_vault_stats, format_vault_status
-from tests.conftest import ALICE, RULES
-
-
-@pytest.fixture(autouse=True)
-def _no_ambient_provider(monkeypatch, tmp_path):
-    # Ensure tests never pick up a real provider from the developer's env.
-    for var in ("BRAIN_EMBED_BASE_URL", "BRAIN_EMBED_API_KEY", "BRAIN_EMBED_MODEL"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "no-config.yaml"))
+from tests.conftest import ALICE, RULES, requires_vectors
 
 
 def _compiled_indexed(master: Path, tmp_path: Path, *, provider="fake") -> Path:
@@ -35,6 +27,7 @@ def _mtimes(root: Path) -> dict[str, float]:
     }
 
 
+@requires_vectors
 def test_vault_stats_counts_match_fixture(master, tmp_path):
     vault = _compiled_indexed(master, tmp_path)
     s = collect_vault_stats(vault, include_graph=True)

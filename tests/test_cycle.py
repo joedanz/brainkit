@@ -5,6 +5,7 @@ from brain.cli import main
 from brain.cycle import run_cycle
 
 from .test_cli import seed_meta  # ORG/SPACES yaml + git init helper
+from tests.conftest import requires_vectors
 
 
 def _first_compile(master: Path, tmp_path: Path) -> Path:
@@ -159,6 +160,7 @@ class _CountingFake:
         return FakeEmbeddingProvider().embed(texts)
 
 
+@requires_vectors
 def test_cycle_index_builds_per_person_indexes(master, tmp_path, monkeypatch):
     seed_meta(master)
     out = _first_compile(master, tmp_path)
@@ -173,6 +175,7 @@ def test_cycle_index_builds_per_person_indexes(master, tmp_path, monkeypatch):
     assert spy.embed_texts > 0
 
 
+@requires_vectors
 def test_cycle_index_reuses_cache_on_second_run(master, tmp_path, monkeypatch):
     seed_meta(master)
     out = _first_compile(master, tmp_path)

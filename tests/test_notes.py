@@ -7,13 +7,15 @@ def test_reads_a_file_inside_a_space(master):
     assert "Home" in read_note(master, "Company/Home.md")
 
 
-def test_refuses_path_outside_any_space(master):
-    # AGENTS.md sits at the vault root, inside no space.
+@pytest.mark.parametrize("bad_path", [
+    "AGENTS.md",                # vault root, inside no space
+    "_meta/org.yaml",           # _meta is reserved
+    "Company/DoesNotExist.md",  # missing file
+    "Company/Decisions",        # a directory, not a note
+])
+def test_refuses_unreachable_paths(master, bad_path):
     with pytest.raises(NoteAccessError):
-        read_note(master, "AGENTS.md")
-    # _meta is reserved.
-    with pytest.raises(NoteAccessError):
-        read_note(master, "_meta/org.yaml")
+        read_note(master, bad_path)
 
 
 def test_refuses_parent_traversal(master, tmp_path):
@@ -37,13 +39,3 @@ def test_refuses_symlink_escaping_vault(master, tmp_path):
     link.symlink_to(outside)
     with pytest.raises(NoteAccessError):
         read_note(master, "Company/Link.md")
-
-
-def test_refuses_missing_file(master):
-    with pytest.raises(NoteAccessError):
-        read_note(master, "Company/DoesNotExist.md")
-
-
-def test_refuses_directory(master):
-    with pytest.raises(NoteAccessError):
-        read_note(master, "Company/Decisions")

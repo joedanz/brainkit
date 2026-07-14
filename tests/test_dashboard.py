@@ -12,13 +12,6 @@ from brain.stats import collect_master_stats, collect_vault_stats
 from tests.conftest import ALICE, RULES
 
 
-@pytest.fixture(autouse=True)
-def _no_ambient_provider(monkeypatch, tmp_path):
-    for var in ("BRAIN_EMBED_BASE_URL", "BRAIN_EMBED_API_KEY", "BRAIN_EMBED_MODEL"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "no-config.yaml"))
-
-
 def _vault(master, tmp_path) -> Path:
     vault = tmp_path / "alice"
     compile_vault(master, ALICE, RULES, vault)

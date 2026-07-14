@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_vault
-from brain.writeback import apply_writeback, diff_vault
+from brain.writeback import Change, apply_writeback, diff_vault
 from tests.conftest import ALICE, BOB, RULES
 
 
@@ -179,3 +179,22 @@ def test_local_dot_dirs_do_not_reject_writeback(master: Path, tmp_path: Path):
     result = apply_writeback(master, vault, BOB, RULES)
     assert result.violations == []
     assert any(c.path == "People/bob/Memory.md" for c in result.applied)
+
+
+def test_apply_skips_symlink_appearing_after_diff(master: Path, tmp_path: Path, monkeypatch):
+    # diff_vault never emits symlinks, but if the vault changed between diff and
+    # apply, the apply phase must still refuse to copy a symlink's target into
+    # master (arbitrary-file-read defense in depth).
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    secret = master / "Teams/sales/Q3 Pipeline.md"  # sales space — not Bob's to read
+    (vault / "People/bob/leak.md").symlink_to(secret)  # in Bob's writable scope
+    monkeypatch.setattr(
+        "brain.writeback.diff_vault",
+        lambda v: [Change("People/bob/leak.md", "modify")],
+    )
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert result.violations == []  # path is in scope; the symlink is the issue
+    # The secret's bytes were never written into master under Bob's path.
+    assert not (master / "People/bob/leak.md").exists()
