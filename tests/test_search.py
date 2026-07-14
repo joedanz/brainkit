@@ -8,14 +8,7 @@ from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.search import rrf, search_index
-from tests.conftest import ALICE, RULES
-
-
-@pytest.fixture(autouse=True)
-def _no_ambient_provider(monkeypatch, tmp_path):
-    for var in ("BRAIN_EMBED_BASE_URL", "BRAIN_EMBED_API_KEY", "BRAIN_EMBED_MODEL"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "no-config.yaml"))
+from tests.conftest import ALICE, RULES, requires_vectors
 
 
 @pytest.fixture
@@ -32,12 +25,14 @@ def test_rrf_item_in_both_legs_wins():
     assert scores[2] > scores[1]
 
 
+@requires_vectors
 def test_hybrid_search_finds_by_phrase(indexed_alice):
     report = search_index(indexed_alice, "pipeline", provider=FakeEmbeddingProvider())
     assert report.mode == "hybrid"
     assert any("Q3 Pipeline.md" in h.rel_path for h in report.hits)
 
 
+@requires_vectors
 def test_hybrid_search_marks_vector_source(indexed_alice):
     report = search_index(indexed_alice, "pipeline option", provider=FakeEmbeddingProvider())
     # with a provider present, at least one hit is corroborated by the vector leg

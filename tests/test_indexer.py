@@ -8,7 +8,7 @@ from brain.compiler import compile_vault
 from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.store import IndexStore
-from tests.conftest import ALICE, BOB, RULES
+from tests.conftest import ALICE, BOB, RULES, requires_vectors
 
 
 class SpyProvider(FakeEmbeddingProvider):
@@ -31,6 +31,7 @@ def _index_files(vault: Path) -> dict:
     return files
 
 
+@requires_vectors
 def test_fresh_build_indexes_only_manifest_markdown(master, tmp_path):
     vault = tmp_path / "alice"
     compile_vault(master, ALICE, RULES, vault)
@@ -60,6 +61,7 @@ def test_incremental_reindex_embeds_nothing_when_unchanged(master, tmp_path):
     assert spy.embed_texts == 0  # cost control: nothing re-embedded
 
 
+@requires_vectors
 def test_editing_one_file_reembeds_only_that_file(master, tmp_path):
     cache = EmbeddingCache(tmp_path / "cache.db")
     vault = tmp_path / "alice"
@@ -74,6 +76,7 @@ def test_editing_one_file_reembeds_only_that_file(master, tmp_path):
     assert spy.embed_texts >= 1  # only the edited file's new chunks
 
 
+@requires_vectors
 def test_second_person_reuses_shared_cache(master, tmp_path):
     cache = EmbeddingCache(tmp_path / "cache.db")
     va = tmp_path / "alice"
@@ -86,6 +89,7 @@ def test_second_person_reuses_shared_cache(master, tmp_path):
     assert report.chunks_from_cache > 0
 
 
+@requires_vectors
 def test_model_swap_forces_full_rebuild(master, tmp_path):
     cache = EmbeddingCache(tmp_path / "cache.db")
     vault = tmp_path / "alice"
@@ -212,11 +216,3 @@ def test_cli_index_json_and_missing_manifest(master, tmp_path, capsys):
 
     # uncompiled dir → handled error, exit 1
     assert main(["index", "--vault", str(tmp_path / "nope")]) == 1
-
-
-@pytest.fixture(autouse=True)
-def _no_ambient_provider(monkeypatch, tmp_path):
-    # Ensure tests never pick up a real provider from the developer's env.
-    for var in ("BRAIN_EMBED_BASE_URL", "BRAIN_EMBED_API_KEY", "BRAIN_EMBED_MODEL"):
-        monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "no-config.yaml"))

@@ -6,6 +6,7 @@ from brain import store
 from brain.chunker import Chunk
 from brain.embeddings import FakeEmbeddingProvider, pack_vector
 from brain.store import IndexStore, SCHEMA_VERSION, StoreError
+from tests.conftest import requires_vectors
 
 
 def _chunks(rel="Company/Doc.md", n=3):
@@ -36,6 +37,7 @@ def test_version_guard_rejects_newer_index(tmp_path):
         IndexStore.open(p)
 
 
+@requires_vectors
 def test_add_and_delete_keeps_all_tables_aligned(tmp_path):
     s = IndexStore.open(tmp_path / "index.db")
     chunks = _chunks(n=3)
@@ -66,6 +68,7 @@ def test_fts_finds_phrase_and_sanitizes_operators(tmp_path):
     s.close()
 
 
+@requires_vectors
 def test_knn_returns_nearest_first(tmp_path):
     s = IndexStore.open(tmp_path / "index.db")
     prov = FakeEmbeddingProvider()
