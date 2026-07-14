@@ -1,10 +1,8 @@
 # brainkit
 
-**The company brain where notes you can't read never touch your machine.**
+**One brain for the company. A filtered copy for every person.**
 
-Every person on your team gets an AI-assisted notebook. The company gets a shared knowledge base that grows from everyone's work — reachable by people and their agents alike, each held to the same permission boundary. Security is built into the architecture, not bolted on.
-
-**Production- and enterprise-ready.** What you clone here is the complete system — the same code built to run a company's shared brain, not a demo or a cut-down edition.
+Shared team knowledge on plain, Obsidian-compatible markdown and git. A compiler builds each person a copy containing only the notes they're allowed to see — anything else is never on their machine, so there's nothing to leak. Works with the AI tools your team already uses, or with none.
 
 ![Tests](https://github.com/joedanz/brainkit/actions/workflows/tests.yml/badge.svg)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
@@ -15,16 +13,18 @@ Every person on your team gets an AI-assisted notebook. The company gets a share
 
 **Prefer pictures?** Three visual walkthroughs, shallow to deep: [the quick version](https://claude.ai/code/artifact/fc1eb4ce-775e-4eaa-84bb-758bc6adbbd4), [how it works](https://claude.ai/code/artifact/d198eb64-b9a7-4aab-bba6-92ab9129cc6a), and [where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6) — the production deployment architecture.
 
+**The complete system, not a demo.** What you clone is the whole thing: the same code built to run a company's shared brain, with nothing held back for a paid tier. It's early — pre-1.0, installed from source, no PyPI package yet — and honest about its limits, which are spelled out below rather than hidden.
+
 Every team hits the same wall with shared knowledge:
 
 - A wiki nobody updates goes **stale**.
 - A tool that auto-copies everything into one place **overshares** — client details, HR notes, and half-formed drafts end up in front of people who were never meant to see them.
 
-brainkit takes the middle path — and makes the "never meant to see it" part a structural guarantee.
+brainkit takes the middle path, and makes the "never meant to see it" part a structural guarantee.
 
 ## How it works
 
-Your company keeps **one master vault** of notes — plain markdown files, readable in Obsidian or any editor. brainkit builds a **personal copy for each person** that contains only the notes they're allowed to see, and each person's AI assistant works inside that copy.
+Your company keeps **one master vault** of notes — plain markdown files, readable in Obsidian or any editor. brainkit builds a **personal copy for each person** that contains only the notes they're allowed to see. Each person works inside that copy, alone or with whatever tools they connect to it.
 
 ```mermaid
 flowchart TB
@@ -32,7 +32,7 @@ flowchart TB
     M[("Master vault<br/>one git repo per company")]
     C{{"The compiler<br/>builds each person's copy"}}
     V["Per-person vaults<br/>only what each person may read"]
-    E["Each person's device<br/>+ AI assistant"]
+    E["Each person's device<br/>person · editor · agent"]
     Q["Sharing queue<br/>a human approves every publish"]
 
     In --> M
@@ -44,7 +44,7 @@ flowchart TB
     Q -->|approved| M
 ```
 
-Sharing something new goes through one door: your AI assistant drafts a suggestion ("this looks useful for the whole team"), and a person approves it before it's published. Nothing moves from private to shared any other way.
+Sharing something new goes through one door: someone drafts a suggestion ("this looks useful for the whole team") — a person, or an agent acting on their behalf — and a person approves it before it's published. Nothing moves from private to shared any other way.
 
 Want it just for yourself — personal notes, family stuff? Run your own instance as a company of one: [A brain of one](docs/guides/personal-brain.mdx).
 
@@ -56,15 +56,15 @@ Most tools protect data with permission checks at read time — one misconfigure
 - **Sensitive folders are locked by default.** Client folders are hidden unless someone is explicitly granted access. Forgetting a rule hides a note; it never exposes one.
 - **One door for sharing, with a human at it.** Private notes reach the shared brain only through a review queue a person approves — and the destination is checked again at publish time.
 - **Every change is on the record.** Everything is a git commit with its own identity — a complete, tamper-evident history of who added what, when.
-- **Battle-tested, not just promised.** The test suite generates randomized company layouts seeded with trap notes that must never escape — and verifies they never do.
+- **Tested, not just promised.** The test suite generates randomized company layouts seeded with trap notes that must never escape, and verifies they never do.
 
 The deeper story — link stubbing, symlink and path-traversal defenses, the two-phase swap — is in [The compiler](docs/concepts/the-compiler.mdx).
 
-## Works with the AI tools you already use
+## Works with the tools you already use
 
-The brain is a shared platform for people *and* software. Your team works in Obsidian; Hermes agents and any MCP client reach the same vault as a tool — and every one of them inherits the boundary, so an agent can only ever see what its person can see. It's runtime-independent, too: underneath it's plain markdown and git, with no hard dependency on any AI vendor.
+The brain is a shared platform for people *and* software. Your team works in Obsidian; agents and any MCP client reach the same vault as a tool, and every one of them inherits the boundary, so an agent can only ever see what its person can see. It's runtime-independent, too: underneath it's plain markdown and git, with no hard dependency on any AI vendor.
 
-- **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the assistant protocol, scoped to that person.
+- **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the working protocol, scoped to that person.
 - **Hermes Agent** ([NousResearch](https://github.com/NousResearch)) — first-class support via `hermes profile install`, plus a ready-to-run Docker image in [`deploy/agents-box`](deploy/agents-box).
 - **Any MCP client** — `brain mcp` exposes search and note reading over the Model Context Protocol, so Claude Desktop, Cursor, Codex, and friends can use the vault as a tool.
 - **Or no agent at all** — the vault is just files. Obsidian, `grep`, and your editor all work.
@@ -77,7 +77,7 @@ The brain is a shared platform for people *and* software. Your team works in Obs
 | **Search** | Hybrid keyword + semantic search (`brain search`), built per-vault so it can only ever surface notes you're allowed to see |
 | **Live user dashboard** | `brain dashboard` in a person's vault — inbox, open actions, notes-by-space, an interactive 2D/3D map of how their notes connect, and search across everything they may see. Updates live over WebSocket; `--html` writes a static snapshot |
 | **Admin dashboard** | `brain dashboard` on the master — every person's vault at a glance, the sharing review queue, a read/write permissions matrix, and live `brain doctor` findings (including the name-leak check) |
-| **Sharing queue** | `brain promotions` — agents draft, humans approve; the only private→shared path |
+| **Sharing queue** | `brain promotions` — a person or an agent drafts, a human approves; the only private→shared path |
 | **Write-back** | Edits flow back to the master vault with every path validated server-side; one out-of-bounds edit rejects the whole batch |
 | **Automation** | `brain cycle` — one cron-able command: apply edits, sweep drafts, rebuild everyone's copy |
 | **Health checks** | `brain doctor` — read-only audit for CI or cron; even flags a restricted client's name typed into a shared note |
@@ -131,12 +131,12 @@ Keep it fresh with two cron lines:
 0    * * * * brain doctor --master /srv/brain/master --out /srv/brain/compiled --json
 ```
 
-Each person then clones their own copy and plugs in their assistant:
+Each person then clones their own copy and, if they want, plugs in a tool:
 
 ```bash
 git clone brain-box:/srv/brain/compiled/alice ~/brain
 brain index --vault ~/brain
-claude mcp add brain -- brain mcp --vault ~/brain   # Claude Code / any MCP client
+claude mcp add brain -- brain mcp --vault ~/brain   # any MCP client — optional
 ```
 
 Full walkthrough: [Getting started](docs/getting-started.mdx) · [Per-employee setup](docs/guides/per-employee-setup.mdx)
