@@ -29,19 +29,25 @@ Your company keeps **one master vault** of notes — plain markdown files, reada
 ```mermaid
 flowchart TB
     In["Notes come in<br/>email · chat · voice · webhooks · uploads"]
-    M[("Master vault<br/>one git repo per company")]
-    C{{"The compiler<br/>builds each person's copy"}}
-    V["Per-person vaults<br/>only what each person may read"]
-    E["Each person's device<br/>person · editor · agent"]
-    Q["Sharing queue<br/>a human approves every publish"]
+
+    subgraph server["On your server"]
+        M[("Master vault<br/>one git repo — everything")]
+        C{{"The compiler<br/>filters per person"}}
+        V["Alice's vault<br/>only what she may read — one per person"]
+        Q["Sharing queue<br/>a human approves every publish"]
+    end
+
+    subgraph laptop["On Alice's machine"]
+        E["Her copy of the vault<br/>editor · CLI · AI tools"]
+    end
 
     In --> M
     M --> C
-    C --> V
-    V --> E
-    E -->|"edits, validated server-side"| M
-    E -->|"suggests: share this with the team"| Q
-    Q -->|approved| M
+    C -->|"leaves out what she can't read"| V
+    V -->|"git pull"| E
+    E -->|"her edits — validated server-side"| M
+    E -.->|"suggests: share this with the team"| Q
+    Q -->|"approved"| M
 ```
 
 Sharing something new goes through one door: someone drafts a suggestion ("this looks useful for the whole team") — a person, or an agent acting on their behalf — and a person approves it before it's published. Nothing moves from private to shared any other way.
