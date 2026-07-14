@@ -105,6 +105,23 @@ def test_symlinks_never_cross_tenant_boundary(master: Path, tmp_path: Path):
     assert "People/bob/leak.md" not in result.files
 
 
+def test_symlinked_space_root_materializes_nothing(master: Path, tmp_path: Path):
+    # Turning a whole readable space into a symlink must not copy its target in:
+    # the space root itself is symlink-checked, not just files within it.
+    secret_dir = tmp_path / "outside_client"
+    secret_dir.mkdir()
+    (secret_dir / "secret.md").write_text("SENTINEL client data\n")
+    (master / "Clients" / "leak").symlink_to(secret_dir, target_is_directory=True)
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)  # Clients/* is everyone-readable
+    # Fail-closed: the space compiles to empty scaffolding (generated context
+    # files only), never the symlink target's content, and never as a symlink.
+    leaked = [p for p in out.rglob("*.md") if "SENTINEL" in p.read_text()]
+    assert leaked == []
+    assert not (out / "Clients/leak/secret.md").exists()
+    assert not (out / "Clients/leak").is_symlink()
+
+
 def test_crashed_swap_with_missing_out_fully_restored(master: Path, tmp_path: Path):
     # Simulate a crash between `out.rename(old)` and promoting the new tree:
     # `out` is gone entirely and the previous vault (content + .git) sits at

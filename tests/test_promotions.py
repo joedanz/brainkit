@@ -5,6 +5,7 @@ import pytest
 from brain.promotions import (
     PromotionError,
     approve,
+    draft_into_space,
     draft_promotion,
     list_pending,
     reject,
@@ -232,3 +233,59 @@ def test_sweep_does_not_resurrect_a_rejected_promotion(master: Path):
     assert moved == []                       # a rejected idea does not come back
     assert list_pending(master) == []
     assert not draft.exists()
+
+
+def test_draft_into_space_stays_in_owner_space(master: Path):
+    # Positive control: the employee-side gate writes only inside the caller's
+    # own People/<id>/Promotions, preserving the fields it was handed.
+    rel = draft_into_space(
+        master, "bob", "Company/Frameworks/SOP.md", "src-note", "some body", "2026-07-07"
+    )
+    assert rel.startswith("People/bob/Promotions/")
+    dest = master / rel
+    assert dest.is_file()
+    text = dest.read_text()
+    assert "target-path: Company/Frameworks/SOP.md" in text
+    assert "source: src-note" in text
+    assert text.rstrip().endswith("some body")
+
+
+@pytest.mark.parametrize("overrides", [
+    {"target_path": "Company/Frameworks/SOP.md\ninjected: true"},
+    {"source": "src\ninjected: true"},
+], ids=["target-path", "source"])
+def test_draft_into_space_rejects_multiline_fields(master: Path, overrides):
+    # A newline in a header field would smuggle extra frontmatter into the draft.
+    kwargs = dict(target_path="Company/Frameworks/SOP.md", source="src",
+                  body="b", created="2026-07-07")
+    kwargs.update(overrides)
+    with pytest.raises(PromotionError, match="single line"):
+        draft_into_space(master, "bob", **kwargs)
+
+
+def test_draft_into_space_rejects_empty_body(master: Path):
+    with pytest.raises(PromotionError, match="empty promotion"):
+        draft_into_space(
+            master, "bob", "Company/Frameworks/SOP.md", "src", "   \n", "2026-07-07"
+        )
+
+
+def test_draft_into_space_refuses_symlinked_ancestor(master: Path, tmp_path: Path):
+    # A symlink anywhere in the Promotions path would let a draft land outside
+    # the person's own space.
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (master / "People/bob/Promotions").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(PromotionError, match="symlink"):
+        draft_into_space(
+            master, "bob", "Company/Frameworks/SOP.md", "src", "body", "2026-07-07"
+        )
+
+
+def test_approve_and_reject_unknown_id_raise(master: Path):
+    # Acting on a nonexistent/typo'd id must raise, not silently no-op.
+    _seed_org(master)
+    with pytest.raises(PromotionError, match="no pending promotion"):
+        approve(master, "does-not-exist", approver="alice", date="2026-07-08")
+    with pytest.raises(PromotionError, match="no pending promotion"):
+        reject(master, "does-not-exist", reason="n/a")

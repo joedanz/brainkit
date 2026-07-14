@@ -62,7 +62,9 @@ def test_per_file_dedupe(master, tmp_path):
     build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
     report = search_index(vault, "pipeline", k=20, provider=FakeEmbeddingProvider())
     from_big = [h for h in report.hits if h.rel_path == "Company/Big.md"]
-    assert len(from_big) <= 2
+    # the doc must appear AND be capped at the per-file limit of 2 — the old
+    # `<= 2` alone also passed when search returned the doc zero times
+    assert from_big and len(from_big) <= 2
 
 
 def test_cli_search_json_and_missing_index(indexed_alice, tmp_path, capsys):

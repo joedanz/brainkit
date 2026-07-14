@@ -208,6 +208,35 @@ async def test_non_json_body(aiohttp_client, hook_master):
     assert resp.status == 400
 
 
+async def test_rejects_non_numeric_timestamp(aiohttp_client, hook_master):
+    # A malformed (non-integer) webhook-timestamp must fail closed, not 500.
+    client = await aiohttp_client(_app(hook_master))
+    body = json.dumps({"transcript": "x"}).encode()
+    headers = {**_sign(body), "webhook-timestamp": "not-a-number"}
+    resp = await client.post("/hook/fathom-alice", data=body, headers=headers)
+    assert resp.status == 401
+    assert not _inbox(hook_master, "alice")
+
+
+async def test_rejects_json_array_body(aiohttp_client, hook_master):
+    # Valid JSON that isn't an object has no fields to route/ingest → refuse.
+    body = b"[1, 2, 3]"
+    client = await aiohttp_client(_app(hook_master))
+    resp = await client.post("/hook/fathom-alice", data=body, headers=_sign(body))
+    assert resp.status == 400
+    assert not _inbox(hook_master, "alice")
+
+
+async def test_missing_email_field_refused(aiohttp_client, hook_master):
+    # sender-email routing with no email field can't identify a recipient.
+    client = await aiohttp_client(_app(hook_master))
+    body = json.dumps({"body": "hi"}).encode()  # no 'email' key
+    resp = await client.post("/hook/zapier-intake", data=body,
+                             headers={"Authorization": f"Bearer {TOKEN}"})
+    assert resp.status == 400
+    assert not _inbox(hook_master, "alice") and not _inbox(hook_master, "bob")
+
+
 async def test_frontmatter_injection_refused(aiohttp_client, hook_master):
     client = await aiohttp_client(_app(hook_master))
     body = json.dumps({"title": "ok\ninjected: true",
@@ -396,6 +425,15 @@ def test_config_rejects(tmp_path, snippet, match):
     cfg = tmp_path / "webhook.yaml"
     cfg.write_text(snippet)
     with pytest.raises(WebhookConfigError, match=match):
+        load_webhook_config(cfg)
+
+
+def test_malformed_yaml_config_fails_closed(tmp_path):
+    # A YAML parse error (not just a bad shape) must surface as WebhookConfigError,
+    # never a raw traceback — the config loader is on the intake path.
+    cfg = tmp_path / "webhook.yaml"
+    cfg.write_text("sources: [unclosed\n")
+    with pytest.raises(WebhookConfigError):
         load_webhook_config(cfg)
 
 

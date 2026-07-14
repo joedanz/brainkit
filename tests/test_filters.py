@@ -93,3 +93,54 @@ def test_list_inbox_newest_first(master, tmp_path):
     (inbox_dir / "note.md").write_text("hi")
     items = list_inbox(vault, "alice")
     assert any(it.rel_path == "People/alice/Inbox/note.md" for it in items)
+
+
+def test_list_inbox_skips_symlinks(master, tmp_path):
+    # A symlink planted in the Inbox must not surface a file outside it.
+    from brain.filters import list_inbox
+    vault = _compiled_indexed(master, tmp_path)
+    inbox = vault / "People" / "alice" / "Inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    (inbox / "note.md").write_text("real inbox note\n")
+    outside = tmp_path / "outside.md"
+    outside.write_text("secret outside the inbox\n")
+    (inbox / "leak.md").symlink_to(outside)
+    rels = {it.rel_path for it in list_inbox(vault, "alice")}
+    assert "People/alice/Inbox/note.md" in rels
+    assert "People/alice/Inbox/leak.md" not in rels
+
+
+def test_list_actions_skips_symlinks(master, tmp_path):
+    # list_actions reads file *contents*; a symlink must never let the dashboard
+    # read an out-of-vault (or other-tenant) file's bytes.
+    from brain.filters import list_actions
+    vault = _compiled_indexed(master, tmp_path)
+    actions = vault / "People" / "alice" / "Actions"
+    actions.mkdir(parents=True, exist_ok=True)
+    (actions / "real.md").write_text("- [ ] call acme\n")
+    secret = tmp_path / "secret.md"
+    secret.write_text("- [ ] SENTINEL leaked action\n")
+    (actions / "leak.md").symlink_to(secret)
+    items = list_actions(vault, "alice")
+    assert any(it.rel_path == "People/alice/Actions/real.md" for it in items)
+    assert all(it.rel_path != "People/alice/Actions/leak.md" for it in items)
+    assert all("SENTINEL" not in it.text for it in items)
+
+
+def test_list_actions_open_items_and_limit(master, tmp_path):
+    # Only open `- [ ]` items, with correct 1-based line numbers; limit honored.
+    from brain.filters import list_actions
+    vault = _compiled_indexed(master, tmp_path)
+    actions = vault / "People" / "alice" / "Actions"
+    actions.mkdir(parents=True, exist_ok=True)
+    (actions / "Todo.md").write_text(
+        "# Todo\n"          # 1
+        "- [ ] open one\n"  # 2
+        "- [x] done\n"      # 3
+        "prose line\n"      # 4
+        "  - [ ] indented open\n"  # 5
+    )
+    items = list_actions(vault, "alice")
+    assert [it.text for it in items] == ["open one", "indented open"]
+    assert [it.line for it in items] == [2, 5]
+    assert list_actions(vault, "alice", limit=1) == items[:1]
