@@ -1,6 +1,6 @@
 # brainkit
 
-**The company brain that never copies a private note to a machine that can't read it.**
+**The company brain where notes you can't read never touch your machine.**
 
 Every person on your team gets an AI-assisted notebook. The company gets a shared knowledge base that grows from everyone's work — reachable by people and their agents alike, each held to the same permission boundary. Security is built into the architecture, not bolted on.
 
