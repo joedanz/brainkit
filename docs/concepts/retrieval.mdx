@@ -44,6 +44,15 @@ chunks per file. If no embedding provider is configured — or `sqlite-vec` can'
 load — search degrades to **keyword-only** with a warning, never an empty
 result.
 
+<Callout type="info">
+  `sqlite-vec` loads as a SQLite extension, so it needs a Python whose `sqlite3`
+  was compiled with loadable-extension support. Homebrew, pyenv, uv-managed, and
+  most Linux distro Pythons qualify; the **python.org macOS installer** ships it
+  disabled. Verify with
+  `python -c "import sqlite3; print(hasattr(sqlite3.Connection, 'enable_load_extension'))"`
+  — `False` means the vector leg is unavailable and search runs keyword-only.
+</Callout>
+
 ## The `.brain/` contract
 
 The index lives at `<vault>/.brain/index.db`. It is **machine-local state**, on

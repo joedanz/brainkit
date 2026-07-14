@@ -165,7 +165,7 @@ Flags and exit codes: [CLI reference](docs/reference/cli.mdx).
 
 - **Python 3.12+** and **git**. Runtime dependencies are just `pyyaml`, `sqlite-vec`, and `aiohttp`.
 - **Semantic search (optional):** set `BRAIN_EMBED_BASE_URL` to any OpenAI-compatible embedding endpoint. Without it, search runs keyword-only. Note: configuring a provider sends note text to that endpoint — point it at something you host if that matters to you.
-- `sqlite-vec` needs a Python built with SQLite extension loading (uv-managed and Homebrew builds have it). If unavailable, search degrades gracefully to keyword-only.
+- `sqlite-vec` needs a Python whose `sqlite3` was built with **loadable-extension support**. Homebrew, pyenv, uv-managed, and most Linux distro Pythons have it; the common exception is the **python.org macOS installer**, which ships it disabled. Check yours with `python -c "import sqlite3; print(hasattr(sqlite3.Connection, 'enable_load_extension'))"`. If it's unavailable, search degrades gracefully to keyword-only — nothing breaks, you just lose the semantic leg.
 
 ## Learn more
 
