@@ -1,7 +1,7 @@
 [project]
 name = "brainkit"
 version = "0.1.0"
-description = "Multi-tenant company brain on Obsidian-compatible vaults — a private AI assistant for every employee"
+description = "Multi-tenant company brain on Obsidian-compatible vaults — each person's copy holds only the notes they may read"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
