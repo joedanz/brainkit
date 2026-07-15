@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>brainkit — social preview source (1280×640)</title>
+<style>
+  /* Regenerate the PNG with:
+     chrome --headless --screenshot=social-preview.png --window-size=1280,640 --hide-scrollbars social-preview.html */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    background: #f4f0e8;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #20242a;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 52px 64px 48px;
+  }
+  .mono { font-family: ui-monospace, Menlo, "SF Mono", Consolas, monospace; }
+
+  header { display: flex; justify-content: space-between; align-items: baseline; }
+  .wordmark { font-size: 44px; font-weight: 700; }
+  .eyebrow { font-size: 21px; font-weight: 700; letter-spacing: .16em; color: #a4432c; }
+
+  .diagram { display: flex; align-items: center; gap: 36px; }
+  .panel {
+    flex: 1;
+    background: #fffdf8;
+    border: 1px solid #ddd6c6;
+    border-radius: 14px;
+    padding: 26px 28px;
+    box-shadow: 0 1px 3px rgba(32, 36, 42, .05);
+  }
+  .panel-label {
+    font-size: 17px; font-weight: 600; letter-spacing: .13em;
+    color: #6b7280; margin-bottom: 16px;
+  }
+  .bar { height: 42px; border-radius: 6px; margin: 12px 0; }
+  .bar.shared  { background: #1f6f54; }
+  .bar.yours   { background: #5b5bd6; }
+  .bar.theirs  { background: #b8860b; }
+  .bar.absent {
+    background: repeating-linear-gradient(45deg, #e8e2d4, #e8e2d4 7px, #f6f2ea 7px, #f6f2ea 14px);
+    border: 1.5px dashed #c9c1ae;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 600; letter-spacing: .1em; color: #8a8272;
+  }
+  .arrow { text-align: center; flex: 0 0 150px; }
+  .arrow .glyph { font-size: 52px; line-height: 1; }
+  .arrow .label { font-size: 15px; font-weight: 600; letter-spacing: .12em; color: #6b7280; margin-top: 10px; }
+
+  footer { font-size: 25px; color: #6b7280; text-align: center; }
+  footer b { color: #20242a; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="wordmark mono">brainkit</div>
+    <div class="eyebrow">THE COMPANY BRAIN THAT CAN'T OVERSHARE</div>
+  </header>
+
+  <div class="diagram">
+    <div class="panel">
+      <div class="panel-label">MASTER VAULT — EVERYTHING</div>
+      <div class="bar shared"></div>
+      <div class="bar yours"></div>
+      <div class="bar theirs"></div>
+      <div class="bar theirs"></div>
+    </div>
+    <div class="arrow">
+      <div class="glyph">→</div>
+      <div class="label">COPIES ONLY<br>YOUR SHARE</div>
+    </div>
+    <div class="panel">
+      <div class="panel-label">YOUR VAULT — YOUR COPY</div>
+      <div class="bar shared"></div>
+      <div class="bar yours"></div>
+      <div class="bar absent">EVERYONE ELSE'S — NOT HERE</div>
+      <div class="bar absent"></div>
+    </div>
+  </div>
+
+  <footer>Notes you can't read are <b>never copied</b> to your machine — nothing to leak.</footer>
+</body>
+</html>
