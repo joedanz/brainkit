@@ -45,6 +45,9 @@ Nothing in `People/{pid}/` is shared automatically. To share knowledge:
    `target-path: <shared space path>` and `source: <originating note>`.
 3. {name} reviews and approves via `brain promotions approve`; only then does
    the note reach the shared space.
+4. Track your proposals in `People/{pid}/Shares.md` (generated, read-only):
+   pending, approved, and rejected — with the rejection reason. Answer
+   "did my share go live?" from this note.
 
 ## Privacy rules
 

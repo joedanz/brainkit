@@ -71,4 +71,15 @@ A pending file sits on disk between draft and approval, where a human edit, a ba
 
 The approver is checked the same way, at every layer: the core `approve` call, the dashboard's API, and the CLI all refuse a blank approver or one that isn't in the org roster. However an approval arrives, the `approved-by` line resolves to a real person.
 
+## Where the person sees status
+
+Once a draft is swept into the queue it leaves the person's space — but not
+their sight. Every compile generates a read-only `People/<you>/Shares.md`
+into their slice listing everything still pending and every decision from
+the last 30 days, including rejections with their reasons. It is a generated
+file (like `AGENTS.md`): write-back ignores edits to it and the next cycle
+regenerates it from the queue, so the status a person sees is always the
+queue's truth — visible in chat (their agent reads it) and in the dashboard
+(it is an ordinary note in Query and the graph).
+
 See the [CLI reference](/reference/cli#brain-promotions) for every promotions subcommand and its exit codes.
