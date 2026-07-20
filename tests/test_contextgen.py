@@ -2,6 +2,7 @@ from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_vault
 from brain.contextgen import ROOT_LIMIT, SPACE_LIMIT, render_root_protocol
+from brain.schemas import Person
 from tests.conftest import ALICE, BOB, RULES
 
 
@@ -15,6 +16,12 @@ def test_root_protocol_content():
     assert "read-only" in text            # Company marked read-only for bob
     assert "promotion" in text.lower()    # promotion protocol documented
     assert "Actions/Action Tracker" in text  # routing rules documented
+
+
+def test_root_protocol_mentions_shares_note():
+    person = Person(id="bob", name="Bob Rivera", roles=(), teams=("ops",))
+    text = render_root_protocol(person, [("Company", False), ("People/bob", True)])
+    assert "People/bob/Shares.md" in text
 
 
 def test_compile_writes_context_files(master: Path, tmp_path: Path):

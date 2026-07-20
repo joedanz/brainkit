@@ -25,6 +25,9 @@ your spaces and permissions — read it before acting.
    source: <originating note path>
 3. Tell the owner it awaits their approval (`brain promotions list`). Never
    write directly into a read-only space; the write-back service rejects it.
+4. To answer status questions ("did it go live?"), read
+   People/<you>/Shares.md — generated and read-only: pending items,
+   approvals, and rejections with reasons. Never edit it.
 
 ## Maintain
 

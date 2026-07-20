@@ -76,7 +76,7 @@ def test_reject_records_reason(master: Path):
         master, person_id="bob", target_path="Company/Frameworks/SOP2.md",
         source="s", body="b", promo_id="p-004", created="2026-07-07",
     )
-    rejected = reject(master, "p-004", reason="too client-specific")
+    rejected = reject(master, "p-004", reason="too client-specific", date="2026-07-20")
     assert "rejected-reason: too client-specific" in rejected.read_text()
     assert not (master / "Company/Frameworks/SOP2.md").exists()
     assert list_pending(master) == []
@@ -224,7 +224,7 @@ def test_sweep_does_not_resurrect_a_rejected_promotion(master: Path):
 
     _draft(master)
     sweep(master, today="2026-07-07")
-    reject(master, "bob-cbs-result", reason="off-scope")
+    reject(master, "bob-cbs-result", reason="off-scope", date="2026-07-20")
     assert list_pending(master) == []
 
     draft = _draft(master)                   # reappears next cycle
@@ -288,4 +288,88 @@ def test_approve_and_reject_unknown_id_raise(master: Path):
     with pytest.raises(PromotionError, match="no pending promotion"):
         approve(master, "does-not-exist", approver="alice", date="2026-07-08")
     with pytest.raises(PromotionError, match="no pending promotion"):
-        reject(master, "does-not-exist", reason="n/a")
+        reject(master, "does-not-exist", reason="n/a", date="2026-07-20")
+
+
+def _draft_p1(master: Path) -> None:
+    draft_promotion(
+        master, person_id="bob",
+        target_path="Company/Frameworks/SOP.md",
+        source="People/bob/Sessions/call.md",
+        body="shareable\n", promo_id="p-001", created="2026-07-01",
+    )
+
+
+def test_approve_stamps_decision_in_archive(master: Path):
+    _seed_org(master)
+    _draft_p1(master)
+    approve(master, "p-001", approver="alice", date="2026-07-20")
+    text = (master / "_meta/promotions/approved/p-001.md").read_text()
+    assert "approved-on: 2026-07-20" in text
+    assert "approved-by: alice" in text
+    assert "shareable" in text  # body survives the rewrite
+
+
+def test_reject_stamps_decision_date(master: Path):
+    _draft_p1(master)
+    reject(master, "p-001", reason="too raw", date="2026-07-20")
+    text = (master / "_meta/promotions/rejected/p-001.md").read_text()
+    assert "rejected-on: 2026-07-20" in text
+    assert "rejected-reason: too raw" in text
+
+
+from brain.promotions import generate_shares_note
+
+
+def _decide_two(master: Path) -> None:
+    """One pending (bob), one approved (bob), one rejected (bob), one foreign (alice)."""
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/A.md",
+                    source="s", body="a", promo_id="p-a", created="2026-07-18")
+    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/B.md",
+                    source="s", body="b", promo_id="p-b", created="2026-07-10")
+    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/C.md",
+                    source="s", body="c", promo_id="p-c", created="2026-07-12")
+    draft_promotion(master, person_id="alice", target_path="Company/Frameworks/D.md",
+                    source="s", body="d", promo_id="p-d", created="2026-07-15")
+    approve(master, "p-b", approver="alice", date="2026-07-11")
+    reject(master, "p-c", reason="too raw", date="2026-07-13")
+
+
+def test_shares_note_renders_all_states_for_one_person(master: Path):
+    _decide_two(master)
+    note = generate_shares_note(master, "bob", today="2026-07-20")
+    assert note is not None
+    assert "## Awaiting approval" in note
+    assert "`Company/Frameworks/A.md`" in note and "2026-07-18" in note
+    assert "## Recently decided" in note
+    assert "✅ `Company/Frameworks/B.md` — approved 2026-07-11 by alice" in note
+    assert "❌ `Company/Frameworks/C.md` — rejected 2026-07-13: too raw" in note
+    assert "D.md" not in note  # person isolation: alice's item never leaks into bob's note
+
+
+def test_shares_note_thirty_day_cutoff_and_fallback(master: Path):
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/Old.md",
+                    source="s", body="o", promo_id="p-old", created="2026-05-01")
+    approve(master, "p-old", approver="alice", date="2026-06-01")  # 49 days before today
+    # legacy archive without stamps: strip them to simulate a pre-upgrade file
+    legacy = master / "_meta/promotions/approved/p-old.md"
+    legacy.write_text(legacy.read_text()
+                      .replace("approved-on: 2026-06-01\n", "")
+                      .replace("approved-by: alice\n", ""))
+    note = generate_shares_note(master, "bob", today="2026-07-20")
+    assert note is None  # fallback `created` 2026-05-01 is outside the window too
+
+    # same legacy file with a created date inside the window -> included via fallback
+    legacy.write_text(legacy.read_text().replace("created: 2026-05-01", "created: 2026-07-15"))
+    note = generate_shares_note(master, "bob", today="2026-07-20")
+    assert note is not None and "approved 2026-07-15" in note
+
+
+def test_shares_note_none_when_empty_and_skips_malformed(master: Path):
+    assert generate_shares_note(master, "bob", today="2026-07-20") is None
+    bad = master / "_meta/promotions/pending/garbage.md"
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_text("no frontmatter at all")
+    assert generate_shares_note(master, "bob", today="2026-07-20") is None

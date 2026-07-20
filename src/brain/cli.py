@@ -32,10 +32,12 @@ def cmd_compile(args) -> int:
         if person is None:
             print(f"unknown person: {args.person}", file=sys.stderr)
             return 1
-        compile_vault(master, person, rules, out / person.id)
+        compile_vault(
+            master, person, rules, out / person.id, today=date.today().isoformat()
+        )
         print(f"compiled {person.id} -> {out / person.id}")
     else:
-        results = compile_all(master, org, rules, out)
+        results = compile_all(master, org, rules, out, today=date.today().isoformat())
         for r in results:
             print(f"compiled {r.person_id}: {len(r.files)} files")
     return 0
@@ -81,7 +83,8 @@ def cmd_promotions(args) -> int:
                              date=date.today().isoformat())
             print(f"approved {args.id} -> {target}")
         elif args.action == "reject":
-            reject(master, args.id, reason=args.reason)
+            reject(master, args.id, reason=args.reason,
+                   date=date.today().isoformat())
             print(f"rejected {args.id}")
     except (PromotionError, SchemaError) as e:
         print(str(e), file=sys.stderr)

@@ -233,3 +233,26 @@ def test_compile_all_never_tracks_brain_index(master: Path, tmp_path: Path):
     # must not be.
     assert not any(p.startswith(".brain/") for p in tracked)
     assert (bob / ".brain/index.db").exists()
+
+
+def test_compile_generates_shares_note_for_pending_promotion(master: Path, tmp_path: Path):
+    from brain.promotions import draft_promotion
+
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Frameworks/S.md",
+        source="s", body="x", promo_id="p-s", created="2026-07-18",
+    )
+    out = tmp_path / "out" / "bob"
+    compile_vault(master, BOB, RULES, out, today="2026-07-20")
+    note = out / "People/bob/Shares.md"
+    assert note.is_file()
+    assert "Awaiting approval" in note.read_text()
+    manifest = json.loads((out / MANIFEST_NAME).read_text())
+    assert "People/bob/Shares.md" in manifest["generated"]
+    assert "People/bob/Shares.md" not in manifest["compiled"]
+
+
+def test_compile_omits_shares_note_when_no_activity(master: Path, tmp_path: Path):
+    out = tmp_path / "out" / "bob"
+    compile_vault(master, BOB, RULES, out, today="2026-07-20")
+    assert not (out / "People/bob/Shares.md").exists()

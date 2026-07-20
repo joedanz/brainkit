@@ -196,3 +196,38 @@ def test_cycle_without_index_flag_builds_no_index(master, tmp_path):
     run_cycle(master, out, today="2026-07-07")
     assert not (out / "alice/.brain").exists()
     assert not (out / "bob/.brain").exists()
+
+
+# ---- Shares.md lifecycle -------------------------------------------------- #
+
+def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
+    from brain.promotions import approve, draft_into_space
+
+    seed_meta(master)
+
+    # cycle 0: baseline compile so bob has a slice
+    out = _first_compile(master, tmp_path)
+
+    # bob's agent drafts a promotion in his own space (as write-back would land it)
+    draft_into_space(master, "bob", "Company/Frameworks/S.md",
+                     "People/bob/Sessions/call.md", "shareable\n", "2026-07-18")
+
+    # cycle 1: sweep queues it; his slice's Shares.md shows it pending
+    run_cycle(master, out, today="2026-07-18")
+    note = out / "bob/People/bob/Shares.md"
+    assert "Awaiting approval" in note.read_text()
+
+    # tampering with the generated note neither writes back nor survives
+    note.write_text("forged status\n")
+    approve(master, "bob-2026-07-18-s", approver="alice", date="2026-07-19")
+    report = run_cycle(master, out, today="2026-07-19")
+    assert report.ok  # write-back reported no rejected changes
+    text = note.read_text()
+    assert "forged" not in text
+    assert "✅ `Company/Frameworks/S.md` — approved 2026-07-19 by alice" in text
+    # A generated file must never become a real note in master — if it were
+    # miscategorized as `compiled`, write-back would apply the forged edit here.
+    assert not (master / "People/bob/Shares.md").exists()
+    # And the tampered generated file must not even register as a writeback change.
+    bob_wb = next(w for w in report.writebacks if w.person_id == "bob")
+    assert bob_wb.applied == 0

@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path, PurePosixPath
 
 from brain.resolver import readable_spaces
@@ -80,8 +81,13 @@ def _iter_space_files(master: Path, space: str):
 
 
 def compile_vault(
-    master: Path, person: Person, rules: tuple[SpaceRule, ...], out: Path
+    master: Path,
+    person: Person,
+    rules: tuple[SpaceRule, ...],
+    out: Path,
+    today: str | None = None,
 ) -> CompileResult:
+    today = today or date.today().isoformat()
     spaces = readable_spaces(master, person, rules)
     building = out.parent / f".{out.name}.building"
     old = out.parent / f".{out.name}.old"
@@ -114,7 +120,9 @@ def compile_vault(
                 shutil.copy2(master / rel, dest)
                 compiled.append(rel)
 
-        generated = _post_process(building, master, person, spaces, rules, compiled)
+        generated = _post_process(
+            building, master, person, spaces, rules, compiled, today
+        )
 
         # Hash what was actually shipped (post-stubbing); generated files are
         # tracked separately and never counted as user-editable baseline.
@@ -158,10 +166,12 @@ def _post_process(
     spaces: list[str],
     rules: tuple[SpaceRule, ...],
     compiled: list[str],
+    today: str,
 ) -> list[str]:
-    """Hook for link stubbing (Task 4) and context-file generation (Task 5).
-
-    Returns the list of generated rel paths for the manifest.
+    """Post-process the built vault: stub cross-boundary links, generate the
+    AGENTS.md/CLAUDE.md context files, and generate the read-only
+    People/<pid>/Shares.md promotion-status note. Returns the list of
+    generated rel paths for the manifest (excluded from the write-back baseline).
     """
     from brain.resolver import can_write_path
 
@@ -180,7 +190,19 @@ def _post_process(
 
     from brain.contextgen import generate_context_files
 
-    return generate_context_files(building, person, spaces, rules)
+    generated = generate_context_files(building, person, spaces, rules)
+
+    from brain.promotions import SHARES_NOTE_REL, generate_shares_note
+
+    note = generate_shares_note(master, person.id, today)
+    if note is not None:
+        # People/<pid>/Shares.md is a reserved generated filename — regenerated from queue truth each compile.
+        rel = SHARES_NOTE_REL.format(person_id=person.id)
+        dest = building / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(note)
+        generated.append(rel)
+    return generated
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
@@ -190,12 +212,17 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def compile_all(
-    master: Path, org: Org, rules: tuple[SpaceRule, ...], out_root: Path
+    master: Path,
+    org: Org,
+    rules: tuple[SpaceRule, ...],
+    out_root: Path,
+    today: str | None = None,
 ) -> list[CompileResult]:
+    today = today or date.today().isoformat()
     results = []
     for person in org.people.values():
         out = out_root / person.id
-        result = compile_vault(master, person, rules, out)
+        result = compile_vault(master, person, rules, out, today)
         if not (out / ".git").exists():
             _git(out, "init", "-b", "main")
         _git(out, "add", "-A")
