@@ -253,3 +253,84 @@ def sweep(master: Path, today: str) -> list[Path]:
         f.unlink()
         moved.append(_pending_dir(master) / f"{promo_id}.md")
     return moved
+
+
+SHARES_NOTE_REL = "People/{person_id}/Shares.md"
+_DECIDED_WINDOW_DAYS = 30
+_DECIDED_CAP = 20
+
+
+def generate_shares_note(master: Path, person_id: str, today: str) -> str | None:
+    """Render one person's promotion-status note, or ``None`` if empty.
+
+    The only user-visible window into ``_meta/promotions``: everything of
+    theirs still pending, plus decisions from the last 30 days (newest
+    first, max 20). Compiled into the slice as a *generated* file — the
+    queue stays the single source of truth and edits are discarded.
+    """
+    from datetime import date as _date, timedelta
+
+    base = master / "_meta/promotions"
+
+    def _entries(state: str) -> list[dict]:
+        d = base / state
+        if not d.is_dir():
+            return []
+        metas: list[dict] = []
+        for f in sorted(d.glob("*.md")):
+            try:
+                meta, _ = split_frontmatter(f.read_text())
+            except (KeyError, ValueError):
+                continue  # malformed stays on disk for manual inspection
+            if not meta or meta.get("from") != person_id:
+                continue
+            metas.append(meta)
+        return metas
+
+    cutoff = _date.fromisoformat(today) - timedelta(days=_DECIDED_WINDOW_DAYS)
+
+    def _when(meta: dict, key: str) -> _date | None:
+        try:
+            return _date.fromisoformat(meta.get(key) or meta.get("created", ""))
+        except ValueError:
+            return None
+
+    decided: list[tuple[_date, str]] = []
+    for meta in _entries("approved"):
+        d = _when(meta, "approved-on")
+        if d is None or d < cutoff:
+            continue
+        by = meta.get("approved-by", "")
+        decided.append((d, f"- ✅ `{meta.get('target-path', '?')}` — approved "
+                           f"{d.isoformat()}{f' by {by}' if by else ''}; now live"))
+    for meta in _entries("rejected"):
+        d = _when(meta, "rejected-on")
+        if d is None or d < cutoff:
+            continue
+        reason = meta.get("rejected-reason", "no reason recorded")
+        decided.append((d, f"- ❌ `{meta.get('target-path', '?')}` — rejected "
+                           f"{d.isoformat()}: {reason}"))
+    decided.sort(key=lambda t: t[0], reverse=True)
+    decided = decided[:_DECIDED_CAP]
+
+    pending = _entries("pending")
+    if not pending and not decided:
+        return None
+
+    lines = [
+        "---",
+        "generated: true",
+        "---",
+        "# My Shares",
+        "",
+        "Status of knowledge you have proposed to share. This file is",
+        "regenerated on every compile — edits here are discarded.",
+    ]
+    if pending:
+        lines += ["", "## Awaiting approval", ""]
+        lines += [f"- `{m.get('target-path', '?')}` — submitted {m.get('created', '?')}"
+                  for m in pending]
+    if decided:
+        lines += ["", "## Recently decided", ""]
+        lines += [line for _, line in decided]
+    return "\n".join(lines) + "\n"
