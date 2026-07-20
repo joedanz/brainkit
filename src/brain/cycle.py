@@ -95,7 +95,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             )
 
     swept = len(sweep(master, today=today))
-    compiled = len(compile_all(master, org, rules, out_root))
+    compiled = len(compile_all(master, org, rules, out_root, today=today))
     pending = len(list_pending(master))
 
     indexed = 0
