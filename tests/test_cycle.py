@@ -221,7 +221,13 @@ def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
     note.write_text("forged status\n")
     approve(master, "bob-2026-07-18-s", approver="alice", date="2026-07-19")
     report = run_cycle(master, out, today="2026-07-19")
-    assert report.ok  # the forged edit was ignored, not treated as a violation
+    assert report.ok  # write-back reported no rejected changes
     text = note.read_text()
     assert "forged" not in text
     assert "✅ `Company/Frameworks/S.md` — approved 2026-07-19 by alice" in text
+    # A generated file must never become a real note in master — if it were
+    # miscategorized as `compiled`, write-back would apply the forged edit here.
+    assert not (master / "People/bob/Shares.md").exists()
+    # And the tampered generated file must not even register as a writeback change.
+    bob_wb = next(w for w in report.writebacks if w.person_id == "bob")
+    assert bob_wb.applied == 0
