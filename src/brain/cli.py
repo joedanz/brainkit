@@ -81,7 +81,8 @@ def cmd_promotions(args) -> int:
                              date=date.today().isoformat())
             print(f"approved {args.id} -> {target}")
         elif args.action == "reject":
-            reject(master, args.id, reason=args.reason)
+            reject(master, args.id, reason=args.reason,
+                   date=date.today().isoformat())
             print(f"rejected {args.id}")
     except (PromotionError, SchemaError) as e:
         print(str(e), file=sys.stderr)

@@ -76,7 +76,7 @@ def test_reject_records_reason(master: Path):
         master, person_id="bob", target_path="Company/Frameworks/SOP2.md",
         source="s", body="b", promo_id="p-004", created="2026-07-07",
     )
-    rejected = reject(master, "p-004", reason="too client-specific")
+    rejected = reject(master, "p-004", reason="too client-specific", date="2026-07-20")
     assert "rejected-reason: too client-specific" in rejected.read_text()
     assert not (master / "Company/Frameworks/SOP2.md").exists()
     assert list_pending(master) == []
@@ -224,7 +224,7 @@ def test_sweep_does_not_resurrect_a_rejected_promotion(master: Path):
 
     _draft(master)
     sweep(master, today="2026-07-07")
-    reject(master, "bob-cbs-result", reason="off-scope")
+    reject(master, "bob-cbs-result", reason="off-scope", date="2026-07-20")
     assert list_pending(master) == []
 
     draft = _draft(master)                   # reappears next cycle
@@ -288,4 +288,31 @@ def test_approve_and_reject_unknown_id_raise(master: Path):
     with pytest.raises(PromotionError, match="no pending promotion"):
         approve(master, "does-not-exist", approver="alice", date="2026-07-08")
     with pytest.raises(PromotionError, match="no pending promotion"):
-        reject(master, "does-not-exist", reason="n/a")
+        reject(master, "does-not-exist", reason="n/a", date="2026-07-20")
+
+
+def _draft_p1(master: Path) -> None:
+    draft_promotion(
+        master, person_id="bob",
+        target_path="Company/Frameworks/SOP.md",
+        source="People/bob/Sessions/call.md",
+        body="shareable\n", promo_id="p-001", created="2026-07-01",
+    )
+
+
+def test_approve_stamps_decision_in_archive(master: Path):
+    _seed_org(master)
+    _draft_p1(master)
+    approve(master, "p-001", approver="alice", date="2026-07-20")
+    text = (master / "_meta/promotions/approved/p-001.md").read_text()
+    assert "approved-on: 2026-07-20" in text
+    assert "approved-by: alice" in text
+    assert "shareable" in text  # body survives the rewrite
+
+
+def test_reject_stamps_decision_date(master: Path):
+    _draft_p1(master)
+    reject(master, "p-001", reason="too raw", date="2026-07-20")
+    text = (master / "_meta/promotions/rejected/p-001.md").read_text()
+    assert "rejected-on: 2026-07-20" in text
+    assert "rejected-reason: too raw" in text

@@ -452,7 +452,7 @@ async def handle_promotion_action(request: web.Request) -> web.Response:
             reason = str(data.get("reason") or "").strip()
             if not reason:
                 raise web.HTTPBadRequest(reason="a rejection reason is required")
-            reject(master, promo_id, reason)
+            reject(master, promo_id, reason, _today())
         else:
             raise web.HTTPNotFound(reason=f"unknown action {action!r}")
 

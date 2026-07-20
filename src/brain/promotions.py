@@ -190,16 +190,22 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
     )
     archived = master / "_meta/promotions/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
-    pending.rename(archived)
+    _, fm, promo_body = pending.read_text().split("---\n", 2)
+    archived.write_text(
+        f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n---\n{promo_body}"
+    )
+    pending.unlink()
     return target
 
 
-def reject(master: Path, promo_id: str, reason: str) -> Path:
+def reject(master: Path, promo_id: str, reason: str, date: str) -> Path:
     pending = _find_pending(master, promo_id)
     _, fm, body = pending.read_text().split("---\n", 2)
     rejected = master / "_meta/promotions/rejected" / pending.name
     rejected.parent.mkdir(parents=True, exist_ok=True)
-    rejected.write_text(f"---\n{fm}rejected-reason: {reason}\n---\n{body}")
+    rejected.write_text(
+        f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n---\n{body}"
+    )
     pending.unlink()
     return rejected
 
