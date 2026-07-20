@@ -168,9 +168,10 @@ def _post_process(
     compiled: list[str],
     today: str,
 ) -> list[str]:
-    """Hook for link stubbing (Task 4) and context-file generation (Task 5).
-
-    Returns the list of generated rel paths for the manifest.
+    """Post-process the built vault: stub cross-boundary links, generate the
+    AGENTS.md/CLAUDE.md context files, and generate the read-only
+    People/<pid>/Shares.md promotion-status note. Returns the list of
+    generated rel paths for the manifest (excluded from the write-back baseline).
     """
     from brain.resolver import can_write_path
 
@@ -195,6 +196,7 @@ def _post_process(
 
     note = generate_shares_note(master, person.id, today)
     if note is not None:
+        # People/<pid>/Shares.md is a reserved generated filename — regenerated from queue truth each compile.
         rel = SHARES_NOTE_REL.format(person_id=person.id)
         dest = building / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
