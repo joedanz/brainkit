@@ -194,6 +194,8 @@ function draw(g, preserveView) {
     .attr("r", rOf)
     .attr("fill", (d) => colorFor(d.space))
     .style("color", (d) => colorFor(d.space))
+    .attr("stroke", (d) => (d.entity ? colorFor("entity:" + d.entity) : null))
+    .attr("stroke-width", (d) => (d.entity ? 2 : 0))
     .classed("pulse", (d) => fresh.has(d.rel_path))
     .on("click", (ev, d) => select(d, adj, byId))
     .on("mouseenter", (ev, d) => focus(d, adj))
@@ -242,6 +244,9 @@ function draw(g, preserveView) {
     .map((name) => ({ name, color: colorFor(name) }));
   S.controls.updateSpaces(spaces,
     g.truncated ? "Showing the " + g.nodes.length + " most-connected notes." : null);
+  const types = [...new Set(g.nodes.map((n) => n.entity).filter(Boolean))].sort()
+    .map((name) => ({ name, color: colorFor("entity:" + name) }));
+  S.controls.updateEntities(types);
   refreshVisibility();
   if (S.sel != null) reselect(adj, byId);
 }
@@ -274,6 +279,7 @@ function refresh3D() {
 
 function matches(d) {
   if (S.settings.spacesOff.includes(d.space)) return false;
+  if (d.entity && S.settings.entitiesOff.includes(d.entity)) return false;
   if (!S.settings.orphans && d.degree === 0) return false;
   if (!S.search) return true;
   return d.title.toLowerCase().includes(S.search) || d.rel_path.toLowerCase().includes(S.search);
@@ -351,7 +357,8 @@ function reselect(adj, byId) {
   if (!d) return;
   clear(S.panel);
   S.panel.appendChild(el("h3", null, d.title));
-  S.panel.appendChild(el("div", "space-tag", d.space + " · " + d.rel_path));
+  S.panel.appendChild(el("div", "space-tag",
+    d.space + " · " + d.rel_path + (d.entity ? " · " + d.entity : "")));
 
   const open = el("button", "btn", "Open in Query");
   open.style.margin = "8px 0";
