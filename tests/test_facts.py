@@ -167,3 +167,59 @@ def test_query_include_ended(master, tmp_path):
 def test_query_missing_index_warns(tmp_path):
     hits, warnings = query_facts(tmp_path / "no-vault")
     assert hits == [] and any("no index" in w for w in warnings)
+
+
+import subprocess
+
+from brain.facts import query_facts_at
+
+
+def _git(vault, *argv, env_date=None):
+    env = {"GIT_AUTHOR_DATE": env_date, "GIT_COMMITTER_DATE": env_date} if env_date else {}
+    import os
+    subprocess.run(["git", "-C", str(vault), "-c", "user.name=t",
+                    "-c", "user.email=t@t", *argv],
+                   check=True, capture_output=True, env={**os.environ, **env})
+
+
+def test_believed_on_reads_history(master, tmp_path):
+    vault = _facts_vault(master, tmp_path)
+    acme = vault / "Company/Intel/Acme.md"
+    _git(vault, "init", "-q")
+
+    # state 1 (2025-01-15): only Dana, still current
+    acme.write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Dana Ortiz is our main contact [from:: 2024-06]\n")
+    _git(vault, "add", "-A")
+    _git(vault, "commit", "-q", "-m", "state1", env_date="2025-01-15T12:00:00 +0000")
+
+    # state 2 (2026-01-20): Dana closed, Sarah current — one commit
+    acme.write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Sarah Kim is our main contact [from:: 2026-01]\n"
+        "- Dana Ortiz was our main contact [from:: 2024-06] [until:: 2026-01]\n")
+    _git(vault, "add", "-A")
+    _git(vault, "commit", "-q", "-m", "state2", env_date="2026-01-20T12:00:00 +0000")
+
+    # believed on 2025-06-01 → state1's view: Dana, open-ended
+    hits, warnings = query_facts_at(vault, "2025-06-01")
+    assert warnings == []
+    assert [h.statement for h in hits] == ["Dana Ortiz is our main contact"]
+    assert hits[0].until_date is None
+
+    # believed on 2026-02-01 → state2's view: Sarah current, Dana closed
+    hits, _ = query_facts_at(vault, "2026-02-01")
+    assert [h.statement for h in hits] == ["Sarah Kim is our main contact"]
+    hits, _ = query_facts_at(vault, "2026-02-01", include_ended=True)
+    assert len(hits) == 2
+
+    # before any commit → clear warning, no crash
+    hits, warnings = query_facts_at(vault, "2020-01-01")
+    assert hits == [] and any("no commit" in w for w in warnings)
+
+
+def test_believed_on_without_git_warns(master, tmp_path):
+    vault = _facts_vault(master, tmp_path)
+    hits, warnings = query_facts_at(vault, "2026-01-01")
+    assert hits == [] and any("no git history" in w for w in warnings)

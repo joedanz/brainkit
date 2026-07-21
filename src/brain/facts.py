@@ -235,5 +235,82 @@ def query_facts(
         store.close()
 
 
-def query_facts_at(vault, on_date, *, entity=None, etype=None, include_ended=False):
-    return [], ["no git history (vault is not a git repository)"]
+def query_facts_at(
+    vault: Path,
+    on_date: str,
+    *,
+    entity: str | None = None,
+    etype: str | None = None,
+    include_ended: bool = False,
+) -> tuple[list[FactHit], list[str]]:
+    """What did we believe on `on_date`? Parses fact lines straight from the
+    vault's git tree at the last commit on or before that date — the same pure
+    parser the indexer uses, pointed at an older clock. No index involved.
+
+    Entities in the hits are raw wikilink targets (plus the host page when it
+    carries entity frontmatter): without an index there is no stem/alias
+    resolution, and resolving against today's files would anachronistically
+    apply the present to the past."""
+    import subprocess
+
+    from brain.frontmatter import split_frontmatter
+
+    vault = Path(vault)
+    on = normalize_from(on_date)
+    if on is None:
+        return [], [f"unparseable date: {on_date!r}"]
+
+    def git(*argv: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(vault), *argv],
+            capture_output=True, text=True, check=True,
+        ).stdout
+
+    try:
+        commit = git("rev-list", "-1", f"--before={on}T23:59:59+0000", "HEAD").strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return [], ["no git history (vault is not a git repository)"]
+    if not commit:
+        return [], [f"no commit on or before {on}"]
+
+    entities_then: dict[str, tuple[str, list[str]]] = {}
+    page_facts: list[tuple[str, Fact]] = []
+    for rel in git("ls-tree", "-r", "--name-only", commit).splitlines():
+        if not rel.endswith(".md"):
+            continue
+        text = git("show", f"{commit}:{rel}")
+        meta, _body = split_frontmatter(text)
+        ent = parse_entity(meta)
+        if ent is not None:
+            entities_then[rel] = ent
+        for f in parse_facts(text):
+            page_facts.append((rel, f))
+
+    # entity/type selection against the historical entity set
+    entity_paths: set[str] | None = None
+    if entity is not None:
+        wanted = entity.strip().lower()
+        entity_paths = {rel for rel, (t, aliases) in entities_then.items()
+                        if rel == entity
+                        or Path(rel).stem.lower() == wanted
+                        or wanted in (a.lower() for a in aliases)}
+        if not entity_paths:
+            return [], [f"no entity matches {entity!r}"]
+    etype_paths: set[str] | None = None
+    if etype is not None:
+        etype_paths = {rel for rel, (t, _a) in entities_then.items() if t == etype}
+
+    hits: list[FactHit] = []
+    for rel, f in page_facts:
+        ents = sorted(set(f.targets) | ({rel} if rel in entities_then else set()))
+        keyset = set(ents)
+        if entity_paths is not None and not (entity_paths & keyset):
+            continue
+        if etype_paths is not None and not (etype_paths & keyset):
+            continue
+        if not include_ended:
+            if f.from_date > on or (f.until_date is not None and f.until_date < on):
+                continue
+        hits.append(FactHit(rel, f.line, f.statement, f.from_date,
+                            f.until_date, f.sources, ents))
+    return hits, []
