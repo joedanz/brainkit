@@ -13,6 +13,12 @@ FROM nousresearch/hermes-agent:latest
 
 USER root
 
+# The base image pins the agent's file-write guard to /opt/data alone — but
+# this image adds /vault, and writing notes there is the whole point. Extend
+# the guard (os.pathsep-separated) rather than unsetting it; without this,
+# every write_file into the vault is denied and "saved" notes silently bounce.
+ENV HERMES_WRITE_SAFE_ROOT=/opt/data:/vault
+
 # brainkit in a dedicated venv: uv brings its own interpreter, so nothing in
 # the hermes install tree (/opt/hermes, immutable at runtime) is touched.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
