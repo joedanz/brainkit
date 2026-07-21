@@ -166,13 +166,18 @@ function draw(g, preserveView) {
   const gWrap = svg.append("g");
 
   const link = gWrap.append("g").selectAll("line").data(links).join("line").attr("class", "link");
+  const label = gWrap.append("g").selectAll("text").data(nodes).join("text")
+    .attr("class", "graph-label")
+    .text((d) => d.title);
   const node = gWrap.append("g").selectAll("circle").data(nodes).join("circle")
     .attr("class", "node")
     .attr("r", (d) => 4 + 2.5 * Math.sqrt(d.degree))
     .attr("fill", (d) => colorFor(d.space))
     .style("color", (d) => colorFor(d.space))
     .classed("pulse", (d) => fresh.has(d.rel_path))
-    .on("click", (ev, d) => select(d, adj, byId));
+    .on("click", (ev, d) => select(d, adj, byId))
+    .on("mouseenter", (ev, d) => focus(d, adj))
+    .on("mouseleave", () => unfocus());
   node.append("title").text((d) => d.title);
 
   const sim = d3.forceSimulation(nodes)
@@ -183,6 +188,8 @@ function draw(g, preserveView) {
       link.attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y)
           .attr("x2", (d) => d.target.x).attr("y2", (d) => d.target.y);
       node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+      label.attr("x", (d) => d.x)
+           .attr("y", (d) => d.y + 4 + 2.5 * Math.sqrt(d.degree) + 11);
       nodes.forEach((n) => S.pos.set(n.rel_path, { x: n.x, y: n.y }));
     });
   S.sim = sim;
@@ -190,6 +197,7 @@ function draw(g, preserveView) {
   const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", (ev) => {
     S.transform = ev.transform;
     gWrap.attr("transform", ev.transform);
+    updateLabels();
   });
   svg.call(zoom);
   if (preserveView && S.transform !== d3.zoomIdentity) {
@@ -205,6 +213,8 @@ function draw(g, preserveView) {
   setTimeout(() => node.classed("pulse", false), 1500);
 
   S._node = node; S._link = link;
+  S._label = label;
+  updateLabels();
   S.prev = new Set(g.nodes.map((n) => n.rel_path));
   buildLegend(g);
   refreshVisibility();
@@ -245,6 +255,43 @@ function refreshVisibility() {
   S._node.classed("dim", (d) => !matches(d));
   S._link.style("display", (d) =>
     (matches(d.source) && matches(d.target)) ? null : "none");
+  updateLabels();
+}
+
+const TEXT_FADE = 1; // replaced by S.settings.textFade in the controls task
+
+// Labels are world-space text that fades in past a zoom threshold — hidden on
+// the far-out constellation, readable when you fly in (Obsidian's behavior).
+function updateLabels() {
+  if (!S || !S._label) return;
+  const k = S.transform.k;
+  const t1 = 1.4 / TEXT_FADE;        // fully visible at this zoom level
+  const t0 = 0.55 * t1;              // starts appearing here
+  const o = Math.max(0, Math.min(1, (k - t0) / (t1 - t0)));
+  S._label
+    .style("opacity", o)
+    .style("display", (d) => (o < 0.02 || !matches(d)) ? "none" : null);
+}
+
+// Hovering a note lights its neighborhood and recedes everything else —
+// classes only; filter-driven .dim / display rules are untouched.
+function focus(d, adj) {
+  const hood = new Set([d.id]);
+  const a = adj.get(d.id) || { out: [], in: [] };
+  a.out.forEach((i) => hood.add(i));
+  a.in.forEach((i) => hood.add(i));
+  S._node.classed("faded", (n) => !hood.has(n.id));
+  S._label.classed("faded", (n) => !hood.has(n.id));
+  S._link
+    .classed("hot", (l) => l.source.id === d.id || l.target.id === d.id)
+    .classed("faded", (l) => !(hood.has(l.source.id) && hood.has(l.target.id)));
+}
+
+function unfocus() {
+  if (!S || !S._node) return;
+  S._node.classed("faded", false);
+  S._label.classed("faded", false);
+  S._link.classed("hot", false).classed("faded", false);
 }
 
 function select(d, adj, byId) {
