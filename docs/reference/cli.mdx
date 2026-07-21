@@ -7,7 +7,7 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,ingest,compile,writeback,promotions,cycle,index,search,mcp,status,dashboard,doctor} …
+brain {init,ingest,compile,writeback,promotions,cycle,index,search,facts,mcp,status,dashboard,doctor} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
@@ -171,7 +171,7 @@ Incremental by default: only files whose manifest sha changed are re-chunked, an
 Query a compiled vault's index. Fuses keyword (FTS5) and semantic (vector) ranking with reciprocal-rank fusion.
 
 ```bash
-brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--json]
+brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--center <rel-path>] [--json]
 ```
 
 | Flag | Required | Meaning |
@@ -180,9 +180,30 @@ brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--json]
 | `--vault` | yes | The compiled vault to search. |
 | `--k` | no | Max results (default 8). |
 | `--keyword-only` | no | Skip the vector leg even if a provider is configured. |
+| `--center` | no | A note's relative path; results near it in the wikilink graph rank higher (see [Retrieval](/concepts/retrieval)). |
 | `--json` | no | Emit `{"query", "mode", "hits": [...], "warnings"}`. |
 
 Each hit carries the file path, heading path, a highlighted snippet, a fused score, and which legs matched. A missing index exits `1` with the exact `brain index` command to build it.
+
+## `brain facts`
+
+Query time-stamped fact lines — current, as-of a date, or believed-on a date — bullets carrying a `[from:: date]` (and optionally `[until:: date]`, `[source:: …]`) — from a compiled vault. See [Facts and time](/concepts/retrieval#facts-and-time) for the grammar and the current/as-of/believed-on distinction.
+
+```bash
+brain facts --vault <vault> [--entity <name>] [--type <type>] [--as-of <date>] [--believed-on <date>] [--ended] [--json]
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `--vault` | yes | The compiled vault to query. |
+| `--entity` | no | Filter to one entity, matched by rel path, title, or alias. |
+| `--type` | no | Filter to one entity type (e.g. `client`). |
+| `--as-of` | no | Facts true on this date, using what the vault knows now. Default: today. |
+| `--believed-on` | no | Answer from the vault's git history as of this date — what it would have said then, replayed at that commit. Mutually exclusive in effect with `--as-of` (this one wins if both are set). |
+| `--ended` | no | Include facts that have since been closed with `[until::]`. |
+| `--json` | no | Emit `{"facts": [...], "warnings": [...]}`. |
+
+`--as-of` reads the current index (fast, reflects today's knowledge of the past); `--believed-on` re-parses the vault's files straight from git history at that date (no index needed, answers what was believed then). A vault with no index exits `1` for the default and `--as-of` forms; `--believed-on` needs only git.
 
 ## `brain mcp`
 
@@ -198,7 +219,7 @@ Register it once with a client — for Claude Code:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes two tools: `brain_search` (hybrid search) and `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
+It exposes five read-only tools: `brain_search` (hybrid search, with an optional `center` note for graph-aware ranking), `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space), `brain_links` (a note's backlinks and outgoing wikilinks), `brain_recent` (recently changed notes, from the vault's git history), and `brain_facts` (time-stamped fact lines, current, as-of, or believed-on a date). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
 
 ## `brain doctor`
 

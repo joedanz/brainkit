@@ -255,7 +255,8 @@ def cmd_search(args) -> int:
         return 1
     provider = None if args.keyword_only else provider_from_config()
     report = search_index(
-        vault, args.query, k=args.k, provider=provider, keyword_only=args.keyword_only
+        vault, args.query, k=args.k, provider=provider,
+        keyword_only=args.keyword_only, center=args.center,
     )
     if args.json:
         print(json.dumps({
@@ -274,6 +275,36 @@ def cmd_search(args) -> int:
         for w in report.warnings:
             print(f"  warning: {w}", file=sys.stderr)
     return 0
+
+
+def cmd_facts(args) -> int:
+    from dataclasses import asdict
+
+    from brain.facts import query_facts, query_facts_at
+
+    vault = Path(args.vault)
+    if args.believed_on:
+        hits, warnings = query_facts_at(
+            vault, args.believed_on, entity=args.entity, etype=args.type,
+            include_ended=args.ended)
+    else:
+        hits, warnings = query_facts(
+            vault, entity=args.entity, etype=args.type, as_of=args.as_of,
+            include_ended=args.ended)
+    if args.json:
+        print(json.dumps({"facts": [asdict(h) for h in hits],
+                          "warnings": warnings}, indent=2))
+    else:
+        if not hits:
+            print("no facts")
+        for h in hits:
+            span = h.from_date + (f" → {h.until_date}" if h.until_date else " →")
+            src = f"  [{', '.join(h.sources)}]" if h.sources else ""
+            print(f"- {h.statement}  ({span}){src}")
+            print(f"    {h.rel_path}:{h.line}")
+        for w in warnings:
+            print(f"  warning: {w}", file=sys.stderr)
+    return 0 if not any(w.startswith(("no index", "no git history", "index predates")) for w in warnings) else 1
 
 
 def cmd_mcp(args) -> int:
@@ -461,8 +492,23 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--vault", required=True)
     sp.add_argument("--k", type=int, default=8)
     sp.add_argument("--keyword-only", action="store_true")
+    sp.add_argument("--center", metavar="REL_PATH", default=None,
+                    help="rank results near this note in the wikilink graph higher")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_search)
+
+    fc = sub.add_parser("facts", help="query bi-temporal fact lines in a compiled vault")
+    fc.add_argument("--vault", required=True)
+    fc.add_argument("--entity", default=None,
+                    help="filter to one entity (rel path, title, or alias)")
+    fc.add_argument("--type", default=None, help="filter to one entity type")
+    fc.add_argument("--as-of", dest="as_of", default=None, metavar="DATE",
+                    help="facts true on this date (default: today)")
+    fc.add_argument("--believed-on", dest="believed_on", default=None, metavar="DATE",
+                    help="answer from the vault's git state on this date")
+    fc.add_argument("--ended", action="store_true", help="include closed facts")
+    fc.add_argument("--json", action="store_true")
+    fc.set_defaults(func=cmd_facts)
 
     mc = sub.add_parser(
         "mcp",

@@ -257,3 +257,23 @@ def test_cli_status_error_paths(master, tmp_path, capsys):
     with _pytest.raises(SystemExit) as exc:
         main(["status", "--vault", "a", "--master", "b"])
     assert exc.value.code == 2
+
+
+def test_graph_nodes_carry_entity_type(master, tmp_path):
+    from brain.compiler import compile_vault
+    from brain.embeddings import FakeEmbeddingProvider
+    from brain.indexer import build_index
+    from brain.stats import collect_vault_stats
+    from tests.conftest import ALICE, RULES
+
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\nSee [[Home]].\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    stats = collect_vault_stats(vault, include_graph=True)
+    by_path = {n.rel_path: n for n in stats.graph.nodes}
+    assert by_path["Company/Intel/Acme.md"].entity == "client"
+    assert by_path["Company/Home.md"].entity == ""

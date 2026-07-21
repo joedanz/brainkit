@@ -90,6 +90,34 @@ def test_index_never_enters_vault_git(tmp_path):
         assert not any(p.startswith(".brain/") for p in tracked)
 
 
+def test_facts_never_leave_readable_spaces(tmp_path):
+    from brain.facts import query_facts
+    from brain.resolver import space_of_path
+
+    saw_nonempty_facts = False
+    for seed in range(5):
+        master, org, out_root = _build_world(tmp_path, seed)
+        for person in org.people.values():
+            allowed = set(readable_spaces(master, person, RULES))
+            store = IndexStore.open(out_root / person.id / ".brain/index.db")
+            rels = store.conn.execute("SELECT DISTINCT rel_path FROM facts").fetchall()
+            if rels:
+                saw_nonempty_facts = True
+            for (rel,) in rels:
+                space = space_of_path(rel)
+                assert space in allowed, f"LEAK(facts) {person.id}: {rel}"
+            store.close()
+            hits, _ = query_facts(out_root / person.id, include_ended=True)
+            for h in hits:
+                assert space_of_path(h.rel_path) in allowed, (
+                    f"LEAK(query_facts) {person.id}: {h.rel_path}")
+    assert saw_nonempty_facts, (
+        "no facts were indexed for any person across any seed — the test "
+        "would be vacuous (random_world's honeypot fact line never made it "
+        "into the facts table)"
+    )
+
+
 def test_mcp_read_refuses_symlink_into_master(tmp_path):
     master, org, out_root = _build_world(tmp_path, 2)
     person = next(iter(org.people.values()))

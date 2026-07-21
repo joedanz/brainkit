@@ -9,7 +9,7 @@ import { el, clear, clickable } from "../dom.js";
 export const DEFAULTS = {
   nodeSize: 1, linkWidth: 1, textFade: 1,
   centerPull: 1, repel: 1, linkDist: 1,
-  orphans: true, spacesOff: [],
+  orphans: true, spacesOff: [], entitiesOff: [],
 };
 
 const NUMERIC_KEYS = ["nodeSize", "linkWidth", "textFade", "centerPull", "repel", "linkDist"];
@@ -20,6 +20,7 @@ export function loadSettings(key) {
     if (raw) {
       const s = Object.assign({}, DEFAULTS, JSON.parse(raw));
       if (!Array.isArray(s.spacesOff)) s.spacesOff = [];
+      if (!Array.isArray(s.entitiesOff)) s.entitiesOff = [];
       s.orphans = s.orphans !== false;
       for (const k of NUMERIC_KEYS) if (!Number.isFinite(s[k])) s[k] = DEFAULTS[k];
       return s;
@@ -131,6 +132,38 @@ export function mountControls(host, opts) {
   }
   updateSpaces(opts.spaces, opts.truncatedNote);
 
+  const entitiesBox = el("div", "gc-spaces");
+  filters.appendChild(entitiesBox);
+
+  function updateEntities(types) {
+    clear(entitiesBox);
+    if (types.length) {
+      const known = new Set(types.map((t) => t.name));
+      const before = s.entitiesOff.length;
+      s.entitiesOff = s.entitiesOff.filter((n) => known.has(n));
+      if (s.entitiesOff.length !== before && opts.onPersist) opts.onPersist();
+      entitiesBox.appendChild(el("div", "gc-note", "Entity types"));
+    }
+    types.forEach((t) => {
+      const row = el("label", "gc-check");
+      const cb = el("input");
+      cb.type = "checkbox";
+      cb.checked = !s.entitiesOff.includes(t.name);
+      cb.addEventListener("change", () => {
+        s.entitiesOff = cb.checked
+          ? s.entitiesOff.filter((n) => n !== t.name)
+          : s.entitiesOff.concat(t.name);
+        opts.onFilter();
+      });
+      row.appendChild(cb);
+      const dot = el("span", "dot");
+      dot.style.background = t.color;
+      row.appendChild(dot);
+      row.appendChild(el("span", null, t.name));
+      entitiesBox.appendChild(row);
+    });
+  }
+
   // ---- Display + Forces ----
   function sliderGroup(title, defs, cb) {
     const d = group(title);
@@ -151,5 +184,5 @@ export function mountControls(host, opts) {
   sliderGroup("Forces", SLIDERS.forces, opts.onForces);
 
   host.appendChild(box);
-  return { updateSpaces };
+  return { updateSpaces, updateEntities };
 }

@@ -65,6 +65,7 @@ class GraphNode:
     title: str
     space: str
     degree: int
+    entity: str = ""
 
 
 @dataclass
@@ -173,6 +174,11 @@ def _build_graph(conn: sqlite3.Connection, cap: int) -> GraphData:
         "WHERE l.src_rel_path != l.target_rel_path"
     ).fetchall()
 
+    try:
+        etypes = dict(conn.execute("SELECT rel_path, type FROM entities"))
+    except sqlite3.OperationalError:  # index predates schema v3
+        etypes = {}
+
     degree: dict[str, int] = {rel: 0 for rel, _ in rows}
     for src, tgt in pairs:
         degree[src] = degree.get(src, 0) + 1
@@ -187,7 +193,7 @@ def _build_graph(conn: sqlite3.Connection, cap: int) -> GraphData:
 
     nodes = [
         GraphNode(id=i, rel_path=rel, title=Path(rel).stem,
-                  space=space, degree=degree[rel])
+                  space=space, degree=degree[rel], entity=etypes.get(rel, ""))
         for (rel, space), i in zip(keep, range(len(keep)))
     ]
     edges = [

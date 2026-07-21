@@ -77,3 +77,52 @@ def test_cli_search_json_and_missing_index(indexed_alice, tmp_path, capsys):
     assert main(["search", "x", "--vault", str(tmp_path / "no-vault")]) == 1
     err = capsys.readouterr().err
     assert "no index" in err
+
+
+def test_center_rerank_boosts_linked_note(master, tmp_path):
+    # Two notes with identical matching text: one wikilink-adjacent to the
+    # center, one orphaned. Only the linked one gets the graph bonus.
+    (master / "Company/Widget Linked.md").write_text("widget report\n")
+    (master / "Company/Widget Orphan.md").write_text("widget report\n")
+    home = master / "Company/Home.md"
+    home.write_text(home.read_text() + "Also [[Widget Linked]].\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    report = search_index(vault, "widget", provider=None, center="Company/Home.md")
+    assert report.mode == "keyword-only+graph"
+    by_path = {h.rel_path: h for h in report.hits}
+    linked = by_path["Company/Widget Linked.md"]
+    orphan = by_path["Company/Widget Orphan.md"]
+    assert "graph" in linked.sources
+    assert "graph" not in orphan.sources
+    assert linked.score > orphan.score
+
+
+def test_center_reaches_multi_hop_neighbors(master, tmp_path):
+    # Home → Big Deal Decision (fixture link) → Widget Plan: two hops out.
+    (master / "Company/Decisions/Big Deal Decision.md").write_text(
+        "We chose option A. See [[Widget Plan]].\n")
+    (master / "Company/Widget Plan.md").write_text("widget plan details\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    report = search_index(vault, "widget", provider=None, center="Company/Home.md")
+    hit = next(h for h in report.hits if h.rel_path == "Company/Widget Plan.md")
+    assert "graph" in hit.sources
+
+
+def test_center_unknown_warns_and_degrades(indexed_alice):
+    report = search_index(indexed_alice, "pipeline", provider=None, center="Nope.md")
+    assert report.mode == "keyword-only"  # no "+graph" suffix
+    assert any("center note not in index" in w for w in report.warnings)
+    assert report.hits  # search itself still works
+
+
+def test_cli_search_center_flag(indexed_alice, capsys):
+    assert main(["search", "pipeline", "--vault", str(indexed_alice),
+                 "--json", "--center", "Company/Home.md"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["mode"].endswith("+graph")

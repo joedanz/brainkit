@@ -22,6 +22,8 @@ from pathlib import Path
 from brain.chunker import chunk_markdown, embedding_input
 from brain.compiler import _stem, extract_wikilinks
 from brain.embeddings import EmbeddingCache, EmbeddingProvider, pack_vector
+from brain.facts import parse_entity, parse_facts
+from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
 from brain.store import IndexStore
 from brain.writeback import _load_manifest
@@ -47,7 +49,8 @@ def _index_path(vault: Path) -> Path:
 
 
 def _resolve_links(
-    raw_targets: list[str], paths: set[str], by_stem: dict[str, str]
+    raw_targets: list[str], paths: set[str], by_stem: dict[str, str],
+    by_alias: dict[str, str] | None = None,
 ) -> list[tuple[str, int]]:
     """Map raw wikilink targets to (target_rel_path, resolved) pairs.
 
@@ -55,10 +58,12 @@ def _resolve_links(
     path-form targets ("Company/Decisions/X") try an exact rel-path match
     first. On duplicate stems the lexicographically first path wins —
     deterministic, though Obsidian itself prefers the shortest path.
-    Unresolved targets keep their raw text with resolved=0: "note doesn't
-    exist" and "note exists in master but outside this vault" are
-    indistinguishable from inside a compiled vault, by design.
+    `by_alias` (lowercased alias -> rel_path) is the fallback once stems miss —
+    stems win over aliases. Unresolved targets keep their raw text with
+    resolved=0: "note doesn't exist" and "note exists in master but outside
+    this vault" are indistinguishable from inside a compiled vault, by design.
     """
+    by_alias = by_alias or {}
     out: list[tuple[str, int]] = []
     for target in raw_targets:
         if "/" in target:
@@ -67,10 +72,10 @@ def _resolve_links(
                     out.append((candidate, 1))
                     break
             else:
-                hit = by_stem.get(_stem(target))
+                hit = by_stem.get(_stem(target)) or by_alias.get(target.strip().lower())
                 out.append((hit, 1) if hit else (target, 0))
         else:
-            hit = by_stem.get(_stem(target))
+            hit = by_stem.get(_stem(target)) or by_alias.get(target.strip().lower())
             out.append((hit, 1) if hit else (target, 0))
     return out
 
@@ -133,8 +138,27 @@ def build_index(
     for rel in sorted(candidates):
         by_stem.setdefault(_stem(rel), rel)
 
+    # Alias resolution starts from what the store already knows (unchanged
+    # entity pages). Changed pages add theirs next, in a pre-pass over
+    # sorted(changed) — mirroring how by_stem is built from sorted(candidates)
+    # — so that if two entity pages ever claim the same alias, the winner is
+    # locked in deterministically rather than left to changed's incidental
+    # (manifest-derived) order. The parsed (entity, raw_facts) are cached here
+    # so the main phase-1 loop below doesn't need to re-parse them.
+    by_alias = store.alias_map()
+    parsed: dict[str, tuple[tuple[str, list[str]] | None, list]] = {}
+    for rel in sorted(changed):
+        text = (vault / rel).read_text(encoding="utf-8", errors="replace")
+        meta, _body = split_frontmatter(text)
+        entity = parse_entity(meta)
+        if entity is not None:
+            for a in entity[1]:
+                by_alias.setdefault(a.lower(), rel)
+        parsed[rel] = (entity, parse_facts(text))
+
     # Phase 1: chunk every changed file and gather the embedding inputs needed.
-    per_file: dict[str, tuple[str, str, list, list[str], list[tuple[str, int]]]] = {}
+    per_file: dict[str, tuple[str, str, list, list[str], list[tuple[str, int]],
+                              tuple[str, list[str]] | None, list]] = {}
     needed: dict[str, str] = {}  # chunk_sha -> embedding input
     for rel in changed:
         space = space_of_path(rel)
@@ -144,8 +168,9 @@ def build_index(
         text = (vault / rel).read_text(encoding="utf-8", errors="replace")
         chunks = chunk_markdown(rel, text)
         cshas = [_sha_text(embedding_input(c)) for c in chunks]
-        links = _resolve_links(extract_wikilinks(text), link_paths, by_stem)
-        per_file[rel] = (candidates[rel], space, chunks, cshas, links)
+        entity, raw_facts = parsed[rel]
+        links = _resolve_links(extract_wikilinks(text), link_paths, by_stem, by_alias)
+        per_file[rel] = (candidates[rel], space, chunks, cshas, links, entity, raw_facts)
         if want_vectors:
             for ch, csha in zip(chunks, cshas):
                 needed.setdefault(csha, embedding_input(ch))
@@ -166,10 +191,19 @@ def build_index(
             report.chunks_embedded = len(misses)
 
     # Phase 3: write each file atomically (delete + add is one transaction pair).
-    for rel, (sha, space, chunks, cshas, links) in per_file.items():
+    for rel, (sha, space, chunks, cshas, links, entity, raw_facts) in per_file.items():
         store.delete_file(rel)
         vectors = [vecs[s] for s in cshas] if want_vectors else None
-        store.add_file(rel, sha, space, chunks, cshas, vectors, links=links)
+        page_is_entity = entity is not None
+        facts = []
+        for f in raw_facts:
+            resolved = {t for t, ok in
+                        _resolve_links(f.targets, link_paths, by_stem, by_alias) if ok}
+            if page_is_entity:
+                resolved.add(rel)
+            facts.append((f, sorted(resolved)))
+        store.add_file(rel, sha, space, chunks, cshas, vectors,
+                       links=links, entity=entity, facts=facts)
     report.files_indexed = len(per_file)
 
     # Unchanged sources may still point at files removed this run; demote
@@ -178,6 +212,15 @@ def build_index(
         "UPDATE links SET resolved = 0 WHERE resolved = 1 "
         "AND target_rel_path NOT IN (SELECT rel_path FROM files)"
     )
+    # Re-resolve links whose raw target text is now a known alias — covers
+    # aliases discovered on unchanged sources whose entity page just arrived
+    # this cycle (or was already known but the source link predates it).
+    for raw, rel_target in by_alias.items():
+        store.conn.execute(
+            "UPDATE OR REPLACE links SET target_rel_path = ?, resolved = 1 "
+            "WHERE resolved = 0 AND lower(target_rel_path) = ?",
+            (rel_target, raw),
+        )
     store.conn.commit()
 
     if provider is not None:

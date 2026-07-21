@@ -175,6 +175,11 @@ def test_init_scaffolds_master(tmp_path: Path):
     assert "Company/Intel/" in protocol
     assert "as of YYYY-MM" in protocol
     assert "captured YYYY-MM" in protocol    # today's-date fallback when source undated
+    # fact-line and entity-page conventions are part of the protocol
+    assert "## Facts and entities" in protocol
+    assert "[from:: YYYY-MM]" in protocol
+    assert "[until:: date]" in protocol
+    assert "entity: client" in protocol
     # Home is the live dashboard; Memory is the overview/map — distinct jobs,
     # not two copies of the same folder index (regression: they looked alike).
     home = (dest / "Company/Home.md").read_text()
@@ -189,3 +194,24 @@ def test_init_scaffolds_master(tmp_path: Path):
     from brain.schemas import load_org, load_spaces
     load_org(dest / "_meta/org.yaml")
     load_spaces(dest / "_meta/spaces.yaml")
+
+
+def test_cli_facts_json(master, tmp_path, capsys):
+    from brain.compiler import compile_vault
+    from brain.embeddings import FakeEmbeddingProvider
+    from brain.indexer import build_index
+    from tests.conftest import ALICE, RULES
+
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Sarah Kim is our main contact [from:: 2026-01]\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    assert main(["facts", "--vault", str(vault), "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["facts"][0]["statement"] == "Sarah Kim is our main contact"
+
+    assert main(["facts", "--vault", str(tmp_path / "nope")]) == 1

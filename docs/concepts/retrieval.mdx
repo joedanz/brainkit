@@ -44,6 +44,15 @@ chunks per file. If no embedding provider is configured — or `sqlite-vec` can'
 load — search degrades to **keyword-only** with a warning, never an empty
 result.
 
+Optionally, a query can name a **center note** (`--center`, or the `center`
+argument of the `brain_search` tool) — typically the note you're working from.
+Results whose file sits close to that note in the wikilink graph get a small
+boost, using the same reciprocal-rank formula with hop distance in place of
+rank: enough to lift related notes past unrelated ones, never enough to drown
+out a strong keyword + vector match. The graph only reorders what search
+already found — it never adds results of its own — and an unknown center note
+degrades to a plain search with a warning.
+
 <Callout type="info">
   `sqlite-vec` loads as a SQLite extension, so it needs a Python whose `sqlite3`
   was compiled with loadable-extension support. Homebrew, pyenv, uv-managed, and
@@ -87,6 +96,46 @@ one person's vault, not the whole company.
 
 Ship tier 1; reach for the others only when a real vault crosses the line.
 
+## Facts and time
+
+Search finds relevant text; some questions instead need a queryable state —
+"is this client still active", "who's the current contact" — answered as of
+a date rather than by relevance. Those are written as fact lines: a bullet
+with a `[from::]` date and a `[source::]` back to the note that established
+it, e.g.
+
+```markdown
+- Acme is a client [from:: 2025-03] [source:: [[2025-03-12 Kickoff call]]]
+- Acme's plan is Enterprise [from:: 2025-03] [until:: 2026-01] [source:: [[2025-03-12 Kickoff call]]]
+- Acme's plan is Growth [from:: 2026-01] [source:: [[2026-01-08 Downgrade]]]
+```
+
+A fact is never edited or deleted once superseded — the old line gets an
+`[until::]` and a new line is added, so the full history stays on the record.
+Three questions read that history differently:
+
+- **Current** (default) — facts true today.
+- **As-of a date** (`--as-of`) — facts true on that date, using what the
+  vault knows now. Answers "what was true then," with the benefit of
+  hindsight.
+- **Believed-on a date** (`--believed-on`) — what the vault would have told
+  you if asked on that date, replayed from the git history at that point in
+  time. Answers "what did we think then," including facts since corrected.
+
+That last distinction is why **transaction time is git**: valid time (when a
+fact was true) lives in the `[from::]`/`[until::]` dates in the text, while
+transaction time (when the vault learned it) is just which commit you read
+the file at. No separate audit log is needed — git already keeps one.
+
+This is a different job from the `[source](URL), as of YYYY-MM` citations
+used elsewhere: citations back narrative prose ("Acme relaunched their
+site"), while fact lines are for state a query can ask about later. Use a
+citation for a one-off observation; use a fact line for anything future
+questions will need to look up.
+
+Query facts with [`brain facts`](/reference/cli#brain-facts), or the
+`brain_facts` MCP tool.
+
 ## Using it from an agent
 
 Register the MCP server once and any MCP client (Claude Code, Cursor, Codex,
@@ -96,7 +145,11 @@ Claude Desktop) can search the vault as a tool:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes `brain_search` (hybrid search) and `brain_read` (a path-scoped file
-read that refuses symlinks, vault escapes, and anything outside a readable
-space). See the [CLI reference](/reference/cli) for `brain index`,
-`brain search`, and `brain mcp`.
+It exposes five read-only tools: `brain_search` (hybrid search, with an
+optional center note for graph-aware ranking), `brain_read` (a path-scoped
+file read that refuses symlinks, vault escapes, and anything outside a
+readable space), `brain_links` (a note's backlinks and outgoing wikilinks),
+`brain_recent` (recently changed notes, from the vault's git history), and
+`brain_facts` (time-stamped fact lines — current, as-of, or believed-on a
+date). See the [CLI reference](/reference/cli) for `brain index`,
+`brain search`, `brain facts`, and `brain mcp`.

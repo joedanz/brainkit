@@ -15,6 +15,7 @@ file.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Protocol
@@ -23,7 +24,7 @@ import sqlite_vec
 
 from brain.chunker import Chunk
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -50,6 +51,26 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 CREATE INDEX IF NOT EXISTS chunks_by_path ON chunks(rel_path);
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, heading_path);
+CREATE TABLE IF NOT EXISTS entities (
+    rel_path TEXT PRIMARY KEY,
+    type     TEXT NOT NULL,
+    aliases  TEXT NOT NULL DEFAULT '[]'
+);
+CREATE TABLE IF NOT EXISTS facts (
+    id         INTEGER PRIMARY KEY,
+    rel_path   TEXT NOT NULL,
+    line       INTEGER NOT NULL,
+    statement  TEXT NOT NULL,
+    from_date  TEXT NOT NULL,
+    until_date TEXT,
+    sources    TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS facts_by_path ON facts(rel_path);
+CREATE TABLE IF NOT EXISTS fact_entities (
+    fact_id         INTEGER NOT NULL,
+    target_rel_path TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fact_entities_by_target ON fact_entities(target_rel_path);
 """
 
 
@@ -219,6 +240,62 @@ class IndexStore:
         row = self.conn.execute("SELECT value FROM index_meta WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 
+    def has_file(self, rel_path: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM files WHERE rel_path = ?", (rel_path,)
+        ).fetchone()
+        return row is not None
+
+    def link_pairs(self) -> list[tuple[str, str]]:
+        """Resolved wikilink pairs whose target exists in this vault, self-loops
+        excluded — the edge set for graph traversal (same join stats.py uses)."""
+        return self.conn.execute(
+            "SELECT l.src_rel_path, l.target_rel_path FROM links l "
+            "JOIN files f ON f.rel_path = l.target_rel_path "
+            "WHERE l.src_rel_path != l.target_rel_path"
+        ).fetchall()
+
+    def links_to(self, rel_path: str) -> list[str]:
+        """Backlinks: notes whose resolved wikilinks point at `rel_path`
+        (self-references excluded, matching link_pairs)."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT src_rel_path FROM links "
+            "WHERE target_rel_path = ? AND resolved = 1 AND src_rel_path != ? "
+            "ORDER BY src_rel_path",
+            (rel_path, rel_path),
+        )]
+
+    def links_from(self, rel_path: str) -> list[tuple[str, int]]:
+        """Outgoing wikilinks of `rel_path` as (target, resolved) pairs.
+        Unresolved targets keep their raw link text."""
+        return [(t, int(r)) for t, r in self.conn.execute(
+            "SELECT target_rel_path, resolved FROM links "
+            "WHERE src_rel_path = ? ORDER BY target_rel_path",
+            (rel_path,),
+        )]
+
+    def entities(self) -> list[tuple[str, str, list[str]]]:
+        return [(rel, etype, json.loads(aliases)) for rel, etype, aliases in
+                self.conn.execute(
+                    "SELECT rel_path, type, aliases FROM entities ORDER BY rel_path")]
+
+    def alias_map(self) -> dict[str, str]:
+        """Lowercased alias -> entity rel_path. First path wins on duplicate
+        aliases (rows ordered by rel_path → deterministic)."""
+        out: dict[str, str] = {}
+        for rel, _etype, aliases in self.entities():
+            for a in aliases:
+                out.setdefault(a.lower(), rel)
+        return out
+
+    def fact_rows(self, rel_path: str | None = None) -> list[tuple]:
+        q = ("SELECT id, rel_path, line, statement, from_date, until_date, sources "
+             "FROM facts")
+        if rel_path is not None:
+            return self.conn.execute(q + " WHERE rel_path = ? ORDER BY rel_path, line",
+                                     (rel_path,)).fetchall()
+        return self.conn.execute(q + " ORDER BY rel_path, line").fetchall()
+
     def chunk(self, chunk_id: int) -> tuple[str, str, str, int, str] | None:
         return self.conn.execute(
             "SELECT rel_path, space, heading_path, pos, text FROM chunks WHERE id = ?",
@@ -256,6 +333,11 @@ class IndexStore:
         self.conn.execute("DELETE FROM chunks WHERE rel_path = ?", (rel_path,))
         self.conn.execute("DELETE FROM files WHERE rel_path = ?", (rel_path,))
         self.conn.execute("DELETE FROM links WHERE src_rel_path = ?", (rel_path,))
+        self.conn.execute(
+            "DELETE FROM fact_entities WHERE fact_id IN "
+            "(SELECT id FROM facts WHERE rel_path = ?)", (rel_path,))
+        self.conn.execute("DELETE FROM facts WHERE rel_path = ?", (rel_path,))
+        self.conn.execute("DELETE FROM entities WHERE rel_path = ?", (rel_path,))
         self.conn.commit()
 
     def add_file(
@@ -267,6 +349,8 @@ class IndexStore:
         chunk_shas: list[str],
         vectors: list[bytes] | None,
         links: list[tuple[str, int]] | None = None,
+        entity: tuple[str, list[str]] | None = None,
+        facts: list | None = None,  # list[tuple[Fact, list[str]]]
     ) -> None:
         cur = self.conn.cursor()
         cur.execute(
@@ -278,6 +362,24 @@ class IndexStore:
                 "INSERT OR REPLACE INTO links(src_rel_path, target_rel_path, resolved) "
                 "VALUES (?, ?, ?)",
                 [(rel_path, target, resolved) for target, resolved in links],
+            )
+        if entity is not None:
+            etype, aliases = entity
+            cur.execute(
+                "INSERT OR REPLACE INTO entities(rel_path, type, aliases) VALUES (?, ?, ?)",
+                (rel_path, etype, json.dumps(aliases)),
+            )
+        for fact, resolved_targets in (facts or []):
+            cur.execute(
+                "INSERT INTO facts(rel_path, line, statement, from_date, until_date, sources) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (rel_path, fact.line, fact.statement, fact.from_date,
+                 fact.until_date, json.dumps(fact.sources)),
+            )
+            fid = cur.lastrowid
+            cur.executemany(
+                "INSERT INTO fact_entities(fact_id, target_rel_path) VALUES (?, ?)",
+                [(fid, t) for t in resolved_targets],
             )
         ids: list[int] = []
         for ch, csha in zip(chunks, chunk_shas):

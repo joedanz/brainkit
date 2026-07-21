@@ -237,3 +237,26 @@ def test_manifest_missing_compiled_key_is_error_not_crash(master, tmp_path):
     findings = run_doctor(master, out)               # must not raise
     assert any(f.check == "compiled" and f.severity == "error"
                and "bob" in f.message for f in findings)
+
+
+def test_doctor_warns_on_malformed_facts_and_empty_entity(master):
+    seed_meta(master)
+    (master / "Company/Bad.md").write_text(
+        "---\nentity: \n---\n# Bad\n\n"
+        "- broken [from:: 2026-99]\n"
+        "- inverted [from:: 2026-05] [until:: 2026-01]\n")
+    from brain.doctor import run_doctor
+    findings = [f for f in run_doctor(master) if f.check == "facts"]
+    msgs = [f.message for f in findings]
+    assert all(f.severity == "warn" for f in findings)
+    assert any("Company/Bad.md:6" in m and "unparseable" in m for m in msgs)
+    assert any("Company/Bad.md:7" in m and "before" in m for m in msgs)
+    assert any("empty entity type" in m for m in msgs)
+
+
+def test_doctor_quiet_on_wellformed_facts(master):
+    seed_meta(master)
+    (master / "Company/Good.md").write_text(
+        "---\nentity: client\n---\n# Good\n\n- fine [from:: 2026-01]\n")
+    from brain.doctor import run_doctor
+    assert [f for f in run_doctor(master) if f.check == "facts"] == []
