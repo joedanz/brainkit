@@ -187,7 +187,7 @@ Each hit carries the file path, heading path, a highlighted snippet, a fused sco
 
 ## `brain facts`
 
-Query bi-temporal fact lines — bullets carrying a `[from:: date]` (and optionally `[until:: date]`, `[source:: …]`) — from a compiled vault. See [Facts and time](/concepts/retrieval#facts-and-time) for the grammar and the current/as-of/believed-on distinction.
+Query time-stamped fact lines — current, as-of a date, or believed-on a date — bullets carrying a `[from:: date]` (and optionally `[until:: date]`, `[source:: …]`) — from a compiled vault. See [Facts and time](/concepts/retrieval#facts-and-time) for the grammar and the current/as-of/believed-on distinction.
 
 ```bash
 brain facts --vault <vault> [--entity <name>] [--type <type>] [--as-of <date>] [--believed-on <date>] [--ended] [--json]
