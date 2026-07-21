@@ -8,6 +8,7 @@ import * as graph from "./tabs/graph.js";
 import * as query from "./tabs/query.js";
 import * as admin from "./tabs/admin.js";
 import * as worklists from "./tabs/worklists.js";
+import * as facts from "./tabs/facts.js";
 
 // Apply the persisted theme before anything renders (the CSS media query covers
 // the un-chosen case, so a first-time visitor sees their OS theme with no flip).
@@ -39,6 +40,7 @@ function tabsFor(kind) {
   const actionsTab = { id: "actions", label: "Actions", render: worklists.renderActions, live: "ignore" };
   const graphTab = { id: "graph", label: "Graph", render: graph.render, live: "onLive", onLive: graph.onLive, dispose: graph.dispose };
   const queryTab = { id: "query", label: "Query", render: query.render, live: "ignore", dispose: query.dispose };
+  const factsTab = { id: "facts", label: "Facts", render: facts.render, live: "ignore", dispose: facts.dispose };
   if (kind === "master") {
     return [
       overviewTab,
@@ -49,7 +51,7 @@ function tabsFor(kind) {
       graphTab, queryTab,
     ];
   }
-  return [overviewTab, inboxTab, actionsTab, graphTab, queryTab];
+  return [overviewTab, inboxTab, actionsTab, graphTab, queryTab, factsTab];
 }
 
 function buildTabs() {

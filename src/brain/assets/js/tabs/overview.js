@@ -66,6 +66,8 @@ function renderVault(app, d, ctx) {
     { n: d.open_actions, label: "open actions", tone: "var(--accent)",
       onClick: () => ctx.goTab("actions") },
     { n: d.pending_reindex.length, label: "notes awaiting reindex", tone: warn },
+    { n: d.facts_total, label: "facts on record", tone: "var(--accent)",
+      onClick: () => ctx.goTab("facts") },
   ]);
 
   const coverage = d.embedding_coverage === null ? "—"
@@ -73,6 +75,8 @@ function renderVault(app, d, ctx) {
   diagnostics(app, [
     ["chunks", d.chunks_total],
     ["embedding coverage", coverage],
+    ["facts", d.facts_total],
+    ["entities", d.entities_total],
     d.pending_reindex.length ? ["pending reindex", d.pending_reindex.length] : null,
   ]);
 

@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from aiohttp import WSServerHandshakeError
@@ -7,7 +9,7 @@ from brain.compiler import compile_vault
 from brain.indexer import build_index
 from brain.server import check_and_broadcast, create_app
 from brain.watch import Lens
-from tests.conftest import ALICE, RULES
+from tests.conftest import ACME, ALICE, RULES
 
 
 def _vault(master, tmp_path):
@@ -283,3 +285,60 @@ async def test_input_clamps(aiohttp_client, master, tmp_path):
     # cap=0 falls back to the default, not the max
     graph = await (await client.get("/api/graph", params={"cap": "0"})).json()
     assert "nodes" in graph
+
+
+# ---- facts endpoint ----------------------------------------------------------
+
+def _facts_vault(master, tmp_path):
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(ACME)
+    return _vault(master, tmp_path)
+
+
+async def test_facts_endpoint_filters(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_vault_app(_facts_vault(master, tmp_path)))
+
+    body = await (await client.get("/api/facts")).json()
+    assert [h["statement"] for h in body["hits"]] == ["Sarah Kim is our main contact"]
+
+    body = await (await client.get("/api/facts", params={"as_of": "2025-06"})).json()
+    assert [h["statement"] for h in body["hits"]] == ["Dana Ortiz was our main contact"]
+
+    body = await (await client.get("/api/facts", params={"include_ended": "1"})).json()
+    assert len(body["hits"]) == 2
+
+    body = await (await client.get("/api/facts", params={"type": "person"})).json()
+    assert body["hits"] == []
+
+    body = await (await client.get("/api/facts", params={"entity": "acme corp"})).json()
+    assert body["hits"]
+
+    body = await (await client.get("/api/facts", params={"entity": "Unknown Co"})).json()
+    assert body["hits"] == [] and any("no entity" in w for w in body["warnings"])
+
+
+async def test_facts_lens_scoping(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_vault_app(_facts_vault(master, tmp_path)))
+    assert (await client.get("/api/facts", params={"person": "bob"})).status == 400
+
+    app, _ = _master_app(master, tmp_path)
+    mclient = await aiohttp_client(app)
+    assert (await mclient.get("/api/facts")).status == 400          # person required
+    assert (await mclient.get("/api/facts", params={"person": "nobody"})).status == 404
+    assert (await mclient.get("/api/facts", params={"person": "alice"})).status == 200
+
+
+async def test_facts_pre_v3_index_is_a_warning_not_500(aiohttp_client, master, tmp_path):
+    vault = _facts_vault(master, tmp_path)
+    conn = sqlite3.connect(vault / ".brain" / "index.db")
+    for t in ("fact_entities", "facts", "entities"):
+        conn.execute(f"DROP TABLE {t}")
+    conn.commit()
+    conn.close()
+
+    client = await aiohttp_client(_vault_app(vault))
+    resp = await client.get("/api/facts")
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["hits"] == []
+    assert any("index" in w for w in body["warnings"])

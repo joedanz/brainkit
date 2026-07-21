@@ -209,6 +209,31 @@ async def handle_search(request: web.Request) -> web.Response:
         raise web.HTTPInternalServerError(reason=str(e))
 
 
+async def handle_facts(request: web.Request) -> web.Response:
+    from brain.facts import query_facts
+
+    vault = _target_vault(request.app, request)
+    q = request.query
+    include_ended = q.get("include_ended") in ("1", "true", "yes")
+
+    def _facts() -> dict:
+        # query_facts never raises for a missing/pre-v3 index — it returns the
+        # problem as a warning, so those degrade to 200 + warning, never a 500.
+        hits, warnings = query_facts(
+            vault,
+            entity=q.get("entity") or None,
+            etype=q.get("type") or None,
+            as_of=q.get("as_of") or None,
+            include_ended=include_ended,
+        )
+        return {"hits": [asdict(h) for h in hits], "warnings": warnings}
+
+    try:
+        return web.json_response(await asyncio.to_thread(_facts))
+    except Exception as e:  # a corrupt index file, etc.
+        raise web.HTTPInternalServerError(reason=str(e))
+
+
 async def handle_notes(request: web.Request) -> web.Response:
     from brain.filters import list_notes
 
@@ -668,6 +693,7 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     app.router.add_get("/api/stats", handle_stats)
     app.router.add_get("/api/graph", handle_graph)
     app.router.add_get("/api/search", handle_search)
+    app.router.add_get("/api/facts", handle_facts)
     app.router.add_get("/api/notes", handle_notes)
     app.router.add_get("/api/note", handle_note)
     app.router.add_get("/api/inbox", handle_inbox)

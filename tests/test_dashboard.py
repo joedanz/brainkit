@@ -9,7 +9,7 @@ from brain.compiler import compile_vault
 from brain.dashboard import render_dashboard
 from brain.indexer import build_index
 from brain.stats import collect_master_stats, collect_vault_stats
-from tests.conftest import ALICE, RULES
+from tests.conftest import ACME, ALICE, RULES
 
 
 def _vault(master, tmp_path) -> Path:
@@ -123,3 +123,62 @@ def test_cli_dashboard_serves_live_by_default(master, tmp_path, monkeypatch):
     # a nonexistent target fails fast without starting a server
     assert main(["dashboard", "--vault", str(tmp_path / "gone")]) == 1
     assert len(calls) == 2
+
+
+# ---- facts & entities in the static snapshot --------------------------------
+
+def _facts_vault(master, tmp_path) -> Path:
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(ACME)
+    return _vault(master, tmp_path)
+
+
+def _facts_stats(master, tmp_path):
+    return collect_vault_stats(_facts_vault(master, tmp_path),
+                               include_graph=True, include_facts=True)
+
+
+def test_vault_dashboard_embeds_facts_and_entities(master, tmp_path):
+    html_text = render_dashboard(_facts_stats(master, tmp_path))
+    blob = _extract_blob(html_text)
+    assert blob["facts_total"] == 2
+    assert blob["entities_total"] == 1
+    assert len(blob["facts"]) == 2  # include_ended baked in
+    acme = next(n for n in blob["graph"]["nodes"]
+                if n["rel_path"] == "Company/Intel/Acme.md")
+    assert acme["entity"] == "client"
+    assert acme["aliases"] == ["Acme Corp", "ACME"]
+
+
+def test_static_renderer_uses_entity_data(master, tmp_path):
+    html_text = render_dashboard(_facts_stats(master, tmp_path))
+    # entity ring + legend + panel tag in the graph, and the Facts section
+    assert 'colorFor("entity:" + ' in html_text
+    assert "renderFacts" in html_text
+    assert "(entity)" in html_text
+
+
+def test_dashboard_with_facts_stays_offline(master, tmp_path):
+    html_text = render_dashboard(_facts_stats(master, tmp_path))
+    assert "http://" not in html_text
+    assert "https://" not in html_text
+    assert not re.search(r'(src|href)\s*=\s*"(?!#)', html_text)
+
+
+def test_cli_static_dashboard_bakes_facts(master, tmp_path):
+    vault = _facts_vault(master, tmp_path)
+    out = tmp_path / "dash.html"
+    assert main(["dashboard", "--vault", str(vault), "--html", str(out)]) == 0
+    blob = _extract_blob(out.read_text(encoding="utf-8"))
+    assert blob["facts_total"] == 2 and len(blob["facts"]) == 2
+
+
+def test_baked_facts_are_vault_scoped(master, tmp_path):
+    # The boundary is structural — the index only holds this vault's notes —
+    # but assert it: a fact in Bob's private space must never reach Alice's
+    # baked snapshot (extends the leak-property discipline to fact rows).
+    (master / "People/bob/Secrets.md").write_text(
+        "- Bob's secret deal [from:: 2026-01]\n")
+    blob = _extract_blob(render_dashboard(_facts_stats(master, tmp_path)))
+    assert blob["facts"], "fixture should bake Alice-visible facts"
+    assert all("People/bob" not in f["rel_path"] for f in blob["facts"])

@@ -81,7 +81,7 @@ The brain is a shared platform for people *and* software. Your team works in Obs
 |---|---|
 | **Capture** | Email, chat (Telegram), voice, file uploads, and signed webhooks (`brain webhook` — Fathom, Zapier, Composio triggers) all funnel through `brain ingest` — one hardened path that refuses unknown senders and path tricks |
 | **Search** | Hybrid keyword + semantic search (`brain search`), built per-vault so it can only ever surface notes you're allowed to see |
-| **Live user dashboard** | `brain dashboard` in a person's vault — inbox, open actions, notes-by-space, an interactive 2D/3D map of how their notes connect, and search across everything they may see. Updates live over WebSocket; `--html` writes a static snapshot |
+| **Live user dashboard** | `brain dashboard` in a person's vault — inbox, open actions, notes-by-space, an interactive 2D/3D map of how their notes connect, a Facts tab of time-stamped facts (ask what was true on any date), and search across everything they may see. Updates live over WebSocket; `--html` writes a static snapshot |
 | **Admin dashboard** | `brain dashboard` on the master — every person's vault at a glance, the sharing review queue, a read/write permissions matrix, and live `brain doctor` findings (including the name-leak check) |
 | **Sharing queue** | `brain promotions` — a person or an agent drafts, a human approves; the only private→shared path |
 | **Write-back** | Edits flow back to the master vault with every path validated server-side; one out-of-bounds edit rejects the whole batch |
@@ -93,7 +93,7 @@ The brain is a shared platform for people *and* software. Your team works in Obs
 
 Run `brain dashboard` and you get a live, self-hosted view of the brain — no extra service, no SaaS. It updates in real time over a WebSocket, and can also export a static HTML snapshot with `--html`. There are two lenses.
 
-**Each person's live dashboard** shows their own vault, and only their own: what's waiting in the inbox, open actions, notes by space, their most-linked notes, an interactive 2D/3D map of how those notes connect, and search across everything they're allowed to see. Notes can be captured straight from the dashboard, too.
+**Each person's live dashboard** shows their own vault, and only their own: what's waiting in the inbox, open actions, notes by space, their most-linked notes, an interactive 2D/3D map of how those notes connect, and search across everything they're allowed to see. Notes can be captured straight from the dashboard, too. A Facts tab lists the vault's time-stamped facts — filter by entity or type, or pick a date to see what was true then — and the 2D map rings typed entity pages (clients, people, projects) by type.
 
 ![A person's live dashboard — notes, inbox and open-action cards, a notes-by-space chart, and most-linked notes](scripts/demo/dashboard-user.png)
 

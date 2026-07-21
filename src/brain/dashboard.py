@@ -93,6 +93,15 @@ ul.plain li { padding: 5px 0; border-bottom: 1px solid var(--line); }
           font-size: 12px; color: var(--dim); }
 .legend .dot { display: inline-block; width: 9px; height: 9px;
                border-radius: 50%; margin-right: 5px; }
+.facts-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
+             align-items: center; font-size: 13px; }
+.facts-bar input { background: var(--panel); color: var(--text);
+                   border: 1px solid var(--line); border-radius: 6px;
+                   padding: 5px 8px; font: inherit; }
+.fact { background: var(--panel); border: 1px solid var(--line);
+        border-radius: 8px; padding: 8px 12px; margin: 6px 0; }
+.fact-meta { color: var(--dim); font-size: 12px; margin-top: 2px;
+             overflow-wrap: anywhere; }
 .warnings { margin-top: 20px; }
 .warnings div { color: var(--warn); font-size: 13px; padding: 3px 0; }
 @media (max-width: 800px) { .graph-wrap { grid-template-columns: 1fr; } }
@@ -213,6 +222,16 @@ function renderGraph(parent, graph) {
     item.appendChild(document.createTextNode(n.space));
     legend.appendChild(item);
   });
+  var etypes = {};
+  graph.nodes.forEach(function (n) { if (n.entity) etypes[n.entity] = true; });
+  Object.keys(etypes).sort().forEach(function (t) {
+    var item = el("span");
+    var dot = el("span", "dot");
+    dot.style.background = colorFor("entity:" + t);
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(t + " (entity)"));
+    legend.appendChild(item);
+  });
   parent.appendChild(legend);
   if (graph.truncated) {
     parent.appendChild(el("div", "meta",
@@ -290,6 +309,12 @@ function renderGraph(parent, graph) {
       ctx.arc(n.x, n.y, n.radius, 0, 2 * Math.PI);
       ctx.fillStyle = colorFor(n.d.space);
       ctx.fill();
+      if (n.d.entity) {
+        ctx.strokeStyle = colorFor("entity:" + n.d.entity);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
       if (n === selected) {
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 2;
@@ -326,7 +351,8 @@ function renderGraph(parent, graph) {
       return;
     }
     panel.appendChild(el("h3", null, best.d.title));
-    var tag = el("div", "space-tag", best.d.space + " · " + best.d.rel_path);
+    var tag = el("div", "space-tag", best.d.space + " · " + best.d.rel_path +
+                 (best.d.entity ? " · " + best.d.entity : ""));
     panel.appendChild(tag);
     var out = [], inn = [];
     edges.forEach(function (e) {
@@ -344,6 +370,67 @@ function renderGraph(parent, graph) {
   });
 }
 
+/* ---- facts (vault view only): baked rows + client-side as-of filter ---- */
+function factRow(f) {
+  var card = el("div", "fact");
+  card.appendChild(el("div", null, f.statement));
+  var bits = [f.from_date + " → " + (f.until_date || "")];
+  if (f.sources && f.sources.length) bits.push(f.sources.join(" · "));
+  bits.push(f.rel_path + ":" + f.line);
+  card.appendChild(el("div", "fact-meta", bits.join("  ·  ")));
+  return card;
+}
+
+function renderFacts(parent, facts, aliasIndex) {
+  var bar = el("div", "facts-bar");
+  var entity = el("input");
+  entity.type = "search";
+  entity.placeholder = "filter by entity, alias, or text…";
+  entity.setAttribute("aria-label", "Filter facts");
+  var asOf = el("input");
+  asOf.type = "date";
+  asOf.title = "facts true on this date";
+  asOf.setAttribute("aria-label", "Facts true on this date");
+  var ended = el("label");
+  var endedBox = el("input");
+  endedBox.type = "checkbox";
+  ended.appendChild(endedBox);
+  ended.appendChild(document.createTextNode(" include ended"));
+  bar.appendChild(entity);
+  bar.appendChild(asOf);
+  bar.appendChild(ended);
+  parent.appendChild(bar);
+  var list = el("div");
+  parent.appendChild(list);
+
+  function paint() {
+    list.textContent = "";
+    var on = asOf.value || new Date().toISOString().slice(0, 10);
+    var q = entity.value.trim().toLowerCase();
+    var aliasRel = aliasIndex[q] || null;  // exact alias → entity rel_path
+    var shown = facts.filter(function (f) {
+      if (!endedBox.checked) {
+        // mirrors query_facts: from <= on and (until is null or until >= on)
+        if (f.from_date > on) return false;
+        if (f.until_date !== null && f.until_date < on) return false;
+      }
+      if (!q) return true;
+      if (aliasRel && (f.entities || []).indexOf(aliasRel) >= 0) return true;
+      var inEnts = (f.entities || []).some(function (e) {
+        return e.toLowerCase().indexOf(q) >= 0;
+      });
+      return inEnts || f.statement.toLowerCase().indexOf(q) >= 0;
+    });
+    list.appendChild(el("div", "meta",
+      shown.length + " fact(s)" + (asOf.value ? " as of " + on : "")));
+    shown.forEach(function (f) { list.appendChild(factRow(f)); });
+  }
+  entity.addEventListener("input", paint);
+  asOf.addEventListener("change", paint);
+  endedBox.addEventListener("change", paint);
+  paint();
+}
+
 /* ---- user view ---- */
 function renderVault(app, d) {
   document.getElementById("page-meta").textContent =
@@ -357,6 +444,8 @@ function renderVault(app, d) {
     { value: d.spaces.length, label: "spaces" },
     { value: d.inbox_count, label: "inbox items" },
     { value: d.open_actions, label: "open actions" },
+    { value: d.facts_total, label: "facts" },
+    { value: d.entities_total, label: "entities" },
     { value: coverage, label: "embedding coverage",
       tone: d.embedding_coverage === 1 ? "" : "warn" },
     { value: d.pending_reindex.length, label: "pending reindex",
@@ -371,6 +460,17 @@ function renderVault(app, d) {
   if (d.graph && d.graph.nodes.length) {
     var g = section(app, "Context graph");
     renderGraph(g, d.graph);
+  }
+
+  if (d.facts && d.facts.length) {
+    var aliasIndex = {};
+    if (d.graph) d.graph.nodes.forEach(function (n) {
+      (n.aliases || []).forEach(function (a) {
+        aliasIndex[a.toLowerCase()] = n.rel_path;
+      });
+    });
+    var fs = section(app, "Facts");
+    renderFacts(fs, d.facts, aliasIndex);
   }
 
   if (d.top_linked.length) {

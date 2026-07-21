@@ -374,7 +374,8 @@ def _dashboard_static(args) -> int:
 
     try:
         if args.vault:
-            stats = collect_vault_stats(Path(args.vault), include_graph=True)
+            stats = collect_vault_stats(Path(args.vault), include_graph=True,
+                                        include_facts=True)
         else:
             out_root = Path(args.out) if args.out else None
             stats = collect_master_stats(Path(args.master), out_root)
