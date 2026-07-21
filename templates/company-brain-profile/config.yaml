@@ -6,10 +6,13 @@ terminal:
   cwd: "REPLACE_WITH_VAULT_PATH"
 
 memory:
-  memory_enabled: true
-  user_profile_enabled: true
-  write_approval: true
-  # No external memory provider: the vault is the single source of truth.
+  # Off on purpose: the vault is the durable memory (Memory.md, Sessions/,
+  # the routing rules). A built-in memory tool wins every "remember this" —
+  # and facts stored there are per-container and invisible to the brain:
+  # never synced, never promotable, lost on rebuild. With no competing
+  # tool, remembering has exactly one path — a vault file.
+  memory_enabled: false
+  user_profile_enabled: false
 
 skills:
   write_approval: true
