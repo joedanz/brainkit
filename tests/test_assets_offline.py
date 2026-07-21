@@ -5,6 +5,10 @@ test_server.py). This guard extends that promise from the HTML shell to every
 first-party JS/CSS asset: no external URL may appear. Vendor files (d3, three)
 are excluded — they carry homepage URLs in comments — and XML namespace
 identifiers are identifiers, not fetches.
+
+The regex intentionally doesn't match protocol-relative `//host` URLs: matching
+them would false-positive on ordinary `//` comments, and the server's CSP test
+already covers what the browser may actually load regardless of scheme.
 """
 from __future__ import annotations
 

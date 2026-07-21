@@ -12,10 +12,18 @@ export const DEFAULTS = {
   orphans: true, spacesOff: [],
 };
 
+const NUMERIC_KEYS = ["nodeSize", "linkWidth", "textFade", "centerPull", "repel", "linkDist"];
+
 export function loadSettings(key) {
   try {
     const raw = localStorage.getItem(key);
-    if (raw) return Object.assign({}, DEFAULTS, JSON.parse(raw));
+    if (raw) {
+      const s = Object.assign({}, DEFAULTS, JSON.parse(raw));
+      if (!Array.isArray(s.spacesOff)) s.spacesOff = [];
+      s.orphans = s.orphans !== false;
+      for (const k of NUMERIC_KEYS) if (!Number.isFinite(s[k])) s[k] = DEFAULTS[k];
+      return s;
+    }
   } catch (e) { /* private mode / quota / bad JSON → defaults */ }
   return Object.assign({}, DEFAULTS);
 }

@@ -1,6 +1,6 @@
 import { el, clear, colorFor, latest } from "../dom.js";
 import { api } from "../api.js";
-import { DEFAULTS, loadSettings, saveSettings, mountControls } from "./graph-controls.js";
+import { loadSettings, saveSettings, mountControls } from "./graph-controls.js";
 
 // Interactive knowledge graph (D3 force layout in SVG). Node positions persist
 // across live reloads in `pos`, so when the brain updates the layout stays put
@@ -11,6 +11,11 @@ import { DEFAULTS, loadSettings, saveSettings, mountControls } from "./graph-con
 // the user asks for it.
 
 let S = null; // active graph state; module-level so onLive() can reach it
+
+// Node radius: grows with degree (sqrt-scaled so hubs don't dwarf everything)
+// and scales with the user's nodeSize setting. Shared by draw(), applyDisplay(),
+// and the tick handler's label y-offset so the three never drift apart.
+function rOf(d) { return (4 + 2.5 * Math.sqrt(d.degree)) * S.settings.nodeSize; }
 
 export function render(container, ctx) {
   clear(container);
@@ -100,6 +105,7 @@ function buildChrome() {
 }
 
 async function toggle3D(button) {
+  clearTimeout(S._t3);
   if (S.threeD) { // turn 3D off, back to the 2D SVG
     S.threeD = false;
     button.classList.remove("on");
@@ -118,6 +124,7 @@ async function toggle3D(button) {
     if (!S || !S.loads.current(token)) return; // disposed / superseded mid-fetch
     S.graph = g;
     S._threeMod = mod;
+    if (S._three) S._three.dispose();
     S._three = mod.mount(S.canvas, filteredGraph(), (node) => selectByPath(node.rel_path, S.graph));
   } catch (e) {
     if (!S || !S.loads.current(token)) return;
@@ -176,8 +183,6 @@ function draw(g, preserveView) {
   const svg = d3.select(S.canvas).append("svg").attr("viewBox", `0 0 ${W} ${H}`);
   svg.classed("no-glow", nodes.length > 800);
   const gWrap = svg.append("g");
-
-  const rOf = (d) => (4 + 2.5 * Math.sqrt(d.degree)) * S.settings.nodeSize;
 
   const link = gWrap.append("g").selectAll("line").data(links).join("line").attr("class", "link")
     .style("stroke-width", S.settings.linkWidth);
@@ -299,7 +304,6 @@ function updateLabels() {
 // Display changes restyle in place — no sim reheat, the layout must not jump.
 function applyDisplay() {
   if (!S || !S._node) return;
-  const rOf = (d) => (4 + 2.5 * Math.sqrt(d.degree)) * S.settings.nodeSize;
   S._node.attr("r", rOf);
   S._link.style("stroke-width", S.settings.linkWidth);
   S._label.attr("y", (d) => d.y + rOf(d) + 11);
