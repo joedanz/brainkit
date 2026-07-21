@@ -16,6 +16,12 @@ memory:
 
 skills:
   write_approval: true
+  # Off on purpose, same policy as memory: the bundled llm-wiki skill builds
+  # a knowledge base at ~/wiki — outside the vault, unsynced, invisible to
+  # promotions. The vault IS the wiki (Company/Intel/); with no competing
+  # tool, distilled knowledge has exactly one path — a vault file.
+  disabled:
+    - llm-wiki
 
 display:
   tool_progress: new

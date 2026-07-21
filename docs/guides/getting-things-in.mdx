@@ -131,3 +131,20 @@ The live [`brain dashboard`](/reference/cli#brain-dashboard) is itself a capture
   concurrently against the same master — there is no cross-process lock. Content
   still lands correctly; this only avoids an ingest racing a cycle's commit.
 </Callout>
+
+## Articles and links: the Intel wiki
+
+Sending an article, post, or link to your agent uses the same channels as everything else — the difference is what the agent does with it. The vault protocol says **distill, never archive**: the agent extracts the durable facts and routes them to the shared reference wiki at `Company/Intel/` — one page per destination, provider, event, or trend, every claim cited `[source](URL), as of YYYY-MM`. The full article text never enters the vault; the URL is the immutable source. The person's own take on the piece stays in their `People/<person>/Notes/`.
+
+Writes follow the normal [promotion](/concepts/promotions) gate, shaped to fit its new-file-only rule:
+
+- **New entity** → the agent promotes a new page (say, `Company/Intel/Destinations/Portugal.md`), linked both ways with related pages and from the `Intel/Home.md` map.
+- **Page already exists** → the agent promotes a dated addendum (`Portugal — updates 2026-07.md`) instead. At approval, the admin folds the addendum into the main page and deletes it **in the same commit** — the vault's git history and the promotions archive already preserve the original, and a lingering addendum would contradict the merged page in search results. An addendum file existing always means exactly one thing: unfolded work.
+
+<Callout type="info">
+  The compiled protocol also tells agents the vault is their **only** knowledge
+  base, and the profile disables the runtime's bundled wiki skill — otherwise a
+  "add this article to my knowledge base" request could build an unsynced wiki
+  inside the container, invisible to the brain, exactly like a native memory
+  tool would.
+</Callout>

@@ -21,6 +21,12 @@ def test_root_protocol_content():
     # personal Memory.md is a lean map: fat topics split into Notes/
     assert "lean overview" in text
     assert "People/bob/Notes/<Topic>.md" in text
+    # shared travel wiki: distill articles into Intel entity pages
+    assert "Company/Intel/" in text
+    assert "distill, never archive" in text
+    assert "as of YYYY-MM" in text                    # provenance on every claim
+    assert "updates YYYY-MM.md" in text               # dated-addendum convention
+    assert "never build a wiki outside it" in text    # blocks off-vault ~/wiki
 
 
 def test_root_protocol_mentions_shares_note():
