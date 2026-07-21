@@ -115,7 +115,7 @@ brain promotions {list,sweep,approve,reject} [id] --master <master> [--approver 
 | `approve <id>` | `--master --approver` | Publish the promotion to its target space with provenance frontmatter. |
 | `reject <id>` | `--master --reason` | Move it to `rejected/` with the reason. |
 
-`approve` requires `--approver`, and it must be a person id from `_meta/org.yaml` — a blank or unknown name is refused, so the note's `approved-by` line always resolves to a real person. It also re-validates the target path at publish time, so a tampered pending file cannot write outside the master root or into a private space.
+`approve` requires `--approver`, and it must be a person id from `_meta/org.yaml` — a blank or unknown name is refused, so the note's `approved-by` line always resolves to a real person. It also re-validates the target path at publish time, so a tampered pending file cannot write outside the master root or into a private space — and it refuses a target that already exists, so an approval can only ever add a new note, never overwrite one.
 
 ## `brain cycle`
 

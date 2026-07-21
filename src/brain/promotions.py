@@ -178,6 +178,15 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
     # hand-edited target can't escape the master root.
     _validate_target(promo.target_path)
     target = master / promo.target_path
+    # Promotions only ever add knowledge. An existing target means approval
+    # would replace a shared note wholesale — including curated files like
+    # Company/Memory.md, whose history is the whole point. Fail closed; the
+    # fix is to edit the pending file's target-path to a fresh filename.
+    if target.exists() or target.is_symlink():
+        raise PromotionError(
+            f"target {promo.target_path!r} already exists — promotions create new "
+            "files, never overwrite; edit the pending file's target-path and retry"
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         "---\n"

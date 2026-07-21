@@ -26,7 +26,11 @@ flowchart LR
     The personal agent spots something promotable — a decision, a reusable client
     fact, an SOP, a lesson — and writes a **sanitized** note (only what is being
     shared) into its own writable space, `People/<you>/Promotions/`, with
-    frontmatter naming the `target-path` and the `source` note.
+    frontmatter naming the `target-path` and the `source` note. The target must
+    be a **new** file in the shared space — decisions in `Company/Decisions/`,
+    standing processes in `Company/Frameworks/` — never an existing note.
+    Promotions add knowledge; curated running files like `Company/Memory.md`
+    are maintained by the admin, not replaced by an approval.
 
     It writes there, not into `_meta/`, because a personal agent has no write
     access to `_meta/`. That is deliberate: the agent can *propose*, never
@@ -68,6 +72,8 @@ flowchart LR
 ## Why approval re-validates the target
 
 A pending file sits on disk between draft and approval, where a human edit, a bad merge, or a compromised process could tamper with its `target-path`. So `approve` re-validates the target at the moment it publishes — a hand-edited path that tries to escape the master root, or one that names a private space or a bare space root, is refused. Validation at draft time is not trusted to still hold at approve time.
+
+The same check refuses a target that **already exists**. An approval writes the whole note to the target path; if that path held a curated file, approving would silently replace it. Failing closed keeps promotions strictly additive — to resolve the conflict, edit the pending file's `target-path` to a fresh filename and approve again.
 
 The approver is checked the same way, at every layer: the core `approve` call, the dashboard's API, and the CLI all refuse a blank approver or one that isn't in the org roster. However an approval arrives, the `approved-by` line resolves to a real person.
 

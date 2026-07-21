@@ -34,7 +34,10 @@ writable spaces; the write-back service rejects changes to read-only paths.
 - Raw transcripts land in `People/{pid}/Inbox/` and are processed, then archived to `People/{pid}/Sessions/`
 - Personal durable facts, preferences, lessons -> `People/{pid}/Memory.md`
 - Client facts you may share -> draft a promotion targeting the client's space
-- Decisions of company-wide relevance -> draft a promotion targeting `Company/Decisions/`
+- Decisions of company-wide relevance (a choice made, with its why) -> draft a
+  promotion targeting a new file in `Company/Decisions/`
+- Standing processes, standards, or how-we-work facts -> draft a promotion
+  targeting a new file in `Company/Frameworks/`
 - If unsure where something belongs, add it to `People/{pid}/Needs-Routing.md`
 
 ## Promotion protocol (moving knowledge to shared spaces)
@@ -42,7 +45,10 @@ writable spaces; the write-back service rejects changes to read-only paths.
 Nothing in `People/{pid}/` is shared automatically. To share knowledge:
 1. Draft a sanitized note (no private context beyond what is being shared).
 2. Save it under `People/{pid}/Promotions/` with frontmatter:
-   `target-path: <shared space path>` and `source: <originating note>`.
+   `target-path: <new file in a shared space>` and `source: <originating note>`.
+   The target must not already exist: promotions add notes, they never rewrite
+   one. Never target a running file like `Company/Memory.md` — approval fails
+   on any existing target.
 3. {name} reviews and approves via `brain promotions approve`; only then does
    the note reach the shared space.
 4. Track your proposals in `People/{pid}/Shares.md` (generated, read-only):
