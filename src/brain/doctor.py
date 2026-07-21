@@ -254,6 +254,23 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     return findings
 
 
+def _check_facts(master: Path) -> list[Finding]:
+    """Warn-only lint of fact lines and entity frontmatter. A malformed line
+    is simply not a fact — nothing here ever blocks a compile."""
+    from brain.facts import lint_facts, parse_entity
+
+    findings: list[Finding] = []
+    for rel in _content_files(master):
+        text = (master / rel).read_text(encoding="utf-8", errors="replace")
+        meta, _body = split_frontmatter(text)
+        ent = parse_entity(meta)
+        if ent is not None and not ent[0]:
+            findings.append(Finding("warn", "facts", f"{rel}: empty entity type"))
+        for line, msg in lint_facts(text):
+            findings.append(Finding("warn", "facts", f"{rel}:{line}: {msg}"))
+    return findings
+
+
 def _check_symlinks(master: Path) -> list[Finding]:
     findings: list[Finding] = []
     for p in sorted(master.rglob("*")):
@@ -386,6 +403,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_orphan_files(master)
     findings += _check_cross_space_refs(master, org, rules)
     findings += _check_plain_refs(master, org, rules)
+    findings += _check_facts(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
     findings += _check_webhook(master, org)

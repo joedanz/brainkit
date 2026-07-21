@@ -26,7 +26,16 @@ def split_frontmatter(text: str) -> tuple[dict[str, str], str]:
         return {}, text
     _, fm, body = parts
     meta: dict[str, str] = {}
-    for line in fm.strip().splitlines():
+    # Drop only genuinely-blank lines at the edges (e.g. an empty block, or the
+    # trailing "" from the final newline) — NOT `.strip()` on the whole blob,
+    # which would also eat a trailing space off the last field's value (e.g.
+    # `entity: \n` losing its space and becoming key `entity:` with no value).
+    lines = fm.split("\n")
+    while lines and lines[0].strip() == "":
+        lines.pop(0)
+    while lines and lines[-1].strip() == "":
+        lines.pop()
+    for line in lines:
         key, _, value = line.partition(": ")
         meta[key] = value
     return meta, body

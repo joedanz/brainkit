@@ -46,3 +46,14 @@ def test_only_opening_delimiter_is_not_frontmatter():
     meta, body = split_frontmatter(text)
     assert meta == {}
     assert body == text
+
+
+def test_trailing_empty_value_on_last_line_is_not_swallowed():
+    # A `key: ` with nothing after it is the *last* line of the block — a naive
+    # `.strip()` of the whole blob eats that trailing space along with the
+    # closing newline, turning "entity: " into "entity:" and breaking the
+    # `": "` split (key becomes "entity:", value "").
+    text = "---\nentity: \n---\nbody\n"
+    meta, body = split_frontmatter(text)
+    assert meta == {"entity": ""}
+    assert body == "body\n"
