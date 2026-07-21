@@ -216,3 +216,61 @@ def test_cli_index_json_and_missing_manifest(master, tmp_path, capsys):
 
     # uncompiled dir → handled error, exit 1
     assert main(["index", "--vault", str(tmp_path / "nope")]) == 1
+
+
+def test_entities_facts_and_aliases_indexed(master, tmp_path):
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(
+        "---\n"
+        "entity: client\n"
+        "aliases: [Acme Corp, ACME]\n"
+        "---\n"
+        "# Acme\n\n"
+        "- Sarah Kim ([[Big Deal Decision]]) is our main contact\n"
+        "  [from:: 2026-01]\n"
+        "- Dana Ortiz was our main contact\n"
+        "  [from:: 2024-06] [until:: 2026-01]\n"
+    )
+    # an alias-form wikilink that only resolves through the aliases table
+    (master / "Company/Notes.md").write_text("See [[ACME]] for the account.\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    s = IndexStore.open_readonly(vault / ".brain/index.db", want_vectors=False)
+    assert s.entities() == [("Company/Intel/Acme.md", "client", ["Acme Corp", "ACME"])]
+
+    rows = s.fact_rows("Company/Intel/Acme.md")
+    assert [(r[3], r[4], r[5]) for r in rows] == [
+        ("Sarah Kim ([[Big Deal Decision]]) is our main contact", "2026-01-01", None),
+        ("Dana Ortiz was our main contact", "2024-06-01", "2026-01-31"),
+    ]
+    # fact 1 resolves its [[Big Deal Decision]] target AND the implicit page subject
+    targets = {t for (t,) in s.conn.execute(
+        "SELECT target_rel_path FROM fact_entities WHERE fact_id = ?", (rows[0][0],))}
+    assert targets == {"Company/Decisions/Big Deal Decision.md", "Company/Intel/Acme.md"}
+
+    # [[ACME]] resolved via alias
+    assert ("Company/Notes.md", "Company/Intel/Acme.md") in s.link_pairs()
+    s.close()
+
+
+def test_alias_added_later_resolves_previously_unresolved_link(master, tmp_path):
+    (master / "Company/Notes.md").write_text("See [[ACME]] for the account.\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+    s = IndexStore.open_readonly(vault / ".brain/index.db", want_vectors=False)
+    assert s.links_from("Company/Notes.md") == [("ACME", 0)]  # unresolved
+    s.close()
+
+    # the entity page (with the alias) arrives in a later compile+index cycle
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(
+        "---\nentity: client\naliases: [ACME]\n---\n# Acme\n")
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+    s = IndexStore.open_readonly(vault / ".brain/index.db", want_vectors=False)
+    # Notes.md was unchanged, but the post-pass re-resolved its link via the alias
+    assert s.links_from("Company/Notes.md") == [("Company/Intel/Acme.md", 1)]
+    s.close()
