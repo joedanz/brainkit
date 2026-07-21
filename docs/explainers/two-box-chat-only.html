@@ -339,7 +339,7 @@
   <text class="t-zone" x="128" y="326">CONTAINER — ALICE ONLY</text>
   <rect class="box-tint" x="128" y="340" width="264" height="54" rx="5"/>
   <text class="t-mono" x="142" y="362">hermes gateway + agent</text>
-  <text class="t-body" x="142" y="381">her bot token · her memory</text>
+  <text class="t-body" x="142" y="381">her bot token · her sessions</text>
   <rect class="box-tint" x="128" y="468" width="264" height="54" rx="5"/>
   <text class="t-mono" x="142" y="490">/vault — clone of alice/</text>
   <text class="t-body" x="142" y="509">.brain index · brain MCP</text>
@@ -356,7 +356,7 @@
   <text class="t-zone" x="448" y="326">CONTAINER — BOB ONLY</text>
   <rect class="box-tint" x="448" y="340" width="264" height="54" rx="5"/>
   <text class="t-mono" x="462" y="362">hermes gateway + agent</text>
-  <text class="t-body" x="462" y="381">his bot token · his memory</text>
+  <text class="t-body" x="462" y="381">his bot token · his sessions</text>
   <rect class="box-tint" x="448" y="468" width="264" height="54" rx="5"/>
   <text class="t-mono" x="462" y="490">/vault — clone of bob/</text>
   <text class="t-body" x="462" y="509">.brain index · brain MCP</text>
@@ -372,7 +372,7 @@
   <text class="t-zone" x="768" y="326">CONTAINER — CAROL ONLY</text>
   <rect class="box-tint" x="768" y="340" width="264" height="54" rx="5"/>
   <text class="t-mono" x="782" y="362">hermes gateway + agent</text>
-  <text class="t-body" x="782" y="381">her bot token · her memory</text>
+  <text class="t-body" x="782" y="381">her bot token · her sessions</text>
   <rect class="box-tint" x="768" y="468" width="264" height="54" rx="5"/>
   <text class="t-mono" x="782" y="490">/vault — clone of carol/</text>
   <text class="t-body" x="782" y="509">.brain index · brain MCP</text>
@@ -913,10 +913,12 @@ services:
       - ANTHROPIC_API_KEY=${LLM_KEY}
       - BRAIN_EMBED_BASE_URL=${EMBED_URL}  <span class="c"># optional: semantic search</span>
     volumes:
-      - alice-state:/opt/data   <span class="c"># memory, sessions, pairing, deploy key</span>
+      - alice-state:/opt/data   <span class="c"># sessions, pairing, deploy key</span>
       - alice-vault:/vault      <span class="c"># her compiled vault clone</span></pre>
       <p>Each container's first boot: install the <code>company-brain</code> hermes profile
-      (SOUL.md, <code>terminal.cwd: /vault</code>, the brain MCP server + skills) and
+      (SOUL.md, <code>terminal.cwd: /vault</code>, the brain MCP server + skills —
+      with the assistant's built-in memory disabled, so the vault is its only
+      durable memory) and
       <strong>mint the container's own deploy key</strong> — the public half lands in
       <code>docker logs</code>, the private half never leaves the container. A supervised
       sync loop then clones <code>$BRAIN_GIT_REMOTE</code>, runs <code>brain index</code>,

@@ -18,13 +18,15 @@ master/
     Templates/            # reusable formats
   Teams/<team>/           # visible to members of that team
   People/<person>/        # visible to that person only
-    Memory.md  Actions/  Sessions/  Inbox/   # Inbox: transcripts land here
+    Memory.md  Notes/  Actions/  Sessions/  Inbox/   # Inbox: transcripts land here
   Clients/<client>/       # admin-only by default; grant per client
   _meta/                  # server-only — never compiled into any personal vault
     org.yaml              # people, roles, teams
     spaces.yaml           # space path → read/write rules
     promotions/           # pending/ approved/ rejected/
 ```
+
+Every `Memory.md` — company and personal — follows the same convention: **a lean overview that links out, never a running log**. Company detail lives in atomic notes under `Decisions/` and `Playbook/`; when a personal topic outgrows a few lines in `People/<person>/Memory.md`, the detail moves to `People/<person>/Notes/<Topic>.md` with a one-line link left under the heading.
 
 ## Who sees what: `spaces.yaml`
 
