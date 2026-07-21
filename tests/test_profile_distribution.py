@@ -28,3 +28,6 @@ def test_soul_and_skill_reference_the_vault_protocol():
     skill = (ROOT / "skills/brain-protocol/SKILL.md").read_text()
     assert "promotion" in skill.lower()
     assert "Inbox" in skill
+    # Memory.md stays a lean map; topic-sized detail splits into Notes/
+    assert "Notes/<Topic>.md" in skill
+    assert "lean overview" in skill

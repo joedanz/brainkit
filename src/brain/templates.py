@@ -85,6 +85,9 @@ When a transcript appears in any `People/<person>/Inbox/`:
 2. Extract decisions, action items (owner + deadline), and context updates.
 3. Route:
    - Action items -> that person's `People/<person>/Actions/Tracker.md`
+   - Personal durable facts -> that person's `People/<person>/Memory.md`,
+     kept as a lean overview: topic-sized detail goes to
+     `People/<person>/Notes/<Topic>.md` with a one-line link under the heading
    - Client facts -> the matching `Clients/<client>/` file
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
