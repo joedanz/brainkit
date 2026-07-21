@@ -253,7 +253,7 @@ Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into C
 
 ## `brain status`
 
-Counts, freshness, and health at a glance — in the terminal. Read-only: index reads go through a read-only SQLite connection, so `status` can never create or migrate an index as a side effect.
+Counts, freshness, and health at a glance — in the terminal. Read-only: index reads go through a read-only SQLite connection, so `status` can never create or migrate an index as a side effect. With an index present, the output includes facts and entities counts.
 
 ```bash
 brain status --vault <vault> [--json]                  # user lens
@@ -277,7 +277,7 @@ brain status --master <master> [--out <out>] [--json]  # admin lens
 
 ## `brain dashboard`
 
-Serve a **live dashboard** that updates in real time as the brain changes, or — with `--html` — write the original **self-contained HTML snapshot** (one file, inline styles and scripts, no network requests) for emailing or archiving.
+Serve a **live dashboard** that updates in real time as the brain changes, or — with `--html` — write the original **self-contained HTML snapshot** (one file, inline styles and scripts, no network requests) for emailing or archiving. The user dashboard includes a Facts tab (filter by entity, type, or date), and the graph rings typed entity pages by type.
 
 ```bash
 # live server (default): starts on http://127.0.0.1:8765 and opens a browser
