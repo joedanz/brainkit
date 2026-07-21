@@ -189,3 +189,24 @@ def test_init_scaffolds_master(tmp_path: Path):
     from brain.schemas import load_org, load_spaces
     load_org(dest / "_meta/org.yaml")
     load_spaces(dest / "_meta/spaces.yaml")
+
+
+def test_cli_facts_json(master, tmp_path, capsys):
+    from brain.compiler import compile_vault
+    from brain.embeddings import FakeEmbeddingProvider
+    from brain.indexer import build_index
+    from tests.conftest import ALICE, RULES
+
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Sarah Kim is our main contact [from:: 2026-01]\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    assert main(["facts", "--vault", str(vault), "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["facts"][0]["statement"] == "Sarah Kim is our main contact"
+
+    assert main(["facts", "--vault", str(tmp_path / "nope")]) == 1

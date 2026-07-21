@@ -151,3 +151,89 @@ def parse_entity(meta: dict[str, str]) -> tuple[str, list[str]] | None:
         raw = raw[1:-1]
     aliases = [a.strip() for a in raw.split(",") if a.strip()]
     return etype, aliases
+
+
+import json as _json
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+@dataclass
+class FactHit:
+    rel_path: str
+    line: int
+    statement: str
+    from_date: str
+    until_date: str | None
+    sources: list[str]
+    entities: list[str]
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def query_facts(
+    vault: Path,
+    *,
+    entity: str | None = None,
+    etype: str | None = None,
+    as_of: str | None = None,
+    include_ended: bool = False,
+) -> tuple[list[FactHit], list[str]]:
+    """Facts true on `as_of` (default: today), optionally filtered to one
+    entity (rel path, title stem, or alias) or one entity type."""
+    from brain.store import IndexStore
+
+    vault = Path(vault)
+    db = vault / ".brain" / "index.db"
+    if not db.is_file():
+        return [], [f"no index at {db} — run: brain index --vault {vault}"]
+    warnings: list[str] = []
+
+    on = normalize_from(as_of) if as_of else _today()
+    if on is None:
+        return [], [f"unparseable date: {as_of!r}"]
+
+    store = IndexStore.open_readonly(db, want_vectors=False)
+    try:
+        entity_paths: set[str] | None = None
+        if entity is not None:
+            known = {rel: (rel, etype_, aliases)
+                     for rel, etype_, aliases in store.entities()}
+            wanted = entity.strip().lower()
+            matches = {rel for rel in known
+                       if rel == entity
+                       or Path(rel).stem.lower() == wanted
+                       or wanted in (a.lower() for a in known[rel][2])}
+            if not matches:
+                return [], [f"no entity matches {entity!r}"]
+            entity_paths = matches
+        etype_paths: set[str] | None = None
+        if etype is not None:
+            etype_paths = {rel for rel, t, _a in store.entities() if t == etype}
+
+        by_fact: dict[int, list[str]] = {}
+        for fid, target in store.conn.execute(
+                "SELECT fact_id, target_rel_path FROM fact_entities"):
+            by_fact.setdefault(fid, []).append(target)
+
+        hits: list[FactHit] = []
+        for fid, rel, line, stmt, fdate, udate, sources in store.fact_rows():
+            ents = sorted(by_fact.get(fid, []))
+            if entity_paths is not None and not (entity_paths & set(ents)):
+                continue
+            if etype_paths is not None and not (etype_paths & set(ents)):
+                continue
+            if not include_ended:
+                if fdate > on or (udate is not None and udate < on):
+                    continue
+            hits.append(FactHit(rel, line, stmt, fdate, udate,
+                                _json.loads(sources), ents))
+        return hits, warnings
+    finally:
+        store.close()
+
+
+def query_facts_at(vault, on_date, *, entity=None, etype=None, include_ended=False):
+    return [], ["no git history (vault is not a git repository)"]
