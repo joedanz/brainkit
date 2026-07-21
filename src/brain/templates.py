@@ -124,9 +124,12 @@ owner, pending promotions, recent decisions.
 def _home_md(company: str) -> str:
     return (
         f"# {company} — Home\n\n"
-        "## Priorities\n\n(maintained by the company assistant)\n\n"
-        "## Links\n\n- [[Memory]]\n- Decisions/\n- Playbook/\n- Templates/\n"
-        "- Intel/ — the shared travel wiki ([[Intel/Home]])\n"
+        "The company's live priority dashboard, kept current by the assistant.\n"
+        "See [[Memory]] for the company overview and where knowledge lives.\n\n"
+        "## Priorities\n\n_What needs attention now._\n\n"
+        "## Open actions by owner\n\n_Outstanding action items, grouped by owner._\n\n"
+        "## Pending promotions\n\n_Drafts awaiting approval._\n\n"
+        "## Recent decisions\n\n_Latest entries in Decisions/._\n"
     )
 
 
