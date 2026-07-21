@@ -461,11 +461,19 @@
     ~30 → 16 GB</strong>. Adding an employee is one compose stanza.</p>
   </div>
   <div>
-    <h2><span class="n">3–5</span>Two boxes, one boundary</h2>
+    <h2><span class="n">3–4</span>Two boxes, one boundary</h2>
     <p>The master's isolation is <strong>hardware, not configuration</strong> — there is no
     compose line that can drift into exposing it. If the agents box is ever compromised:
     rotate deploy keys, rebuild containers, the master's history is intact. If the brain
     box is down, agents keep working on local clones and sync drains later.</p>
+  </div>
+  <div>
+    <h2><span class="n">5</span>The operator is a separate identity</h2>
+    <p>The admin who approves shares is a <strong>dedicated <code>org.yaml</code> identity
+    with no agent container</strong> — not anyone's chat account. It curates the shared space
+    and approves promotions from the dashboard or CLI; everyone who chats with a bot is a
+    plain employee, read-only on the company space, so no one's agent can write shared
+    knowledge directly.</p>
   </div>
 </section>
 

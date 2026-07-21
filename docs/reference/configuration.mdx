@@ -10,9 +10,12 @@ Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and
 
 ```yaml
 people:
-  alice: {name: Alice Nguyen, roles: [admin], teams: [sales], email: alice@acme.com}
+  admin: {name: Admin, roles: [admin]}   # dedicated curation identity — no agent
+  alice: {name: Alice Nguyen, teams: [sales], email: alice@acme.com}
   bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}
 ```
+
+Keep the `admin` role on a dedicated identity rather than an employee's account — see [Spaces & Permissions](/concepts/spaces-and-permissions#who-exists-orgyaml).
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|

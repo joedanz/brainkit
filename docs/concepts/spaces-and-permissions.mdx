@@ -72,11 +72,14 @@ Now Marco sees Vandenberg but not Nakamura; Yuki sees the reverse; an advisor wi
 
 ```yaml
 people:
-  alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}
+  admin: {name: Admin, roles: [admin]}        # dedicated curation identity — no agent
+  alice: {name: Alice Nguyen, teams: [sales]}
   bob:   {name: Bob Rivera, teams: [ops]}
 ```
 
-A person's `roles` and `teams` are what the grants resolve against. Alice is an `admin` on the `sales` team, so she reads `Company`, writes `Company` (admin), and reads/writes `Teams/sales` and `People/alice`.
+A person's `roles` and `teams` are what the grants resolve against. The `admin` identity carries the `admin` role, so it reads and writes `Company`. Alice has no roles: she *reads* `Company` (it's `read: [everyone]`) but can't write it, and she reads/writes `Teams/sales` and `People/alice`.
+
+Keep the `admin` role on a dedicated identity — one with no personal agent — rather than on an employee's account. In a deployment where people chat with agents, an employee who also held `admin` would have an agent that could write `Company` directly, bypassing the [promotion](/concepts/promotions) gate. Separating the two keeps shared knowledge behind the human approval step for everyone.
 
 ## Adding a person or team
 
