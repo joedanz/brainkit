@@ -16,7 +16,7 @@ def test_root_protocol_content():
     assert "read-only" in text            # Company marked read-only for bob
     assert "promotion" in text.lower()    # promotion protocol documented
     assert "Actions/Tracker" in text  # routing rules documented
-    assert "Company/Frameworks" in text   # standards have a named home
+    assert "Company/Playbook" in text   # standards have a named home
     assert "must not already exist" in text  # new-file-only promotions
 
 

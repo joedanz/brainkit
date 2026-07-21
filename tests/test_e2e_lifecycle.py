@@ -75,7 +75,7 @@ def _populate(master: Path) -> None:
     _write(master, "Company/Home.md",
            "# Northwind — Home\n\nSee [[Q3 Strategy]] and the [[Ops Runbook]].\n")
     _write(master, "Company/Decisions/Q3 Strategy.md", "Ship the pilot in Q3.\n")
-    _write(master, "Company/Frameworks/Sales Playbook.md", "Qualify, then close.\n")
+    _write(master, "Company/Playbook/Sales.md", "Qualify, then close.\n")
     _write(master, "Teams/sales/Pipeline.md", "Acme renewal in progress.\n")
     _write(master, "Teams/sales/Deals/Acme.md", "Acme — $50k ARR.\n")
     _write(master, "Teams/ops/Ops Runbook.md", "How we run oncall.\n")

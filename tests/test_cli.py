@@ -60,26 +60,26 @@ def test_writeback_rejection_exit_code(master: Path, tmp_path: Path, capsys):
 def test_promotions_flow(master: Path, tmp_path: Path, capsys):
     seed_meta(master)
     from brain.promotions import draft_promotion
-    draft_promotion(master, "bob", "Company/Frameworks/SOP.md",
+    draft_promotion(master, "bob", "Company/Playbook/SOP.md",
                     "People/bob/Sessions/x.md", "Body.\n", "p-1", "2026-07-07")
     assert main(["promotions", "list", "--master", str(master)]) == 0
     assert "p-1" in capsys.readouterr().out
     assert main(["promotions", "approve", "p-1", "--master", str(master),
                  "--approver", "alice"]) == 0
-    assert (master / "Company/Frameworks/SOP.md").exists()
+    assert (master / "Company/Playbook/SOP.md").exists()
 
 
 def test_promotions_approve_requires_approver(master: Path, capsys):
     seed_meta(master)
     from brain.promotions import draft_promotion
-    draft_promotion(master, "bob", "Company/Frameworks/SOP2.md",
+    draft_promotion(master, "bob", "Company/Playbook/SOP2.md",
                     "People/bob/Sessions/x.md", "Body.\n", "p-2", "2026-07-07")
     assert main(["promotions", "approve", "p-2", "--master", str(master)]) == 2
     assert "--approver" in capsys.readouterr().err
     assert main(["promotions", "approve", "p-2", "--master", str(master),
                  "--approver", "mallory"]) == 1
     assert "mallory" in capsys.readouterr().err
-    assert not (master / "Company/Frameworks/SOP2.md").exists()
+    assert not (master / "Company/Playbook/SOP2.md").exists()
 
 
 def test_ingest_cli_by_person_stdin(master: Path, monkeypatch, capsys):

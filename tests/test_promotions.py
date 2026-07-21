@@ -26,7 +26,7 @@ def test_draft_and_list(master: Path):
     p = draft_promotion(
         master,
         person_id="bob",
-        target_path="Company/Frameworks/Onboarding-Call-SOP.md",
+        target_path="Company/Playbook/Onboarding-Call-SOP.md",
         source="People/bob/Sessions/2026-07-01-call.md",
         body="## Onboarding call SOP\n1. Confirm goals.\n",
         promo_id="p-001",
@@ -36,7 +36,7 @@ def test_draft_and_list(master: Path):
     pending = list_pending(master)
     assert len(pending) == 1
     assert pending[0].person_id == "bob"
-    assert pending[0].target_path == "Company/Frameworks/Onboarding-Call-SOP.md"
+    assert pending[0].target_path == "Company/Playbook/Onboarding-Call-SOP.md"
     assert "Confirm goals" in pending[0].body
 
 
@@ -56,7 +56,7 @@ def test_approve_writes_target_with_provenance(master: Path):
     _seed_org(master)
     draft_promotion(
         master, person_id="bob",
-        target_path="Company/Frameworks/SOP.md",
+        target_path="Company/Playbook/SOP.md",
         source="People/bob/Sessions/call.md",
         body="Step one.\n", promo_id="p-003", created="2026-07-07",
     )
@@ -73,12 +73,12 @@ def test_approve_writes_target_with_provenance(master: Path):
 
 def test_reject_records_reason(master: Path):
     draft_promotion(
-        master, person_id="bob", target_path="Company/Frameworks/SOP2.md",
+        master, person_id="bob", target_path="Company/Playbook/SOP2.md",
         source="s", body="b", promo_id="p-004", created="2026-07-07",
     )
     rejected = reject(master, "p-004", reason="too client-specific", date="2026-07-20")
     assert "rejected-reason: too client-specific" in rejected.read_text()
-    assert not (master / "Company/Frameworks/SOP2.md").exists()
+    assert not (master / "Company/Playbook/SOP2.md").exists()
     assert list_pending(master) == []
 
 
@@ -125,7 +125,7 @@ def test_approve_rejects_missing_or_unknown_approver(master: Path, bad_approver:
     _seed_org(master)
     draft_promotion(
         master, person_id="bob",
-        target_path="Company/Frameworks/SOP.md",
+        target_path="Company/Playbook/SOP.md",
         source="People/bob/Sessions/call.md",
         body="Step one.\n", promo_id="p-010", created="2026-07-07",
     )
@@ -133,12 +133,12 @@ def test_approve_rejects_missing_or_unknown_approver(master: Path, bad_approver:
         approve(master, "p-010", approver=bad_approver, date="2026-07-08")
     # a failed approval must not consume the pending file
     assert (master / "_meta/promotions/pending/p-010.md").exists()
-    assert not (master / "Company/Frameworks/SOP.md").exists()
+    assert not (master / "Company/Playbook/SOP.md").exists()
 
 
 def test_list_pending_skips_malformed_files(master: Path):
     draft_promotion(
-        master, person_id="bob", target_path="Company/Frameworks/Good.md",
+        master, person_id="bob", target_path="Company/Playbook/Good.md",
         source="s", body="b", promo_id="p-good", created="2026-07-07",
     )
     # Missing required keys — must not break listing of the whole queue.
@@ -159,7 +159,7 @@ def test_sweep_skips_symlinked_drafts(master: Path, tmp_path: Path):
 
     outside = tmp_path / "outside.md"
     outside.write_text(
-        "---\ntarget-path: Company/Frameworks/Smuggled.md\n---\nhost content\n"
+        "---\ntarget-path: Company/Playbook/Smuggled.md\n---\nhost content\n"
     )
     d = master / "People/bob/Promotions"
     d.mkdir(parents=True)
@@ -188,7 +188,7 @@ def test_sweep_moves_agent_drafts_into_queue(master: Path):
     d.mkdir(parents=True)
     (d / "Onboarding SOP.md").write_text(
         "---\n"
-        "target-path: Company/Frameworks/Onboarding-SOP.md\n"
+        "target-path: Company/Playbook/Onboarding-SOP.md\n"
         "source: People/bob/Sessions/call.md\n"
         "---\n"
         "Step one.\n"
@@ -198,7 +198,7 @@ def test_sweep_moves_agent_drafts_into_queue(master: Path):
     assert len(moved) == 1
     pending = list_pending(master)
     assert pending[0].id == "bob-onboarding-sop"
-    assert pending[0].target_path == "Company/Frameworks/Onboarding-SOP.md"
+    assert pending[0].target_path == "Company/Playbook/Onboarding-SOP.md"
     assert not (d / "Onboarding SOP.md").exists()   # swept
     assert (d / "broken.md").exists()               # skipped, left in place
 
@@ -210,7 +210,7 @@ def _draft(master: Path, title: str = "CBS Result") -> Path:
     f = d / f"{title}.md"
     f.write_text(
         "---\n"
-        "target-path: Company/Frameworks/CBS-Result.md\n"
+        "target-path: Company/Playbook/CBS-Result.md\n"
         "source: People/bob/Sessions/call.md\n"
         "---\n"
         "Conflict-based search scales to 40 robots.\n"
@@ -259,24 +259,24 @@ def test_draft_into_space_stays_in_owner_space(master: Path):
     # Positive control: the employee-side gate writes only inside the caller's
     # own People/<id>/Promotions, preserving the fields it was handed.
     rel = draft_into_space(
-        master, "bob", "Company/Frameworks/SOP.md", "src-note", "some body", "2026-07-07"
+        master, "bob", "Company/Playbook/SOP.md", "src-note", "some body", "2026-07-07"
     )
     assert rel.startswith("People/bob/Promotions/")
     dest = master / rel
     assert dest.is_file()
     text = dest.read_text()
-    assert "target-path: Company/Frameworks/SOP.md" in text
+    assert "target-path: Company/Playbook/SOP.md" in text
     assert "source: src-note" in text
     assert text.rstrip().endswith("some body")
 
 
 @pytest.mark.parametrize("overrides", [
-    {"target_path": "Company/Frameworks/SOP.md\ninjected: true"},
+    {"target_path": "Company/Playbook/SOP.md\ninjected: true"},
     {"source": "src\ninjected: true"},
 ], ids=["target-path", "source"])
 def test_draft_into_space_rejects_multiline_fields(master: Path, overrides):
     # A newline in a header field would smuggle extra frontmatter into the draft.
-    kwargs = dict(target_path="Company/Frameworks/SOP.md", source="src",
+    kwargs = dict(target_path="Company/Playbook/SOP.md", source="src",
                   body="b", created="2026-07-07")
     kwargs.update(overrides)
     with pytest.raises(PromotionError, match="single line"):
@@ -286,7 +286,7 @@ def test_draft_into_space_rejects_multiline_fields(master: Path, overrides):
 def test_draft_into_space_rejects_empty_body(master: Path):
     with pytest.raises(PromotionError, match="empty promotion"):
         draft_into_space(
-            master, "bob", "Company/Frameworks/SOP.md", "src", "   \n", "2026-07-07"
+            master, "bob", "Company/Playbook/SOP.md", "src", "   \n", "2026-07-07"
         )
 
 
@@ -298,7 +298,7 @@ def test_draft_into_space_refuses_symlinked_ancestor(master: Path, tmp_path: Pat
     (master / "People/bob/Promotions").symlink_to(outside, target_is_directory=True)
     with pytest.raises(PromotionError, match="symlink"):
         draft_into_space(
-            master, "bob", "Company/Frameworks/SOP.md", "src", "body", "2026-07-07"
+            master, "bob", "Company/Playbook/SOP.md", "src", "body", "2026-07-07"
         )
 
 
@@ -314,7 +314,7 @@ def test_approve_and_reject_unknown_id_raise(master: Path):
 def _draft_p1(master: Path) -> None:
     draft_promotion(
         master, person_id="bob",
-        target_path="Company/Frameworks/SOP.md",
+        target_path="Company/Playbook/SOP.md",
         source="People/bob/Sessions/call.md",
         body="shareable\n", promo_id="p-001", created="2026-07-01",
     )
@@ -344,13 +344,13 @@ from brain.promotions import generate_shares_note
 def _decide_two(master: Path) -> None:
     """One pending (bob), one approved (bob), one rejected (bob), one foreign (alice)."""
     _seed_org(master)
-    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/A.md",
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/A.md",
                     source="s", body="a", promo_id="p-a", created="2026-07-18")
-    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/B.md",
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/B.md",
                     source="s", body="b", promo_id="p-b", created="2026-07-10")
-    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/C.md",
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/C.md",
                     source="s", body="c", promo_id="p-c", created="2026-07-12")
-    draft_promotion(master, person_id="alice", target_path="Company/Frameworks/D.md",
+    draft_promotion(master, person_id="alice", target_path="Company/Playbook/D.md",
                     source="s", body="d", promo_id="p-d", created="2026-07-15")
     approve(master, "p-b", approver="alice", date="2026-07-11")
     reject(master, "p-c", reason="too raw", date="2026-07-13")
@@ -361,16 +361,16 @@ def test_shares_note_renders_all_states_for_one_person(master: Path):
     note = generate_shares_note(master, "bob", today="2026-07-20")
     assert note is not None
     assert "## Awaiting approval" in note
-    assert "`Company/Frameworks/A.md`" in note and "2026-07-18" in note
+    assert "`Company/Playbook/A.md`" in note and "2026-07-18" in note
     assert "## Recently decided" in note
-    assert "✅ `Company/Frameworks/B.md` — approved 2026-07-11 by alice" in note
-    assert "❌ `Company/Frameworks/C.md` — rejected 2026-07-13: too raw" in note
+    assert "✅ `Company/Playbook/B.md` — approved 2026-07-11 by alice" in note
+    assert "❌ `Company/Playbook/C.md` — rejected 2026-07-13: too raw" in note
     assert "D.md" not in note  # person isolation: alice's item never leaks into bob's note
 
 
 def test_shares_note_thirty_day_cutoff_and_fallback(master: Path):
     _seed_org(master)
-    draft_promotion(master, person_id="bob", target_path="Company/Frameworks/Old.md",
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/Old.md",
                     source="s", body="o", promo_id="p-old", created="2026-05-01")
     approve(master, "p-old", approver="alice", date="2026-06-01")  # 49 days before today
     # legacy archive without stamps: strip them to simulate a pre-upgrade file
