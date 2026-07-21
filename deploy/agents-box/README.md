@@ -116,6 +116,7 @@ person's zip into another person's container**.
 | `push refused` occasionally | the push raced a `brain cycle` (`updateInstead` refuses a dirty worktree) — self-heals next interval. If it repeats forever: `receive.denyCurrentBranch updateInstead` was never set on that repo. |
 | edits vanish after sync | working as designed — the cycle rejected an illegal write-back and the compile reverted it (fail closed). |
 | agent chats but knows nothing | vault not cloned yet (see clone failure above) or index missing — run `docker exec agent-alice vault-sync`. |
+| agent says "saved" but the vault never changes | `write_file` denied by `HERMES_WRITE_SAFE_ROOT` (the hermes base image pins it to `/opt/data`; this image extends it with `/vault` — don't override it without keeping both paths). The gateway reply looks like success; only the file-mutation verifier footer reveals the denial. |
 
 ## What this image deliberately does not do
 
