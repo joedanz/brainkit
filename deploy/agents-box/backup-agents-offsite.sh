@@ -6,6 +6,12 @@
 # The zips contain secrets (deploy keys, .env, bot tokens, chat history);
 # restic encrypts client-side, so R2 only ever sees ciphertext.
 #
+# Besides the zips, this also backs up the host-level state needed to
+# RECREATE the containers on a fresh box: the compose dir (its .env secrets
+# and the live docker-compose.yml with the per-agent stanzas) and a dump of
+# root's crontab. The zips restore state INTO containers; these files are
+# what lets you start the containers at all.
+#
 # Cron (root):  45 3 * * * /usr/local/sbin/backup-agents-offsite.sh >> /var/log/backup-agents-offsite.log 2>&1
 #
 # Needs: /etc/brain-backup/r2.env (0600; see deploy/backup/r2.env.example)
@@ -16,6 +22,7 @@ set -eu
 
 ENV_FILE="${ENV_FILE:-/etc/brain-backup/r2.env}"
 SRC="${SRC:-/srv/backups/agents}"
+COMPOSE_DIR="${COMPOSE_DIR:-/opt/brain/deploy/agents-box}"
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
@@ -38,7 +45,9 @@ hc /start
 restic cat config >/dev/null 2>&1 || restic init
 restic unlock >/dev/null 2>&1 || true
 
-restic backup "$SRC"
+crontab -l > "$SRC/host-crontab.txt" 2>/dev/null || true
+
+restic backup "$SRC" "$COMPOSE_DIR"
 
 restic forget --prune \
     --keep-daily 14 --keep-weekly 8 --keep-monthly 6

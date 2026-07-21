@@ -3,7 +3,10 @@
 #
 # Backs up the master vault plus reconstruction-critical config:
 #   /srv/brain/master  /etc/caddy  /etc/cloudflared  /etc/brain
-#   /etc/systemd/system
+#   /etc/systemd/system  /root/.cloudflared (tunnel-mgmt cert, browser-only
+#   to reobtain)  /home/brain-sync/.ssh (authorized_keys carrying every
+#   agent deploy key's forced-command entry — losing it means re-authorizing
+#   each agent by hand)
 # Never /etc/brain-backup — the keys that unlock the backup must not be in it.
 #
 # Cron (root):  7 * * * * /usr/local/sbin/backup-master.sh >> /var/log/backup-master.log 2>&1
@@ -39,6 +42,7 @@ restic backup \
     /srv/brain/master \
     /etc/caddy /etc/cloudflared /etc/brain \
     /etc/systemd/system \
+    /root/.cloudflared /home/brain-sync/.ssh \
     --exclude /etc/brain-backup
 
 restic forget --prune \
