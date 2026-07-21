@@ -9,7 +9,7 @@ from brain.compiler import compile_vault
 from brain.dashboard import render_dashboard
 from brain.indexer import build_index
 from brain.stats import collect_master_stats, collect_vault_stats
-from tests.conftest import ALICE, RULES
+from tests.conftest import ACME, ALICE, RULES
 
 
 def _vault(master, tmp_path) -> Path:
@@ -126,13 +126,6 @@ def test_cli_dashboard_serves_live_by_default(master, tmp_path, monkeypatch):
 
 
 # ---- facts & entities in the static snapshot --------------------------------
-
-ACME = (
-    "---\nentity: client\naliases: [Acme Corp, ACME]\n---\n# Acme\n\n"
-    "- Sarah Kim is our main contact [from:: 2026-01] [source:: [[Q3 Pipeline]]]\n"
-    "- Dana Ortiz was our main contact [from:: 2024-06] [until:: 2026-01]\n"
-)
-
 
 def _facts_vault(master, tmp_path) -> Path:
     (master / "Company/Intel").mkdir(parents=True, exist_ok=True)

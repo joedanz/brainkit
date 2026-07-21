@@ -47,6 +47,15 @@ ALICE = Person(id="alice", name="Alice Nguyen", roles=("admin",), teams=("sales"
 BOB = Person(id="bob", name="Bob Rivera", roles=(), teams=("ops",))
 ORG = Org(people={"alice": ALICE, "bob": BOB})
 
+# A typed entity page (client) with two aliases and a live + an ended fact —
+# shared by the stats, server, and dashboard suites that exercise schema-v3
+# facts/entities surfacing.
+ACME = (
+    "---\nentity: client\naliases: [Acme Corp, ACME]\n---\n# Acme\n\n"
+    "- Sarah Kim is our main contact [from:: 2026-01] [source:: [[Q3 Pipeline]]]\n"
+    "- Dana Ortiz was our main contact [from:: 2024-06] [until:: 2026-01]\n"
+)
+
 
 @pytest.fixture
 def master(tmp_path: Path) -> Path:

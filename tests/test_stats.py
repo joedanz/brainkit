@@ -7,7 +7,7 @@ from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.stats import collect_vault_stats, format_vault_status
-from tests.conftest import ALICE, RULES, requires_vectors
+from tests.conftest import ACME, ALICE, RULES, requires_vectors
 
 
 def _compiled_indexed(master: Path, tmp_path: Path, *, provider="fake") -> Path:
@@ -281,13 +281,6 @@ def test_graph_nodes_carry_entity_type(master, tmp_path):
 
 
 # ---- facts & entities (schema v3 surfacing) ---------------------------------
-
-ACME = (
-    "---\nentity: client\naliases: [Acme Corp, ACME]\n---\n# Acme\n\n"
-    "- Sarah Kim is our main contact [from:: 2026-01] [source:: [[Q3 Pipeline]]]\n"
-    "- Dana Ortiz was our main contact [from:: 2024-06] [until:: 2026-01]\n"
-)
-
 
 def _facts_vault(master, tmp_path):
     (master / "Company/Intel").mkdir(parents=True, exist_ok=True)

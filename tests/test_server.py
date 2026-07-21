@@ -9,7 +9,7 @@ from brain.compiler import compile_vault
 from brain.indexer import build_index
 from brain.server import check_and_broadcast, create_app
 from brain.watch import Lens
-from tests.conftest import ALICE, RULES
+from tests.conftest import ACME, ALICE, RULES
 
 
 def _vault(master, tmp_path):
@@ -288,13 +288,6 @@ async def test_input_clamps(aiohttp_client, master, tmp_path):
 
 
 # ---- facts endpoint ----------------------------------------------------------
-
-ACME = (
-    "---\nentity: client\naliases: [Acme Corp, ACME]\n---\n# Acme\n\n"
-    "- Sarah Kim is our main contact [from:: 2026-01] [source:: [[Q3 Pipeline]]]\n"
-    "- Dana Ortiz was our main contact [from:: 2024-06] [until:: 2026-01]\n"
-)
-
 
 def _facts_vault(master, tmp_path):
     (master / "Company/Intel").mkdir(parents=True, exist_ok=True)

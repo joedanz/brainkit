@@ -20,8 +20,6 @@ export function render(container, ctx) {
 
 export function dispose() { S = null; }
 
-function person() { return S.ctx.meta.kind === "master" ? S.ctx.person : undefined; }
-
 function buildBar() {
   const bar = el("div", "filter-bar");
 
@@ -71,7 +69,6 @@ async function run() {
       type: S.type.value || undefined,
       as_of: S.asOf.value || undefined,
       include_ended: S.ended.dataset.on ? "1" : undefined,
-      person: person(),
     });
     if (!S || !S.runs.current(token)) return;
     renderHits(body.hits, body.warnings);
