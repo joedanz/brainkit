@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import calendar
 import re
+import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
@@ -197,40 +198,45 @@ def query_facts(
 
     store = IndexStore.open_readonly(db, want_vectors=False)
     try:
-        entity_paths: set[str] | None = None
-        if entity is not None:
-            known = {rel: (rel, etype_, aliases)
-                     for rel, etype_, aliases in store.entities()}
-            wanted = entity.strip().lower()
-            matches = {rel for rel in known
-                       if rel == entity
-                       or Path(rel).stem.lower() == wanted
-                       or wanted in (a.lower() for a in known[rel][2])}
-            if not matches:
-                return [], [f"no entity matches {entity!r}"]
-            entity_paths = matches
-        etype_paths: set[str] | None = None
-        if etype is not None:
-            etype_paths = {rel for rel, t, _a in store.entities() if t == etype}
+        try:
+            entity_paths: set[str] | None = None
+            if entity is not None:
+                known = {rel: (rel, etype_, aliases)
+                         for rel, etype_, aliases in store.entities()}
+                wanted = entity.strip().lower()
+                matches = {rel for rel in known
+                           if rel == entity
+                           or Path(rel).stem.lower() == wanted
+                           or wanted in (a.lower() for a in known[rel][2])}
+                if not matches:
+                    return [], [f"no entity matches {entity!r}"]
+                entity_paths = matches
+            etype_paths: set[str] | None = None
+            if etype is not None:
+                etype_paths = {rel for rel, t, _a in store.entities() if t == etype}
 
-        by_fact: dict[int, list[str]] = {}
-        for fid, target in store.conn.execute(
-                "SELECT fact_id, target_rel_path FROM fact_entities"):
-            by_fact.setdefault(fid, []).append(target)
+            by_fact: dict[int, list[str]] = {}
+            for fid, target in store.conn.execute(
+                    "SELECT fact_id, target_rel_path FROM fact_entities"):
+                by_fact.setdefault(fid, []).append(target)
 
-        hits: list[FactHit] = []
-        for fid, rel, line, stmt, fdate, udate, sources in store.fact_rows():
-            ents = sorted(by_fact.get(fid, []))
-            if entity_paths is not None and not (entity_paths & set(ents)):
-                continue
-            if etype_paths is not None and not (etype_paths & set(ents)):
-                continue
-            if not include_ended:
-                if fdate > on or (udate is not None and udate < on):
+            hits: list[FactHit] = []
+            for fid, rel, line, stmt, fdate, udate, sources in store.fact_rows():
+                ents = sorted(by_fact.get(fid, []))
+                if entity_paths is not None and not (entity_paths & set(ents)):
                     continue
-            hits.append(FactHit(rel, line, stmt, fdate, udate,
-                                _json.loads(sources), ents))
-        return hits, warnings
+                if etype_paths is not None and not (etype_paths & set(ents)):
+                    continue
+                if not include_ended:
+                    if fdate > on or (udate is not None and udate < on):
+                        continue
+                hits.append(FactHit(rel, line, stmt, fdate, udate,
+                                    _json.loads(sources), ents))
+            return hits, warnings
+        except sqlite3.OperationalError:
+            # index predates schema v3 — facts/entities/fact_entities tables
+            # don't exist yet (open_readonly deliberately skips DDL).
+            return [], [f"index predates facts — run: brain index --vault {vault} --full"]
     finally:
         store.close()
 

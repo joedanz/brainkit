@@ -304,7 +304,7 @@ def cmd_facts(args) -> int:
             print(f"    {h.rel_path}:{h.line}")
         for w in warnings:
             print(f"  warning: {w}", file=sys.stderr)
-    return 0 if not any(w.startswith(("no index", "no git history")) for w in warnings) else 1
+    return 0 if not any(w.startswith(("no index", "no git history", "index predates")) for w in warnings) else 1
 
 
 def cmd_mcp(args) -> int:

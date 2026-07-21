@@ -210,3 +210,34 @@ def test_tools_call_facts(master, tmp_path):
     }])
     text = resp["result"]["content"][0]["text"]
     assert "Dana Ortiz" in text and "Sarah Kim" not in text
+
+
+def test_tools_call_facts_survives_pre_v3_index(master, tmp_path):
+    """A vault indexed before schema v3 must not crash the serve() loop —
+    brain_facts should degrade to a warning instead of propagating
+    sqlite3.OperationalError out of serve()."""
+    import sqlite3
+
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Sarah Kim is our main contact [from:: 2026-01]\n")
+    v = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, v)
+    build_index(v, provider=FakeEmbeddingProvider(), cache=None)
+
+    conn = sqlite3.connect(v / ".brain" / "index.db")
+    conn.execute("DROP TABLE fact_entities")
+    conn.execute("DROP TABLE facts")
+    conn.execute("DROP TABLE entities")
+    conn.commit()
+    conn.close()
+
+    (resp,) = _exchange(v, [{
+        "jsonrpc": "2.0", "id": 22, "method": "tools/call",
+        "params": {"name": "brain_facts", "arguments": {}},
+    }])
+    assert resp["result"]["isError"] is False
+    text = resp["result"]["content"][0]["text"]
+    assert "no facts" in text
+    assert "index predates" in text

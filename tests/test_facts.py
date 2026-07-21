@@ -169,6 +169,26 @@ def test_query_missing_index_warns(tmp_path):
     assert hits == [] and any("no index" in w for w in warnings)
 
 
+def test_query_pre_v3_index_warns_instead_of_crashing(master, tmp_path):
+    """A vault indexed before schema v3 (facts/entities/fact_entities) must
+    degrade gracefully instead of raising sqlite3.OperationalError."""
+    import sqlite3
+
+    vault = _facts_vault(master, tmp_path)
+    conn = sqlite3.connect(vault / ".brain" / "index.db")
+    conn.execute("DROP TABLE fact_entities")
+    conn.execute("DROP TABLE facts")
+    conn.execute("DROP TABLE entities")
+    conn.commit()
+    conn.close()
+
+    hits, warnings = query_facts(vault)
+    assert hits == []
+    assert len(warnings) == 1
+    assert "run:" in warnings[0] and "index" in warnings[0]
+    assert str(vault) in warnings[0]
+
+
 import subprocess
 
 from brain.facts import query_facts_at

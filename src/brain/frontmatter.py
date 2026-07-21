@@ -3,10 +3,11 @@
 This is deliberately NOT a YAML parser. Promotions and drafts carry a small,
 fixed set of scalar keys, and the round-trip guarantee that matters is that the
 BODY survives byte-for-byte (approve/reject rewrite the frontmatter but copy the
-body verbatim). Matching the historical `text.split("---\\n", 2)` +
-`line.partition(": ")` behavior exactly keeps that guarantee — pyyaml would
-re-quote and reflow. `_meta/*.yaml` config is the only thing parsed as real YAML
-(see schemas.py).
+body verbatim). The historical `text.split("---\\n", 2)` + `line.partition(": ")`
+behavior is preserved, though the block's edges are trimmed of fully-blank lines
+only (no longer a whole-blob `.strip()`, which would also eat a trailing space
+off the last field's value) — pyyaml would re-quote and reflow. `_meta/*.yaml`
+config is the only thing parsed as real YAML (see schemas.py).
 """
 
 from __future__ import annotations
