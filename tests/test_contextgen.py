@@ -25,6 +25,8 @@ def test_root_protocol_content():
     assert "Company/Intel/" in text
     assert "distill, never archive" in text
     assert "as of YYYY-MM" in text                    # provenance on every claim
+    assert "captured YYYY-MM" in text                 # today's-date fallback, labelled
+    assert "uploaded filename" in text                # non-URL sources (PDF/screenshot)
     assert "updates YYYY-MM.md" in text               # dated-addendum convention
     assert "never build a wiki outside it" in text    # blocks off-vault ~/wiki
 
