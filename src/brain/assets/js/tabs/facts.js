@@ -61,6 +61,7 @@ function buildBar() {
 }
 
 async function run() {
+  if (!S) return;  // a debounced input can fire after dispose() nulls S
   const token = S.runs.begin();
   clear(S.results);
   try {
