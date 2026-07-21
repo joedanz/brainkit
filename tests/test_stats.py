@@ -343,3 +343,32 @@ def test_pre_v3_index_degrades_counts_not_crashes(master, tmp_path):
 def test_status_text_includes_counts(master, tmp_path):
     text = format_vault_status(collect_vault_stats(_facts_vault(master, tmp_path)))
     assert "facts: 2; entities: 1" in text
+
+
+def test_newer_schema_index_degrades_facts_not_crashes(master, tmp_path):
+    # A downgrade scenario: the on-disk index's schema version is newer than
+    # this binary's SCHEMA_VERSION. query_facts -> IndexStore.open_readonly
+    # raises StoreError (not sqlite3.Error) in that case — the bake must
+    # catch it too, never crash collect_vault_stats.
+    from brain.store import SCHEMA_VERSION
+
+    vault = _facts_vault(master, tmp_path)
+    conn = sqlite3.connect(vault / ".brain" / "index.db")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+
+    s = collect_vault_stats(vault, include_facts=True)
+    assert s.facts == []
+    assert any("facts unavailable" in w for w in s.warnings)
+
+
+def test_vault_stats_with_facts_serializes_cleanly(master, tmp_path):
+    from dataclasses import asdict
+
+    s = collect_vault_stats(_facts_vault(master, tmp_path), include_facts=True)
+    payload = asdict(s)
+    assert payload["facts"]
+    statements = {f["statement"] for f in payload["facts"]}
+    assert statements == {
+        "Sarah Kim is our main contact", "Dana Ortiz was our main contact"}

@@ -323,12 +323,15 @@ def collect_vault_stats(
         baked_facts = []
         if db.is_file():
             from brain.facts import query_facts
+            from brain.store import StoreError
 
             try:
                 baked_facts, fact_warnings = query_facts(
                     vault, include_ended=True)
                 warnings.extend(fact_warnings)
-            except sqlite3.Error as e:  # unreadable db — never crash a collector
+            except (sqlite3.Error, StoreError) as e:
+                # unreadable db, or a newer-schema index (StoreError) — a
+                # collector must never crash on either.
                 warnings.append(f"facts unavailable ({e})")
 
     spaces = [
