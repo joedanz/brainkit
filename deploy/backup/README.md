@@ -1,15 +1,17 @@
 # deploy/backup — offsite backups to Cloudflare R2
 
 Generic, per-company provisioning for encrypted offsite backups with restic.
-One bucket per company (`<slug>-backups`), object versioning + 30-day
-noncurrent-version lifecycle, restic repos under prefixes. The bucket is the
-isolation boundary: R2 S3 tokens scope to a bucket, so one company's boxes can
-never touch another company's backups. Within a company, versioning provides
-the undelete window; per-repo restic passwords provide confidentiality.
+Two buckets per company — `<slug>-brain-backups` and `<slug>-agents-backups` —
+each with its own bucket-scoped S3 token installed only on its box. The bucket
+is the ONLY isolation boundary R2 offers: tokens scope to whole buckets (no
+prefix scoping) and R2 has no object versioning (its S3 `GetBucketVersioning`
+is a compat stub — verified against release notes 2026-07), so per-box buckets
+are what keeps a compromised box from deleting the other box's backups.
+Per-repo restic passwords, generated on each box, provide confidentiality.
 
 - `provision-r2.sh <slug>` — run once per company (see script header for the
-  required Cloudflare token scopes). Produces an `r2.env` to install on each
-  box as `/etc/brain-backup/r2.env` (0600).
+  required Cloudflare token scopes). Produces one `r2.env` per box to install
+  as `/etc/brain-backup/r2.env` (0600).
 - `r2.env.example` — inert, fully commented template of that file.
 
 Backup jobs themselves live with their box: `../brain-box/backup-master.sh`
