@@ -89,9 +89,17 @@ export function mountControls(host, opts) {
 
   function updateSpaces(spaces, truncatedNote) {
     clear(spacesBox);
-    // drop stale persisted names so a renamed space can't stay invisibly off
-    const known = new Set(spaces.map((sp) => sp.name));
-    s.spacesOff = s.spacesOff.filter((n) => known.has(n));
+    // Only prune once we have the real space list. mountControls is called
+    // with spaces: [] before the graph data loads; pruning against an empty
+    // list would wipe every persisted spacesOff entry before the real list
+    // ever arrives, breaking "reload keeps my filters".
+    if (spaces.length) {
+      // drop stale persisted names so a renamed space can't stay invisibly off
+      const known = new Set(spaces.map((sp) => sp.name));
+      const before = s.spacesOff.length;
+      s.spacesOff = s.spacesOff.filter((n) => known.has(n));
+      if (s.spacesOff.length !== before && opts.onPersist) opts.onPersist();
+    }
     spaces.forEach((sp) => {
       const row = el("label", "gc-check");
       const cb = el("input");

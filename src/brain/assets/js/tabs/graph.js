@@ -94,6 +94,7 @@ function buildChrome() {
     onFilter: () => { persist(); refreshVisibility(); },
     onDisplay: () => { persist(); applyDisplay(); },
     onForces: () => { persist(); applyForces(); },
+    onPersist: persist,
   });
 }
 
