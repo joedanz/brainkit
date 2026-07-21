@@ -260,3 +260,39 @@ def test_doctor_quiet_on_wellformed_facts(master):
         "---\nentity: client\n---\n# Good\n\n- fine [from:: 2026-01]\n")
     from brain.doctor import run_doctor
     assert [f for f in run_doctor(master) if f.check == "facts"] == []
+
+
+def test_space_readable_by_no_one_is_warn(master):
+    seed_meta(master)
+    findings = run_doctor(master)
+    assert "warn" not in _severities(findings, "unreadable-spaces")
+    # a folder matching no team id (e.g. a case mismatch like Teams/Sales vs
+    # 'sales', or a team no one is on) matches the Teams/* rule but resolves to
+    # zero readers — hidden from everyone, silently. (A literal case-mismatch
+    # dir can't be created next to Teams/sales on case-insensitive filesystems,
+    # so the fixture uses a distinct name; the reader math is identical.)
+    (master / "Teams/Design").mkdir()
+    (master / "Teams/Design/Playbook.md").write_text("x\n")
+    findings = run_doctor(master)
+    warns = [f.message for f in findings
+             if f.check == "unreadable-spaces" and f.severity == "warn"]
+    assert any("Teams/Design" in m for m in warns)
+
+
+def test_departed_persons_space_is_warn(master):
+    seed_meta(master)
+    (master / "People/ghost/Notes.md").parent.mkdir(parents=True)
+    (master / "People/ghost/Notes.md").write_text("left the company\n")
+    findings = run_doctor(master)
+    warns = [f.message for f in findings
+             if f.check == "unreadable-spaces" and f.severity == "warn"]
+    assert any("People/ghost" in m for m in warns)
+
+
+def test_unreadable_space_check_skips_empty_org(master):
+    seed_meta(master)
+    (master / "_meta/org.yaml").write_text("people: {}\n")
+    (master / "Teams/Design").mkdir()
+    (master / "Teams/Design/Playbook.md").write_text("x\n")
+    findings = run_doctor(master)  # with no people, every space is unreadable — noise
+    assert not [f for f in findings if f.check == "unreadable-spaces"]
