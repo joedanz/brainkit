@@ -194,6 +194,9 @@ function draw(g, preserveView) {
     });
   S.sim = sim;
 
+  S._node = node; S._link = link;
+  S._label = label;
+
   const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", (ev) => {
     S.transform = ev.transform;
     gWrap.attr("transform", ev.transform);
@@ -212,8 +215,6 @@ function draw(g, preserveView) {
   if (fresh.size) sim.alpha(0.5).restart();
   setTimeout(() => node.classed("pulse", false), 1500);
 
-  S._node = node; S._link = link;
-  S._label = label;
   updateLabels();
   S.prev = new Set(g.nodes.map((n) => n.rel_path));
   buildLegend(g);
@@ -276,6 +277,7 @@ function updateLabels() {
 // Hovering a note lights its neighborhood and recedes everything else —
 // classes only; filter-driven .dim / display rules are untouched.
 function focus(d, adj) {
+  if (!S || !S._node) return;
   const hood = new Set([d.id]);
   const a = adj.get(d.id) || { out: [], in: [] };
   a.out.forEach((i) => hood.add(i));
