@@ -30,6 +30,7 @@ export function render(container, ctx) {
     transform: d3.zoomIdentity,
     threeD: false,
     loads: latest(),          // guards out-of-order graph fetches
+    factLoads: latest(),      // guards out-of-order node-panel facts fetches
     host: null, panel: null, controls: null, sel: null,
   };
   S.settings = loadSettings(S.storeKey);
@@ -359,6 +360,9 @@ function reselect(adj, byId) {
   S.panel.appendChild(el("h3", null, d.title));
   S.panel.appendChild(el("div", "space-tag",
     d.space + " · " + d.rel_path + (d.entity ? " · " + d.entity : "")));
+  if (d.entity && d.aliases && d.aliases.length) {
+    S.panel.appendChild(el("div", "space-tag", "aka " + d.aliases.join(", ")));
+  }
 
   const open = el("button", "btn", "Open in Query");
   open.style.margin = "8px 0";
@@ -374,6 +378,30 @@ function reselect(adj, byId) {
   };
   list("Links to", a.out);
   list("Linked from", a.in);
+  if (d.entity) loadFacts(d);
+}
+
+// For an entity node, append its current facts below the link lists. The token
+// guard drops replies that arrive after another selection (or a dispose); on
+// any failure the block simply doesn't appear — the panel stays useful.
+async function loadFacts(d) {
+  const token = S.factLoads.begin();
+  const host = el("div");
+  S.panel.appendChild(host);
+  try {
+    const params = { entity: d.rel_path };
+    if (S.ctx.meta.kind === "master") params.person = S.ctx.person;
+    const body = await api.facts(params);
+    if (!S || !S.factLoads.current(token)) return;
+    if (!body.hits.length) return;
+    host.appendChild(el("h3", null, "Facts (" + body.hits.length + ")"));
+    const ul = el("ul");
+    body.hits.forEach((h) => {
+      ul.appendChild(el("li", null,
+        h.statement + "  (" + h.from_date + " → " + (h.until_date || "") + ")"));
+    });
+    host.appendChild(ul);
+  } catch { /* no facts block on error — never disrupt the panel */ }
 }
 
 function selectByPath(relPath, g) {
