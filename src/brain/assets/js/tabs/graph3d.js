@@ -64,6 +64,21 @@ function layout(graph) {
   return pos;
 }
 
+// Soft radial sprite drawn on a throwaway canvas — no image asset, stays
+// offline. Additive-blended points behind the spheres read as glow.
+function haloTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, "rgba(255,255,255,0.85)");
+  grad.addColorStop(0.4, "rgba(255,255,255,0.25)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
 export function mount(host, graph, onNodeClick) {
   host.textContent = "";
   const W = host.clientWidth || 800, H = host.clientHeight || 560;
@@ -78,7 +93,7 @@ export function mount(host, graph, onNodeClick) {
   const camDist = Math.max(160, extent * 2.4);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a2129);
+  scene.background = new THREE.Color(0x14110d); // warm near-black, matches the 2D canvas
   const camera = new THREE.PerspectiveCamera(60, W / H, 1, camDist * 10);
   camera.position.set(0, 0, camDist);
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -99,7 +114,7 @@ export function mount(host, graph, onNodeClick) {
   });
   const lineGeom = new THREE.BufferGeometry();
   lineGeom.setAttribute("position", new THREE.Float32BufferAttribute(linePos, 3));
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x4a5a6e, transparent: true, opacity: 0.7 });
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x6e6459, transparent: true, opacity: 0.32 });
   const lines = new THREE.LineSegments(lineGeom, lineMat);
   scene.add(lines);
 
@@ -119,6 +134,23 @@ export function mount(host, graph, onNodeClick) {
     mesh.setColorAt(i, color.set(colorFor(node.space)));
   });
   scene.add(mesh);
+
+  const haloPos = new Float32Array(graph.nodes.length * 3);
+  const haloCol = new Float32Array(graph.nodes.length * 3);
+  graph.nodes.forEach((node, i) => {
+    haloPos.set([pos[i].x, pos[i].y, pos[i].z], i * 3);
+    color.set(colorFor(node.space));
+    haloCol.set([color.r, color.g, color.b], i * 3);
+  });
+  const haloGeom = new THREE.BufferGeometry();
+  haloGeom.setAttribute("position", new THREE.BufferAttribute(haloPos, 3));
+  haloGeom.setAttribute("color", new THREE.BufferAttribute(haloCol, 3));
+  const haloTex = haloTexture();
+  const haloMat = new THREE.PointsMaterial({
+    map: haloTex, vertexColors: true, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, size: baseR * 7, sizeAttenuation: true,
+  });
+  scene.add(new THREE.Points(haloGeom, haloMat));
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -158,6 +190,7 @@ export function mount(host, graph, onNodeClick) {
       renderer.domElement.removeEventListener("click", onClick);
       controls.dispose();
       geom.dispose(); mat.dispose(); lineGeom.dispose(); lineMat.dispose();
+      haloGeom.dispose(); haloMat.dispose(); haloTex.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
     },

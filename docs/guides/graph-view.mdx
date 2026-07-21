@@ -1,0 +1,44 @@
+---
+title: See your brain as a graph
+description: Two ways to view a vault as an interactive knowledge graph — the dashboard's Graph tab and Obsidian's graph view.
+icon: share-2
+---
+
+Every compiled vault is a web of notes joined by `[[wikilinks]]`. There are two
+ways to see that web as an interactive graph, depending on how you use your
+vault.
+
+## The dashboard's Graph tab
+
+The [live dashboard](/guides/reference-deployment) has a **Graph** tab: your
+notes as glowing points, colored by space, linked where notes reference each
+other. It works for everyone — including people who only ever talk to their
+assistant in chat and never touch files, since the dashboard is just a URL.
+
+- **Hover** a note (2D view) to light up its neighborhood; everything else
+  recedes.
+- **Zoom in** (2D view) and note titles fade into view.
+- **Click** a note to list what it links to and what links back, and open it
+  in the Query tab.
+- The **control panel** on the canvas filters by space, fades or shows
+  orphan notes and whole spaces, and tunes size, link distance, and layout
+  forces. Your settings stick across visits.
+- **3D view** renders the same graph as a constellation you can orbit.
+
+The graph updates live: add a note or a link and it springs into place without
+losing your zoom or layout.
+
+## Obsidian's graph view
+
+If you work with a cloned copy of your vault
+([per-employee setup](/guides/per-employee-setup)), the vault is a plain
+Obsidian vault — open it in Obsidian and its built-in graph view works with no
+configuration, alongside backlinks, canvas, and every other Obsidian feature.
+
+## The graph you see is the graph you're allowed to see
+
+Both views draw from your compiled vault, and the
+[compiler](/concepts/the-compiler) stubs out links that point at notes outside
+your permissions — a note you can't read is never on your machine, so it can't
+appear as a node or an edge. The graph isn't just a pretty view of your
+knowledge; it's an exact picture of your slice of the company brain.

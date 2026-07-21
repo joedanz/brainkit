@@ -225,9 +225,14 @@ select { cursor: pointer; }
 .graph-toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center;
                  margin-bottom: var(--sp-3); }
 .graph-wrap { display: grid; grid-template-columns: 1fr 288px; gap: var(--sp-3); }
-.graph-host { background: var(--surface-1); border: 1px solid var(--border);
+/* The constellation viewport: deep warm charcoal in BOTH themes — a window
+   into the vault, not a themed panel. Literal colors, deliberately not vars. */
+.graph-host { background: oklch(0.145 0.008 80); border: 1px solid var(--border);
               border-radius: var(--radius-md); height: 560px; overflow: hidden; position: relative; }
 .graph-host svg, .graph-host canvas { width: 100%; height: 100%; display: block; }
+/* Render surface for svg/canvas/error-banner, separate from the controls
+   overlay so a redraw's clear() can't wipe the panel mounted alongside it. */
+.graph-canvas { width: 100%; height: 100%; }
 #graph-panel { background: var(--surface-1); border: 1px solid var(--border);
                border-radius: var(--radius-md); padding: var(--sp-4); overflow-y: auto;
                max-height: 560px; font-size: var(--step-0); }
@@ -238,22 +243,43 @@ select { cursor: pointer; }
                       letter-spacing: .06em; color: var(--text-muted); margin-top: var(--sp-4); }
 #graph-panel ul { margin: var(--sp-2) 0 var(--sp-3) var(--sp-4); }
 #graph-panel li { overflow-wrap: anywhere; padding: 2px 0; }
-.node { cursor: pointer; }
+.node { cursor: pointer; filter: drop-shadow(0 0 5px currentColor); transition: opacity .15s; }
 .node.dim { opacity: 0.14; }
-.link { stroke: var(--border); stroke-width: 1; }
+svg.no-glow .node { filter: none; } /* glow is per-node paint; too costly past ~800 nodes */
+.link { stroke: oklch(0.75 0.012 80 / 0.22); stroke-width: 1; transition: opacity .15s; }
+.node.faded, .link.faded, .graph-label.faded { opacity: 0.08; }
+.graph-label { fill: oklch(0.88 0.010 82); font: 10px var(--body); text-anchor: middle;
+               pointer-events: none; user-select: none;
+               paint-order: stroke; stroke: oklch(0.145 0.008 80 / 0.85); stroke-width: 3px; }
 .link.hot { stroke: var(--accent); stroke-width: 1.6; }
 @keyframes pulse-ring {
   0%   { stroke: var(--accent); stroke-width: 5; opacity: 0.7; }
   100% { stroke: transparent; stroke-width: 0; opacity: 0; }
 }
 .node.pulse { animation: pulse-ring 1.4s ease-out; }
-.legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-top: var(--sp-3);
-          font-size: var(--step-00); }
-.legend .chip { display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
-                color: var(--text-secondary); user-select: none; border-radius: var(--radius-sm);
-                padding: 2px 4px; }
-.legend .chip.off { opacity: 0.4; text-decoration: line-through; }
-.legend .dot { width: 9px; height: 9px; border-radius: 50%; }
+
+.graph-controls { position: absolute; top: 10px; left: 10px; z-index: 2; width: 216px;
+  background: oklch(0.19 0.010 80 / 0.92); border: 1px solid oklch(0.32 0.012 80);
+  border-radius: var(--radius-md); color: oklch(0.88 0.012 82);
+  font-size: var(--step-00); max-height: calc(100% - 20px); overflow-y: auto;
+  backdrop-filter: blur(4px); }
+.graph-controls .gc-head { display: flex; justify-content: space-between; align-items: center;
+  padding: var(--sp-2) var(--sp-3); cursor: pointer; font-weight: 600; user-select: none; }
+.graph-controls.collapsed .gc-body { display: none; }
+.graph-controls .gc-body { padding: 0 var(--sp-3) var(--sp-3); }
+.graph-controls details { margin-top: var(--sp-2); }
+.graph-controls summary { cursor: pointer; color: oklch(0.70 0.012 82);
+  text-transform: uppercase; letter-spacing: .06em; font-size: 11px; user-select: none; }
+.graph-controls input[type=search] { width: 100%; margin: var(--sp-2) 0;
+  background: oklch(0.145 0.008 80); color: inherit;
+  border: 1px solid oklch(0.32 0.012 80); border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2); font: var(--step-00) var(--body); }
+.gc-check { display: flex; align-items: center; gap: 6px; padding: 3px 0; cursor: pointer; }
+.gc-check .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.gc-slider { display: grid; grid-template-columns: 88px 1fr; align-items: center;
+  gap: 6px; padding: 3px 0; }
+.gc-slider input[type=range] { width: 100%; accent-color: oklch(0.72 0.13 44); }
+.gc-trunc .gc-note, .gc-note { color: oklch(0.60 0.012 82); padding-top: var(--sp-2); }
 
 /* ---- query ------------------------------------------------------------- */
 .filter-bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center;
