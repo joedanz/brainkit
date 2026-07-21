@@ -393,3 +393,71 @@ def test_shares_note_none_when_empty_and_skips_malformed(master: Path):
     bad.parent.mkdir(parents=True, exist_ok=True)
     bad.write_text("no frontmatter at all")
     assert generate_shares_note(master, "bob", today="2026-07-20") is None
+
+
+# --- git audit trail -------------------------------------------------------
+# Master vaults are always git repos (brain init creates one); every decision
+# on the queue must land in history with a real identity, the same way ingest
+# and writeback commits do. Scratch masters without .git (like this suite's
+# fixture) skip the commit and still work.
+
+import subprocess
+
+
+def _git(master: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(master), *args],
+                          capture_output=True, text=True, check=True).stdout
+
+
+def _git_init(master: Path) -> None:
+    _git(master, "init", "-b", "main")
+    _git(master, "add", "-A")
+    _git(master, "-c", "user.name=t", "-c", "user.email=t@t",
+         "commit", "-m", "seed")
+
+
+def test_approve_commits_under_the_approvers_identity(master: Path):
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/G.md",
+                    source="s", body="g", promo_id="p-1", created="2026-07-07")
+    _git_init(master)
+    approve(master, "p-1", approver="alice", date="2026-07-08")
+    assert _git(master, "status", "--porcelain").strip() == ""
+    assert "p-1" in _git(master, "log", "-1", "--format=%s")
+    assert _git(master, "log", "-1", "--format=%an").strip() == "Alice Nguyen"
+
+
+def test_reject_commits_the_queue_move(master: Path):
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/H.md",
+                    source="s", body="h", promo_id="p-2", created="2026-07-07")
+    _git_init(master)
+    reject(master, "p-2", reason="too raw", date="2026-07-08")
+    assert _git(master, "status", "--porcelain").strip() == ""
+    assert "p-2" in _git(master, "log", "-1", "--format=%s")
+
+
+def test_sweep_commits_only_the_queue_paths(master: Path):
+    from brain.promotions import sweep
+
+    _seed_org(master)
+    _git_init(master)
+    d = master / "People/bob/Promotions"
+    d.mkdir(parents=True)
+    (d / "Share Me.md").write_text(
+        "---\ntarget-path: Company/Playbook/S.md\nsource: x\n---\nbody\n")
+    (master / "People/bob/Memory.md").write_text("unrelated local edit\n")
+    moved = sweep(master, today="2026-07-07")
+    assert len(moved) == 1
+    porcelain = _git(master, "status", "--porcelain").strip()
+    # the queue move is committed; the unrelated edit is exactly what remains
+    assert porcelain == "M People/bob/Memory.md"
+    assert "sweep" in _git(master, "log", "-1", "--format=%s")
+
+
+def test_promotions_still_work_without_git(master: Path):
+    _seed_org(master)  # fixture master has no .git at all
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/N.md",
+                    source="s", body="n", promo_id="p-3", created="2026-07-07")
+    target = approve(master, "p-3", approver="alice", date="2026-07-08")
+    assert target.exists()

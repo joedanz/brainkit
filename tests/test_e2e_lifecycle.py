@@ -203,7 +203,11 @@ def test_full_multiuser_lifecycle(tmp_path: Path, capsys):
     rejected = master / "_meta/promotions/rejected/carol-new-sop.md"
     assert rejected.exists() and "not this quarter" in rejected.read_text()
     assert not (master / "Company/Decisions/New SOP.md").exists()
-    _commit(master, "promotions applied")
+    # sweep/approve/reject each committed themselves — no operator commit
+    # needed, and the approval carries the approver's identity in history
+    assert _git(master, "status", "--porcelain").strip() == ""
+    assert "approve carol-acme-note" in _git(master, "log", "--format=%s", "-3")
+    assert "Dana Ops" in _git(master, "log", "--format=%an", "-3")
 
     # 6. recompile: convergence + idempotency ----------------------------- #
     assert main(["compile", "--master", str(master), "--out", str(compiled)]) == 0
