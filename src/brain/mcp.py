@@ -3,7 +3,7 @@
 Hand-rolled JSON-RPC 2.0 over newline-delimited stdio — five message types
 (initialize, initialized, ping, tools/list, tools/call). The official mcp SDK
 would pull pydantic/anyio/httpx into a package whose only runtime dep is pyyaml
-(+ sqlite-vec); this is four read-only tools and a read loop. `serve()` takes
+(+ sqlite-vec); this is five read-only tools and a read loop. `serve()` takes
 injectable streams so it is unit-testable in-process.
 
 It runs on the employee's device against their own vault clone, so it inherits
@@ -69,6 +69,23 @@ _TOOLS = [
             },
         },
     },
+    {
+        "name": "brain_facts",
+        "description": "Query time-stamped fact lines. Default: facts true today. "
+                       "Filter by entity (a note's title, alias, or rel path), entity "
+                       "type, or date. as_of asks what was true on a date; believed_on "
+                       "asks what the vault said on a date (from git history).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity": {"type": "string", "description": "entity title, alias, or rel path"},
+                "type": {"type": "string", "description": "entity type, e.g. client"},
+                "as_of": {"type": "string", "description": "YYYY-MM or YYYY-MM-DD"},
+                "believed_on": {"type": "string", "description": "YYYY-MM or YYYY-MM-DD"},
+                "ended": {"type": "boolean", "description": "include closed facts"},
+            },
+        },
+    },
 ]
 
 
@@ -126,6 +143,26 @@ def _tool_links(vault: Path, args: dict) -> tuple[str, bool]:
     lines.extend(f"- {src}" for src in backlinks)
     lines.append(f"Outgoing links ({len(outgoing)}):")
     lines.extend(f"- {tgt}" + ("" if ok else " (unresolved)") for tgt, ok in outgoing)
+    return "\n".join(lines), False
+
+
+def _tool_facts(vault: Path, args: dict) -> tuple[str, bool]:
+    from brain.facts import query_facts, query_facts_at
+
+    kwargs = dict(entity=args.get("entity") or None,
+                  etype=args.get("type") or None,
+                  include_ended=bool(args.get("ended")))
+    if args.get("believed_on"):
+        hits, warnings = query_facts_at(vault, args["believed_on"], **kwargs)
+    else:
+        hits, warnings = query_facts(vault, as_of=args.get("as_of") or None, **kwargs)
+    if not hits:
+        return "\n".join(["no facts"] + [f"warning: {w}" for w in warnings]), False
+    lines = [f"{len(hits)} fact(s):"]
+    for h in hits:
+        span = h.from_date + (f" → {h.until_date}" if h.until_date else " →")
+        lines.append(f"- {h.statement}  ({span})  [{h.rel_path}:{h.line}]")
+    lines.extend(f"warning: {w}" for w in warnings)
     return "\n".join(lines), False
 
 
@@ -195,6 +232,8 @@ def _handle(vault: Path, provider, msg: dict):
             text, is_err = _tool_links(vault, args)
         elif name == "brain_recent":
             text, is_err = _tool_recent(vault, args)
+        elif name == "brain_facts":
+            text, is_err = _tool_facts(vault, args)
         else:
             return _error(mid, -32602, f"unknown tool: {name}")
         return _text_result(mid, text, is_err)

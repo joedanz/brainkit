@@ -39,7 +39,7 @@ def test_initialize_handshake(vault):
 def test_tools_list_schema(vault):
     (resp,) = _exchange(vault, [{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
     names = {t["name"] for t in resp["result"]["tools"]}
-    assert names == {"brain_search", "brain_read", "brain_links", "brain_recent"}
+    assert names == {"brain_search", "brain_read", "brain_links", "brain_recent", "brain_facts"}
     search = next(t for t in resp["result"]["tools"] if t["name"] == "brain_search")
     assert search["inputSchema"]["required"] == ["query"]
     assert "center" in search["inputSchema"]["properties"]
@@ -114,7 +114,7 @@ def test_subprocess_smoke(vault):
     lines = [json.loads(x) for x in proc.stdout.splitlines() if x.strip()]
     assert lines[0]["result"]["serverInfo"]["name"] == "brainkit"
     assert {t["name"] for t in lines[1]["result"]["tools"]} == {
-        "brain_search", "brain_read", "brain_links", "brain_recent"}
+        "brain_search", "brain_read", "brain_links", "brain_recent", "brain_facts"}
 
 
 def test_tools_call_search_with_center(vault):
@@ -185,3 +185,28 @@ def test_tools_call_recent_with_git(vault):
     text = resp["result"]["content"][0]["text"]
     # the note touched by the newest commit leads the list
     assert text.splitlines()[1].startswith("- People/alice/Memory.md")
+
+
+def test_tools_call_facts(master, tmp_path):
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Sarah Kim is our main contact [from:: 2026-01]\n"
+        "- Dana Ortiz was our main contact [from:: 2024-06] [until:: 2026-01]\n")
+    v = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, v)
+    build_index(v, provider=FakeEmbeddingProvider(), cache=None)
+
+    (resp,) = _exchange(v, [{
+        "jsonrpc": "2.0", "id": 20, "method": "tools/call",
+        "params": {"name": "brain_facts", "arguments": {}},
+    }])
+    text = resp["result"]["content"][0]["text"]
+    assert "Sarah Kim" in text and "Dana Ortiz" not in text  # current only
+
+    (resp,) = _exchange(v, [{
+        "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+        "params": {"name": "brain_facts", "arguments": {"as_of": "2025-06"}},
+    }])
+    text = resp["result"]["content"][0]["text"]
+    assert "Dana Ortiz" in text and "Sarah Kim" not in text
