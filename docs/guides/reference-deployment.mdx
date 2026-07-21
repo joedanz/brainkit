@@ -258,9 +258,10 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     `deploy/agents-box/add-agent.sh <name>` prints the compose stanza and this
     exact checklist:
 
-    1. Add them to `org.yaml`; the next cycle compiles their vault. Set
-       `receive.denyCurrentBranch updateInstead` on the compiled repo so it
-       accepts the agent's pushes.
+    1. Add them to `org.yaml` as a plain employee (no `roles:` — read-only on
+       Company by default; the admin role stays on a separate curation identity).
+       The next cycle compiles their vault. Set `receive.denyCurrentBranch
+       updateInstead` on the compiled repo so it accepts the agent's pushes.
     2. Telegram: `@BotFather → /newbot` → copy the token (WhatsApp: link a
        number via the hermes WhatsApp adapter).
     3. Agents box: paste the compose stanza, `docker compose up -d`.
@@ -273,9 +274,10 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   </Step>
 
   <Step title="Operate — minutes per week">
-    - **Approvals:** `ssh brain-box brain promotions approve <id> --master /srv/brain/master --approver <you>`
-      (`<you>` is your person id from `org.yaml`); or review in the dashboard
-      over an SSH tunnel and approve there — pick your name from the dropdown.
+    - **Approvals:** `ssh brain-box brain promotions approve <id> --master /srv/brain/master --approver admin`
+      (`admin` is the curation identity from `org.yaml` — the approver must be an
+      admin-role person, not a plain employee); or review in the dashboard over an
+      SSH tunnel and approve there — pick the admin identity from the dropdown.
     - **Watch two numbers:** the cycle and doctor exit codes (already wired to
       your alert URL).
     - **Backups, both halves:** the master mirror covers knowledge; agent
