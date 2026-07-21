@@ -23,7 +23,7 @@ def test_cycle_applies_writebacks_sweeps_and_recompiles(master, tmp_path):
     promo = out / "bob/People/bob/Promotions/share-sop.md"
     promo.parent.mkdir(parents=True, exist_ok=True)
     promo.write_text(
-        "---\ntarget-path: Company/Frameworks/SOP.md\n"
+        "---\ntarget-path: Company/Playbook/SOP.md\n"
         "source: People/bob/Memory.md\n---\nThe SOP body.\n"
     )
     # promotion draft must reach master before sweep can see it
@@ -209,7 +209,7 @@ def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
     out = _first_compile(master, tmp_path)
 
     # bob's agent drafts a promotion in his own space (as write-back would land it)
-    draft_into_space(master, "bob", "Company/Frameworks/S.md",
+    draft_into_space(master, "bob", "Company/Playbook/S.md",
                      "People/bob/Sessions/call.md", "shareable\n", "2026-07-18")
 
     # cycle 1: sweep queues it; his slice's Shares.md shows it pending
@@ -224,7 +224,7 @@ def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
     assert report.ok  # write-back reported no rejected changes
     text = note.read_text()
     assert "forged" not in text
-    assert "✅ `Company/Frameworks/S.md` — approved 2026-07-19 by alice" in text
+    assert "✅ `Company/Playbook/S.md` — approved 2026-07-19 by alice" in text
     # A generated file must never become a real note in master — if it were
     # miscategorized as `compiled`, write-back would apply the forged edit here.
     assert not (master / "People/bob/Shares.md").exists()

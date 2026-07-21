@@ -140,7 +140,7 @@ def _seeded_company(master, tmp_path):
     out_root = tmp_path / "compiled"
     assert main(["compile", "--master", str(master), "--out", str(out_root)]) == 0
     build_index(out_root / "alice", provider=None, cache=None)
-    draft_promotion(master, "bob", "Company/Frameworks/SOP.md",
+    draft_promotion(master, "bob", "Company/Playbook/SOP.md",
                     "People/bob/Sessions/x.md", "Body.\n", "p-1", "2026-07-08")
     return out_root
 

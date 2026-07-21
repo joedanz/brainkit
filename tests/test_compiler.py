@@ -239,7 +239,7 @@ def test_compile_generates_shares_note_for_pending_promotion(master: Path, tmp_p
     from brain.promotions import draft_promotion
 
     draft_promotion(
-        master, person_id="bob", target_path="Company/Frameworks/S.md",
+        master, person_id="bob", target_path="Company/Playbook/S.md",
         source="s", body="x", promo_id="p-s", created="2026-07-18",
     )
     out = tmp_path / "out" / "bob"

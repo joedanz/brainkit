@@ -223,7 +223,7 @@ def test_stuck_draft_without_target_is_warn(master):
 def test_pending_count_is_info(master):
     seed_meta(master)
     from brain.promotions import draft_promotion
-    draft_promotion(master, "bob", "Company/Frameworks/SOP.md",
+    draft_promotion(master, "bob", "Company/Playbook/SOP.md",
                     "People/bob/x.md", "Body.\n", "p-1", "2026-07-07")
     findings = run_doctor(master)
     assert any(f.check == "promotions" and f.severity == "info" for f in findings)

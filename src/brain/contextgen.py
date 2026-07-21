@@ -37,7 +37,7 @@ writable spaces; the write-back service rejects changes to read-only paths.
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
   promotion targeting a new file in `Company/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion
-  targeting a new file in `Company/Frameworks/`
+  targeting a new file in `Company/Playbook/`
 - If unsure where something belongs, add it to `People/{pid}/Needs-Routing.md`
 
 ## Promotion protocol (moving knowledge to shared spaces)

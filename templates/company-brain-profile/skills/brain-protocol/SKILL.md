@@ -24,7 +24,7 @@ your spaces and permissions — read it before acting.
    target-path: <new file in a shared space>
    source: <originating note path>
    Pick a target that does not exist yet: decisions -> Company/Decisions/,
-   standing processes or standards -> Company/Frameworks/. Never target an
+   standing processes or standards -> Company/Playbook/. Never target an
    existing note (Memory.md included) — approval fails on it.
 3. Tell the owner it awaits their approval (`brain promotions list`). Never
    write directly into a read-only space; the write-back service rejects it.

@@ -88,7 +88,7 @@ When a transcript appears in any `People/<person>/Inbox/`:
    - Client facts -> the matching `Clients/<client>/` file
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
-   - Standing processes and standards -> a new file in `Company/Frameworks/`
+   - Standing processes and standards -> a new file in `Company/Playbook/`
    - Session summary -> `People/<person>/Sessions/`
    - General insights worth keeping -> fold into `Company/Memory.md`, which
      stays a lean overview linking out to detail notes — not a running log
@@ -116,7 +116,7 @@ def _home_md(company: str) -> str:
     return (
         f"# {company} — Home\n\n"
         "## Priorities\n\n(maintained by the company assistant)\n\n"
-        "## Links\n\n- [[Memory]]\n- Decisions/\n- Frameworks/\n- Templates/\n"
+        "## Links\n\n- [[Memory]]\n- Decisions/\n- Playbook/\n- Templates/\n"
     )
 
 
@@ -135,7 +135,7 @@ def scaffold_master(dest: Path, company: str) -> list[str]:
         "Company/Home.md": _home_md(company),
         "Company/Memory.md": _memory_md(company),
         "Company/Decisions/.gitkeep": "",
-        "Company/Frameworks/.gitkeep": "",
+        "Company/Playbook/.gitkeep": "",
         "Company/Templates/.gitkeep": "",
         "Teams/.gitkeep": "",
         "People/.gitkeep": "",
