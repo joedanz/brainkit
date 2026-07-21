@@ -241,6 +241,7 @@ select { cursor: pointer; }
 #graph-panel ul { margin: var(--sp-2) 0 var(--sp-3) var(--sp-4); }
 #graph-panel li { overflow-wrap: anywhere; padding: 2px 0; }
 .node { cursor: pointer; filter: drop-shadow(0 0 5px currentColor); transition: opacity .15s; }
+.node.dim { opacity: 0.14; }
 svg.no-glow .node { filter: none; } /* glow is per-node paint; too costly past ~800 nodes */
 .link { stroke: oklch(0.75 0.012 80 / 0.22); stroke-width: 1; transition: opacity .15s; }
 .node.faded, .link.faded, .graph-label.faded { opacity: 0.08; }
