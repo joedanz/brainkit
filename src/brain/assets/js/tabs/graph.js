@@ -162,6 +162,7 @@ function draw(g, preserveView) {
   g.edges.forEach((e) => { adj.get(e.source).out.push(e.target); adj.get(e.target).in.push(e.source); });
 
   const svg = d3.select(S.host).append("svg").attr("viewBox", `0 0 ${W} ${H}`);
+  svg.classed("no-glow", nodes.length > 800);
   const gWrap = svg.append("g");
 
   const link = gWrap.append("g").selectAll("line").data(links).join("line").attr("class", "link");
@@ -169,6 +170,7 @@ function draw(g, preserveView) {
     .attr("class", "node")
     .attr("r", (d) => 4 + 2.5 * Math.sqrt(d.degree))
     .attr("fill", (d) => colorFor(d.space))
+    .style("color", (d) => colorFor(d.space))
     .classed("pulse", (d) => fresh.has(d.rel_path))
     .on("click", (ev, d) => select(d, adj, byId));
   node.append("title").text((d) => d.title);

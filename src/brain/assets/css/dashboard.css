@@ -225,7 +225,9 @@ select { cursor: pointer; }
 .graph-toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center;
                  margin-bottom: var(--sp-3); }
 .graph-wrap { display: grid; grid-template-columns: 1fr 288px; gap: var(--sp-3); }
-.graph-host { background: var(--surface-1); border: 1px solid var(--border);
+/* The constellation viewport: deep warm charcoal in BOTH themes — a window
+   into the vault, not a themed panel. Literal colors, deliberately not vars. */
+.graph-host { background: oklch(0.145 0.008 80); border: 1px solid var(--border);
               border-radius: var(--radius-md); height: 560px; overflow: hidden; position: relative; }
 .graph-host svg, .graph-host canvas { width: 100%; height: 100%; display: block; }
 #graph-panel { background: var(--surface-1); border: 1px solid var(--border);
@@ -238,9 +240,13 @@ select { cursor: pointer; }
                       letter-spacing: .06em; color: var(--text-muted); margin-top: var(--sp-4); }
 #graph-panel ul { margin: var(--sp-2) 0 var(--sp-3) var(--sp-4); }
 #graph-panel li { overflow-wrap: anywhere; padding: 2px 0; }
-.node { cursor: pointer; }
-.node.dim { opacity: 0.14; }
-.link { stroke: var(--border); stroke-width: 1; }
+.node { cursor: pointer; filter: drop-shadow(0 0 5px currentColor); transition: opacity .15s; }
+svg.no-glow .node { filter: none; } /* glow is per-node paint; too costly past ~800 nodes */
+.link { stroke: oklch(0.75 0.012 80 / 0.22); stroke-width: 1; transition: opacity .15s; }
+.node.faded, .link.faded, .graph-label.faded { opacity: 0.08; }
+.graph-label { fill: oklch(0.88 0.010 82); font: 10px var(--body); text-anchor: middle;
+               pointer-events: none; user-select: none;
+               paint-order: stroke; stroke: oklch(0.145 0.008 80 / 0.85); stroke-width: 3px; }
 .link.hot { stroke: var(--accent); stroke-width: 1.6; }
 @keyframes pulse-ring {
   0%   { stroke: var(--accent); stroke-width: 5; opacity: 0.7; }
