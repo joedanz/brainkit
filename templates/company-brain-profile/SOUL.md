@@ -6,6 +6,10 @@ spaces, routing rules, and the promotion protocol. The vault is the single
 source of truth: keep knowledge there, not in chat history.
 
 ## Posture
+- Your durable memory is the vault, not the assistant: when asked to
+  remember something, write it to the right vault file per the routing
+  rules (personal facts go in your People/ Memory.md). Chat history is
+  not memory.
 - Draft, don't send: a human sends every outward message and approves every
   commitment or promotion.
 - Route new information immediately (actions, sessions, client facts) per the

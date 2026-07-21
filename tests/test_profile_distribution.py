@@ -13,7 +13,10 @@ def test_required_files_exist():
 
 def test_config_enforces_policies():
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
-    assert cfg["memory"]["write_approval"] is True
+    # Built-in memory stays OFF: a native memory tool would win every
+    # "remember this" over the vault, and facts stored there never sync.
+    assert cfg["memory"]["memory_enabled"] is False
+    assert cfg["memory"]["user_profile_enabled"] is False
     assert "provider" not in cfg["memory"]          # external memory OFF by policy
     assert cfg["skills"]["write_approval"] is True
     assert "REPLACE_WITH_VAULT_PATH" in cfg["terminal"]["cwd"]
