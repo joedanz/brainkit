@@ -139,8 +139,22 @@ def build_index(
         by_stem.setdefault(_stem(rel), rel)
 
     # Alias resolution starts from what the store already knows (unchanged
-    # entity pages); changed pages add theirs as phase 1 discovers them.
+    # entity pages). Changed pages add theirs next, in a pre-pass over
+    # sorted(changed) — mirroring how by_stem is built from sorted(candidates)
+    # — so that if two entity pages ever claim the same alias, the winner is
+    # locked in deterministically rather than left to changed's incidental
+    # (manifest-derived) order. The parsed (entity, raw_facts) are cached here
+    # so the main phase-1 loop below doesn't need to re-parse them.
     by_alias = store.alias_map()
+    parsed: dict[str, tuple[tuple[str, list[str]] | None, list]] = {}
+    for rel in sorted(changed):
+        text = (vault / rel).read_text(encoding="utf-8", errors="replace")
+        meta, _body = split_frontmatter(text)
+        entity = parse_entity(meta)
+        if entity is not None:
+            for a in entity[1]:
+                by_alias.setdefault(a.lower(), rel)
+        parsed[rel] = (entity, parse_facts(text))
 
     # Phase 1: chunk every changed file and gather the embedding inputs needed.
     per_file: dict[str, tuple[str, str, list, list[str], list[tuple[str, int]],
@@ -154,12 +168,7 @@ def build_index(
         text = (vault / rel).read_text(encoding="utf-8", errors="replace")
         chunks = chunk_markdown(rel, text)
         cshas = [_sha_text(embedding_input(c)) for c in chunks]
-        meta, _body = split_frontmatter(text)
-        entity = parse_entity(meta)
-        if entity is not None:
-            for a in entity[1]:
-                by_alias.setdefault(a.lower(), rel)
-        raw_facts = parse_facts(text)
+        entity, raw_facts = parsed[rel]
         links = _resolve_links(extract_wikilinks(text), link_paths, by_stem, by_alias)
         per_file[rel] = (candidates[rel], space, chunks, cshas, links, entity, raw_facts)
         if want_vectors:

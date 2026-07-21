@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -274,3 +275,34 @@ def test_alias_added_later_resolves_previously_unresolved_link(master, tmp_path)
     # Notes.md was unchanged, but the post-pass re-resolved its link via the alias
     assert s.links_from("Company/Notes.md") == [("Company/Intel/Acme.md", 1)]
     s.close()
+
+
+def test_alias_collision_resolves_deterministically(master, tmp_path):
+    # Two entity pages in different spaces both claim the alias "Acme". Their
+    # filenames deliberately differ from the alias itself so by_stem can't
+    # resolve [[Acme]] first — this exercises the by_alias fallback path.
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme Corp.md").write_text(
+        "---\nentity: client\naliases: [Acme]\n---\n# Acme Corp\n")
+    (master / "Teams/sales").mkdir(parents=True, exist_ok=True)
+    (master / "Teams/sales/Acme Ltd.md").write_text(
+        "---\nentity: client\naliases: [Acme]\n---\n# Acme Ltd\n")
+    (master / "Company/Notes.md").write_text("See [[Acme]] for details.\n")
+
+    vault = tmp_path / "alice"
+
+    def _resolved():
+        compile_vault(master, ALICE, RULES, vault)
+        build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+        s = IndexStore.open_readonly(vault / ".brain/index.db", want_vectors=False)
+        links = s.links_from("Company/Notes.md")
+        s.close()
+        return links
+
+    first = _resolved()
+    # lexicographically first path wins: "Company/..." < "Teams/..."
+    assert first == [("Company/Intel/Acme Corp.md", 1)]
+
+    shutil.rmtree(vault / ".brain")
+    second = _resolved()
+    assert second == first
