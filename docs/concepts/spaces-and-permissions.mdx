@@ -64,6 +64,8 @@ Client confidentiality is the common reason to move off the defaults. The `Clien
 
 Now Marco sees Vandenberg but not Nakamura; Yuki sees the reverse; an advisor with no rule sees neither. Because the wildcard denies by default, **forgetting to add a rule fails closed** — a new client is private until you say otherwise, never accidentally company-wide.
 
+The same fail-closed posture applies to a typo: `{name}` binds the folder name exactly, case-sensitively, so a folder called `Teams/Sales` next to a team id of `sales` compiles into *nobody's* vault rather than the wrong person's. Nothing leaks — but the notes silently reach no one, which is why `brain doctor` flags any space that resolves to zero readers (`unreadable-spaces`).
+
 <Callout type="warning">
   **Names leak through prose, not just files.** The compiler guarantees a client's
   *file* never enters an unauthorized vault — but a client *name* typed into a

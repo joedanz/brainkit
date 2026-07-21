@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -12,6 +13,47 @@ from brain.schemas import load_org
 
 class PromotionError(ValueError):
     """Invalid promotion target or unknown promotion id."""
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True
+    )
+
+
+def _commit(master: Path, rel_paths: list[str], message: str, name: str, email: str) -> bool:
+    """Commit exactly ``rel_paths`` (adds and deletions) under the given identity.
+
+    Every queue decision must be on the record like ingest and writeback are.
+    Staging and committing are pathspec-scoped so a dirty master (e.g. an edit
+    awaiting the next writeback) is never swept into a promotion commit. A
+    master without ``.git`` (scratch dirs, tests) skips silently — ``brain
+    init`` always creates the repo, so production masters are never in that
+    state. A real git failure is loud: the files are already moved on disk,
+    and the operator should commit by hand rather than lose the audit trail.
+    """
+    if not (master / ".git").exists():
+        return False
+    try:
+        # An untracked file that was already unlinked (e.g. a swept draft that
+        # never made it into a commit) matches no pathspec and would make
+        # `git add` fatal — there is nothing to record for it, so drop it.
+        tracked = set(_git(master, "ls-files", "--", *rel_paths).stdout.splitlines())
+        rel_paths = [p for p in rel_paths if p in tracked or (master / p).exists()]
+        if not rel_paths:
+            return False
+        _git(master, "add", "-A", "--", *rel_paths)
+        if not _git(master, "status", "--porcelain", "--", *rel_paths).stdout.strip():
+            return False
+        _git(
+            master,
+            "-c", f"user.name={name}",
+            "-c", f"user.email={email}",
+            "commit", "-m", message, "--", *rel_paths,
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        raise PromotionError(f"git commit failed: {e.stderr.strip()}") from e
 
 
 @dataclass
@@ -170,7 +212,8 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
     # org roster, same as promoted-by.
     if not approver.strip():
         raise PromotionError("an approver is required")
-    if approver not in load_org(master / "_meta/org.yaml").people:
+    people = load_org(master / "_meta/org.yaml").people
+    if approver not in people:
         raise PromotionError(f"unknown approver {approver!r} — not a person in the org")
     pending = _find_pending(master, promo_id)
     promo = _parse(pending)
@@ -204,6 +247,17 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
         f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n---\n{promo_body}"
     )
     pending.unlink()
+    # The publish is a commit under the approver's own identity — the moment a
+    # note crosses private -> shared is exactly the history entry that matters.
+    _commit(
+        master,
+        [promo.target_path,
+         archived.relative_to(master).as_posix(),
+         pending.relative_to(master).as_posix()],
+        f"promotions: approve {promo_id} -> {promo.target_path}",
+        people[approver].name,
+        f"{approver}@brain.local",
+    )
     return target
 
 
@@ -216,6 +270,14 @@ def reject(master: Path, promo_id: str, reason: str, date: str) -> Path:
         f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n---\n{body}"
     )
     pending.unlink()
+    _commit(
+        master,
+        [rejected.relative_to(master).as_posix(),
+         pending.relative_to(master).as_posix()],
+        f"promotions: reject {promo_id} ({reason})",
+        "Brain Promotions",
+        "promotions@brain.local",
+    )
     return rejected
 
 
@@ -231,6 +293,7 @@ def sweep(master: Path, today: str) -> list[Path]:
     target-path are left in place — never guessed at.
     """
     moved: list[Path] = []
+    changed: list[str] = []  # rel paths for the single audit commit at the end
     resolved = _resolved_ids(master)
     for f in sorted(master.glob("People/*/Promotions/*.md")):
         if f.is_symlink():
@@ -244,6 +307,7 @@ def sweep(master: Path, today: str) -> list[Path]:
         promo_id = f"{person_id}-{_slug(f.stem)}"
         if promo_id in resolved:
             f.unlink()  # already approved/rejected: clear the stale draft, don't re-queue
+            changed.append(rel.as_posix())
             continue
         if (_pending_dir(master) / f"{promo_id}.md").exists():
             continue
@@ -260,7 +324,14 @@ def sweep(master: Path, today: str) -> list[Path]:
         except PromotionError:
             continue
         f.unlink()
-        moved.append(_pending_dir(master) / f"{promo_id}.md")
+        pending = _pending_dir(master) / f"{promo_id}.md"
+        moved.append(pending)
+        changed += [rel.as_posix(), pending.relative_to(master).as_posix()]
+    if changed:
+        _commit(
+            master, changed, f"promotions: sweep {len(moved)} draft(s)",
+            "Brain Promotions", "promotions@brain.local",
+        )
     return moved
 
 

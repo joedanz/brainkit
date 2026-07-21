@@ -90,6 +90,30 @@ def _check_space_coverage(master: Path, rules: tuple[SpaceRule, ...]) -> list[Fi
     return findings
 
 
+def _check_unreadable_spaces(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+    """A space whose rule resolves to zero readers is hidden from everyone —
+    fail-closed, so nothing leaks, but the content silently compiles into no
+    vault. The usual causes: a folder name that doesn't match any team/person
+    id (matching is exact and case-sensitive — ``Teams/Sales`` vs a team called
+    ``sales``), or a departed person's ``People/`` folder. Spaces matching no
+    rule at all are `_check_space_coverage`'s job; an empty org is skipped
+    because then every space is trivially unreadable and the warning is noise."""
+    if not org.people:
+        return []
+    readers_of = _reader_index(org, rules)
+    findings: list[Finding] = []
+    for space in enumerate_spaces(master):
+        rule, _ = _match_rule(space, rules)
+        if rule is None or readers_of(space):
+            continue
+        findings.append(Finding(
+            "warn", "unreadable-spaces",
+            f"space {space!r} is readable by no one — its notes compile into no "
+            f"vault; check the folder name against org ids (exact, case-sensitive) "
+            f"or the subjects of rule {rule.path!r}"))
+    return findings
+
+
 def _check_orphan_files(master: Path) -> list[Finding]:
     """A .md placed directly under a nested top (Teams/, People/, Clients/)
     belongs to no space — those tops only form spaces from their subfolders — so
@@ -400,6 +424,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
     findings += _check_space_coverage(master, rules)
+    findings += _check_unreadable_spaces(master, org, rules)
     findings += _check_orphan_files(master)
     findings += _check_cross_space_refs(master, org, rules)
     findings += _check_plain_refs(master, org, rules)

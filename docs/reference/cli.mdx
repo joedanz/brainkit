@@ -117,6 +117,8 @@ brain promotions {list,sweep,approve,reject} [id] --master <master> [--approver 
 
 `approve` requires `--approver`, and it must be a person id from `_meta/org.yaml` — a blank or unknown name is refused, so the note's `approved-by` line always resolves to a real person. It also re-validates the target path at publish time, so a tampered pending file cannot write outside the master root or into a private space — and it refuses a target that already exists, so an approval can only ever add a new note, never overwrite one.
 
+Every queue decision is its own git commit, scoped to just the files it touched: `sweep` and `reject` commit as `Brain Promotions`, and `approve` commits under the approver's identity — so `git log` answers "who published this, and when" the same way it does for ingest and write-back.
+
 ## `brain cycle`
 
 Run the whole server-side loop once: write back every person's edits, sweep agent drafts into the pending queue, then recompile all vaults.
@@ -240,7 +242,7 @@ Findings carry one of three severities:
 | Severity | Meaning | Examples |
 |---|---|---|
 | `error` | An invariant is broken. Exits `1`. | Malformed `org.yaml`/`spaces.yaml`, an unknown `person:` in a rule, a symlink in the master, a crashed-compile tombstone, an unreadable manifest, or `_meta/` leaked into a compiled vault. |
-| `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, a `.md` sitting loose under `Teams/`/`People/`/`Clients/` (in no space, so compiled into no vault), a **cross-space reference** (a wikilink) or **plain-text mention** (a restricted space's name in shared prose) whose name is visible to readers who can't see its home space, or a promotion draft the sweep will silently skip. |
+| `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, a space **readable by no one** (its rule resolves to zero readers — e.g. a folder named `Teams/Sales` when the team id is `sales`, or a departed person's `People/` folder — so its notes compile into no vault), a `.md` sitting loose under `Teams/`/`People/`/`Clients/` (in no space, so compiled into no vault), a **cross-space reference** (a wikilink) or **plain-text mention** (a restricted space's name in shared prose) whose name is visible to readers who can't see its home space, or a promotion draft the sweep will silently skip. |
 | `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval. |
 
 Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into CI or a pre-cron gate. Run it after setup and on a schedule.
