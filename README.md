@@ -2,7 +2,7 @@
 
 **One brain for the company. A filtered copy for every person.**
 
-Shared team knowledge on plain, Obsidian-compatible markdown and git. A compiler builds each person a copy containing only the notes they're allowed to see — anything else is never on their machine, so there's nothing to leak. Works with the AI tools your team already uses, or with none.
+Shared team knowledge on plain, Obsidian-compatible markdown and git. A compiler builds each person a copy containing only the notes they're allowed to see — anything else is never on their machine, so there's nothing to leak. Works with the AI agents and tools your team already uses.
 
 ![Tests](https://github.com/joedanz/brainkit/actions/workflows/tests.yml/badge.svg)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)
