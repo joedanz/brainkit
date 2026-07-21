@@ -174,6 +174,15 @@ def test_init_scaffolds_master(tmp_path: Path):
     assert (dest / "Company/Intel/Destinations/.gitkeep").exists()
     assert "Company/Intel/" in protocol
     assert "as of YYYY-MM" in protocol
+    # Home is the live dashboard; Memory is the overview/map — distinct jobs,
+    # not two copies of the same folder index (regression: they looked alike).
+    home = (dest / "Company/Home.md").read_text()
+    memory = (dest / "Company/Memory.md").read_text()
+    assert "dashboard" in home.lower()
+    assert "## Priorities" in home
+    assert "## Links" not in home           # no folder index duplicating Memory
+    assert "## Priorities" not in memory
+    assert home.rstrip() != memory.rstrip()
     assert (dest / ".git").is_dir()
     # org/spaces parse cleanly
     from brain.schemas import load_org, load_spaces
