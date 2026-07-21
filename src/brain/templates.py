@@ -86,9 +86,12 @@ When a transcript appears in any `People/<person>/Inbox/`:
 3. Route:
    - Action items -> that person's `People/<person>/Actions/Tracker.md`
    - Client facts -> the matching `Clients/<client>/` file
-   - Company-wide decisions -> `Company/Decisions/`
+   - Company-wide decisions (a choice made, with its why) -> a new file in
+     `Company/Decisions/`
+   - Standing processes and standards -> a new file in `Company/Frameworks/`
    - Session summary -> `People/<person>/Sessions/`
-   - General insights -> `Company/Memory.md`
+   - General insights worth keeping -> fold into `Company/Memory.md`, which
+     stays a lean overview linking out to detail notes — not a running log
 4. Archive the processed transcript into `People/<person>/Sessions/`.
 
 If you cannot place an item confidently, add it to `Company/Needs-Routing.md`

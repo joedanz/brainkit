@@ -100,6 +100,26 @@ def test_approve_revalidates_target(master: Path):
         approve(master, "p-evil", approver="alice", date="2026-07-08")
 
 
+def test_approve_refuses_existing_target(master: Path):
+    """Approving onto an existing file must fail closed, not overwrite it.
+    Promotions are additive: the running curated notes (Company/Memory.md,
+    Home.md) are maintained by the admin, never replaced by an approval."""
+    _seed_org(master)
+    before = (master / "Company/Home.md").read_text()
+    draft_promotion(
+        master, person_id="bob",
+        target_path="Company/Home.md",   # already exists in the fixture
+        source="People/bob/Sessions/call.md",
+        body="clobber\n", promo_id="p-clobber", created="2026-07-20",
+    )
+    with pytest.raises(PromotionError, match="already exists"):
+        approve(master, "p-clobber", approver="alice", date="2026-07-20")
+    # the target is untouched and the pending item survives for re-targeting
+    assert (master / "Company/Home.md").read_text() == before
+    assert (master / "_meta/promotions/pending/p-clobber.md").exists()
+    assert not (master / "_meta/promotions/approved/p-clobber.md").exists()
+
+
 @pytest.mark.parametrize("bad_approver", ["", "   ", "mallory"])
 def test_approve_rejects_missing_or_unknown_approver(master: Path, bad_approver: str):
     _seed_org(master)

@@ -21,8 +21,11 @@ your spaces and permissions — read it before acting.
 
 1. Draft a sanitized note containing only what is being shared.
 2. Save under People/<you>/Promotions/ with frontmatter:
-   target-path: <shared space path>
+   target-path: <new file in a shared space>
    source: <originating note path>
+   Pick a target that does not exist yet: decisions -> Company/Decisions/,
+   standing processes or standards -> Company/Frameworks/. Never target an
+   existing note (Memory.md included) — approval fails on it.
 3. Tell the owner it awaits their approval (`brain promotions list`). Never
    write directly into a read-only space; the write-back service rejects it.
 4. To answer status questions ("did it go live?"), read
