@@ -84,7 +84,7 @@ def _populate(master: Path) -> None:
         _write(master, f"People/{pid}/Memory.md", f"{pid} private memory.\n")
         _write(master, f"People/{pid}/Inbox/2026-07-07 standup.md",
                f"Raw standup transcript for {pid}.\n")
-        _write(master, f"People/{pid}/Actions/Action Tracker.md", "- [ ] nothing yet\n")
+        _write(master, f"People/{pid}/Actions/Tracker.md", "- [ ] nothing yet\n")
     _write(master, "People/carol/Notes/café ☕ 计划.md", "Carol's unicode plan.\n")
     _write(master, "Clients/acme/Overview.md", "Acme Corp overview.\n")
     _write(master, "Clients/globex/Overview.md", "Globex Inc overview.\n")

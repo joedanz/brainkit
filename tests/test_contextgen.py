@@ -15,7 +15,7 @@ def test_root_protocol_content():
     assert "People/bob" in text
     assert "read-only" in text            # Company marked read-only for bob
     assert "promotion" in text.lower()    # promotion protocol documented
-    assert "Actions/Action Tracker" in text  # routing rules documented
+    assert "Actions/Tracker" in text  # routing rules documented
 
 
 def test_root_protocol_mentions_shares_note():

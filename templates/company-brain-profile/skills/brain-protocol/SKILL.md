@@ -12,7 +12,7 @@ your spaces and permissions — read it before acting.
 
 1. Summarize the content.
 2. Extract: decisions; action items (owner + deadline); context updates.
-3. Route per the vault's routing rules (actions -> Actions/Action Tracker.md,
+3. Route per the vault's routing rules (actions -> Actions/Tracker.md,
    summary -> Sessions/, durable facts -> Memory.md).
 4. Archive the processed item into Sessions/. Unplaceable items go to
    Needs-Routing.md — never guess.
