@@ -34,5 +34,8 @@ your spaces and permissions — read it before acting.
 
 ## Maintain
 
-- Keep People/<you>/Memory.md curated: durable facts only, consolidated.
+- Keep People/<you>/Memory.md a lean overview, not a running log: file small
+  facts under its headings; when a topic outgrows a few lines, move the
+  detail to People/<you>/Notes/<Topic>.md and leave a one-line link under
+  the heading. Give notes searchable titles — retrieval is keyword-based.
 - Surface stale actions and unprocessed Inbox items when asked for status.

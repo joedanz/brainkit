@@ -18,6 +18,9 @@ def test_root_protocol_content():
     assert "Actions/Tracker" in text  # routing rules documented
     assert "Company/Playbook" in text   # standards have a named home
     assert "must not already exist" in text  # new-file-only promotions
+    # personal Memory.md is a lean map: fat topics split into Notes/
+    assert "lean overview" in text
+    assert "People/bob/Notes/<Topic>.md" in text
 
 
 def test_root_protocol_mentions_shares_note():

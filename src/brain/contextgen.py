@@ -32,7 +32,10 @@ writable spaces; the write-back service rejects changes to read-only paths.
 - Action items (owner + deadline) -> `People/{pid}/Actions/Tracker.md`
 - Session/meeting summaries -> `People/{pid}/Sessions/`
 - Raw transcripts land in `People/{pid}/Inbox/` and are processed, then archived to `People/{pid}/Sessions/`
-- Personal durable facts, preferences, lessons -> `People/{pid}/Memory.md`
+- Personal durable facts, preferences, lessons -> `People/{pid}/Memory.md`.
+  Keep it a lean overview, not a running log: small facts live under its
+  headings; when a topic outgrows a few lines, move the detail to
+  `People/{pid}/Notes/<Topic>.md` and leave a one-line link under the heading
 - Client facts you may share -> draft a promotion targeting the client's space
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
   promotion targeting a new file in `Company/Decisions/`
@@ -80,8 +83,9 @@ def render_space_note(space: str, writable: bool, owner: bool) -> str:
         text = (
             f"# {space} — private space\n\n"
             "Everything here is private to the vault owner. Nothing leaves this\n"
-            "space without an approved promotion. Keep Memory.md curated;\n"
-            "archive processed Inbox items into Sessions/.\n"
+            "space without an approved promotion. Keep Memory.md a lean overview\n"
+            "that links out to Notes/ for anything topic-sized; archive processed\n"
+            "Inbox items into Sessions/.\n"
         )
     else:
         mode = "writable" if writable else "read-only"
