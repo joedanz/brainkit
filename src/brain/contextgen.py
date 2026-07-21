@@ -29,7 +29,7 @@ writable spaces; the write-back service rejects changes to read-only paths.
 
 ## Routing rules (apply when processing new information)
 
-- Action items (owner + deadline) -> `People/{pid}/Actions/Action Tracker.md`
+- Action items (owner + deadline) -> `People/{pid}/Actions/Tracker.md`
 - Session/meeting summaries -> `People/{pid}/Sessions/`
 - Raw transcripts land in `People/{pid}/Inbox/` and are processed, then archived to `People/{pid}/Sessions/`
 - Personal durable facts, preferences, lessons -> `People/{pid}/Memory.md`

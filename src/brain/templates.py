@@ -84,7 +84,7 @@ When a transcript appears in any `People/<person>/Inbox/`:
 1. Summarize it.
 2. Extract decisions, action items (owner + deadline), and context updates.
 3. Route:
-   - Action items -> that person's `People/<person>/Actions/Action Tracker.md`
+   - Action items -> that person's `People/<person>/Actions/Tracker.md`
    - Client facts -> the matching `Clients/<client>/` file
    - Company-wide decisions -> `Company/Decisions/`
    - Session summary -> `People/<person>/Sessions/`
