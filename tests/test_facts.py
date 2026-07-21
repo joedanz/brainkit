@@ -86,6 +86,13 @@ def test_multiple_sources_collected():
     assert parse_facts(text)[0].sources == ["[[A]]", "[[B]]"]
 
 
+def test_non_ascii_digits_are_not_facts():
+    assert normalize_from("2026-¹3") is None
+    text = "- weird [from:: 2026-¹3]\n"
+    assert parse_facts(text) == []
+    assert [ln for ln, _ in lint_facts(text)] == [1]  # reported, not raised
+
+
 def test_parse_entity():
     assert parse_entity({"entity": "client", "aliases": "[Acme Corp, ACME]"}) == (
         "client", ["Acme Corp", "ACME"])

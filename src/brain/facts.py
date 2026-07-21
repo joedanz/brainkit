@@ -43,7 +43,7 @@ def _valid_date(y: int, m: int, d: int) -> bool:
 
 def _normalize(raw: str, *, month_end: bool) -> str | None:
     parts = raw.strip().split("-")
-    if not all(p.isdigit() for p in parts):
+    if not all(p.isascii() and p.isdigit() for p in parts):
         return None
     if len(parts) == 2:
         y, m = int(parts[0]), int(parts[1])
