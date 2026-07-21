@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -160,4 +161,36 @@ def test_link_read_methods(tmp_path):
     assert s.link_pairs() == [("A.md", "B.md")]
     assert s.links_to("B.md") == ["A.md"]
     assert s.links_from("A.md") == [("B.md", 1), ("Ghost", 0)]
+    s.close()
+
+
+def test_schema_v3_fact_tables_roundtrip(tmp_path):
+    from brain.facts import Fact
+
+    s = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    fact = Fact(line=3, statement="Sarah Kim is our main contact",
+                from_date="2026-01-01", until_date=None,
+                sources=["[[2026-01-14-call]]"], targets=["2026-01-14-call"])
+    s.add_file("Company/Intel/Acme.md", "sha", "Company", _chunks("Company/Intel/Acme.md", 1),
+               ["c0"], None,
+               entity=("client", ["Acme Corp", "ACME"]),
+               facts=[(fact, ["People/alice/Inbox/2026-01-14-call.md"])])
+
+    assert s.entities() == [("Company/Intel/Acme.md", "client", ["Acme Corp", "ACME"])]
+    assert s.alias_map() == {"acme corp": "Company/Intel/Acme.md",
+                             "acme": "Company/Intel/Acme.md"}
+    rows = s.fact_rows()
+    assert len(rows) == 1
+    _id, rel, line, stmt, fdate, udate, sources = rows[0]
+    assert (rel, line, stmt, fdate, udate) == (
+        "Company/Intel/Acme.md", 3, "Sarah Kim is our main contact", "2026-01-01", None)
+    assert json.loads(sources) == ["[[2026-01-14-call]]"]
+    targets = [t for (t,) in s.conn.execute(
+        "SELECT target_rel_path FROM fact_entities")]
+    assert targets == ["People/alice/Inbox/2026-01-14-call.md"]
+
+    # delete cascades through all three tables
+    s.delete_file("Company/Intel/Acme.md")
+    assert s.entities() == [] and s.fact_rows() == []
+    assert s.conn.execute("SELECT count(*) FROM fact_entities").fetchone()[0] == 0
     s.close()
