@@ -107,6 +107,7 @@ class VaultStats:
     entities_total: int = 0
     entity_types: list[str] = field(default_factory=list)
     facts: list[FactHit] | None = None  # baked only when include_facts=True
+    entity_aliases: dict[str, str] = field(default_factory=dict)  # lc alias -> rel_path
     warnings: list[str] = field(default_factory=list)
 
 
@@ -319,16 +320,27 @@ def collect_vault_stats(
         warnings.append(f"no index at {db} — run: brain index --vault {vault}")
 
     baked_facts: list[FactHit] | None = None
+    entity_aliases: dict[str, str] = {}
     if include_facts:
         baked_facts = []
         if db.is_file():
             from brain.facts import query_facts
-            from brain.store import StoreError
+            from brain.store import IndexStore, StoreError
 
             try:
                 baked_facts, fact_warnings = query_facts(
                     vault, include_ended=True)
                 warnings.extend(fact_warnings)
+                # Bake a self-contained alias map so the offline Facts filter
+                # resolves aliases the same way query_facts does (first path
+                # wins), independent of the graph and its node cap. Only needed
+                # when the Facts view will render, i.e. there are facts.
+                if baked_facts:
+                    store = IndexStore.open_readonly(db, want_vectors=False)
+                    try:
+                        entity_aliases = store.alias_map()
+                    finally:
+                        store.close()
             except (sqlite3.Error, StoreError) as e:
                 # unreadable db, or a newer-schema index (StoreError) — a
                 # collector must never crash on either.
@@ -369,6 +381,7 @@ def collect_vault_stats(
         entities_total=entities_total,
         entity_types=entity_types,
         facts=baked_facts,
+        entity_aliases=entity_aliases,
         warnings=warnings,
     )
 

@@ -158,6 +158,38 @@ def test_static_renderer_uses_entity_data(master, tmp_path):
     assert "(entity)" in html_text
 
 
+def test_static_dashboard_bakes_entity_aliases(master, tmp_path):
+    # The offline Facts filter reads d.entity_aliases (baked from the full
+    # entity set), not the graph — so aliases are in the blob, lowercased.
+    blob = _extract_blob(render_dashboard(_facts_stats(master, tmp_path)))
+    assert blob["entity_aliases"] == {"acme corp": "Company/Intel/Acme.md",
+                                      "acme": "Company/Intel/Acme.md"}
+
+
+def test_static_as_of_filter_agrees_with_query_facts(master, tmp_path):
+    # The offline Facts filter reimplements query_facts's valid-time predicate
+    # in JS (it can't call Python). Pin the two together: the baked facts,
+    # filtered by that exact predicate, must reproduce query_facts(as_of=date)
+    # across a range of dates that cross both fact boundaries.
+    from brain.facts import query_facts
+
+    vault = _facts_vault(master, tmp_path)
+    baked = _extract_blob(render_dashboard(_facts_stats(master, tmp_path)))["facts"]
+
+    def keep(f, on):  # mirrors dashboard.py renderFacts (endedBox unchecked)
+        if f["from_date"] > on:
+            return False
+        if f["until_date"] is not None and f["until_date"] < on:
+            return False
+        return True
+
+    for on in ["2024-01-01", "2024-06-15", "2026-01-15", "2026-02-01", "2027-01-01"]:
+        hits, _ = query_facts(vault, as_of=on)
+        expected = {(h.rel_path, h.line) for h in hits}
+        got = {(f["rel_path"], f["line"]) for f in baked if keep(f, on)}
+        assert got == expected, f"as-of filter disagrees with query_facts at {on}"
+
+
 def test_dashboard_with_facts_stays_offline(master, tmp_path):
     html_text = render_dashboard(_facts_stats(master, tmp_path))
     assert "http://" not in html_text

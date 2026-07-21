@@ -463,14 +463,10 @@ function renderVault(app, d) {
   }
 
   if (d.facts && d.facts.length) {
-    var aliasIndex = {};
-    if (d.graph) d.graph.nodes.forEach(function (n) {
-      (n.aliases || []).forEach(function (a) {
-        aliasIndex[a.toLowerCase()] = n.rel_path;
-      });
-    });
+    // entity_aliases is baked from the full entity set (store.alias_map), so
+    // alias resolution never depends on which nodes survived the graph cap.
     var fs = section(app, "Facts");
-    renderFacts(fs, d.facts, aliasIndex);
+    renderFacts(fs, d.facts, d.entity_aliases || {});
   }
 
   if (d.top_linked.length) {
