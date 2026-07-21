@@ -249,8 +249,10 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 
     Each container's first boot installs the `company-brain` hermes profile
     (SOUL.md, `terminal.cwd: /vault`, the brain MCP server and skills — with
-    hermes's built-in memory disabled, so the vault is the agent's only
-    durable memory and every "remember this" lands in a synced file) and
+    hermes's built-in memory *and* its bundled `llm-wiki` skill disabled
+    (`skills.disabled: [llm-wiki]`), so the vault is the agent's only durable
+    memory and knowledge base and every "remember this" or distilled article
+    lands in a synced file) and
     **generates its own deploy key** — the public half lands in `docker logs`,
     the private half never leaves the container. A supervised sync loop then
     clones `$BRAIN_GIT_REMOTE`, runs [`brain index`](/reference/cli#brain-index),

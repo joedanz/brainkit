@@ -34,7 +34,7 @@ spaces:
   - {path: Company,     read: [everyone],        write: ["role:admin"]}
   - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}
   - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}
-  - {path: "Clients/*", read: [everyone],        write: ["role:admin"]}
+  - {path: "Clients/*", read: ["role:admin"],     write: ["role:admin"]}
 ```
 
 | Field | Type | Meaning |
