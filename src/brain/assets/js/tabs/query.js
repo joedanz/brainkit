@@ -146,6 +146,7 @@ async function populateSpaces() {
 }
 
 async function run() {
+  if (!S) return;  // a debounced input can fire after dispose() nulls S
   const token = S.runs.begin();
   const q = S.q.value.trim();
   const f = filters();

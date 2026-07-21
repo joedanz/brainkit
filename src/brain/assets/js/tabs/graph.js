@@ -31,6 +31,7 @@ export function render(container, ctx) {
     threeD: false,
     loads: latest(),          // guards out-of-order graph fetches
     factLoads: latest(),      // guards out-of-order node-panel facts fetches
+    facts: null,              // {relPath, hits} — reused across live redraws
     host: null, panel: null, controls: null, sel: null,
   };
   S.settings = loadSettings(S.storeKey);
@@ -61,7 +62,7 @@ function buildChrome() {
       if (p.id === S.ctx.person) o.selected = true;
       sel.appendChild(o);
     });
-    sel.addEventListener("change", () => { S.ctx.person = sel.value; S.pos.clear(); S.prev.clear(); load(false); });
+    sel.addEventListener("change", () => { S.ctx.person = sel.value; S.pos.clear(); S.prev.clear(); S.facts = null; load(false); });
     bar.appendChild(sel);
   }
 
@@ -378,30 +379,43 @@ function reselect(adj, byId) {
   };
   list("Links to", a.out);
   list("Linked from", a.in);
-  if (d.entity) loadFacts(d);
+  // A live push rebuilds this panel; reuse the cached facts for the same node
+  // instead of refetching /api/facts on every push. A real click (different
+  // rel_path) or a person switch (cache cleared) falls through to a fetch.
+  if (d.entity) {
+    if (S.facts && S.facts.relPath === d.rel_path) renderFacts(S.facts.hits);
+    else loadFacts(d);
+  }
 }
 
-// For an entity node, append its current facts below the link lists. The token
-// guard drops replies that arrive after another selection (or a dispose); on
-// any failure the block simply doesn't appear — the panel stays useful.
+// For an entity node, fetch its current facts and cache them by rel_path. The
+// token guard drops replies that arrive after another selection (or a
+// dispose); on any failure nothing is appended — the panel stays useful.
 async function loadFacts(d) {
   const token = S.factLoads.begin();
-  const host = el("div");
-  S.panel.appendChild(host);
   try {
     const params = { entity: d.rel_path };
     if (S.ctx.meta.kind === "master") params.person = S.ctx.person;
     const body = await api.facts(params);
     if (!S || !S.factLoads.current(token)) return;
-    if (!body.hits.length) return;
-    host.appendChild(el("h3", null, "Facts (" + body.hits.length + ")"));
-    const ul = el("ul");
-    body.hits.forEach((h) => {
-      ul.appendChild(el("li", null,
-        h.statement + "  (" + h.from_date + " → " + (h.until_date || "") + ")"));
-    });
-    host.appendChild(ul);
+    S.facts = { relPath: d.rel_path, hits: body.hits };
+    renderFacts(body.hits);
   } catch { /* no facts block on error — never disrupt the panel */ }
+}
+
+// Append the facts block from already-fetched hits. Synchronous so a cached
+// reselect renders in the same frame as the rest of the panel.
+function renderFacts(hits) {
+  if (!hits.length) return;
+  const host = el("div");
+  host.appendChild(el("h3", null, "Facts (" + hits.length + ")"));
+  const ul = el("ul");
+  hits.forEach((h) => {
+    ul.appendChild(el("li", null,
+      h.statement + "  (" + h.from_date + " → " + (h.until_date || "") + ")"));
+  });
+  host.appendChild(ul);
+  S.panel.appendChild(host);
 }
 
 function selectByPath(relPath, g) {

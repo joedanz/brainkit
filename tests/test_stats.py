@@ -318,6 +318,25 @@ def test_graph_nodes_carry_entity_aliases(master, tmp_path):
     assert plain.aliases == []
 
 
+def test_entity_aliases_baked_without_graph(master, tmp_path):
+    # entity_aliases resolves aliases from the full entity set (store.alias_map),
+    # so it is present even when the graph isn't baked at all — the offline
+    # Facts filter no longer piggybacks on (capped) graph nodes.
+    s = collect_vault_stats(_facts_vault(master, tmp_path), include_facts=True)
+    assert s.graph is None
+    assert s.entity_aliases == {"acme corp": "Company/Intel/Acme.md",
+                                "acme": "Company/Intel/Acme.md"}
+
+
+def test_entity_aliases_survive_graph_cap(master, tmp_path):
+    # The regression A1 guards: a vault larger than the graph cap must not drop
+    # an entity's aliases just because its node was cut from the graph.
+    s = collect_vault_stats(_facts_vault(master, tmp_path),
+                            include_facts=True, include_graph=True, graph_cap=1)
+    assert s.graph.truncated  # the cap actually bit
+    assert s.entity_aliases["acme corp"] == "Company/Intel/Acme.md"
+
+
 def test_pre_v3_index_degrades_counts_not_crashes(master, tmp_path):
     vault = _facts_vault(master, tmp_path)
     conn = sqlite3.connect(vault / ".brain" / "index.db")
@@ -330,6 +349,7 @@ def test_pre_v3_index_degrades_counts_not_crashes(master, tmp_path):
     assert s.facts_total == 0 and s.entities_total == 0
     assert s.entity_types == []
     assert s.facts == []
+    assert s.entity_aliases == {}  # no entities table → empty, not a crash
     assert any("index" in w for w in s.warnings)  # bake explains itself
 
 
