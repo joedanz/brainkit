@@ -73,7 +73,7 @@ flowchart LR
 
 A pending file sits on disk between draft and approval, where a human edit, a bad merge, or a compromised process could tamper with its `target-path`. So `approve` re-validates the target at the moment it publishes — a hand-edited path that tries to escape the master root, or one that names a private space or a bare space root, is refused. Validation at draft time is not trusted to still hold at approve time.
 
-The same check refuses a target that **already exists**. An approval writes the whole note to the target path; if that path held a curated file, approving would silently replace it. Failing closed keeps promotions strictly additive — to resolve the conflict, edit the pending file's `target-path` to a fresh filename and approve again.
+The same check refuses a target that **already exists**. An approval writes the whole note to the target path; if that path held a curated file, approving would silently replace it. Failing closed keeps promotions strictly additive — to resolve the conflict, edit the pending file's `target-path` to a fresh filename and approve again. This is exactly how the [`Company/Intel/` wiki](/guides/getting-things-in#articles-and-links-the-intel-wiki) updates an existing page: the agent promotes a dated addendum (`<Name> — updates YYYY-MM.md`) to a fresh path, and the approver folds it into the main page and deletes the addendum in the same commit.
 
 The approver is checked the same way, at every layer: the core `approve` call, the dashboard's API, and the CLI all refuse a blank approver or one that isn't in the org roster. However an approval arrives, the `approved-by` line resolves to a real person.
 
