@@ -44,7 +44,10 @@ Once [the master is compiled](/getting-started), each employee needs two things:
         hermes profile install github.com/<your-org>/company-brain --alias
         ```
         Set `terminal.cwd` to `~/brain` in the profile config before the first
-        run. Credentials, memories, and sessions stay on the employee's machine.
+        run. Credentials and sessions stay on the employee's machine. The
+        profile ships with hermes's built-in memory **disabled** — a native
+        memory tool would win every "remember this" over the vault, and facts
+        stored there never sync. The vault is the agent's only durable memory.
       </Tab>
     </Tabs>
   </Step>
