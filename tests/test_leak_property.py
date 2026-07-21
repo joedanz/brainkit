@@ -44,7 +44,10 @@ def random_world(rng: random.Random, root: Path) -> Org:
         for j in range(rng.randint(1, 4)):
             f = root / space / f"note{j}.md"
             f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(f"content of {space}/note{j}\n")
+            f.write_text(
+                f"content of {space}/note{j}\n"
+                "- honeypot fact [from:: 2026-01]\n"
+            )
     # Honeypots: a REAL AGENTS.md in every person's space and one team space.
     # In the vault owner's own People space it is overwritten by generation
     # (and listed as generated) — correct. In OTHER people's spaces and
