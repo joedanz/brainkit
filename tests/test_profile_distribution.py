@@ -19,6 +19,10 @@ def test_config_enforces_policies():
     assert cfg["memory"]["user_profile_enabled"] is False
     assert "provider" not in cfg["memory"]          # external memory OFF by policy
     assert cfg["skills"]["write_approval"] is True
+    # Bundled llm-wiki stays OFF: it builds an unsynced wiki at ~/wiki,
+    # competing with Company/Intel/ the same way native memory competed
+    # with Memory.md.
+    assert "llm-wiki" in cfg["skills"]["disabled"]
     assert "REPLACE_WITH_VAULT_PATH" in cfg["terminal"]["cwd"]
 
 
@@ -31,3 +35,9 @@ def test_soul_and_skill_reference_the_vault_protocol():
     # Memory.md stays a lean map; topic-sized detail splits into Notes/
     assert "Notes/<Topic>.md" in skill
     assert "lean overview" in skill
+    # articles distill into the shared Intel wiki; no off-vault knowledge base
+    assert "Company/Intel/" in skill
+    assert "Distill, never archive" in skill
+    assert "as of YYYY-MM" in skill
+    assert "updates YYYY-MM.md" in skill
+    assert "no ~/wiki" in skill

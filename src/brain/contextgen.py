@@ -41,7 +41,29 @@ writable spaces; the write-back service rejects changes to read-only paths.
   promotion targeting a new file in `Company/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion
   targeting a new file in `Company/Playbook/`
+- Articles, posts, and links: distill, never archive — extract the durable
+  facts and route destination, provider, event, or trend intel to
+  `Company/Intel/` via a promotion (see below). The full text never enters
+  the vault; your personal take stays in `People/{pid}/Notes/`
 - If unsure where something belongs, add it to `People/{pid}/Needs-Routing.md`
+
+## Company Intel (the shared travel wiki)
+
+`Company/Intel/` holds shared reference knowledge, mapped in `Intel/Home.md`:
+`Destinations/<Place>.md`, `Providers/<Name>.md` (hotels, DMCs, outfitters,
+villas, cruise, aviation, guides), `Events/<Name>.md` (venues and
+access-worthy events), `Trends/<YYYY-MM Topic>.md`. Conventions:
+- First line of a page is a one-sentence summary; provider pages add
+  `**Type:** ... · **Where:** [[Destination]]`.
+- Every claim cites its provenance: `[source](URL), as of YYYY-MM`.
+- Link related pages both ways; every page is linked from `Intel/Home.md`.
+- Intel starts on the country page; when a city outgrows a few lines it
+  becomes its own page with a one-line link left behind.
+- New entity -> promote a new page. Page already exists -> promote a dated
+  addendum `<Name> — updates YYYY-MM.md` in the same folder (promotions
+  never rewrite an existing note); the approver folds it into the main page
+  and deletes it.
+This vault is your only knowledge base — never build a wiki outside it.
 
 ## Promotion protocol (moving knowledge to shared spaces)
 

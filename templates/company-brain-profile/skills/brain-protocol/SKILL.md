@@ -32,6 +32,21 @@ your spaces and permissions — read it before acting.
    People/<you>/Shares.md — generated and read-only: pending items,
    approvals, and rejections with reasons. Never edit it.
 
+## Intel (articles, posts, and links)
+
+1. Distill, never archive: extract the durable facts — the full article text
+   never enters the vault. Cite every claim: `[source](URL), as of YYYY-MM`.
+2. Route destination, provider, event, or trend intel to the shared wiki via
+   a promotion targeting Company/Intel/ — Destinations/<Place>.md,
+   Providers/<Name>.md, Events/<Name>.md, or Trends/<YYYY-MM Topic>.md.
+   New entity -> a new page (one-sentence summary first line; link related
+   pages both ways). Page already exists -> target a dated addendum
+   `<Name> — updates YYYY-MM.md` in the same folder instead; the approver
+   folds it into the main page and deletes it.
+3. Your personal take stays in People/<you>/Notes/.
+4. This vault is your only knowledge base — never build a wiki or knowledge
+   base outside it (no ~/wiki), even if another skill offers to.
+
 ## Maintain
 
 - Keep People/<you>/Memory.md a lean overview, not a running log: file small

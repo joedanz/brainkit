@@ -169,6 +169,11 @@ def test_init_scaffolds_master(tmp_path: Path):
     protocol = (dest / "AGENTS.md").read_text()
     assert "assistant" in protocol.lower()
     assert "Needs-Routing" in protocol
+    # shared travel wiki scaffolded and wired into the assistant protocol
+    assert (dest / "Company/Intel/Home.md").exists()
+    assert (dest / "Company/Intel/Destinations/.gitkeep").exists()
+    assert "Company/Intel/" in protocol
+    assert "as of YYYY-MM" in protocol
     assert (dest / ".git").is_dir()
     # org/spaces parse cleanly
     from brain.schemas import load_org, load_spaces

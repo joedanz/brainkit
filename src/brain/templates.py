@@ -92,6 +92,12 @@ When a transcript appears in any `People/<person>/Inbox/`:
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
    - Standing processes and standards -> a new file in `Company/Playbook/`
+   - Destination, provider, event, or trend intel from articles or posts ->
+     distill into `Company/Intel/` (never archive the full text): a new page
+     per entity, or a dated addendum `<Name> — updates YYYY-MM.md` when the
+     page exists — fold it into the main page and delete it in the same
+     commit. Cite every claim: `[source](URL), as of YYYY-MM`; keep
+     `Intel/Home.md` linking to every page
    - Session summary -> `People/<person>/Sessions/`
    - General insights worth keeping -> fold into `Company/Memory.md`, which
      stays a lean overview linking out to detail notes — not a running log
@@ -120,6 +126,7 @@ def _home_md(company: str) -> str:
         f"# {company} — Home\n\n"
         "## Priorities\n\n(maintained by the company assistant)\n\n"
         "## Links\n\n- [[Memory]]\n- Decisions/\n- Playbook/\n- Templates/\n"
+        "- Intel/ — the shared travel wiki ([[Intel/Home]])\n"
     )
 
 
@@ -132,6 +139,19 @@ def _memory_md(company: str) -> str:
     )
 
 
+def _intel_home_md() -> str:
+    return (
+        "# Intel — the shared travel wiki\n\n"
+        "A lean map: every Intel page is linked from here. Pages are distilled\n"
+        "from articles, posts, and advisor knowledge — see the routing rules in\n"
+        "AGENTS.md. Every claim cites `[source](URL), as of YYYY-MM`.\n\n"
+        "## Destinations\n\n(none yet)\n\n"
+        "## Providers\n\n(none yet)\n\n"
+        "## Events\n\n(none yet)\n\n"
+        "## Trends\n\n(none yet)\n"
+    )
+
+
 def scaffold_master(dest: Path, company: str) -> list[str]:
     files: dict[str, str] = {
         "AGENTS.md": ASSISTANT_PROTOCOL,
@@ -140,6 +160,11 @@ def scaffold_master(dest: Path, company: str) -> list[str]:
         "Company/Decisions/.gitkeep": "",
         "Company/Playbook/.gitkeep": "",
         "Company/Templates/.gitkeep": "",
+        "Company/Intel/Home.md": _intel_home_md(),
+        "Company/Intel/Destinations/.gitkeep": "",
+        "Company/Intel/Providers/.gitkeep": "",
+        "Company/Intel/Events/.gitkeep": "",
+        "Company/Intel/Trends/.gitkeep": "",
         "Teams/.gitkeep": "",
         "People/.gitkeep": "",
         "Clients/.gitkeep": "",
