@@ -93,7 +93,7 @@ The brain is a shared platform for people *and* software. Your team works in Obs
 
 Run `brain dashboard` and you get a live, self-hosted view of the brain — no extra service, no SaaS. It updates in real time over a WebSocket, and can also export a static HTML snapshot with `--html`. There are two lenses.
 
-**Each person's live dashboard** shows their own vault, and only their own: what's waiting in the inbox, open actions, notes by space, their most-linked notes, an interactive 2D/3D map of how those notes connect, and search across everything they're allowed to see. Notes can be captured straight from the dashboard, too. A Facts tab lists the vault's time-stamped facts — filter by entity or type, or pick a date to see what was true then — and typed entity pages show ringed by type on the map.
+**Each person's live dashboard** shows their own vault, and only their own: what's waiting in the inbox, open actions, notes by space, their most-linked notes, an interactive 2D/3D map of how those notes connect, and search across everything they're allowed to see. Notes can be captured straight from the dashboard, too. A Facts tab lists the vault's time-stamped facts — filter by entity or type, or pick a date to see what was true then — and the 2D map rings typed entity pages (clients, people, projects) by type.
 
 ![A person's live dashboard — notes, inbox and open-action cards, a notes-by-space chart, and most-linked notes](scripts/demo/dashboard-user.png)
 
