@@ -39,9 +39,10 @@ def test_initialize_handshake(vault):
 def test_tools_list_schema(vault):
     (resp,) = _exchange(vault, [{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
     names = {t["name"] for t in resp["result"]["tools"]}
-    assert names == {"brain_search", "brain_read"}
+    assert names == {"brain_search", "brain_read", "brain_links", "brain_recent"}
     search = next(t for t in resp["result"]["tools"] if t["name"] == "brain_search")
     assert search["inputSchema"]["required"] == ["query"]
+    assert "center" in search["inputSchema"]["properties"]
 
 
 def test_tools_call_search_returns_content(vault):
@@ -112,4 +113,75 @@ def test_subprocess_smoke(vault):
     )
     lines = [json.loads(x) for x in proc.stdout.splitlines() if x.strip()]
     assert lines[0]["result"]["serverInfo"]["name"] == "brainkit"
-    assert {t["name"] for t in lines[1]["result"]["tools"]} == {"brain_search", "brain_read"}
+    assert {t["name"] for t in lines[1]["result"]["tools"]} == {
+        "brain_search", "brain_read", "brain_links", "brain_recent"}
+
+
+def test_tools_call_search_with_center(vault):
+    (resp,) = _exchange(vault, [{
+        "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+        "params": {"name": "brain_search",
+                   "arguments": {"query": "pipeline", "center": "Company/Home.md"}},
+    }])
+    assert resp["result"]["isError"] is False
+    # no embed provider in tests → keyword leg + the graph rerank
+    assert "[keyword-only+graph]" in resp["result"]["content"][0]["text"]
+
+
+def test_tools_call_links(vault):
+    (resp,) = _exchange(vault, [{
+        "jsonrpc": "2.0", "id": 11, "method": "tools/call",
+        "params": {"name": "brain_links",
+                   "arguments": {"rel_path": "Teams/sales/Q3 Pipeline.md"}},
+    }])
+    assert resp["result"]["isError"] is False
+    text = resp["result"]["content"][0]["text"]
+    assert "Backlinks (1):" in text and "Company/Home.md" in text
+
+    (resp,) = _exchange(vault, [{
+        "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+        "params": {"name": "brain_links", "arguments": {"rel_path": "Company/Home.md"}},
+    }])
+    text = resp["result"]["content"][0]["text"]
+    assert "Company/Decisions/Big Deal Decision.md" in text
+    assert "Teams/sales/Q3 Pipeline.md" in text
+
+
+def test_tools_call_links_unknown_note(vault):
+    (resp,) = _exchange(vault, [{
+        "jsonrpc": "2.0", "id": 13, "method": "tools/call",
+        "params": {"name": "brain_links", "arguments": {"rel_path": "Nope.md"}},
+    }])
+    assert resp["result"]["isError"] is True
+    assert "not in index" in resp["result"]["content"][0]["text"]
+
+
+def test_tools_call_recent_without_git(vault):
+    (resp,) = _exchange(vault, [{
+        "jsonrpc": "2.0", "id": 14, "method": "tools/call",
+        "params": {"name": "brain_recent", "arguments": {}},
+    }])
+    assert resp["result"]["isError"] is False
+    assert "no git history" in resp["result"]["content"][0]["text"]
+
+
+def test_tools_call_recent_with_git(vault):
+    def git(*argv):
+        subprocess.run(["git", "-C", str(vault), "-c", "user.name=t",
+                        "-c", "user.email=t@t", *argv],
+                       check=True, capture_output=True)
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "initial")
+    (vault / "People/alice/Memory.md").write_text("Alice private memory. Updated.\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "update memory")
+
+    (resp,) = _exchange(vault, [{
+        "jsonrpc": "2.0", "id": 15, "method": "tools/call",
+        "params": {"name": "brain_recent", "arguments": {"k": 3}},
+    }])
+    assert resp["result"]["isError"] is False
+    text = resp["result"]["content"][0]["text"]
+    # the note touched by the newest commit leads the list
+    assert text.splitlines()[1].startswith("- People/alice/Memory.md")

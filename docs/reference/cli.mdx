@@ -171,7 +171,7 @@ Incremental by default: only files whose manifest sha changed are re-chunked, an
 Query a compiled vault's index. Fuses keyword (FTS5) and semantic (vector) ranking with reciprocal-rank fusion.
 
 ```bash
-brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--json]
+brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--center <rel-path>] [--json]
 ```
 
 | Flag | Required | Meaning |
@@ -180,6 +180,7 @@ brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--json]
 | `--vault` | yes | The compiled vault to search. |
 | `--k` | no | Max results (default 8). |
 | `--keyword-only` | no | Skip the vector leg even if a provider is configured. |
+| `--center` | no | A note's relative path; results near it in the wikilink graph rank higher (see [Retrieval](/concepts/retrieval)). |
 | `--json` | no | Emit `{"query", "mode", "hits": [...], "warnings"}`. |
 
 Each hit carries the file path, heading path, a highlighted snippet, a fused score, and which legs matched. A missing index exits `1` with the exact `brain index` command to build it.
@@ -198,7 +199,7 @@ Register it once with a client — for Claude Code:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes two tools: `brain_search` (hybrid search) and `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
+It exposes four read-only tools: `brain_search` (hybrid search, with an optional `center` note for graph-aware ranking), `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space), `brain_links` (a note's backlinks and outgoing wikilinks), and `brain_recent` (recently changed notes, from the vault's git history). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
 
 ## `brain doctor`
 

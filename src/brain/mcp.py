@@ -3,8 +3,8 @@
 Hand-rolled JSON-RPC 2.0 over newline-delimited stdio — five message types
 (initialize, initialized, ping, tools/list, tools/call). The official mcp SDK
 would pull pydantic/anyio/httpx into a package whose only runtime dep is pyyaml
-(+ sqlite-vec); this is ~two tools and a read loop. `serve()` takes injectable
-streams so it is unit-testable in-process.
+(+ sqlite-vec); this is four read-only tools and a read loop. `serve()` takes
+injectable streams so it is unit-testable in-process.
 
 It runs on the employee's device against their own vault clone, so it inherits
 the compiler's boundary: the vault contains only what that person may read.
@@ -25,12 +25,16 @@ _TOOLS = [
     {
         "name": "brain_search",
         "description": "Hybrid keyword+semantic search over this vault. Returns ranked "
-                       "chunks with their file path and heading.",
+                       "chunks with their file path and heading. Pass `center` (a note's "
+                       "relative path, e.g. the note you are working from) to rank results "
+                       "near it in the wikilink graph higher.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "natural-language query"},
                 "k": {"type": "integer", "description": "max results (default 8)"},
+                "center": {"type": "string",
+                           "description": "optional note rel path; boosts graph-nearby results"},
             },
             "required": ["query"],
         },
@@ -42,6 +46,27 @@ _TOOLS = [
             "type": "object",
             "properties": {"rel_path": {"type": "string"}},
             "required": ["rel_path"],
+        },
+    },
+    {
+        "name": "brain_links",
+        "description": "Show how one note connects to the rest of the vault: backlinks "
+                       "(notes linking to it) and its outgoing wikilinks.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"rel_path": {"type": "string"}},
+            "required": ["rel_path"],
+        },
+    },
+    {
+        "name": "brain_recent",
+        "description": "List the most recently changed notes in this vault (from git "
+                       "history), newest first.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "k": {"type": "integer", "description": "max notes (default 10)"},
+            },
         },
     },
 ]
@@ -64,13 +89,71 @@ def _tool_search(vault: Path, args: dict, provider) -> tuple[str, bool]:
 
     query = args.get("query", "")
     k = int(args.get("k", 8))
-    report = search_index(vault, query, k=k, provider=provider)
+    center = args.get("center") or None
+    report = search_index(vault, query, k=k, provider=provider, center=center)
     if not report.hits:
         return f"No results for {query!r} ({report.mode}).", False
     lines = [f"{len(report.hits)} result(s) [{report.mode}]:"]
     for i, h in enumerate(report.hits, 1):
         loc = h.rel_path + (f" — {h.heading_path}" if h.heading_path else "")
         lines.append(f"{i}. {loc}\n   {h.snippet}")
+    lines.extend(f"warning: {w}" for w in report.warnings)
+    return "\n".join(lines), False
+
+
+def _open_index(vault: Path):
+    from brain.store import IndexStore
+
+    db = vault / ".brain" / "index.db"
+    if not db.is_file():
+        return None
+    return IndexStore.open_readonly(db, want_vectors=False)
+
+
+def _tool_links(vault: Path, args: dict) -> tuple[str, bool]:
+    rel = args.get("rel_path", "")
+    store = _open_index(vault)
+    if store is None:
+        return f"no index at {vault / '.brain' / 'index.db'} — run: brain index", True
+    try:
+        if not store.has_file(rel):
+            return f"not in index: {rel}", True
+        backlinks = store.links_to(rel)
+        outgoing = store.links_from(rel)
+    finally:
+        store.close()
+    lines = [f"{rel}", f"Backlinks ({len(backlinks)}):"]
+    lines.extend(f"- {src}" for src in backlinks)
+    lines.append(f"Outgoing links ({len(outgoing)}):")
+    lines.extend(f"- {tgt}" + ("" if ok else " (unresolved)") for tgt, ok in outgoing)
+    return "\n".join(lines), False
+
+
+def _tool_recent(vault: Path, args: dict) -> tuple[str, bool]:
+    import subprocess
+
+    k = int(args.get("k", 10))
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(vault), "log", "--date=short",
+             "--pretty=%x01%ad", "--name-only", "-n", "200", "--", "*.md"],
+            capture_output=True, text=True, check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return "no git history (vault is not a git repository)", False
+    seen: dict[str, str] = {}  # rel_path -> date of newest commit touching it
+    date = ""
+    for line in proc.stdout.splitlines():
+        if line.startswith("\x01"):
+            date = line[1:]
+        elif line.endswith(".md") and line not in seen and (vault / line).is_file():
+            seen[line] = date
+            if len(seen) >= k:
+                break
+    if not seen:
+        return "no notes in git history yet", False
+    lines = [f"{len(seen)} recently changed note(s):"]
+    lines.extend(f"- {rel}  ({d})" for rel, d in seen.items())
     return "\n".join(lines), False
 
 
@@ -108,6 +191,10 @@ def _handle(vault: Path, provider, msg: dict):
             text, is_err = _tool_search(vault, args, provider)
         elif name == "brain_read":
             text, is_err = _tool_read(vault, args)
+        elif name == "brain_links":
+            text, is_err = _tool_links(vault, args)
+        elif name == "brain_recent":
+            text, is_err = _tool_recent(vault, args)
         else:
             return _error(mid, -32602, f"unknown tool: {name}")
         return _text_result(mid, text, is_err)

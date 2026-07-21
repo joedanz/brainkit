@@ -255,7 +255,8 @@ def cmd_search(args) -> int:
         return 1
     provider = None if args.keyword_only else provider_from_config()
     report = search_index(
-        vault, args.query, k=args.k, provider=provider, keyword_only=args.keyword_only
+        vault, args.query, k=args.k, provider=provider,
+        keyword_only=args.keyword_only, center=args.center,
     )
     if args.json:
         print(json.dumps({
@@ -461,6 +462,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--vault", required=True)
     sp.add_argument("--k", type=int, default=8)
     sp.add_argument("--keyword-only", action="store_true")
+    sp.add_argument("--center", metavar="REL_PATH", default=None,
+                    help="rank results near this note in the wikilink graph higher")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_search)
 

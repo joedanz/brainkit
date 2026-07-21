@@ -219,6 +219,40 @@ class IndexStore:
         row = self.conn.execute("SELECT value FROM index_meta WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 
+    def has_file(self, rel_path: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM files WHERE rel_path = ?", (rel_path,)
+        ).fetchone()
+        return row is not None
+
+    def link_pairs(self) -> list[tuple[str, str]]:
+        """Resolved wikilink pairs whose target exists in this vault, self-loops
+        excluded — the edge set for graph traversal (same join stats.py uses)."""
+        return self.conn.execute(
+            "SELECT l.src_rel_path, l.target_rel_path FROM links l "
+            "JOIN files f ON f.rel_path = l.target_rel_path "
+            "WHERE l.src_rel_path != l.target_rel_path"
+        ).fetchall()
+
+    def links_to(self, rel_path: str) -> list[str]:
+        """Backlinks: notes whose resolved wikilinks point at `rel_path`
+        (self-references excluded, matching link_pairs)."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT src_rel_path FROM links "
+            "WHERE target_rel_path = ? AND resolved = 1 AND src_rel_path != ? "
+            "ORDER BY src_rel_path",
+            (rel_path, rel_path),
+        )]
+
+    def links_from(self, rel_path: str) -> list[tuple[str, int]]:
+        """Outgoing wikilinks of `rel_path` as (target, resolved) pairs.
+        Unresolved targets keep their raw link text."""
+        return [(t, int(r)) for t, r in self.conn.execute(
+            "SELECT target_rel_path, resolved FROM links "
+            "WHERE src_rel_path = ? ORDER BY target_rel_path",
+            (rel_path,),
+        )]
+
     def chunk(self, chunk_id: int) -> tuple[str, str, str, int, str] | None:
         return self.conn.execute(
             "SELECT rel_path, space, heading_path, pos, text FROM chunks WHERE id = ?",

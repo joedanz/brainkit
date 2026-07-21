@@ -44,6 +44,15 @@ chunks per file. If no embedding provider is configured — or `sqlite-vec` can'
 load — search degrades to **keyword-only** with a warning, never an empty
 result.
 
+Optionally, a query can name a **center note** (`--center`, or the `center`
+argument of the `brain_search` tool) — typically the note you're working from.
+Results whose file sits close to that note in the wikilink graph get a small
+boost, using the same reciprocal-rank formula with hop distance in place of
+rank: enough to lift related notes past unrelated ones, never enough to drown
+out a strong keyword + vector match. The graph only reorders what search
+already found — it never adds results of its own — and an unknown center note
+degrades to a plain search with a warning.
+
 <Callout type="info">
   `sqlite-vec` loads as a SQLite extension, so it needs a Python whose `sqlite3`
   was compiled with loadable-extension support. Homebrew, pyenv, uv-managed, and
@@ -96,7 +105,10 @@ Claude Desktop) can search the vault as a tool:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes `brain_search` (hybrid search) and `brain_read` (a path-scoped file
-read that refuses symlinks, vault escapes, and anything outside a readable
-space). See the [CLI reference](/reference/cli) for `brain index`,
-`brain search`, and `brain mcp`.
+It exposes four read-only tools: `brain_search` (hybrid search, with an
+optional center note for graph-aware ranking), `brain_read` (a path-scoped
+file read that refuses symlinks, vault escapes, and anything outside a
+readable space), `brain_links` (a note's backlinks and outgoing wikilinks),
+and `brain_recent` (recently changed notes, from the vault's git history).
+See the [CLI reference](/reference/cli) for `brain index`, `brain search`,
+and `brain mcp`.

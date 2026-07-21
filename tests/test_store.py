@@ -146,3 +146,18 @@ def test_meta_round_trip_and_files_map(tmp_path):
     s.add_file("People/bob/B.md", "shaB", "People/bob", _chunks("People/bob/B.md", 1), ["y"], None)
     assert s.files() == {"Company/A.md": "shaA", "People/bob/B.md": "shaB"}
     s.close()
+
+
+def test_link_read_methods(tmp_path):
+    s = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    s.add_file("A.md", "sha", "Company", _chunks("A.md", 1), ["c0"], None,
+               links=[("B.md", 1), ("Ghost", 0)])
+    # self-loop must be excluded from traversal pairs
+    s.add_file("B.md", "sha", "Company", _chunks("B.md", 1), ["c0"], None,
+               links=[("B.md", 1)])
+    assert s.has_file("A.md") and not s.has_file("Z.md")
+    # A→Ghost drops out (target not a file), B→B drops out (self-loop)
+    assert s.link_pairs() == [("A.md", "B.md")]
+    assert s.links_to("B.md") == ["A.md"]
+    assert s.links_from("A.md") == [("B.md", 1), ("Ghost", 0)]
+    s.close()
