@@ -108,6 +108,14 @@ Two rules: **backup zips are secrets** (deploy key, `.env`, bot token, full
 chat history — encrypt off-box, e.g. restic/borg), and **never restore one
 person's zip into another person's container**.
 
+### Offsite (R2)
+
+`backup-agents.sh` keeps 14 days of zips on the box; [`backup-agents-offsite.sh`](backup-agents-offsite.sh)
+ships them to Cloudflare R2 encrypted (restic). Provision the bucket once with
+[`../backup/provision-r2.sh`](../backup/provision-r2.sh), install this script
+to `/usr/local/sbin/`, and cron it after the local job (03:45). See
+[`../backup/README.md`](../backup/README.md).
+
 ## Failure modes
 
 | Symptom | Cause / fix |
