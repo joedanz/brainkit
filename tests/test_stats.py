@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -277,3 +278,68 @@ def test_graph_nodes_carry_entity_type(master, tmp_path):
     by_path = {n.rel_path: n for n in stats.graph.nodes}
     assert by_path["Company/Intel/Acme.md"].entity == "client"
     assert by_path["Company/Home.md"].entity == ""
+
+
+# ---- facts & entities (schema v3 surfacing) ---------------------------------
+
+ACME = (
+    "---\nentity: client\naliases: [Acme Corp, ACME]\n---\n# Acme\n\n"
+    "- Sarah Kim is our main contact [from:: 2026-01] [source:: [[Q3 Pipeline]]]\n"
+    "- Dana Ortiz was our main contact [from:: 2024-06] [until:: 2026-01]\n"
+)
+
+
+def _facts_vault(master, tmp_path):
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Intel/Acme.md").write_text(ACME)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    return vault
+
+
+def test_facts_and_entity_counts(master, tmp_path):
+    s = collect_vault_stats(_facts_vault(master, tmp_path))
+    assert s.facts_total == 2
+    assert s.entities_total == 1
+    assert s.entity_types == ["client"]
+    assert s.facts is None  # not requested
+
+
+def test_include_facts_bakes_full_intervals(master, tmp_path):
+    s = collect_vault_stats(_facts_vault(master, tmp_path), include_facts=True)
+    assert s.facts is not None and len(s.facts) == 2  # ended fact included
+    assert {f.statement for f in s.facts} == {
+        "Sarah Kim is our main contact", "Dana Ortiz was our main contact"}
+    ended = next(f for f in s.facts if f.until_date)
+    assert ended.until_date == "2026-01-31"  # full interval travels
+
+
+def test_graph_nodes_carry_entity_aliases(master, tmp_path):
+    s = collect_vault_stats(_facts_vault(master, tmp_path), include_graph=True)
+    acme = next(n for n in s.graph.nodes
+                if n.rel_path == "Company/Intel/Acme.md")
+    assert acme.entity == "client"
+    assert acme.aliases == ["Acme Corp", "ACME"]
+    plain = next(n for n in s.graph.nodes if n.rel_path == "Company/Home.md")
+    assert plain.aliases == []
+
+
+def test_pre_v3_index_degrades_counts_not_crashes(master, tmp_path):
+    vault = _facts_vault(master, tmp_path)
+    conn = sqlite3.connect(vault / ".brain" / "index.db")
+    for t in ("fact_entities", "facts", "entities"):
+        conn.execute(f"DROP TABLE {t}")
+    conn.commit()
+    conn.close()
+
+    s = collect_vault_stats(vault, include_graph=True, include_facts=True)
+    assert s.facts_total == 0 and s.entities_total == 0
+    assert s.entity_types == []
+    assert s.facts == []
+    assert any("index" in w for w in s.warnings)  # bake explains itself
+
+
+def test_status_text_includes_counts(master, tmp_path):
+    text = format_vault_status(collect_vault_stats(_facts_vault(master, tmp_path)))
+    assert "facts: 2; entities: 1" in text

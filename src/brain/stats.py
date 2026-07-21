@@ -11,6 +11,7 @@ to keyword-only.
 from __future__ import annotations
 
 import sqlite3
+import json
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from brain.doctor import Finding, run_doctor
+from brain.facts import FactHit
 from brain.promotions import list_pending
 from brain.resolver import (
     _match_rule,
@@ -66,6 +68,7 @@ class GraphNode:
     space: str
     degree: int
     entity: str = ""
+    aliases: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -100,6 +103,10 @@ class VaultStats:
     embedding_coverage: float | None
     recent_commits: list[CommitInfo]
     graph: GraphData | None
+    facts_total: int = 0
+    entities_total: int = 0
+    entity_types: list[str] = field(default_factory=list)
+    facts: list[FactHit] | None = None  # baked only when include_facts=True
     warnings: list[str] = field(default_factory=list)
 
 
@@ -175,9 +182,13 @@ def _build_graph(conn: sqlite3.Connection, cap: int) -> GraphData:
     ).fetchall()
 
     try:
-        etypes = dict(conn.execute("SELECT rel_path, type FROM entities"))
+        erows = conn.execute(
+            "SELECT rel_path, type, aliases FROM entities").fetchall()
+        etypes = {rel: t for rel, t, _a in erows}
+        ealiases = {rel: json.loads(a) for rel, _t, a in erows}
     except sqlite3.OperationalError:  # index predates schema v3
         etypes = {}
+        ealiases = {}
 
     degree: dict[str, int] = {rel: 0 for rel, _ in rows}
     for src, tgt in pairs:
@@ -193,7 +204,9 @@ def _build_graph(conn: sqlite3.Connection, cap: int) -> GraphData:
 
     nodes = [
         GraphNode(id=i, rel_path=rel, title=Path(rel).stem,
-                  space=space, degree=degree[rel], entity=etypes.get(rel, ""))
+                  space=space, degree=degree[rel],
+                  entity=etypes.get(rel, ""),
+                  aliases=ealiases.get(rel, []))
         for (rel, space), i in zip(keep, range(len(keep)))
     ]
     edges = [
@@ -208,6 +221,7 @@ def collect_vault_stats(
     vault: Path,
     *,
     include_graph: bool = False,
+    include_facts: bool = False,
     git_limit: int = 20,
     graph_cap: int = 300,
 ) -> VaultStats:
@@ -231,6 +245,9 @@ def collect_vault_stats(
     embedded: int | None = None
     coverage: float | None = None
     graph: GraphData | None = None
+    facts_total = 0
+    entities_total = 0
+    entity_types: list[str] = []
 
     db = vault / ".brain" / "index.db"
     conn: sqlite3.Connection | None = None
@@ -259,6 +276,17 @@ def collect_vault_stats(
             ]
             unresolved = conn.execute(
                 "SELECT count(*) FROM links WHERE resolved = 0").fetchone()[0]
+
+            try:
+                facts_total = conn.execute(
+                    "SELECT count(*) FROM facts").fetchone()[0]
+                entities_total = conn.execute(
+                    "SELECT count(*) FROM entities").fetchone()[0]
+                entity_types = [t for (t,) in conn.execute(
+                    "SELECT DISTINCT type FROM entities WHERE type != '' "
+                    "ORDER BY type")]
+            except sqlite3.OperationalError:  # index predates schema v3
+                pass
 
             has_vec = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE name = 'chunks_vec'").fetchone()
@@ -289,6 +317,19 @@ def collect_vault_stats(
                 conn.close()
     else:
         warnings.append(f"no index at {db} — run: brain index --vault {vault}")
+
+    baked_facts: list[FactHit] | None = None
+    if include_facts:
+        baked_facts = []
+        if db.is_file():
+            from brain.facts import query_facts
+
+            try:
+                baked_facts, fact_warnings = query_facts(
+                    vault, include_ended=True)
+                warnings.extend(fact_warnings)
+            except sqlite3.Error as e:  # unreadable db — never crash a collector
+                warnings.append(f"facts unavailable ({e})")
 
     spaces = [
         SpaceStat(space=s, notes=n, chunks=chunks_by_space.get(s, 0))
@@ -321,6 +362,10 @@ def collect_vault_stats(
         embedding_coverage=coverage,
         recent_commits=commits,
         graph=graph,
+        facts_total=facts_total,
+        entities_total=entities_total,
+        entity_types=entity_types,
+        facts=baked_facts,
         warnings=warnings,
     )
 
@@ -512,6 +557,7 @@ def format_vault_status(s: VaultStats) -> str:
             + (f", model {s.index.model}" if s.index.model else "")
             + f", embedding coverage {cov}")
         lines.append(f"pending reindex: {len(s.pending_reindex)} file(s)")
+        lines.append(f"facts: {s.facts_total}; entities: {s.entities_total}")
     lines.append(f"inbox: {s.inbox_count} item(s); open actions: {s.open_actions}")
     if s.spaces:
         lines.append("spaces:")
