@@ -60,6 +60,27 @@ async def test_graph_and_search(aiohttp_client, master, tmp_path):
     assert any("Pipeline" in h["rel_path"] for h in res["hits"])
 
 
+async def test_search_center_graph_rerank(aiohttp_client, master, tmp_path):
+    """/api/search must forward ?center= to the graph reranker — parity with the
+    CLI and MCP surfaces. A resolvable center flips the mode to +graph; an
+    unresolvable one degrades to a warning (and never confirms the note exists)."""
+    client = await aiohttp_client(_vault_app(_vault(master, tmp_path)))
+
+    centered = await (await client.get(
+        "/api/search",
+        params={"q": "pipeline", "center": "Company/Home.md"})).json()
+    assert centered["mode"] == "keyword-only+graph"
+    assert not centered["warnings"]
+
+    # A center the lens cannot see is indistinguishable from pure fiction:
+    # same warning, no +graph, no leak of whether it exists in master.
+    for absent in ("People/bob/Memory.md", "Nowhere/Ghost.md"):
+        res = await (await client.get(
+            "/api/search", params={"q": "pipeline", "center": absent})).json()
+        assert res["mode"] == "keyword-only"
+        assert res["warnings"] == [f"center note not in index: {absent}"]
+
+
 async def test_notes_filter(aiohttp_client, master, tmp_path):
     client = await aiohttp_client(_vault_app(_vault(master, tmp_path)))
     body = await (await client.get("/api/notes", params={"space": "Company"})).json()

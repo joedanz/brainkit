@@ -191,11 +191,12 @@ async def handle_search(request: web.Request) -> web.Response:
         k = 25
     k = max(1, min(k, 100))
     keyword_only = request.query.get("keyword_only") in ("1", "true", "yes")
+    center = request.query.get("center") or None
     provider = request.app["provider"]
 
     def _search() -> dict:
         report = search_index(vault, query, k=k, provider=provider,
-                              keyword_only=keyword_only)
+                              keyword_only=keyword_only, center=center)
         return {
             "query": report.query,
             "mode": report.mode,
