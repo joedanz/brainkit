@@ -366,8 +366,15 @@ function reselect(adj, byId) {
 }
 
 function selectByPath(relPath, g) {
+  // Guards on S alone, not S._node: while a session enters 3D before the
+  // first 2D load() resolves, that load's token is invalidated by 3D's own
+  // S.loads.begin() (see toggle3D), so draw() — the only place that sets
+  // S._node — never runs. selectByPath doesn't touch S._node/_link/_label
+  // itself (it rebuilds byId/adj fresh from `g` every call), so gating on it
+  // only served to silently drop every 3D-first click with no error.
+  if (!S) return;
   const n = g.nodes.find((x) => x.rel_path === relPath);
-  if (n && S._node) {
+  if (n) {
     const byId = new Map(g.nodes.map((x) => [x.id, x]));
     const adj = new Map();
     g.nodes.forEach((x) => adj.set(x.id, { out: [], in: [] }));
