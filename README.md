@@ -72,7 +72,7 @@ The brain is a shared platform for people *and* software. Your team works in Obs
 
 - **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the working protocol, scoped to that person.
 - **Hermes Agent** ([NousResearch](https://github.com/NousResearch)) — first-class support via `hermes profile install`, plus a ready-to-run Docker image in [`deploy/agents-box`](deploy/agents-box).
-- **Any MCP client** — `brain mcp` exposes search, note reading, links, and recent changes over the Model Context Protocol, so Claude Desktop, Cursor, Codex, and friends can use the vault as a tool.
+- **Any MCP client** — `brain mcp` exposes search, note reading, links, recent changes, and time-stamped facts over the Model Context Protocol, so Claude Desktop, Cursor, Codex, and friends can use the vault as a tool.
 - **Or no agent at all** — the vault is just files. Obsidian, `grep`, and your editor all work.
 
 ## Everything in the box
@@ -160,7 +160,8 @@ Full walkthrough: [Getting started](docs/getting-started.mdx) · [Per-employee s
 | `brain cycle` | The cron loop: write-back → sweep drafts → recompile |
 | `brain index` | Build or refresh a vault's local search index |
 | `brain search` | Query a vault — keyword, semantic, or both |
-| `brain mcp` | Serve search, reading, links, and recent changes to MCP clients |
+| `brain facts` | Query time-stamped facts (now, as-of, or believed-on a date) |
+| `brain mcp` | Serve search, reading, links, recent changes, and facts to MCP clients |
 | `brain status` | Counts, freshness, and health at a glance |
 | `brain dashboard` | Live local dashboard (or a static HTML snapshot) |
 | `brain doctor` | Read-only integrity audit, CI-friendly exit codes |

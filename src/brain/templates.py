@@ -109,6 +109,31 @@ When a transcript appears in any `People/<person>/Inbox/`:
 If you cannot place an item confidently, add it to `Company/Needs-Routing.md`
 instead of guessing. Doing nothing is always safer than routing wrongly.
 
+## Facts and entities
+
+Durable state claims ("X is Y", "X works at Y") are written as fact lines so
+they can be queried by time:
+
+- A fact is a bullet with `[from:: YYYY-MM]` (or a full date) and a
+  `[source:: [[note]]]` pointing at the episode that established it.
+- When a new claim contradicts an existing fact: add `[until:: date]` to the
+  old line and write the new fact line — both in the same commit. Never
+  delete a fact line; history is the point.
+- Prose keeps the existing `[source](URL), as of YYYY-MM` citation style.
+  Fact lines are for queryable state; citations are for evidence in text.
+
+Pages about a single thing get entity frontmatter:
+
+    ---
+    entity: client
+    aliases: [Other Name, ABBR]
+    ---
+
+Types in use: client (a paying customer), person (someone we work with),
+provider (a vendor or service), destination (a place we cover), event
+(a dated occurrence), tool (software or equipment we use). Add a new type
+when none fits — lowercase, singular — and use it consistently.
+
 ## Dashboards
 
 Keep `Company/Home.md` current as the priority dashboard: open actions by

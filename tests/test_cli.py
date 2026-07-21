@@ -175,6 +175,11 @@ def test_init_scaffolds_master(tmp_path: Path):
     assert "Company/Intel/" in protocol
     assert "as of YYYY-MM" in protocol
     assert "captured YYYY-MM" in protocol    # today's-date fallback when source undated
+    # fact-line and entity-page conventions are part of the protocol
+    assert "## Facts and entities" in protocol
+    assert "[from:: YYYY-MM]" in protocol
+    assert "[until:: date]" in protocol
+    assert "entity: client" in protocol
     # Home is the live dashboard; Memory is the overview/map — distinct jobs,
     # not two copies of the same folder index (regression: they looked alike).
     home = (dest / "Company/Home.md").read_text()
