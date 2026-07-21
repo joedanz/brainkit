@@ -9,7 +9,16 @@ ORG_YAML = """\
 people:
   # id: {name: Full Name, roles: [admin], teams: [sales], email: name@example.com}
   # email is optional and must be unique; it's the auth key for `brain ingest --from`.
-  founder: {name: Founder, roles: [admin], teams: [], email: founder@example.com}
+  #
+  # Keep the admin role on a dedicated curation identity, not on a real employee.
+  # 'admin' writes the shared Company space and approves promotions from the admin
+  # dashboard / brain CLI — it needs no agent container. People who chat with an
+  # agent are plain employees (read-only on Company), so no one can rewrite shared
+  # knowledge without the human approval step. Add each employee like the example
+  # below; grant the admin role to a person only if you want their own agent to
+  # edit Company directly.
+  admin: {name: Admin, roles: [admin]}
+  # alice: {name: Alice Example, teams: [sales], email: alice@example.com}
 """
 
 SPACES_YAML = """\
