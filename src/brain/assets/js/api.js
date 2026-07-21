@@ -35,6 +35,7 @@ export const api = {
   stats: () => getJSON("/api/stats"),
   graph: (params) => getJSON("/api/graph", params),
   search: (params) => getJSON("/api/search", params),
+  facts: (params) => getJSON("/api/facts", params),
   notes: (params) => getJSON("/api/notes", params),
   note: (params) => getJSON("/api/note", params),
   inbox: (params) => getJSON("/api/inbox", params),
