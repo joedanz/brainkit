@@ -38,6 +38,7 @@ export function dispose() {
   if (S) {
     if (S._three) { S._three.dispose(); S._three = null; }
     if (S.sim) S.sim.stop();
+    clearTimeout(S._t3);
   }
   S = null;
 }
@@ -115,7 +116,9 @@ async function toggle3D(button) {
     const params = S.ctx.meta.kind === "master" ? { cap: S.cap, person: S.ctx.person } : { cap: S.cap };
     const g = await api.graph(params);
     if (!S || !S.loads.current(token)) return; // disposed / superseded mid-fetch
-    S._three = mod.mount(S.canvas, g, (node) => selectByPath(node.rel_path, g));
+    S.graph = g;
+    S._threeMod = mod;
+    S._three = mod.mount(S.canvas, filteredGraph(), (node) => selectByPath(node.rel_path, S.graph));
   } catch (e) {
     if (!S || !S.loads.current(token)) return;
     // No WebGL (headless, disabled GPU, locked-down browser) → fall back to 2D
@@ -238,6 +241,32 @@ function draw(g, preserveView) {
   if (S.sel != null) reselect(adj, byId);
 }
 
+// A remapped copy of S.graph containing only nodes that pass matches().
+// Ids are re-indexed because graph3d indexes positions by node order.
+function filteredGraph() {
+  const g = S.graph;
+  const kept = g.nodes.filter((n) => matches(n));
+  const idMap = new Map(kept.map((n, i) => [n.id, i]));
+  return {
+    nodes: kept.map((n, i) => Object.assign({}, n, { id: i })),
+    edges: g.edges
+      .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+      .map((e) => ({ source: idMap.get(e.source), target: idMap.get(e.target) })),
+    truncated: g.truncated,
+  };
+}
+
+// Debounced remount so typing in search doesn't rebuild the scene per keystroke.
+function refresh3D() {
+  clearTimeout(S._t3);
+  S._t3 = setTimeout(() => {
+    if (!S || !S.threeD || !S.graph || !S._threeMod) return;
+    if (S._three) S._three.dispose();
+    S._three = S._threeMod.mount(S.canvas, filteredGraph(),
+      (node) => selectByPath(node.rel_path, S.graph));
+  }, 250);
+}
+
 function matches(d) {
   if (S.settings.spacesOff.includes(d.space)) return false;
   if (!S.settings.orphans && d.degree === 0) return false;
@@ -251,6 +280,7 @@ function refreshVisibility() {
   S._link.style("display", (d) =>
     (matches(d.source) && matches(d.target)) ? null : "none");
   updateLabels();
+  if (S.threeD) refresh3D();
 }
 
 // Labels are world-space text that fades in past a zoom threshold — hidden on
