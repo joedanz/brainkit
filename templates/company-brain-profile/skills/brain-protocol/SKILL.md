@@ -32,10 +32,14 @@ your spaces and permissions — read it before acting.
    People/<you>/Shares.md — generated and read-only: pending items,
    approvals, and rejections with reasons. Never edit it.
 
-## Intel (articles, posts, and links)
+## Intel (articles, posts, links, PDFs, screenshots)
 
-1. Distill, never archive: extract the durable facts — the full article text
-   never enters the vault. Cite every claim: `[source](URL), as of YYYY-MM`.
+1. Distill, never archive: read the source (fetch a URL, extract PDF text,
+   read an image) and pull the durable facts — the full text or file never
+   enters the vault. Cite every claim `[source](URL), as of YYYY-MM`: the
+   source is the URL, or the publication/title (or uploaded filename) when
+   there's no link; use the source's own date, or `captured YYYY-MM` (today)
+   when it shows none.
 2. Route destination, provider, event, or trend intel to the shared wiki via
    a promotion targeting Company/Intel/ — Destinations/<Place>.md,
    Providers/<Name>.md, Events/<Name>.md, or Trends/<YYYY-MM Topic>.md.

@@ -134,7 +134,7 @@ The live [`brain dashboard`](/reference/cli#brain-dashboard) is itself a capture
 
 ## Articles and links: the Intel wiki
 
-Sending an article, post, or link to your agent uses the same channels as everything else — the difference is what the agent does with it. The vault protocol says **distill, never archive**: the agent extracts the durable facts and routes them to the shared reference wiki at `Company/Intel/` — one page per destination, provider, event, or trend, every claim cited `[source](URL), as of YYYY-MM`. The full article text never enters the vault; the URL is the immutable source. The person's own take on the piece stays in their `People/<person>/Notes/`.
+Sending an article link, a PDF, or a screenshot of a post to your agent uses the same channels as everything else — the difference is what the agent does with it. It reads whatever you send (fetches a URL, extracts a PDF's text, reads an image with vision or OCR), then follows the vault protocol: **distill, never archive**. It pulls the durable facts and routes them to the shared reference wiki at `Company/Intel/` — one page per destination, provider, event, or trend, every claim cited `[source](URL), as of YYYY-MM`. The source is the URL when there is one, or the publication, title, or uploaded filename when there isn't; the date is the source's own, or `captured YYYY-MM` (today's) when the source shows none. The full text or file never enters the vault — the citation is the record. The person's own take on the piece stays in their `People/<person>/Notes/`.
 
 Writes follow the normal [promotion](/concepts/promotions) gate, shaped to fit its new-file-only rule:
 

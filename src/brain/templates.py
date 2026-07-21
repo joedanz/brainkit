@@ -92,12 +92,15 @@ When a transcript appears in any `People/<person>/Inbox/`:
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
    - Standing processes and standards -> a new file in `Company/Playbook/`
-   - Destination, provider, event, or trend intel from articles or posts ->
-     distill into `Company/Intel/` (never archive the full text): a new page
-     per entity, or a dated addendum `<Name> — updates YYYY-MM.md` when the
-     page exists — fold it into the main page and delete it in the same
-     commit. Cite every claim: `[source](URL), as of YYYY-MM`; keep
-     `Intel/Home.md` linking to every page
+   - Destination, provider, event, or trend intel from articles, posts,
+     PDFs, or screenshots -> distill into `Company/Intel/` (never archive the
+     full text or file): a new page per entity, or a dated addendum
+     `<Name> — updates YYYY-MM.md` when the page exists — fold it into the
+     main page and delete it in the same commit. Cite every claim
+     `[source](URL), as of YYYY-MM`: source is the URL or the
+     publication/title (or uploaded filename); use the source's date, or
+     `captured YYYY-MM` (today) when it shows none. Keep `Intel/Home.md`
+     linking to every page
    - Session summary -> `People/<person>/Sessions/`
    - General insights worth keeping -> fold into `Company/Memory.md`, which
      stays a lean overview linking out to detail notes — not a running log
@@ -147,7 +150,9 @@ def _intel_home_md() -> str:
         "# Intel — the shared travel wiki\n\n"
         "A lean map: every Intel page is linked from here. Pages are distilled\n"
         "from articles, posts, and advisor knowledge — see the routing rules in\n"
-        "AGENTS.md. Every claim cites `[source](URL), as of YYYY-MM`.\n\n"
+        "AGENTS.md. Every claim cites `[source](URL), as of YYYY-MM` — a URL, or\n"
+        "the publication/title when there is no link; use the source's date, or\n"
+        "`captured YYYY-MM` (today's date) when it shows none.\n\n"
         "## Destinations\n\n(none yet)\n\n"
         "## Providers\n\n(none yet)\n\n"
         "## Events\n\n(none yet)\n\n"

@@ -174,6 +174,7 @@ def test_init_scaffolds_master(tmp_path: Path):
     assert (dest / "Company/Intel/Destinations/.gitkeep").exists()
     assert "Company/Intel/" in protocol
     assert "as of YYYY-MM" in protocol
+    assert "captured YYYY-MM" in protocol    # today's-date fallback when source undated
     # Home is the live dashboard; Memory is the overview/map — distinct jobs,
     # not two copies of the same folder index (regression: they looked alike).
     home = (dest / "Company/Home.md").read_text()

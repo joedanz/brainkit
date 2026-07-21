@@ -41,10 +41,11 @@ writable spaces; the write-back service rejects changes to read-only paths.
   promotion targeting a new file in `Company/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion
   targeting a new file in `Company/Playbook/`
-- Articles, posts, and links: distill, never archive — extract the durable
-  facts and route destination, provider, event, or trend intel to
-  `Company/Intel/` via a promotion (see below). The full text never enters
-  the vault; your personal take stays in `People/{pid}/Notes/`
+- Articles, posts, links, PDFs, and screenshots: distill, never archive —
+  read the source (fetch a URL, extract PDF text, read an image) and route
+  destination, provider, event, or trend intel to `Company/Intel/` via a
+  promotion (see below). The full text or file never enters the vault; your
+  personal take stays in `People/{pid}/Notes/`
 - If unsure where something belongs, add it to `People/{pid}/Needs-Routing.md`
 
 ## Company Intel (the shared travel wiki)
@@ -55,7 +56,10 @@ villas, cruise, aviation, guides), `Events/<Name>.md` (venues and
 access-worthy events), `Trends/<YYYY-MM Topic>.md`. Conventions:
 - First line of a page is a one-sentence summary; provider pages add
   `**Type:** ... · **Where:** [[Destination]]`.
-- Every claim cites its provenance: `[source](URL), as of YYYY-MM`.
+- Every claim cites its provenance: `[source](URL), as of YYYY-MM`. The
+  source is the URL, or the publication/title (or uploaded filename) when
+  there is no link. Use the source's own date; when it shows none, use
+  today's date and write `captured YYYY-MM` instead.
 - Link related pages both ways; every page is linked from `Intel/Home.md`.
 - Intel starts on the country page; when a city outgrows a few lines it
   becomes its own page with a one-line link left behind.

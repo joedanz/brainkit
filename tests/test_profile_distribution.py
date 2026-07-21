@@ -39,5 +39,7 @@ def test_soul_and_skill_reference_the_vault_protocol():
     assert "Company/Intel/" in skill
     assert "Distill, never archive" in skill
     assert "as of YYYY-MM" in skill
+    assert "captured YYYY-MM" in skill       # today's-date fallback when source undated
+    assert "uploaded filename" in skill      # non-URL sources (PDF/screenshot)
     assert "updates YYYY-MM.md" in skill
     assert "no ~/wiki" in skill
