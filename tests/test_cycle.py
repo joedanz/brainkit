@@ -236,6 +236,28 @@ def test_cycle_without_index_flag_builds_no_index(master, tmp_path):
 
 # ---- Shares.md lifecycle -------------------------------------------------- #
 
+def test_cycle_report_owner_mismatch_flips_ok():
+    from brain.cycle import CycleReport
+    tamper = CycleReport(writebacks=[], swept=0, compiled=0, pending=0,
+                         clients_rejected=1, clients_tampering=1)
+    assert tamper.ok is False
+    routine = CycleReport(writebacks=[], swept=0, compiled=0, pending=0,
+                          clients_rejected=1, clients_tampering=0)
+    assert routine.ok is True  # a "name taken" rejection alone must not trip ok
+
+
+def test_cycle_owner_mismatch_request_trips_ok(master, tmp_path):
+    from brain.clients import request_client
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    rel = request_client(out / "bob", "bob", "Danziger", "body\n", "2026-07-22")
+    p = out / "bob" / rel
+    p.write_text(p.read_text().replace("owner: bob", "owner: alice"))  # tamper
+    report = run_cycle(master, out, today="2026-07-22")
+    assert report.clients_tampering == 1
+    assert report.ok is False
+
+
 def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
     from brain.promotions import approve, draft_into_space
 

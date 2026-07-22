@@ -36,14 +36,21 @@ class CycleReport:
     pending: int
     clients_created: int = 0
     clients_rejected: int = 0
+    clients_tampering: int = 0  # owner-mismatch client rejections — a tamper signal
     indexed: int = 0
     index_warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         # Retrieval is a convenience layer; a failed index warns but never fails
-        # the cycle. Only a rejected writeback (a security-relevant event) does.
-        return all(w.status != "rejected" for w in self.writebacks)
+        # the cycle. A rejected writeback (a security-relevant event) fails it,
+        # as does an owner-mismatch client request (a tamper signal). Routine
+        # "name taken" client rejections do NOT — they're a normal user outcome
+        # surfaced via the requester's inbox note.
+        return (
+            all(w.status != "rejected" for w in self.writebacks)
+            and self.clients_tampering == 0
+        )
 
 
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
@@ -116,5 +123,9 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),
         clients_rejected=sum(1 for p in provisioned if p.status == "rejected"),
+        clients_tampering=sum(
+            1 for p in provisioned
+            if p.status == "rejected" and p.reason == "owner mismatch"
+        ),
         indexed=indexed, index_warnings=index_warnings,
     )
