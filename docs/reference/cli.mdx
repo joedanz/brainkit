@@ -7,7 +7,7 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,ingest,compile,writeback,promotions,cycle,index,search,facts,mcp,status,dashboard,doctor} …
+brain {init,ingest,webhook,compile,writeback,promotions,cycle,index,search,graph,facts,mcp,status,dashboard,doctor} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
