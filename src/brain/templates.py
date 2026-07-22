@@ -133,6 +133,25 @@ provider (a vendor or service), destination (a place we cover), event
 (a dated occurrence), tool (software or equipment we use). Add a new type
 when none fits — lowercase, singular — and use it consistently.
 
+## Typed relations
+
+A note can declare how it relates to others in frontmatter — five keys, each
+holding `[[wikilinks]]`: `up`/`down` (hierarchy), `same` (peers), `prev`/`next`
+(sequence):
+
+    ---
+    title: 2025-03-12 Kickoff call
+    up: [[Acme]]
+    next: [[2025-04-02 Check-in]]
+    ---
+
+Declare one direction only; the inverse is derived (a note you point `up` at
+knows you as `down`). These sharpen retrieval and let agents walk structure
+with `brain graph`. Add them only where they carry signal the vault's structure
+doesn't already — folder-index parents (`Clients/Acme/Acme.md`), dated notes in
+one folder, and same-`entity`-type pages are linked automatically, so don't
+restate those. A target that doesn't resolve just yields no edge.
+
 ## Dashboards
 
 Keep `Company/Home.md` current as the priority dashboard: open actions by

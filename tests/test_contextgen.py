@@ -30,6 +30,9 @@ def test_root_protocol_content():
     assert "mode: append" in text                     # additive page updates
     assert "mode: patch" in text                      # full-page revisions
     assert "never build a wiki outside it" in text    # blocks off-vault ~/wiki
+    # typed-relation authoring guidance (up/down/same/prev/next frontmatter)
+    assert "## Typed relations" in text
+    assert "brain graph" in text
 
 
 def test_root_protocol_mentions_shares_note():
