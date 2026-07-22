@@ -542,6 +542,27 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
     return findings
 
 
+def _check_created_clients(master: Path) -> list[Finding]:
+    """Auto-created client spaces, surfaced for admin review (rename/merge/revoke).
+    Informational: self-service creation is normal, but a human should be able to
+    see the roster grow."""
+    from brain.clients import _created_log
+
+    log = _created_log(master)
+    if not log.is_file():
+        return []
+    findings: list[Finding] = []
+    for line in log.read_text().splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        date_, owner, name = parts[0], parts[1], parts[2]
+        findings.append(Finding(
+            "info", "clients",
+            f"Clients/{name} — created by {owner} on {date_} (self-service)"))
+    return findings
+
+
 def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
@@ -557,6 +578,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_facts(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
+    findings += _check_created_clients(master)
     findings += _check_intel(master)
     findings += _check_webhook(master, org)
     if out_root is not None:
