@@ -41,6 +41,42 @@ def test_cycle_applies_writebacks_sweeps_and_recompiles(master, tmp_path):
     assert not (out / "bob/People/bob/Promotions/share-sop.md").exists()
 
 
+def test_cycle_materializes_client_and_isolates_it(master, tmp_path):
+    from brain.clients import request_client
+    from brain.resolver import can_read, can_write_path
+    from brain.schemas import Person, load_spaces
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    # bob's agent requests a client from his own slice (as write-back would land it)
+    request_client(out / "bob", "bob", "Danziger Family",
+                   "Mikey (football), Roslyn (basketball).\n", "2026-07-22")
+
+    report = run_cycle(master, out, today="2026-07-22")
+    assert report.ok
+    assert report.clients_created == 1
+
+    # space + owner-bound grant now in master
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    bob = Person(id="bob", name="Bob Rivera", teams=("ops",))
+    assert can_write_path("Clients/Danziger Family/x.md", bob, rules)
+    assert (master / "Clients/Danziger Family/Danziger Family.md").exists()
+
+    # appears WRITABLE in bob's recompiled slice this same cycle (rules reloaded)
+    assert (out / "bob/Clients/Danziger Family/Danziger Family.md").exists()
+    # alice is a seeded org admin (roles: [admin]); append_client_grant always
+    # includes "role:admin" in the owner-bound grant's subjects (oversight, by
+    # design — see brain/clients.py), and the exact "Clients/Danziger Family"
+    # rule wins outright over the "Clients/*" wildcard in the resolver. So
+    # alice legitimately sees it too — that isn't a fail-closed violation.
+    assert (out / "alice/Clients/Danziger Family/Danziger Family.md").exists()
+    # fail-closed isolation: a bystander with no ownership and no admin role
+    # gets neither read nor write, regardless of the Clients/* wildcard.
+    outsider = Person(id="carol", name="Carol", roles=(), teams=())
+    assert not can_read("Clients/Danziger Family", outsider, rules)
+
+
 def test_cycle_rejection_isolated_and_reported(master, tmp_path):
     seed_meta(master)
     out = _first_compile(master, tmp_path)

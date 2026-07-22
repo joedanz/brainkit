@@ -1,4 +1,4 @@
-"""One-shot server cycle: writeback (all people) -> sweep -> compile-all.
+"""One-shot server cycle: writeback -> materialize clients -> sweep -> compile-all.
 
 Ordering is load-bearing: writebacks land person edits (including freshly
 synced promotion drafts) in master BEFORE the sweep reads People/*/Promotions,
@@ -34,6 +34,8 @@ class CycleReport:
     swept: int
     compiled: int
     pending: int
+    clients_created: int = 0
+    clients_rejected: int = 0
     indexed: int = 0
     index_warnings: list[str] = field(default_factory=list)
 
@@ -94,6 +96,13 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
                 PersonWriteback(person.id, "applied", applied=len(result.applied))
             )
 
+    from brain.clients import materialize_clients
+
+    provisioned = materialize_clients(master, org, today=today)
+    # materialize_clients appended grants to spaces.yaml; the compile below must
+    # see them, so reload the rules it was given at the top of the cycle.
+    rules = load_spaces(master / "_meta/spaces.yaml")
+
     swept = len(sweep(master, today=today))
     compiled = len(compile_all(master, org, rules, out_root, today=today))
     pending = len(list_pending(master))
@@ -105,5 +114,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
+        clients_created=sum(1 for p in provisioned if p.status == "created"),
+        clients_rejected=sum(1 for p in provisioned if p.status == "rejected"),
         indexed=indexed, index_warnings=index_warnings,
     )
