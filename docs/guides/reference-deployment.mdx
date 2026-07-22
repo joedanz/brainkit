@@ -210,10 +210,16 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     but a missed success ping still alerts. Give each job its own check, with
     the period matched to that job's cadence (cycle: 5 minutes; doctor: 1 day;
     hourly backup: 1 hour) plus a small grace. The 5-minute cycle check
-    doubles as box-liveness monitoring. For the agents box,
+    doubles as box-liveness monitoring. Two companion scripts extend the
+    pattern to things without their own cron:
+    [`brain-liveness.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/brain-box/brain-liveness.sh)
+    watches this box's long-running services (every enabled `brain-*` systemd
+    unit — dashboards, webhook receiver — plus `$EXTRA_UNITS` such as a
+    fronting proxy), and
     [`agents-liveness.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/agents-liveness.sh)
-    gives the container fleet the same treatment: one check, success while
-    every compose service runs, `/fail` naming the dead containers otherwise.
+    watches the agent-container fleet. Each pings one check per box: success
+    while everything runs, `/fail` naming the dead units or containers
+    otherwise.
 
     **Recommended — an embedding provider**, so `--index` builds semantic
     (not just keyword) indexes. All four
