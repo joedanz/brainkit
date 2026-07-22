@@ -27,6 +27,12 @@ class ClientError(ValueError):
 
 
 _UNSAFE = re.compile(r'[\\/"\x00-\x1f]')
+_VALID_OWNER = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _validate_owner_id(owner_id: str) -> None:
+    if not _VALID_OWNER.fullmatch(owner_id):
+        raise ClientError(f"invalid owner id {owner_id!r}")
 
 
 def normalize_client_name(name: str) -> str:
@@ -99,6 +105,7 @@ def append_client_grant(spaces_path: Path, client_name: str, owner_id: str) -> b
     the file's comments (yaml round-tripping would strip them). Idempotent: a
     pre-existing rule for the same path returns False and appends nothing."""
     name = normalize_client_name(client_name)
+    _validate_owner_id(owner_id)
     space = f"Clients/{name}"
     if any(r.path == space for r in load_spaces(spaces_path)):
         return False

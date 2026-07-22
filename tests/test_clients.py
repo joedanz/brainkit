@@ -79,3 +79,12 @@ def test_append_grant_is_idempotent(tmp_path: Path):
     assert append_client_grant(sp, "Danziger Family", "joe") is False
     # exactly one rule for the path (load_spaces would raise on a duplicate)
     assert sum(r.path == "Clients/Danziger Family" for r in load_spaces(sp)) == 1
+
+
+def test_append_grant_rejects_injecting_owner_id(tmp_path: Path):
+    sp = tmp_path / "spaces.yaml"
+    sp.write_text(_BASE_SPACES)
+    with pytest.raises(ClientError):
+        append_client_grant(sp, "Injected Client", 'x"], "read": ["everyone')
+    # nothing was appended — file is unchanged, so no world-readable rule leaked
+    assert sp.read_text() == _BASE_SPACES
