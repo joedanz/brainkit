@@ -217,6 +217,62 @@ def test_cli_facts_json(master, tmp_path, capsys):
     assert main(["facts", "--vault", str(tmp_path / "nope")]) == 1
 
 
+def test_cli_graph_walks_typed_edges(master, tmp_path, capsys):
+    from brain.compiler import compile_vault
+    from brain.embeddings import FakeEmbeddingProvider
+    from brain.indexer import build_index
+    from tests.conftest import ALICE, RULES
+
+    (master / "Company/Projects").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Projects/Kickoff.md").write_text(
+        "---\nup: [[Home]]\n---\n# Kickoff\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    rc = main(["graph", "Company/Projects/Kickoff.md", "--vault", str(vault), "--rel", "up"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "—up→" in out and "(explicit)" in out
+
+
+def test_cli_graph_resolves_bare_filename(master, tmp_path, capsys):
+    # Regression for the stem-fallback bug: a filename-with-extension like
+    # "Kickoff.md" must resolve via _stem(note) == _stem(rel), not a raw
+    # lowercase-string comparison against the full rel path.
+    from brain.compiler import compile_vault
+    from brain.embeddings import FakeEmbeddingProvider
+    from brain.indexer import build_index
+    from tests.conftest import ALICE, RULES
+
+    (master / "Company/Projects").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Projects/Kickoff.md").write_text(
+        "---\nup: [[Home]]\n---\n# Kickoff\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    rc = main(["graph", "Kickoff.md", "--vault", str(vault)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "—up→" in out and "(explicit)" in out
+
+
+def test_cli_graph_unknown_note_fails(master, tmp_path, capsys):
+    from brain.compiler import compile_vault
+    from brain.embeddings import FakeEmbeddingProvider
+    from brain.indexer import build_index
+    from tests.conftest import ALICE, RULES
+
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
+
+    rc = main(["graph", "nope.md", "--vault", str(vault)])
+    assert rc == 1
+    assert "not in index" in capsys.readouterr().err
+
+
 def test_promotions_show_renders_patch_diff(master: Path, capsys):
     seed_meta(master)
     from brain.promotions import draft_promotion

@@ -295,6 +295,36 @@ def cmd_search(args) -> int:
     return 0
 
 
+def cmd_graph(args) -> int:
+    from brain.compiler import _stem
+    from brain.edges import format_traversal, traverse
+    from brain.store import IndexStore
+
+    vault = Path(args.vault)
+    index = vault / ".brain" / "index.db"
+    if not index.exists():
+        print(f"no index at {index} — run: brain index --vault {args.vault}",
+              file=sys.stderr)
+        return 1
+    store = IndexStore.open_readonly(index, want_vectors=False)
+    try:
+        note = args.note
+        if not store.has_file(note):
+            matches = sorted(rel for rel in store.files()
+                             if _stem(rel) == _stem(note))
+            if not matches:
+                print(f"not in index: {note}", file=sys.stderr)
+                return 1
+            note = matches[0]
+        hops, truncated = traverse(store, note, rels=args.rels or None,
+                                   direction=args.direction,
+                                   depth=max(1, min(args.depth, 5)))
+    finally:
+        store.close()
+    print(format_traversal(note, hops, truncated))
+    return 0
+
+
 def cmd_facts(args) -> int:
     from dataclasses import asdict
 
@@ -515,6 +545,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="rank results near this note in the wikilink graph higher")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_search)
+
+    gp = sub.add_parser("graph", help="walk a note's typed relations in a compiled vault")
+    gp.add_argument("note", help="note rel path, or a filename stem")
+    gp.add_argument("--vault", required=True)
+    gp.add_argument("--rel", action="append", dest="rels",
+                    choices=("up", "down", "same", "prev", "next"),
+                    help="relation to follow (repeatable; default: all)")
+    gp.add_argument("--direction", choices=("out", "in", "both"), default="both",
+                    help="out: declared on the walked note; in: declared elsewhere")
+    gp.add_argument("--depth", type=int, default=1, help="hops to walk (max 5)")
+    gp.set_defaults(func=cmd_graph)
 
     fc = sub.add_parser("facts", help="query bi-temporal fact lines in a compiled vault")
     fc.add_argument("--vault", required=True)
