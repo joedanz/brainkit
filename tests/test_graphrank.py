@@ -81,7 +81,9 @@ def test_build_graph_edges_weights_and_no_self_loops(tmp_path):
                                        from_date="2026-01-01", until_date=None,
                                        sources=[], targets=[]), targets)
     # A wikilinks B, itself, and a note missing from the vault; A's facts
-    # co-mention (A,B) once, (B,C) twice, and C with itself.
+    # co-mention (A,B) once, (B,C) twice, and C with itself; A also has a
+    # typed edge to D (a mined co-provenance pair) to prove typed sources
+    # participate in the same self-loop/symmetry invariant.
     store.add_file("A.md", "s1", "Company", mk("A.md"), ["c1"], None,
                    links=[("B.md", 1), ("A.md", 1), ("Missing.md", 0)],
                    facts=[fact(1, ["A.md", "B.md"]),
@@ -90,6 +92,8 @@ def test_build_graph_edges_weights_and_no_self_loops(tmp_path):
                           fact(4, ["C.md", "C.md"])])
     store.add_file("B.md", "s2", "Company", mk("B.md"), ["c2"], None)
     store.add_file("C.md", "s3", "Company", mk("C.md"), ["c3"], None)
+    store.add_file("D.md", "s4", "Company", mk("D.md"), ["c4"], None)
+    store.replace_edges([("A.md", "D.md", "same", "entity", 0.5)])
     adj = build_graph(store)
     store.close()
 
@@ -97,9 +101,71 @@ def test_build_graph_edges_weights_and_no_self_loops(tmp_path):
     assert adj["A.md"]["B.md"] == 2.0 and adj["B.md"]["A.md"] == 2.0
     # co-mention counts accumulate across facts
     assert adj["B.md"]["C.md"] == 2.0 and adj["C.md"]["B.md"] == 2.0
+    # typed edge is undirected too
+    assert adj["A.md"]["D.md"] == 0.5 and adj["D.md"]["A.md"] == 0.5
     # self-link, self-co-mention, and missing-target link produce no edges
     assert all(node not in row for node, row in adj.items())
     assert "Missing.md" not in adj and "Missing.md" not in adj["A.md"]
+
+
+def test_build_graph_stacks_typed_weight_on_link_weight(tmp_path):
+    from brain.chunker import Chunk
+
+    # a.md wikilinks b.md (links table) AND declares an explicit typed edge
+    # to b.md (edges table, weight 2.0, mirroring what a frontmatter `up:
+    # [[b]]` relation produces). Undirected pair weight must be 3.0 both
+    # directions: 1.0 for the wikilink plus 2.0 for the explicit edge.
+    store = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    mk = lambda rel: [Chunk(rel_path=rel, space="Company", heading_path="",
+                            pos=0, text="body")]
+    store.add_file("a.md", "s1", "Company", mk("a.md"), ["c1"], None,
+                   links=[("b.md", 1)])
+    store.add_file("b.md", "s2", "Company", mk("b.md"), ["c2"], None)
+    store.replace_edges([("a.md", "b.md", "up", "explicit", 2.0)])
+    adj = build_graph(store)
+    store.close()
+
+    assert adj["a.md"]["b.md"] == 3.0
+    assert adj["b.md"]["a.md"] == 3.0
+
+
+def test_build_graph_ignores_inverse_rows(tmp_path):
+    from brain.chunker import Chunk
+
+    # edges: (a, b, up, explicit, 2.0) and its mirror (b, a, down, inverse,
+    # 2.0); no wikilinks. Pair weight must be 2.0, not 4.0 — inverse rows
+    # are mirrors already counted via the forward row, not new information.
+    store = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    mk = lambda rel: [Chunk(rel_path=rel, space="Company", heading_path="",
+                            pos=0, text="body")]
+    store.add_file("a.md", "s1", "Company", mk("a.md"), ["c1"], None)
+    store.add_file("b.md", "s2", "Company", mk("b.md"), ["c2"], None)
+    store.replace_edges([
+        ("a.md", "b.md", "up", "explicit", 2.0),
+        ("b.md", "a.md", "down", "inverse", 2.0),
+    ])
+    adj = build_graph(store)
+    store.close()
+
+    assert adj["a.md"]["b.md"] == 2.0
+    assert adj["b.md"]["a.md"] == 2.0
+
+
+def test_build_graph_mined_weight(tmp_path):
+    from brain.chunker import Chunk
+
+    # A single (a, b, same, entity, 0.5) mined row: pair weight 0.5 both ways.
+    store = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    mk = lambda rel: [Chunk(rel_path=rel, space="Company", heading_path="",
+                            pos=0, text="body")]
+    store.add_file("a.md", "s1", "Company", mk("a.md"), ["c1"], None)
+    store.add_file("b.md", "s2", "Company", mk("b.md"), ["c2"], None)
+    store.replace_edges([("a.md", "b.md", "same", "entity", 0.5)])
+    adj = build_graph(store)
+    store.close()
+
+    assert adj["a.md"]["b.md"] == 0.5
+    assert adj["b.md"]["a.md"] == 0.5
 
 
 def _seed_store(tmp_path):
