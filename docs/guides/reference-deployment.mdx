@@ -298,6 +298,27 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     the private half never leaves the container. A supervised sync loop then
     clones `$BRAIN_GIT_REMOTE`, runs [`brain index`](/reference/cli#brain-index),
     and keeps syncing: pull → index → push every five minutes.
+
+    **Email as a second channel (optional).** Hermes ships a stock
+    [email channel](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/email)
+    — the same agent, reachable by mail. It slots in per person with zero
+    brainkit-side changes: give the agent its own mailbox and add the
+    `EMAIL_*` variables to that person's stanza. Email is just another door
+    into the same container, so captures, attachments (vision / OCR), and
+    article distilling all land in the same synced vault. Two deployment
+    rules the hermes docs won't tell you: pin `EMAIL_ALLOWED_USERS` to the
+    one employee's real address — mailbox-to-person pinning does the same
+    job as the per-person bot token — and plan on real IMAP/SMTP mailboxes
+    with app passwords on a domain you control. Forward-only services
+    (Cloudflare Email Routing and kin) can't carry the channel, which must
+    fetch *and* send.
+
+    ```yaml
+        environment:
+          # …plus, for the email channel (full variable list in the hermes docs):
+          - EMAIL_ADDRESS=alice@bots.example.com
+          - EMAIL_ALLOWED_USERS=alice@example.com
+    ```
   </Step>
 
   <Step title="Onboard an employee — ~10 minutes">
