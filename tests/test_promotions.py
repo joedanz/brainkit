@@ -100,6 +100,53 @@ def test_approve_revalidates_target(master: Path):
         approve(master, "p-evil", approver="alice", date="2026-07-08")
 
 
+def test_parse_defaults_to_create_for_legacy_files(master: Path):
+    # A pending file written before modes existed has no mode key at all.
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Playbook/Legacy.md",
+        source="s", body="b", promo_id="p-m1", created="2026-07-21",
+    )
+    pending = master / "_meta/promotions/pending/p-m1.md"
+    text = pending.read_text()
+    pending.write_text(text.replace("mode: create\n", ""))  # simulate legacy file
+    p = list_pending(master)[0]
+    assert p.mode == "create"
+    assert p.base_hash == ""
+
+
+def test_draft_writes_mode_and_base_hash(master: Path):
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="s", body="b", promo_id="p-m2", created="2026-07-21",
+        mode="patch", base_hash="abc123",
+    )
+    text = (master / "_meta/promotions/pending/p-m2.md").read_text()
+    assert "mode: patch" in text
+    assert "base-hash: abc123" in text
+    p = list_pending(master)[0]
+    assert p.mode == "patch"
+    assert p.base_hash == "abc123"
+
+
+def test_draft_rejects_unknown_mode(master: Path):
+    with pytest.raises(PromotionError):
+        draft_promotion(
+            master, person_id="bob", target_path="Company/Playbook/X.md",
+            source="s", body="b", promo_id="p-m3", created="2026-07-21",
+            mode="replace",
+        )
+
+
+def test_list_pending_skips_unknown_mode(master: Path):
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Playbook/Y.md",
+        source="s", body="b", promo_id="p-m4", created="2026-07-21",
+    )
+    pending = master / "_meta/promotions/pending/p-m4.md"
+    pending.write_text(pending.read_text().replace("mode: create", "mode: rewrite"))
+    assert list_pending(master) == []  # malformed file stays on disk, skipped
+
+
 def test_approve_refuses_existing_target(master: Path):
     """Approving onto an existing file must fail closed, not overwrite it.
     Promotions are additive: the running curated notes (Company/Memory.md,

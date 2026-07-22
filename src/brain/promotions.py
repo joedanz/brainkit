@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -64,6 +65,8 @@ class Promotion:
     source: str
     created: str
     body: str
+    mode: str = "create"
+    base_hash: str = ""
 
 
 def _pending_dir(master: Path) -> Path:
@@ -93,6 +96,16 @@ def _validate_target(target_path: str) -> None:
         raise PromotionError(f"target {target_path!r} names a space root, not a file in it")
 
 
+_MODES = ("create", "append", "patch")
+
+
+def _validate_mode(mode: str) -> None:
+    if mode not in _MODES:
+        raise PromotionError(
+            f"unknown promotion mode {mode!r} — expected one of: {', '.join(_MODES)}"
+        )
+
+
 def draft_promotion(
     master: Path,
     person_id: str,
@@ -101,15 +114,21 @@ def draft_promotion(
     body: str,
     promo_id: str,
     created: str,
+    mode: str = "create",
+    base_hash: str = "",
 ) -> Path:
     _validate_target(target_path)
+    _validate_mode(mode)
     dest = _pending_dir(master) / f"{promo_id}.md"
     dest.parent.mkdir(parents=True, exist_ok=True)
+    hash_line = f"base-hash: {base_hash}\n" if base_hash else ""
     dest.write_text(
         "---\n"
         f"promotion-id: {promo_id}\n"
         f"from: {person_id}\n"
         f"target-path: {target_path}\n"
+        f"mode: {mode}\n"
+        f"{hash_line}"
         f"source: {source}\n"
         f"created: {created}\n"
         "---\n"
@@ -177,6 +196,8 @@ def draft_into_space(
 
 def _parse(path: Path) -> Promotion:
     meta, body = split_frontmatter(path.read_text())
+    mode = meta.get("mode", "create")
+    _validate_mode(mode)
     return Promotion(
         id=meta["promotion-id"],
         person_id=meta["from"],
@@ -184,6 +205,8 @@ def _parse(path: Path) -> Promotion:
         source=meta["source"],
         created=meta["created"],
         body=body,
+        mode=mode,
+        base_hash=str(meta.get("base-hash", "")),
     )
 
 
