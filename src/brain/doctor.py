@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 
 from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
+from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
 from brain.resolver import NESTED_TOPS, RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
@@ -131,6 +132,64 @@ def _check_orphan_files(master: Path) -> list[Finding]:
                     "warn", "orphan-files",
                     f"{f.relative_to(master)} sits directly under {top}/ — not in "
                     f"any space, so it compiles into no vault; move it into a subfolder"))
+    return findings
+
+
+def _check_unlinked_notes(master: Path) -> list[Finding]:
+    """Notes with no graph connections at all — no resolved wikilinks in or
+    out (typed relations are wikilinks, so they count), no fact lines, and no
+    mined structural edge (folder-index parent, date-sequence neighbor, or
+    shared entity type). A note reachable only through mined structure is
+    still reachable by brain_graph and PPR retrieval — flagging it would be
+    a false positive — so this reuses the same miners the indexer's edge
+    rebuild uses (brain.edges), duplicated over master's content files to
+    keep doctor free of the indexer's store/embedding dependencies. Folders
+    named Inbox are exempt: unprocessed captures are expected to be
+    unlinked."""
+    from brain.edges import date_edges, entity_edges, folder_edges, note_date
+    from brain.facts import parse_entity
+
+    findings: list[Finding] = []
+    rels = _content_files(master)
+    paths = set(rels)
+    by_stem: dict[str, str] = {}
+    for rel in sorted(rels):
+        by_stem.setdefault(_stem(rel), rel)
+    connected: set[str] = set()
+    dated: dict[str, str] = {}
+    entities: list[tuple[str, str]] = []
+    for rel in rels:
+        text = (master / rel).read_text(encoding="utf-8", errors="replace")
+        if parse_facts(text):
+            connected.add(rel)
+        for raw in extract_wikilinks(text):
+            target = _resolve_target(raw, paths, by_stem)
+            if target and target != rel:
+                connected.add(rel)
+                connected.add(target)
+        meta, _body = split_frontmatter(text)
+        day = note_date(rel, meta)
+        if day:
+            dated[rel] = day
+        ent = parse_entity(meta)
+        if ent is not None:
+            entities.append((rel, ent[0]))
+    for src, dst, *_rest in folder_edges(rels):
+        connected.add(src)
+        connected.add(dst)
+    for src, dst, *_rest in date_edges(dated):
+        connected.add(src)
+        connected.add(dst)
+    for src, dst, *_rest in entity_edges(entities):
+        connected.add(src)
+        connected.add(dst)
+    for rel in sorted(paths - connected):
+        if "Inbox" in Path(rel).parts:
+            continue
+        findings.append(Finding(
+            "warn", "unlinked-notes",
+            f"{rel}: no links, relations, or facts connect this note — "
+            "graph search can never reach it"))
     return findings
 
 
@@ -492,6 +551,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_space_coverage(master, rules)
     findings += _check_unreadable_spaces(master, org, rules)
     findings += _check_orphan_files(master)
+    findings += _check_unlinked_notes(master)
     findings += _check_cross_space_refs(master, org, rules)
     findings += _check_plain_refs(master, org, rules)
     findings += _check_facts(master)

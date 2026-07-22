@@ -21,6 +21,7 @@ from pathlib import Path
 
 from brain.chunker import chunk_markdown, embedding_input
 from brain.compiler import _stem, extract_wikilinks
+from brain.edges import rebuild_edges
 from brain.embeddings import EmbeddingCache, EmbeddingProvider, pack_vector
 from brain.facts import parse_entity, parse_facts
 from brain.frontmatter import split_frontmatter
@@ -222,6 +223,14 @@ def build_index(
             (rel_target, raw),
         )
     store.conn.commit()
+
+    # Typed edges are cheap derived data rebuilt wholesale every run — a new
+    # folder-index note or date neighbor changes edges of files this run's
+    # diff never touched, so incremental upkeep would be wrong.
+    def resolve(targets: list[str]) -> list[tuple[str, int]]:
+        return _resolve_links(targets, link_paths, by_stem, by_alias)
+
+    rebuild_edges(vault, store, resolve)
 
     if provider is not None:
         store.set_meta("model", provider.model)

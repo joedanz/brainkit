@@ -1,9 +1,10 @@
 """Personalized PageRank over the vault's file graph.
 
 The graph is assembled at query time from tables the index already maintains
-— resolved wikilinks (weight 1 per pair) and fact co-mentions (weight 1 per
-co-mentioning fact), undirected, weights summed — so nothing here touches the
-index path and nothing is persisted. Power iteration walks nodes in sorted
+— resolved wikilinks (weight 1 per pair), fact co-mentions (weight 1 per
+co-mentioning fact), and typed edges (their stored weight: explicit 2.0,
+mined 0.5) — undirected, weights summed, so nothing here touches the index
+path and nothing is persisted. Power iteration walks nodes in sorted
 order with fixed damping/tolerance/cap: the same index yields bit-identical
 scores on every machine. Where HippoRAG seeds PPR via LLM entity extraction,
 brainkit's seeds (see search.py) come from deterministic string matching.
@@ -26,24 +27,31 @@ _MAX_ITER = 100
 
 
 def build_graph(store: IndexStore) -> dict[str, dict[str, float]]:
-    """Weighted undirected adjacency over files: wikilink pairs plus fact
-    co-mention pairs, one unit of weight each, summed.
+    """Weighted undirected adjacency over files: wikilink pairs and fact
+    co-mention pairs at one unit of weight each, plus typed edges at their
+    stored weight (explicit 2.0, mined 0.5), summed. A frontmatter relation
+    is also an ordinary wikilink, so an explicit typed pair totals 3.0
+    against 1.0 for a casual mention — intentional stacking.
 
     Self-loop-free by construction: link_pairs() excludes src == target in
-    SQL and fact_copairs() joins on a strict < between targets, so neither
-    source can emit an (x, x) pair even for a note that wikilinks itself.
+    SQL, fact_copairs() joins on a strict < between targets, and edges.py
+    never emits a self-edge. typed_edge_pairs() excludes inverse-provenance
+    rows — mirrors of edges already counted, which would otherwise double
+    every typed pair.
     """
     adj: dict[str, dict[str, float]] = {}
 
-    def bump(a: str, b: str) -> None:
+    def bump(a: str, b: str, w: float = 1.0) -> None:
         for x, y in ((a, b), (b, a)):
             row = adj.setdefault(x, {})
-            row[y] = row.get(y, 0.0) + 1.0
+            row[y] = row.get(y, 0.0) + w
 
     for src, tgt in store.link_pairs():
         bump(src, tgt)
     for a, b in store.fact_copairs():
         bump(a, b)
+    for src, tgt, w in store.typed_edge_pairs():
+        bump(src, tgt, w)
     return adj
 
 

@@ -72,7 +72,7 @@ The brain is a shared platform for people *and* software. Your team works in Obs
 
 - **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the working protocol, scoped to that person.
 - **Hermes Agent** ([NousResearch](https://github.com/NousResearch)) — first-class support via `hermes profile install`, plus a ready-to-run Docker image in [`deploy/agents-box`](deploy/agents-box).
-- **Any MCP client** — `brain mcp` exposes search, note reading, links, recent changes, and time-stamped facts over the Model Context Protocol, so Claude Desktop, Cursor, Codex, and friends can use the vault as a tool.
+- **Any MCP client** — `brain mcp` exposes search, note reading, links, typed-relation graph walks, recent changes, and time-stamped facts over the Model Context Protocol, so Claude Desktop, Cursor, Codex, and friends can use the vault as a tool.
 - **Or no agent at all** — the vault is just files. Obsidian, `grep`, and your editor all work.
 
 ## Everything in the box

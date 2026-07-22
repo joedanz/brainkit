@@ -231,3 +231,45 @@ def test_fact_copairs_and_first_chunk(tmp_path):
     assert row is not None and row[3] == 0  # pos 0
     assert store.first_chunk("Company/Nope.md") is None
     store.close()
+
+
+def _store_with_files(tmp_path, rels):
+    store = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    for rel in rels:
+        store.add_file(rel, "sha", "Company", [], [], None)
+    return store
+
+
+def test_replace_edges_roundtrip_and_wholesale_replace(tmp_path):
+    store = _store_with_files(tmp_path, ["a.md", "b.md"])
+    store.replace_edges([("a.md", "b.md", "up", "explicit", 2.0)])
+    store.replace_edges([("b.md", "a.md", "down", "inverse", 2.0)])
+    rows = store.conn.execute("SELECT src_rel_path, dst_rel_path, rel, provenance, weight FROM edges").fetchall()
+    assert rows == [("b.md", "a.md", "down", "inverse", 2.0)]  # old set fully replaced
+    store.close()
+
+
+def test_typed_edge_pairs_skips_inverse_and_missing_files(tmp_path):
+    store = _store_with_files(tmp_path, ["a.md", "b.md"])
+    store.replace_edges([
+        ("a.md", "b.md", "up", "explicit", 2.0),
+        ("b.md", "a.md", "down", "inverse", 2.0),      # mirror: skipped
+        ("a.md", "gone.md", "same", "entity", 0.5),    # endpoint not in files: skipped
+    ])
+    assert store.typed_edge_pairs() == [("a.md", "b.md", 2.0)]
+    store.close()
+
+
+def test_edges_from_is_ordered(tmp_path):
+    store = _store_with_files(tmp_path, ["a.md", "b.md", "c.md"])
+    store.replace_edges([
+        ("a.md", "c.md", "up", "explicit", 2.0),
+        ("a.md", "b.md", "up", "folder", 0.5),
+        ("a.md", "b.md", "same", "entity", 0.5),
+    ])
+    assert store.edges_from("a.md") == [
+        ("b.md", "same", "entity", 0.5),
+        ("b.md", "up", "folder", 0.5),
+        ("c.md", "up", "explicit", 2.0),
+    ]
+    store.close()

@@ -36,10 +36,11 @@ no score calibration between them:
 
 - **Keyword** — SQLite FTS5 (BM25) over chunk text.
 - **Vector** — semantic nearest-neighbours via [sqlite-vec](https://github.com/asg017/sqlite-vec).
-- **Graph** — personalized PageRank over the wikilink and fact-co-mention graph,
-  seeded by entity names and aliases matched in the query, the top text hits,
-  and optionally a **center note** (`--center`, or the `center` argument of the
-  `brain_search` tool — typically the note you're working from).
+- **Graph** — personalized PageRank over the note graph: wikilinks, fact
+  co-mentions, and typed relations, seeded by entity names and aliases matched
+  in the query, the top text hits, and optionally a **center note** (`--center`,
+  or the `center` argument of the `brain_search` tool — typically the note
+  you're working from).
 
 Reciprocal-rank fusion means a chunk multiple legs surface outranks one only a
 single leg found. Unlike the two text legs, the graph leg can introduce
@@ -61,6 +62,39 @@ from the query's other seeds — entity names, aliases, and top text hits.
   `python -c "import sqlite3; print(hasattr(sqlite3.Connection, 'enable_load_extension'))"`
   — `False` means the vector leg is unavailable and search runs keyword-only.
 </Callout>
+
+## Typed relations
+
+Notes can declare how they relate, right in their frontmatter — five fixed
+keys, each holding wikilinks:
+
+```markdown
+---
+title: PPR Retrieval
+up: [[Retrieval]]
+same: [[HippoRAG notes]]
+next: [[Eval harness]]
+---
+```
+
+`up` and `down` express hierarchy, `same` marks peers, `prev` and `next` chain
+sequences. Declare one direction; the mirror is derived automatically (a note
+you point `up` at knows you as `down`). Three more edge kinds are mined from
+structure you already have: a note whose folder holds an index note (like
+`Clients/Acme/Acme.md`) gets `up` to it, dated notes in the same folder chain
+`prev`/`next`, and pages sharing an `entity:` type become `same` siblings.
+
+In search, a declared relation outweighs a casual mention (an explicit typed
+pair counts 3× a lone wikilink; mined edges count half a wikilink). Agents can
+also walk the structure directly — the `brain_graph` MCP tool and `brain graph`
+CLI command return a note's neighborhood with every edge labeled by relation
+and by why it exists (`explicit`, `inverse`, `folder`, `date`, `entity`).
+
+The boundary comes for free here too: relation targets are ordinary wikilinks,
+so the compiler stubs any target a person may not read — in their vault that
+edge simply never exists. `brain doctor` flags notes with no connections at
+all (`unlinked-notes`): they're invisible to the graph leg until someone links
+them.
 
 ## The `.brain/` contract
 
@@ -145,12 +179,14 @@ Claude Desktop) can search the vault as a tool:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes five read-only tools: `brain_search` (hybrid search with keyword,
+It exposes six read-only tools: `brain_search` (hybrid search with keyword,
 vector, and graph legs; optional center note as a strong seed for graph-proximity
 ranking), `brain_read` (a path-scoped
 file read that refuses symlinks, vault escapes, and anything outside a
 readable space), `brain_links` (a note's backlinks and outgoing wikilinks),
-`brain_recent` (recently changed notes, from the vault's git history), and
-`brain_facts` (time-stamped fact lines — current, as-of, or believed-on a
-date). See the [CLI reference](/reference/cli) for `brain index`,
-`brain search`, `brain facts`, and `brain mcp`.
+`brain_graph` (a note's typed relations — `up`, `down`, `same`, `prev`,
+`next` — each edge labeled with why it exists), `brain_recent` (recently
+changed notes, from the vault's git history), and `brain_facts`
+(time-stamped fact lines — current, as-of, or believed-on a date). See the
+[CLI reference](/reference/cli) for `brain index`, `brain search`,
+`brain graph`, `brain facts`, and `brain mcp`.
