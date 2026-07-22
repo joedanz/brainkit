@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import hashlib
 import pytest
 
 from brain.promotions import (
@@ -10,6 +11,10 @@ from brain.promotions import (
     list_pending,
     reject,
 )
+
+
+def _hash_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 ORG_YAML = """\
 people:
@@ -561,3 +566,65 @@ def test_approve_append_refuses_symlink_target(master: Path, tmp_path: Path):
     )
     with pytest.raises(PromotionError, match="symlink"):
         approve(master, "p-a3", approver="alice", date="2026-07-21")
+
+
+def test_approve_patch_replaces_file_verbatim(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/Portugal.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("# Portugal\nOld claim. [s](https://x.y), as of 2025-01\n")
+    revised = "# Portugal\nNew claim. [s](https://x.y), as of 2026-07\n"
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="s", body=revised, promo_id="p-p1", created="2026-07-21",
+        mode="patch", base_hash=_hash_of(page),
+    )
+    target = approve(master, "p-p1", approver="alice", date="2026-07-21")
+    assert target.read_text() == revised          # verbatim, no injected frontmatter
+
+
+def test_approve_patch_fails_closed_on_base_drift(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/Spain.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("v1\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Spain.md",
+        source="s", body="v2\n", promo_id="p-p2", created="2026-07-21",
+        mode="patch", base_hash=_hash_of(page),
+    )
+    page.write_text("v1 edited meanwhile\n")      # drift after queueing
+    with pytest.raises(PromotionError, match="changed since"):
+        approve(master, "p-p2", approver="alice", date="2026-07-21")
+    assert page.read_text() == "v1 edited meanwhile\n"   # untouched
+    assert (master / "_meta/promotions/pending/p-p2.md").exists()  # still queued
+
+
+def test_approve_patch_requires_base_hash_and_target(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/France.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("v1\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/France.md",
+        source="s", body="v2\n", promo_id="p-p3", created="2026-07-21",
+        mode="patch",                              # no base_hash
+    )
+    with pytest.raises(PromotionError, match="base-hash"):
+        approve(master, "p-p3", approver="alice", date="2026-07-21")
+
+
+def test_approve_patch_refuses_symlink_target(master: Path, tmp_path: Path):
+    _seed_org(master)
+    outside = tmp_path / "outside2.md"
+    outside.write_text("secret\n")
+    link = master / "Company/Intel/PLink.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/PLink.md",
+        source="s", body="v2\n", promo_id="p-p4", created="2026-07-21",
+        mode="patch", base_hash="deadbeef",
+    )
+    with pytest.raises(PromotionError, match="symlink"):
+        approve(master, "p-p4", approver="alice", date="2026-07-21")

@@ -290,8 +290,19 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
             + f"\n\n*Promoted by {promoter_name}, approved by "
               f"{people[approver].name}, {date} — source: {promo.source}*\n"
         )
-    else:
-        raise PromotionError(f"mode {promo.mode!r} not yet supported")
+    else:  # patch — _parse already rejected anything outside _MODES
+        _require_existing(target, promo.target_path)
+        if not promo.base_hash:
+            raise PromotionError(
+                f"patch promotion {promo_id!r} has no base-hash — it was queued "
+                "by hand; re-run sweep or redraft"
+            )
+        if hashlib.sha256(target.read_bytes()).hexdigest() != promo.base_hash:
+            raise PromotionError(
+                f"target {promo.target_path!r} changed since this was queued — "
+                "redraft against the current page"
+            )
+        target.write_text(promo.body)
     archived = master / "_meta/promotions/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, promo_body = pending.read_text().split("---\n", 2)
