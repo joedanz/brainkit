@@ -30,6 +30,9 @@ services:
       - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN:?set ALICE_BOT_TOKEN in .env}
       - ANTHROPIC_API_KEY=${LLM_KEY:?set LLM_KEY in .env}
       - BRAIN_EMBED_BASE_URL=${EMBED_URL:-}  # optional: semantic search
+      - BRAIN_EMBED_API_KEY=${EMBED_API_KEY:-}
+      - BRAIN_EMBED_MODEL=${EMBED_MODEL:-}
+      - BRAIN_EMBED_DIM=${EMBED_DIM:-}
     volumes:
       - alice-state:/opt/data                # hermes state: memory, sessions, pairing, deploy key
       - alice-vault:/vault                   # her compiled vault clone — and ONLY hers
