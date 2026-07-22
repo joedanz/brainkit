@@ -195,7 +195,8 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
       >> /var/log/brain/cycle.jsonl || curl -fsS $ALERT_URL
     17 3 * * *  brain doctor --master /srv/brain/master \
       --out /srv/brain/compiled || curl -fsS $ALERT_URL
-    23 4 * * *  git -C /srv/brain/master push --mirror offsite   # backup
+    7 * * * *   /usr/local/sbin/backup-master.sh \
+      >> /var/log/backup-master.log 2>&1   # encrypted offsite backup
     ```
 
     A nonzero `cycle` means a rejected write-back; a nonzero `doctor` means an
@@ -285,12 +286,18 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
       SSH tunnel and approve there — pick the admin identity from the dropdown.
     - **Watch two numbers:** the cycle and doctor exit codes (already wired to
       your alert URL).
-    - **Backups, both halves:** the master mirror covers knowledge; agent
-      sessions, pairing, and deploy keys live on the **state volumes** —
-      back them up nightly with [`deploy/agents-box/backup-agents.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/backup-agents.sh)
-      (`hermes backup` inside each container, consistent even while the gateway
-      runs) and ship the zips off-box encrypted — they hold keys and chat history.
-      Vault volumes need no backup: they re-clone from the brain box.
+    - **Backups, both halves:** the brain box ships the master vault and its
+      wiring offsite hourly with
+      [`deploy/brain-box/backup-master.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/brain-box/backup-master.sh);
+      on the agents box,
+      [`deploy/agents-box/backup-agents.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/backup-agents.sh)
+      zips each container's state nightly (`hermes backup` inside the container,
+      consistent even while the gateway runs) and
+      [`backup-agents-offsite.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/backup-agents-offsite.sh)
+      ships the zips — plus the compose `.env` and live `docker-compose.yml` —
+      off-box encrypted. Vault volumes need no backup: they re-clone from the
+      brain box. The full picture, including why it's two buckets and how to
+      restore each failure, is in [Backups & Restore](/guides/backup-restore).
     - **Offboarding:** remove from `org.yaml`, delete their `authorized_keys`
       line, remove their container.
   </Step>
@@ -304,7 +311,7 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 | Agents box down | Chat goes quiet; zero data lost. `docker compose up -d` restores everything from volumes. |
 | Agent volumes lost | Fresh container, `hermes import <zip> --force` with the person's latest backup, then `docker restart` (re-fixes key file modes) — sessions, pairing, and deploy key all return; the vault re-clones itself. |
 | Agents box compromised | Rotate deploy keys, rebuild containers from the image — the master's history is intact and trustworthy. |
-| Brain box lost | Restore the offsite mirror, recompile, re-point remotes. |
+| Brain box lost | `restic restore` the offsite snapshot — vault, proxy/tunnel config, and the sync `authorized_keys` all return — reinstall brainkit, recompile. Agents reconnect without re-authorizing keys. See [Backups & Restore](/guides/backup-restore). |
 | Webhook secret leaked (if webhook intake is enabled) | Worst case is note spam into the Inboxes that source routes to, capped at the source's rate limit (60/minute by default) — a webhook source can never read anything or write outside an Inbox, and past the cap deliveries get `429`s while the receiver logs a warning. Rotate the `secret_env` value and restart the receiver; the old secret is dead immediately. Every accepted delivery is its own audited `Brain Ingest` commit, so cleanup is `git revert`. |
 | Webhook endpoint probed | Unauthenticated requests are refused before the payload is parsed (`401`/`404`), nothing is written, and oversized or compressed bodies are rejected outright. The receiver holds no read paths — there is no query to leak a note through. |
 

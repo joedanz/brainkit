@@ -1,0 +1,143 @@
+---
+title: Backups & Restore
+description: What to back up, where to send it, and how to prove you can get it back.
+icon: vault
+---
+
+A brain deployment holds exactly three kinds of state worth protecting. Everything
+else on either box can be rebuilt from these three plus the git repo:
+
+<CardGroup cols={3}>
+  <Card title="The knowledge" icon="book">
+    The master vault (`/srv/brain/master`). Irreplaceable — this is the company's
+    memory. Compiled vaults, search indexes, and agent `/vault` mounts are all
+    derived from it and need no backup.
+  </Card>
+  <Card title="The agents' state" icon="robot">
+    Each container's `hermes backup` zip: sessions, pairing approvals, config,
+    and the deploy key. Restoring one brings a person's agent back exactly as it
+    was — without re-pairing or re-authorizing anything.
+  </Card>
+  <Card title="The wiring" icon="plug">
+    The host-level files that let you *stand the boxes back up*: compose `.env`
+    secrets, the live `docker-compose.yml`, reverse-proxy and tunnel config,
+    systemd units, and the ssh `authorized_keys` that let agents sync.
+  </Card>
+</CardGroup>
+
+The zips restore state *into* containers; the wiring is what lets you start
+containers at all. A backup plan that captures the first two but not the third
+still costs you a day of re-provisioning after a dead box.
+
+## The shape: restic to object storage
+
+Both boxes push to object storage with [restic](https://restic.net/):
+client-side encryption (the provider only ever sees ciphertext), deduplication,
+point-in-time snapshots, and retention pruning in one tool. Any S3-compatible
+target works; the repo's scripts and the walkthrough below use Cloudflare R2.
+
+Three scripts in [`deploy/`](https://github.com/joedanz/brainkit/tree/main/deploy)
+do all of it:
+
+| Script | Runs on | What it does |
+| --- | --- | --- |
+| [`backup/provision-r2.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/backup/provision-r2.sh) | anywhere, once per company | Creates both buckets via the Cloudflare API and mints one bucket-scoped S3 token each; emits an `r2.env` per box |
+| [`brain-box/backup-master.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/brain-box/backup-master.sh) | brain box, hourly | Master vault + proxy/tunnel/webhook config + systemd units + the sync `authorized_keys` |
+| [`agents-box/backup-agents-offsite.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/backup-agents-offsite.sh) | agents box, nightly | Ships the `hermes backup` zips (produced by the separate local job) plus the compose dir and a crontab dump |
+
+Install the box scripts to `/usr/local/sbin/`, give each box its `r2.env`
+(0600, root) and an on-box-generated repo password, and cron them:
+
+```bash
+# brain box — hourly; the vault is small, so an hour caps data loss cheaply
+7 * * * * /usr/local/sbin/backup-master.sh >> /var/log/backup-master.log 2>&1
+
+# agents box — nightly, AFTER the local zip job has produced fresh zips
+45 3 * * * /usr/local/sbin/backup-agents-offsite.sh >> /var/log/backup-agents-offsite.log 2>&1
+```
+
+Retention is set in the scripts (`restic forget --prune`): the master keeps
+24 hourly / 14 daily / 8 weekly / 12 monthly snapshots; agents keep
+14 daily / 8 weekly / 6 monthly. A weekly `restic check` piggybacks on the
+Sunday run of each.
+
+<Callout type="warning">
+  **The repo password is the backup.** restic encrypts client-side; whoever
+  lacks the password — including you — has ciphertext. Generate it on the box
+  (`openssl rand -base64 32 > /etc/brain-backup/<repo>.pass`), store a copy in
+  a password manager immediately, and never let it transit a chat, a ticket,
+  or a shell history. Losing it means the backups are gone in every way that
+  matters.
+</Callout>
+
+## Why two buckets, not one
+
+Two R2 facts drive the layout, both verified against R2's current behavior
+(2026-07):
+
+1. **R2 has no object versioning.** Its S3 `GetBucketVersioning` endpoint is a
+   compatibility stub. There is no delete-marker undo, so "versioning as the
+   undelete window" — the standard S3 pattern — is not available.
+2. **R2 tokens scope to whole buckets.** No prefix-level credentials.
+
+Put both repos in one bucket and either box's credentials can delete the other
+box's history — a single compromised host wipes every copy of the company's
+knowledge, which is precisely the scenario offsite backup exists to survive.
+So: **one bucket per box** (`<company>-brain-backups`, `<company>-agents-backups`),
+each token installed only on its own box. Cross-bucket access fails closed, and
+buckets stay the hard isolation boundary between companies if you run more than
+one deployment. Separate repo passwords per bucket mean neither box can decrypt
+the other's data either.
+
+## Dead-man's switch
+
+A backup that fails silently is a backup you don't have. Both scripts ping a
+healthchecks.io-style URL — `/start` when they begin, the bare URL on success,
+`/fail` on any error — and the service alerts you when a ping is missed or
+failed. Set `HEALTHCHECK_URL` in each box's `r2.env`; unset, the pings no-op
+and failures land only in the log. The scripts also exit non-zero on any
+failure, so the log always tells the truth.
+
+## Restore
+
+Every restore starts the same way:
+
+```bash
+. /etc/brain-backup/r2.env
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+export RESTIC_REPOSITORY="s3:${R2_ENDPOINT}/${R2_BUCKET}/<repo-prefix>"
+restic --password-file /etc/brain-backup/<repo>.pass snapshots   # pick one
+restic --password-file /etc/brain-backup/<repo>.pass restore latest --target /tmp/restore
+```
+
+Then, by scenario:
+
+| Lost | Recovery |
+| --- | --- |
+| A note, or the whole master vault | Restore the `brain-master` repo; the vault comes back as a working git repo, history included. `restic restore --include /srv/brain/master` scopes it. |
+| One agent's state | Restore the person's newest zip from the `agents` repo, then `hermes import <zip> --force` into a fresh container and restart — pairing, sessions, and deploy key all return; `/vault` re-clones itself. |
+| The whole agents box | New box → restore the compose dir (`.env`, `docker-compose.yml`) and crontab dump → `docker compose up -d` → `hermes import` each person's zip. |
+| The whole brain box | New box → restore the vault, `/etc` config, systemd units, and `authorized_keys` → reinstall brainkit → re-point the tunnel. The restored `authorized_keys` means every agent reconnects without re-authorizing keys. |
+
+<Callout type="info">
+  **A backup you haven't restored isn't a backup.** After first setup — and
+  once in a while after — run a drill: restore to a temp dir and diff against
+  the live tree (`diff -r`), or sha256-compare a sample zip. Both scripts'
+  initial rollouts should end with exactly this check, and a full
+  fresh-box rehearsal is worth one afternoon before you need it at 3 a.m.
+</Callout>
+
+## Deliberately not backed up
+
+- **Compiled vaults and `/vault` volumes** — recompiled from master, re-cloned by sync.
+- **Search indexes** — `brain index` rebuilds them from the markdown.
+- **The docker image** — rebuilds from this repo.
+- **`/etc/brain-backup/` itself** — never put the keys that unlock the backup
+  *inside* the backup. Excluded explicitly by the brain-box script; the repo
+  passwords live on the box and in your password manager, nowhere else.
+
+---
+
+The one-page visual version of this plan — the flow diagram, the three state
+classes, and the failure table — is in
+[What survives](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/backup-restore.html).

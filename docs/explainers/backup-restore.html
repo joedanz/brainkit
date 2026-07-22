@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What Survives — backups &amp; restore</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --paper:  light-dark(oklch(0.965 0.012 85), oklch(0.235 0.012 70));
+    --paper2: light-dark(oklch(0.935 0.016 85), oklch(0.275 0.014 70));
+    --ink:    light-dark(oklch(0.28 0.02 60),  oklch(0.90 0.015 80));
+    --ink2:   light-dark(oklch(0.45 0.02 60),  oklch(0.72 0.015 75));
+    --line:   light-dark(oklch(0.55 0.02 70),  oklch(0.55 0.02 75));
+    --hair:   light-dark(oklch(0.80 0.02 80),  oklch(0.40 0.015 70));
+    --accent: light-dark(oklch(0.50 0.13 40),  oklch(0.70 0.12 45));
+    --accent-soft: light-dark(oklch(0.50 0.13 40 / .09), oklch(0.70 0.12 45 / .13));
+    --serif: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: Seravek, "Avenir Next", "Gill Sans", "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    line-height: 1.55;
+    padding: clamp(1.5rem, 4vw, 4rem) clamp(1rem, 5vw, 5rem) 5rem;
+  }
+  .sheet { max-width: 1160px; margin: 0 auto; }
+
+  header { margin-bottom: clamp(2rem, 4vw, 3.5rem); max-width: 62ch; }
+  .kicker {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.9rem;
+  }
+  h1 {
+    font-size: clamp(2rem, 4.5vw, 3.1rem);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.12;
+    margin-bottom: 1.1rem;
+  }
+  .lede { font-size: clamp(1.02rem, 1.6vw, 1.17rem); color: var(--ink2); }
+  .lede em { color: var(--ink); font-style: italic; }
+
+  figure { margin: 0 0 1rem; }
+  svg { width: 100%; height: auto; display: block; }
+  .box      { fill: var(--paper); stroke: var(--line); stroke-width: 1.2; }
+  .box-tint { fill: var(--paper2); stroke: var(--line); stroke-width: 1.2; }
+  .zone     { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.3; stroke-dasharray: 7 5; }
+  .flow     { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .flow-acc { stroke: var(--accent); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  .no       { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+  .t-h  { font: 600 15px var(--sans); fill: var(--ink); }
+  .t-b  { font: 400 12.5px var(--sans); fill: var(--ink2); }
+  .t-m  { font: 500 11.5px var(--mono); fill: var(--ink); }
+  .t-acc{ font: 600 11px var(--sans); fill: var(--accent); letter-spacing: .08em; }
+  figcaption {
+    font-family: var(--sans); font-size: .85rem; color: var(--ink2);
+    max-width: 70ch; margin: .6rem auto 0; text-align: center;
+  }
+
+  section { margin-top: clamp(2.5rem, 5vw, 4rem); }
+  h2 {
+    font-size: clamp(1.3rem, 2.4vw, 1.7rem);
+    font-weight: 600; letter-spacing: -0.01em; margin-bottom: 1rem;
+  }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem; }
+  .card {
+    background: var(--paper2); border: 1px solid var(--hair);
+    border-radius: 10px; padding: 1.1rem 1.2rem;
+  }
+  .card h3 { font-family: var(--sans); font-size: .95rem; margin-bottom: .45rem; }
+  .card p { font-size: .95rem; color: var(--ink2); }
+  .card p strong { color: var(--ink); }
+  .card .tag {
+    font-family: var(--sans); font-size: .7rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--accent); display: block; margin-bottom: .5rem;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th {
+    font-family: var(--sans); font-size: .78rem; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink2); text-align: left;
+    padding: .5rem .75rem; border-bottom: 1.5px solid var(--line);
+  }
+  td { padding: .65rem .75rem; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  code {
+    font-family: var(--mono); font-size: .86em;
+    background: var(--accent-soft); border-radius: 4px; padding: .08em .35em;
+  }
+
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem; }
+  .rule {
+    border-left: 3px solid var(--accent); padding: .2rem 0 .2rem 1rem;
+  }
+  .rule h3 { font-family: var(--sans); font-size: .95rem; margin-bottom: .3rem; }
+  .rule p { font-size: .93rem; color: var(--ink2); }
+
+  footer {
+    margin-top: clamp(3rem, 6vw, 5rem); padding-top: 1.2rem;
+    border-top: 1px solid var(--hair);
+    font-family: var(--sans); font-size: .85rem; color: var(--ink2);
+  }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <p class="kicker">Operations · Backups &amp; Restore</p>
+  <h1>What survives</h1>
+  <p class="lede">A brain deployment holds exactly three things worth protecting:
+  the <em>knowledge</em>, the agents' <em>state</em>, and the <em>wiring</em> that
+  stands the boxes back up. Everything else is derived. Both boxes push those three
+  to object storage — encrypted before they leave, into buckets neither box can
+  touch for the other.</p>
+</header>
+
+<figure>
+<svg viewBox="0 0 1160 430" role="img" aria-label="Both boxes back up via restic to separate object-storage buckets">
+  <!-- brain box -->
+  <rect class="box" x="40" y="60" width="330" height="140" rx="10"/>
+  <text class="t-h" x="64" y="92">Brain box</text>
+  <text class="t-b" x="64" y="116">master vault · proxy + tunnel config</text>
+  <text class="t-b" x="64" y="134">systemd units · sync authorized_keys</text>
+  <text class="t-m" x="64" y="166">backup-master.sh · hourly</text>
+
+  <!-- agents box -->
+  <rect class="box" x="40" y="240" width="330" height="140" rx="10"/>
+  <text class="t-h" x="64" y="272">Agents box</text>
+  <text class="t-b" x="64" y="296">hermes state zips (one per person)</text>
+  <text class="t-b" x="64" y="314">compose .env · docker-compose.yml · crontab</text>
+  <text class="t-m" x="64" y="346">backup-agents-offsite.sh · nightly</text>
+
+  <!-- restic midpoint -->
+  <rect class="box-tint" x="470" y="175" width="200" height="90" rx="10"/>
+  <text class="t-h" x="510" y="212">restic</text>
+  <text class="t-b" x="510" y="232">encrypts client-side —</text>
+  <text class="t-b" x="510" y="248">storage sees only ciphertext</text>
+
+  <!-- flows in -->
+  <path class="flow" d="M370 130 C 430 130, 430 197, 470 200"/>
+  <path class="flow" d="M370 310 C 430 310, 430 243, 470 240"/>
+
+  <!-- buckets -->
+  <rect class="zone" x="770" y="48" width="350" height="150" rx="10"/>
+  <text class="t-acc" x="794" y="78">BUCKET · BRAIN ONLY</text>
+  <text class="t-h" x="794" y="104">&lt;company&gt;-brain-backups</text>
+  <text class="t-b" x="794" y="128">24 hourly · 14 daily · 8 weekly · 12 monthly</text>
+  <text class="t-b" x="794" y="146">token installed only on the brain box</text>
+  <text class="t-m" x="794" y="176">repo: brain-master</text>
+
+  <rect class="zone" x="770" y="232" width="350" height="150" rx="10"/>
+  <text class="t-acc" x="794" y="262">BUCKET · AGENTS ONLY</text>
+  <text class="t-h" x="794" y="288">&lt;company&gt;-agents-backups</text>
+  <text class="t-b" x="794" y="312">14 daily · 8 weekly · 6 monthly</text>
+  <text class="t-b" x="794" y="330">token installed only on the agents box</text>
+  <text class="t-m" x="794" y="360">repo: agents</text>
+
+  <!-- flows out -->
+  <path class="flow-acc" d="M670 200 C 715 195, 715 125, 770 122"/>
+  <path class="flow-acc" d="M670 240 C 715 245, 715 305, 770 308"/>
+
+  <!-- crossed-out cross flow -->
+  <path class="no" d="M594 296 L 738 152" opacity="0.55"/>
+  <line class="no" x1="652" y1="208" x2="678" y2="238" opacity="0.55"/>
+  <text class="t-acc" x="586" y="330">no cross-bucket access —</text>
+  <text class="t-b" x="586" y="348">a compromised box cannot delete</text>
+  <text class="t-b" x="586" y="364">the other box's history</text>
+</svg>
+<figcaption>One bucket per box, because object-storage tokens scope to whole
+buckets and R2 offers no version-undelete. The bucket boundary is the blast-radius
+boundary. Separate restic passwords mean neither box can even decrypt the other's data.</figcaption>
+</figure>
+
+<section>
+  <h2>The three things, and why each matters</h2>
+  <div class="cols">
+    <div class="card">
+      <span class="tag">Irreplaceable</span>
+      <h3>The knowledge</h3>
+      <p>The master vault — the company's memory, with its full git history.
+      <strong>Nothing can rebuild it.</strong> Compiled vaults, search indexes, and
+      agent <code>/vault</code> mounts are all derived from it and need no backup.
+      It backs up hourly because losing an hour is annoying; losing a week is a
+      different company.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Per person</span>
+      <h3>The agents' state</h3>
+      <p>Each container's <code>hermes backup</code> zip: sessions, pairing
+      approvals, config, deploy key. Taken <strong>inside the running container</strong>
+      via SQLite's backup API, so it's consistent while the gateway chats.
+      Restoring one brings a person's agent back with no re-pairing and no
+      re-authorized keys.</p>
+    </div>
+    <div class="card">
+      <span class="tag">Often forgotten</span>
+      <h3>The wiring</h3>
+      <p>Compose <code>.env</code> secrets, the live <code>docker-compose.yml</code>,
+      proxy and tunnel config, systemd units, the sync
+      <code>authorized_keys</code>. The zips restore state <em>into</em> containers —
+      <strong>the wiring is what lets you start containers at all.</strong> Skip it and
+      a dead box costs a day of re-provisioning.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Failure → recovery</h2>
+  <table>
+    <thead><tr><th>You lost</th><th>You do</th></tr></thead>
+    <tbody>
+      <tr><td>A note, or the vault</td>
+          <td><code>restic restore</code> the <code>brain-master</code> repo — the vault
+          returns as a working git repo, history included.</td></tr>
+      <tr><td>One agent's state</td>
+          <td>Restore that person's newest zip, <code>hermes import &lt;zip&gt; --force</code>
+          into a fresh container, restart. Pairing, sessions, deploy key all return;
+          the vault re-clones itself.</td></tr>
+      <tr><td>The agents box</td>
+          <td>New box → restore compose dir + crontab → <code>docker compose up -d</code>
+          → import each person's zip.</td></tr>
+      <tr><td>The brain box</td>
+          <td>New box → restore vault, config, units, and <code>authorized_keys</code> →
+          reinstall brainkit → re-point the tunnel. Every agent reconnects without
+          re-authorizing a single key.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Three rules that keep it honest</h2>
+  <div class="rules">
+    <div class="rule">
+      <h3>The password is the backup</h3>
+      <p>restic encrypts client-side; without the repo password you own ciphertext.
+      Generate it on the box, put it in a password manager the same day, and never
+      let it transit chat or shell history.</p>
+    </div>
+    <div class="rule">
+      <h3>Silence must alarm</h3>
+      <p>Every run pings a dead-man's-switch URL — start, success, or fail. A missed
+      backup pages you; it does not wait quietly in a log for the day you need it.</p>
+    </div>
+    <div class="rule">
+      <h3>Unrestored = untested</h3>
+      <p>Finish setup with a drill: restore to a temp dir and diff against the live
+      tree. Repeat occasionally. The 3 a.m. restore should be the second time,
+      never the first.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Full walkthrough, scripts, and provisioning:
+  <a href="https://github.com/joedanz/brainkit/blob/main/docs/guides/backup-restore.mdx">Backups &amp; Restore</a>
+  · scripts in <a href="https://github.com/joedanz/brainkit/tree/main/deploy">deploy/</a>
+  · companion to <a href="two-box-chat-only.html">Where the Brain Lives</a></p>
+</footer>
+
+</div>
+</body>
+</html>

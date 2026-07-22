@@ -9,7 +9,10 @@
   },
   "navbar": {
     "links": [
-      { "type": "github", "href": "https://github.com/joedanz/brainkit" }
+      {
+        "type": "github",
+        "href": "https://github.com/joedanz/brainkit"
+      }
     ],
     "primary": {
       "type": "button",
@@ -21,7 +24,9 @@
     {
       "group": "Overview",
       "icon": "compass",
-      "pages": ["index"]
+      "pages": [
+        "index"
+      ]
     },
     {
       "group": "Getting Started",
@@ -34,6 +39,7 @@
         "guides/getting-things-in",
         "guides/deployment",
         "guides/reference-deployment",
+        "guides/backup-restore",
         "guides/personal-brain"
       ]
     },
@@ -50,7 +56,10 @@
     {
       "group": "Reference",
       "icon": "book",
-      "pages": ["reference/cli", "reference/configuration"]
+      "pages": [
+        "reference/cli",
+        "reference/configuration"
+      ]
     }
   ]
 }

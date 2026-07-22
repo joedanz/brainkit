@@ -957,12 +957,17 @@ services:
         doctor exit ≠ 0 (integrity) — both already ping your alert URL.</li>
         <li><strong>Updates:</strong> <code>uv tool upgrade brainkit</code> on the brain box;
         rebuild the hermes image and <code>docker compose up -d</code> to roll agents.</li>
-        <li><strong>Backups, both halves:</strong> the master mirror covers knowledge; the
-        state volumes hold what git doesn't — <strong>agent memories, sessions, pairing,
-        and deploy keys</strong>. Nightly host cron: <code>deploy/agents-box/backup-agents.sh</code>
-        runs <code>hermes backup</code> inside each container (consistent while the gateway
-        runs — a raw volume tar is not) and prunes by age. Ship the zips off-box encrypted;
-        they contain keys and chat history. Vault volumes re-clone themselves — skip them.</li>
+        <li><strong>Backups, both halves, offsite by default:</strong> the brain box ships
+        the master vault plus its wiring (proxy/tunnel config, systemd units, the sync
+        <code>authorized_keys</code>) to object storage hourly with
+        <code>deploy/brain-box/backup-master.sh</code> — restic, encrypted client-side.
+        On the agents box, <code>backup-agents.sh</code> zips each container's state
+        nightly (<code>hermes backup</code> inside the container, consistent while the
+        gateway runs — a raw volume tar is not) and
+        <code>backup-agents-offsite.sh</code> ships the zips plus the compose
+        <code>.env</code> and live <code>docker-compose.yml</code> off-box. One bucket
+        per box — object-storage tokens scope to buckets, so a compromised box can't
+        delete the other's history. Vault volumes re-clone themselves — skip them.</li>
         <li><strong>Offboarding:</strong> remove from <code>org.yaml</code>, delete their
         <code>authorized_keys</code> line, <code>docker compose rm</code> their container.</li>
       </ol>
@@ -1004,8 +1009,10 @@ alice-brain.agents.example.com → agent-alice:8787</pre>
         deploy key all return; the vault re-clones itself.</li>
         <li><strong>Agents box compromised:</strong> rotate deploy keys, rebuild containers
         from the image — the master's history is intact and trustworthy.</li>
-        <li><strong>Brain box lost:</strong> restore the mirror, recompile, re-point
-        remotes. The offsite mirror is the whole plan.</li>
+        <li><strong>Brain box lost:</strong> <code>restic restore</code> the offsite
+        snapshot — vault, config, and the sync <code>authorized_keys</code> all return,
+        so agents reconnect without re-authorizing keys — reinstall brainkit, recompile.
+        The encrypted offsite snapshot is the whole plan.</li>
       </ol>
     </div>
   </div>
