@@ -114,9 +114,14 @@ function promoCard(p, people) {
     reviewBtn.textContent = "Loading…";
     try {
       const full = await api.promotion({ id: p.id });
-      if (full.diff) {
-        bodyHost.appendChild(diffBlock(full.diff));
+      if (full.diff != null) {
+        bodyHost.appendChild(full.diff ? diffBlock(full.diff)
+          : el("div", "meta", "(no changes — proposed page is identical to the current one)"));
       } else {
+        if (full.mode === "patch") {
+          bodyHost.appendChild(el("div", "meta",
+            "(target missing — cannot diff; approval will fail closed)"));
+        }
         const doc = renderMarkdown(full.body || "", {});
         doc.className = "note-doc promo-body";
         bodyHost.appendChild(doc);
@@ -178,7 +183,7 @@ function diffBlock(diff) {
   diff.split("\n").forEach((line) => {
     const row = el("div", null, line);
     if (line.startsWith("+") && !line.startsWith("+++")) row.style.color = "var(--ok, #3fb950)";
-    else if (line.startsWith("-") && !line.startsWith("---")) row.style.color = "var(--error, #f85149)";
+    else if (line.startsWith("-") && !line.startsWith("---")) row.style.color = "var(--err, #f85149)";
     else if (line.startsWith("@@")) row.style.color = "var(--warn, #d29922)";
     pre.appendChild(row);
   });

@@ -12,13 +12,14 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import yaml
 
 from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
 from brain.frontmatter import split_frontmatter
-from brain.promotions import PromotionError, _parse, _pending_dir, _validate_target
+from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
 from brain.resolver import NESTED_TOPS, RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
 
@@ -343,10 +344,23 @@ def _check_promotions(master: Path) -> list[Finding]:
             findings.append(Finding(
                 "warn", "promotions", f"{rel}: sweep will never move it ({e})"))
             continue
-        if meta.get("mode") == "patch" and not (master / meta["target-path"]).is_file():
+        mode = meta.get("mode", "create")
+        try:
+            _validate_mode(mode)
+        except PromotionError as e:
             findings.append(Finding(
-                "warn", "promotions",
-                f"{rel}: patch draft targets a missing page — sweep will never queue it"))
+                "warn", "promotions", f"{rel}: sweep will never move it ({e})"))
+            continue
+        if mode == "patch":
+            t = master / meta["target-path"]
+            if t.is_symlink():
+                findings.append(Finding(
+                    "warn", "promotions",
+                    f"{rel}: patch draft targets a symlink — sweep will never queue it"))
+            elif not t.is_file():
+                findings.append(Finding(
+                    "warn", "promotions",
+                    f"{rel}: patch draft targets a missing page — sweep will never queue it"))
     return findings
 
 
@@ -422,6 +436,53 @@ def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
     return findings
 
 
+STALE_MONTHS = 12
+_CITATION_RE = re.compile(r"(?:as of|captured)\s+(\d{4})-(0[1-9]|1[0-2])")
+_ADDENDUM_RE = re.compile(r".+ [—-] updates \d{4}-(?:0[1-9]|1[0-2])\.md$")
+_INTEL_DIR = "Company/Intel"
+
+
+def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
+    """The Intel wiki's conventions fail silently: an unfolded addendum
+    contradicts its merged page in search results, and a page nobody feeds
+    quietly goes stale behind its own citations. Warn-only — nothing leaks
+    and nothing blocks a compile. Home.md is the link map, exempt from the
+    citation rule; addenda are exempt from staleness (already flagged)."""
+    intel = master / _INTEL_DIR
+    if not intel.is_dir():
+        return []
+    today = today or date.today()
+    now_m = today.year * 12 + today.month - 1
+    findings: list[Finding] = []
+    for f in sorted(intel.rglob("*.md")):
+        if f.is_symlink():
+            continue
+        rel = f.relative_to(master).as_posix()
+        if _ADDENDUM_RE.match(f.name):
+            findings.append(Finding(
+                "warn", "intel",
+                f"{rel}: unfolded addendum — fold it into its page and delete "
+                "it, or have the agent resubmit as a mode: patch promotion"))
+            continue
+        if f.name == "Home.md":
+            continue
+        months = [int(y) * 12 + int(m) - 1
+                  for y, m in _CITATION_RE.findall(f.read_text())]
+        if not months:
+            findings.append(Finding(
+                "warn", "intel",
+                f"{rel}: no dated citations — every Intel claim needs "
+                "`[source](URL), as of YYYY-MM` or `captured YYYY-MM`"))
+        elif now_m - max(months) > STALE_MONTHS:
+            newest = max(months)
+            findings.append(Finding(
+                "warn", "intel",
+                f"{rel}: stale — newest citation "
+                f"{newest // 12:04d}-{newest % 12 + 1:02d} is over "
+                f"{STALE_MONTHS} months old"))
+    return findings
+
+
 def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
@@ -436,6 +497,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_facts(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
+    findings += _check_intel(master)
     findings += _check_webhook(master, org)
     if out_root is not None:
         findings += _check_compiled(master, org, out_root)

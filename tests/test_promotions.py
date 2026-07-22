@@ -677,3 +677,17 @@ def test_patch_diff_refuses_tampered_target(master: Path, tmp_path: Path):
         mode="patch", base_hash="h",
     )
     assert patch_diff(master, promo) is None
+
+
+def test_sweep_leaves_patch_draft_when_target_is_symlink(master: Path, tmp_path: Path):
+    from brain.promotions import sweep
+    outside = tmp_path / "outside3.md"
+    outside.write_text("x\n")
+    link = master / "Company/Intel/SLink.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    d = master / "People/bob/Promotions/slink.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/SLink.md\nmode: patch\n---\nv2\n")
+    assert sweep(master, today="2026-07-21") == []
+    assert d.exists()

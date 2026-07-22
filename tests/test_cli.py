@@ -251,3 +251,22 @@ def test_promotions_show_prints_body_for_create(master: Path, capsys):
 def test_promotions_show_unknown_id_errors(master: Path, capsys):
     seed_meta(master)
     assert main(["promotions", "show", "p-nope", "--master", str(master)]) == 1
+
+
+def test_promotions_show_noop_patch_prints_no_changes(master: Path, capsys):
+    seed_meta(master)
+    from brain.promotions import draft_promotion
+    import hashlib
+    page = master / "Company/Intel/Same.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("identical\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Same.md",
+        source="s", body="identical\n", promo_id="p-s4", created="2026-07-21",
+        mode="patch",
+        base_hash=hashlib.sha256(page.read_bytes()).hexdigest(),
+    )
+    assert main(["promotions", "show", "p-s4", "--master", str(master)]) == 0
+    out = capsys.readouterr().out
+    assert "(no changes" in out
+    assert out.rstrip().endswith("(no changes — proposed page is identical to the current one)")
