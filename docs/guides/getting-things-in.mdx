@@ -136,10 +136,18 @@ The live [`brain dashboard`](/reference/cli#brain-dashboard) is itself a capture
 
 Sending an article link, a PDF, or a screenshot of a post to your agent uses the same channels as everything else — the difference is what the agent does with it. It reads whatever you send (fetches a URL, extracts a PDF's text, reads an image with vision or OCR), then follows the vault protocol: **distill, never archive**. It pulls the durable facts and routes them to the shared reference wiki at `Company/Intel/` — one page per destination, provider, event, or trend, every claim cited `[source](URL), as of YYYY-MM`. The source is the URL when there is one, or the publication, title, or uploaded filename when there isn't; the date is the source's own, or `captured YYYY-MM` (today's) when the source shows none. The full text or file never enters the vault — the citation is the record. The person's own take on the piece stays in their `People/<person>/Notes/`.
 
-Writes follow the normal [promotion](/concepts/promotions) gate, shaped to fit its new-file-only rule:
+Writes follow the normal [promotion](/concepts/promotions) gate, using whichever [mode](/concepts/promotions#three-modes) fits:
 
-- **New entity** → the agent promotes a new page (say, `Company/Intel/Destinations/Portugal.md`), linked both ways with related pages and from the `Intel/Home.md` map.
-- **Page already exists** → the agent promotes a dated addendum (`Portugal — updates 2026-07.md`) instead. At approval, the admin folds the addendum into the main page and deletes it **in the same commit** — the vault's git history and the promotions archive already preserve the original, and a lingering addendum would contradict the merged page in search results. An addendum file existing always means exactly one thing: unfolded work.
+- **New entity** → the agent promotes a new page (say, `Company/Intel/Destinations/Portugal.md`) with `mode: create`, linked both ways with related pages and from the `Intel/Home.md` map.
+- **Page already exists** → the agent promotes with `mode: append` to add its note under a divider, or `mode: patch` carrying the complete revised page when the update reshapes more than one section. Either way the target is the existing page itself — no separate file, no addendum to fold in later.
+
+<Callout type="warning">
+  A lingering `<Name> — updates YYYY-MM.md` file in `Company/Intel/` is legacy
+  unfolded work from the old addendum flow, not something a current agent
+  should create. `brain doctor` will flag it (a check shipping in the next
+  release) — until then, fold it into the main page and delete it by hand if
+  you spot one.
+</Callout>
 
 <Callout type="info">
   The compiled protocol also tells agents the vault is their **only** knowledge

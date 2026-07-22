@@ -94,9 +94,8 @@ When a transcript appears in any `People/<person>/Inbox/`:
    - Standing processes and standards -> a new file in `Company/Playbook/`
    - Destination, provider, event, or trend intel from articles, posts,
      PDFs, or screenshots -> distill into `Company/Intel/` (never archive the
-     full text or file): a new page per entity, or a dated addendum
-     `<Name> — updates YYYY-MM.md` when the page exists — fold it into the
-     main page and delete it in the same commit. Cite every claim
+     full text or file): a new page per entity (`mode: create`), or update an
+     existing page with `mode: append` / `mode: patch`. Cite every claim
      `[source](URL), as of YYYY-MM`: source is the URL or the
      publication/title (or uploaded filename); use the source's date, or
      `captured YYYY-MM` (today) when it shows none. Keep `Intel/Home.md`

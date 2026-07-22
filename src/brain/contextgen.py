@@ -63,10 +63,11 @@ access-worthy events), `Trends/<YYYY-MM Topic>.md`. Conventions:
 - Link related pages both ways; every page is linked from `Intel/Home.md`.
 - Intel starts on the country page; when a city outgrows a few lines it
   becomes its own page with a one-line link left behind.
-- New entity -> promote a new page. Page already exists -> promote a dated
-  addendum `<Name> — updates YYYY-MM.md` in the same folder (promotions
-  never rewrite an existing note); the approver folds it into the main page
-  and deletes it.
+- New entity -> promote a new page (`mode: create`, the default). Page
+  already exists -> promote with `mode: append` (your update is added under
+  a divider) or `mode: patch` (body is the complete revised page; approval
+  fails closed if the page changed since it was queued). Never draft a
+  separate addendum file.
 This vault is your only knowledge base — never build a wiki outside it.
 
 ## Promotion protocol (moving knowledge to shared spaces)
@@ -74,10 +75,14 @@ This vault is your only knowledge base — never build a wiki outside it.
 Nothing in `People/{pid}/` is shared automatically. To share knowledge:
 1. Draft a sanitized note (no private context beyond what is being shared).
 2. Save it under `People/{pid}/Promotions/` with frontmatter:
-   `target-path: <new file in a shared space>` and `source: <originating note>`.
-   The target must not already exist: promotions add notes, they never rewrite
-   one. Never target a running file like `Company/Memory.md` — approval fails
-   on any existing target.
+   `target-path: <file in a shared space>`, `source: <originating note>`, and
+   `mode: create|append|patch` (default `create`). The default `mode: create`
+   requires a target that must not already exist. To update an existing
+   shared page set `mode: append` (adds your note under a divider) or
+   `mode: patch` (your body replaces the whole page — include ALL of it; the
+   approver reviews a diff). Never target a running file like
+   `Company/Memory.md` with `mode: create` — approval fails on any existing
+   target.
 3. {name} reviews and approves via `brain promotions approve`; only then does
    the note reach the shared space.
 4. Track your proposals in `People/{pid}/Shares.md` (generated, read-only):
