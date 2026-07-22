@@ -187,6 +187,9 @@ def _intel_home_md() -> str:
 
 def scaffold_master(dest: Path, company: str) -> list[str]:
     files: dict[str, str] = {
+        # the cycle's embedding cache lives under _meta/cache/ — binary,
+        # rebuildable, must never enter the master's git history
+        ".gitignore": "_meta/cache/\n",
         "AGENTS.md": ASSISTANT_PROTOCOL,
         "Company/Home.md": _home_md(company),
         "Company/Memory.md": _memory_md(company),

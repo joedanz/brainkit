@@ -202,9 +202,39 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     ```
 
     A nonzero `cycle` means a rejected write-back; a nonzero `doctor` means an
-    integrity error — both ping the alert URL. Optionally set an
-    [embedding provider](/reference/configuration#embeddings) so `--index`
-    builds semantic (not just keyword) indexes.
+    integrity error — both ping the alert URL.
+
+    **Recommended — an embedding provider**, so `--index` builds semantic
+    (not just keyword) indexes. All four
+    [`BRAIN_EMBED_*` variables](/reference/configuration#embeddings) must
+    reach the cycle's environment — and any long-running `brain dashboard`
+    services, which resolve the provider once at startup. A single env file
+    covers both (systemd units add `EnvironmentFile=` pointing at it):
+
+    ```bash
+    # ~/.config/brain/embed.env — KEY=value lines, 0600
+    BRAIN_EMBED_BASE_URL=https://ai-gateway.vercel.sh/v1
+    BRAIN_EMBED_API_KEY=...
+    BRAIN_EMBED_MODEL=voyage/voyage-4
+    BRAIN_EMBED_DIM=1024
+
+    # crontab: source it before the cycle line
+    */5 * * * * set -a; . $HOME/.config/brain/embed.env; set +a; brain cycle ...
+    ```
+
+    Verify the dimension with one curl before committing to `BRAIN_EMBED_DIM`:
+    some gateways ignore the `dimensions` parameter for some providers (the
+    voyage models above always return their native 1024, whatever you ask
+    for), and the value you configure must match what the endpoint actually
+    returns.
+
+    **Backfilling an existing keyword-only index.** Turning a provider on
+    does *not* re-embed notes that are already indexed — `brain cycle
+    --index` only touches changed files and has no full-rebuild flag. After
+    enabling the provider, run a one-time
+    [`brain index --vault <compiled/person> --full`](/reference/cli#brain-index)
+    for each compiled vault (and inside each agent container against
+    `/vault`); from then on the cycle keeps vectors current incrementally.
 
     **Recommended — webhook intake.** A brain that only receives what people
     remember to send it starves; letting services push — every Fathom meeting
@@ -282,7 +312,10 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
           - BRAIN_GIT_REMOTE=brain-sync@brain-box:/srv/brain/compiled/alice  # "brain-box" = the brain host on your chosen transport
           - TELEGRAM_BOT_TOKEN=${ALICE_BOT_TOKEN}
           - ANTHROPIC_API_KEY=${LLM_KEY}
-          - BRAIN_EMBED_BASE_URL=${EMBED_URL}  # optional
+          - BRAIN_EMBED_BASE_URL=${EMBED_URL}    # optional: semantic search…
+          - BRAIN_EMBED_API_KEY=${EMBED_API_KEY}  # …all four, or containers
+          - BRAIN_EMBED_MODEL=${EMBED_MODEL}      # fall back to defaults
+          - BRAIN_EMBED_DIM=${EMBED_DIM}
         volumes:
           - alice-state:/opt/data   # hermes state: sessions, pairing, deploy key
           - alice-vault:/vault      # her compiled vault clone

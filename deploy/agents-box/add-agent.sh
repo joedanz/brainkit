@@ -24,6 +24,9 @@ cat <<EOF
       - TELEGRAM_BOT_TOKEN=\${$TOKEN_VAR:?set $TOKEN_VAR in .env}
       - ANTHROPIC_API_KEY=\${LLM_KEY:?set LLM_KEY in .env}
       - BRAIN_EMBED_BASE_URL=\${EMBED_URL:-}
+      - BRAIN_EMBED_API_KEY=\${EMBED_API_KEY:-}
+      - BRAIN_EMBED_MODEL=\${EMBED_MODEL:-}
+      - BRAIN_EMBED_DIM=\${EMBED_DIM:-}
     volumes:
       - $PERSON-state:/opt/data
       - $PERSON-vault:/vault

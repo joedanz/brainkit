@@ -189,11 +189,14 @@ def provider_from_config() -> EmbeddingProvider | None:
     """
     base_url = os.environ.get("BRAIN_EMBED_BASE_URL")
     if base_url:
+        # empty-string vars count as unset: compose files pass `${VAR:-}`
+        # through, so an operator who sets only the base URL must still get
+        # the defaults instead of `int("")` or a blank model name.
         return OpenAICompatProvider(
             base_url=base_url,
             api_key=os.environ.get("BRAIN_EMBED_API_KEY", ""),
-            model=os.environ.get("BRAIN_EMBED_MODEL", DEFAULT_MODEL),
-            dim=int(os.environ.get("BRAIN_EMBED_DIM", DEFAULT_DIM)),
+            model=os.environ.get("BRAIN_EMBED_MODEL") or DEFAULT_MODEL,
+            dim=int(os.environ.get("BRAIN_EMBED_DIM") or DEFAULT_DIM),
         )
 
     path = _config_path()

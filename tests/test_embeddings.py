@@ -143,6 +143,20 @@ def test_provider_from_config_env_precedence(monkeypatch, tmp_path):
     assert p.dim == 256
 
 
+def test_provider_from_config_empty_vars_mean_unset(monkeypatch, tmp_path):
+    # compose files pass `${VAR:-}` through, so model/dim arrive as empty
+    # strings when the operator sets only the base URL — defaults must apply
+    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "nope.yaml"))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("BRAIN_EMBED_API_KEY", "")
+    monkeypatch.setenv("BRAIN_EMBED_MODEL", "")
+    monkeypatch.setenv("BRAIN_EMBED_DIM", "")
+    p = provider_from_config()
+    assert isinstance(p, OpenAICompatProvider)
+    assert p.model == embeddings.DEFAULT_MODEL
+    assert p.dim == embeddings.DEFAULT_DIM
+
+
 def test_default_cache_path_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("BRAIN_EMBED_CACHE", str(tmp_path / "c.db"))
     assert default_cache_path() == tmp_path / "c.db"

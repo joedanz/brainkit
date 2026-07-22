@@ -64,7 +64,10 @@ The mechanical half of that server-side loop is a single command on a schedule:
   Server-side indexing needs an [embedding provider](/reference/configuration#embeddings)
   in the cron environment, and its cache lives at `_meta/cache/` so a chunk
   shared across people embeds once. If no provider is set, `--index` still
-  builds keyword-only indexes. Note that configuring a provider means note text
+  builds keyword-only indexes. Enabling a provider later does not backfill
+  vectors into an existing index — run `brain index --vault <path> --full`
+  once per vault (see the
+  [reference deployment](/guides/reference-deployment)). Note that configuring a provider means note text
   is sent to that endpoint — use a self-hosted or company-proxy endpoint if that
   matters.
 </Callout>

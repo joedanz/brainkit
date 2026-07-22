@@ -57,6 +57,9 @@ so her key can sync exactly one repo and run nothing else.
 | `TELEGRAM_BOT_TOKEN` | yes* | per-person bot; presence alone enables the platform |
 | `ANTHROPIC_API_KEY` | yes | shared LLM key (any hermes-supported provider var works) |
 | `BRAIN_EMBED_BASE_URL` | no | embedding endpoint → semantic search in `brain index` |
+| `BRAIN_EMBED_API_KEY` | no | bearer key for the embedding endpoint |
+| `BRAIN_EMBED_MODEL` | no | embedding model (default `text-embedding-3-small`) |
+| `BRAIN_EMBED_DIM` | no | vector dimension (default 512) — match what the endpoint really returns |
 | `BRAIN_SYNC_INTERVAL` | no | sync period in seconds (default 300) |
 
 \* or another chat platform's token — see the hermes gateway docs.
