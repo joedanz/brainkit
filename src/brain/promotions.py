@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import subprocess
 from dataclasses import dataclass
@@ -235,6 +236,26 @@ def list_pending(master: Path) -> list[Promotion]:
         except (KeyError, ValueError):
             continue  # malformed file stays on disk for manual inspection
     return pending
+
+
+def patch_diff(master: Path, promo: Promotion) -> str | None:
+    """Live unified diff of a patch promotion against its current target.
+
+    Computed at review time on purpose: the hash guards the write, the diff
+    shows the reviewer exactly what changes at the moment of decision. None
+    for non-patch modes and for a missing target (approval fails closed on
+    that anyway)."""
+    if promo.mode != "patch":
+        return None
+    target = master / promo.target_path
+    if target.is_symlink() or not target.is_file():
+        return None
+    return "".join(difflib.unified_diff(
+        target.read_text().splitlines(keepends=True),
+        promo.body.splitlines(keepends=True),
+        fromfile=f"{promo.target_path} (current)",
+        tofile=f"{promo.target_path} (proposed)",
+    ))
 
 
 def _find_pending(master: Path, promo_id: str) -> Path:

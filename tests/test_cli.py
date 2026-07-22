@@ -215,3 +215,39 @@ def test_cli_facts_json(master, tmp_path, capsys):
     assert out["facts"][0]["statement"] == "Sarah Kim is our main contact"
 
     assert main(["facts", "--vault", str(tmp_path / "nope")]) == 1
+
+
+def test_promotions_show_renders_patch_diff(master: Path, capsys):
+    seed_meta(master)
+    from brain.promotions import draft_promotion
+    import hashlib
+    page = master / "Company/Intel/Portugal.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("# Portugal\nOld claim.\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="s", body="# Portugal\nNew claim.\n", promo_id="p-s1",
+        created="2026-07-21", mode="patch",
+        base_hash=hashlib.sha256(page.read_bytes()).hexdigest(),
+    )
+    assert main(["promotions", "show", "p-s1", "--master", str(master)]) == 0
+    out = capsys.readouterr().out
+    assert "mode: patch" in out
+    assert "-Old claim." in out
+    assert "+New claim." in out
+
+
+def test_promotions_show_prints_body_for_create(master: Path, capsys):
+    seed_meta(master)
+    from brain.promotions import draft_promotion
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Playbook/SOP.md",
+        source="s", body="Step one.\n", promo_id="p-s2", created="2026-07-21",
+    )
+    assert main(["promotions", "show", "p-s2", "--master", str(master)]) == 0
+    assert "Step one." in capsys.readouterr().out
+
+
+def test_promotions_show_unknown_id_errors(master: Path, capsys):
+    seed_meta(master)
+    assert main(["promotions", "show", "p-nope", "--master", str(master)]) == 1
