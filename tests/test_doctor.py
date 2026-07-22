@@ -367,6 +367,27 @@ def test_doctor_flags_unknown_mode_draft(master):
                and "sweep will never move it" in f.message for f in findings)
 
 
+def test_unlinked_notes_flags_isolated_note(tmp_path):
+    # A dedicated, minimal master (not the shared `master` fixture, whose
+    # baseline content other suites assert byte-for-byte) so the exact set of
+    # connections here is fully controlled.
+    m = tmp_path / "master"
+    m.mkdir()
+    seed_meta(m)
+    (m / "Company/Hub.md").parent.mkdir(parents=True, exist_ok=True)
+    (m / "Company/Hub.md").write_text("See [[Spoke]].\n")
+    (m / "Company/Spoke.md").write_text("plain text\n")               # linked: is a target
+    (m / "Company/Island.md").write_text("plain text, no links\n")    # flagged
+    (m / "Company/Dated.md").write_text("- fact [from:: 2026-01]\n")  # has facts: not flagged
+    (m / "People/p1/Inbox/x.md").parent.mkdir(parents=True, exist_ok=True)
+    (m / "People/p1/Inbox/x.md").write_text("plain text\n")           # Inbox: exempt
+
+    findings = run_doctor(m)
+    unlinked = [f for f in findings if f.check == "unlinked-notes"]
+    assert [f.message.split(":")[0] for f in unlinked] == ["Company/Island.md"]
+    assert all(f.severity == "warn" for f in unlinked)
+
+
 def test_doctor_flags_symlinked_patch_target(master, tmp_path):
     seed_meta(master)
     outside = tmp_path / "outside.md"
