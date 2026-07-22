@@ -94,6 +94,9 @@ When a transcript appears in any `People/<person>/Inbox/`:
      one via `People/<person>/ClientRequests/` (server provisions it); you, with
      full access, may create `Clients/<client>/` directly. Prefer the fullest
      reasonable identifier; when a name is ambiguous, ask before creating.
+     A single mention can split into two homes — a client note in
+     `Clients/<client>/` and, for a dated occurrence, a
+     `Company/Intel/Events/<Name>.md` page — cross-linked.
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
    - Standing processes and standards -> a new file in `Company/Playbook/`

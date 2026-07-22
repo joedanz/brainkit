@@ -64,6 +64,13 @@ def test_assistant_protocol_mentions_client_requests():
     assert "third part" in ASSISTANT_PROTOCOL.lower()
 
 
+def test_assistant_protocol_has_multi_entity_capture():
+    from brain.templates import ASSISTANT_PROTOCOL
+    low = ASSISTANT_PROTOCOL.lower()
+    assert "two homes" in low
+    assert "intel/events" in low and "cross-link" in low
+
+
 def test_compile_writes_context_files(master: Path, tmp_path: Path):
     out = tmp_path / "bob-vault"
     compile_vault(master, BOB, RULES, out)
