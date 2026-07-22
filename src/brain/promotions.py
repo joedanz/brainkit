@@ -119,6 +119,8 @@ def draft_promotion(
 ) -> Path:
     _validate_target(target_path)
     _validate_mode(mode)
+    if "\n" in base_hash or "\r" in base_hash:
+        raise PromotionError("base-hash must be a single line")
     dest = _pending_dir(master) / f"{promo_id}.md"
     dest.parent.mkdir(parents=True, exist_ok=True)
     hash_line = f"base-hash: {base_hash}\n" if base_hash else ""

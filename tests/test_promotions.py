@@ -137,6 +137,15 @@ def test_draft_rejects_unknown_mode(master: Path):
         )
 
 
+def test_draft_rejects_multiline_base_hash(master: Path):
+    with pytest.raises(PromotionError, match="single line"):
+        draft_promotion(
+            master, person_id="bob", target_path="Company/Playbook/Z.md",
+            source="s", body="b", promo_id="p-m5", created="2026-07-21",
+            mode="patch", base_hash="x\ntarget-path: Company/Playbook/Evil.md",
+        )
+
+
 def test_list_pending_skips_unknown_mode(master: Path):
     draft_promotion(
         master, person_id="bob", target_path="Company/Playbook/Y.md",
