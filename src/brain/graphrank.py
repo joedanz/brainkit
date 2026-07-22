@@ -27,12 +27,15 @@ _MAX_ITER = 100
 
 def build_graph(store: IndexStore) -> dict[str, dict[str, float]]:
     """Weighted undirected adjacency over files: wikilink pairs plus fact
-    co-mention pairs, one unit of weight each, summed."""
+    co-mention pairs, one unit of weight each, summed.
+
+    Self-loop-free by construction: link_pairs() excludes src == target in
+    SQL and fact_copairs() joins on a strict < between targets, so neither
+    source can emit an (x, x) pair even for a note that wikilinks itself.
+    """
     adj: dict[str, dict[str, float]] = {}
 
     def bump(a: str, b: str) -> None:
-        if a == b:
-            return
         for x, y in ((a, b), (b, a)):
             row = adj.setdefault(x, {})
             row[y] = row.get(y, 0.0) + 1.0
