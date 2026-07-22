@@ -1,6 +1,7 @@
+from datetime import date as _date
 from pathlib import Path
 
-from brain.doctor import run_doctor
+from brain.doctor import run_doctor, _check_intel
 from brain.cli import main
 
 from .test_cli import ORG_YAML, SPACES_YAML, seed_meta
@@ -306,3 +307,51 @@ def test_doctor_flags_patch_draft_with_missing_target(master):
     findings = run_doctor(master)
     assert any(f.check == "promotions" and f.severity == "warn"
                and "missing page" in f.message for f in findings)
+
+
+def _intel(master, name, text):
+    f = master / "Company/Intel" / name
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+
+
+def test_intel_absent_dir_is_silent(master):
+    assert _check_intel(master, today=_date(2026, 7, 21)) == []
+
+
+def test_intel_flags_lingering_addenda_both_dashes(master):
+    _intel(master, "Portugal — updates 2026-06.md", "New ferry. [s](https://x), as of 2026-06\n")
+    _intel(master, "Spain - updates 2026-05.md", "Visa change. [s](https://x), as of 2026-05\n")
+    msgs = [f.message for f in _check_intel(master, today=_date(2026, 7, 21))]
+    assert len(msgs) == 2
+    assert all("unfolded addendum" in m for m in msgs)
+
+
+def test_intel_flags_stale_and_uncited_pages(master):
+    _intel(master, "Fresh.md", "Claim. [s](https://x), as of 2026-01\n")
+    _intel(master, "Stale.md", "Claim. [s](https://x), as of 2025-06\n")
+    _intel(master, "Captured.md", "Claim. [s](file.pdf), captured 2026-07\n")
+    _intel(master, "Uncited.md", "No dates here at all.\n")
+    _intel(master, "Home.md", "Map of pages — no citations by design.\n")
+    findings = _check_intel(master, today=_date(2026, 7, 21))
+    assert all(f.severity == "warn" and f.check == "intel" for f in findings)
+    msgs = "\n".join(f.message for f in findings)
+    assert "Stale.md" in msgs and "stale" in msgs
+    assert "Uncited.md" in msgs and "no dated citations" in msgs
+    assert "Fresh.md" not in msgs
+    assert "Captured.md" not in msgs
+    assert "Home.md" not in msgs
+
+
+def test_intel_boundary_is_over_twelve_months(master):
+    # Exactly 12 months old is fine; 13 is stale.
+    _intel(master, "Edge.md", "Claim. [s](https://x), as of 2025-07\n")
+    assert _check_intel(master, today=_date(2026, 7, 21)) == []
+    _intel(master, "Over.md", "Claim. [s](https://x), as of 2025-06\n")
+    assert len(_check_intel(master, today=_date(2026, 7, 21))) == 1
+
+
+def test_run_doctor_includes_intel_check(master):
+    seed_meta(master)
+    _intel(master, "Old — updates 2025-01.md", "x\n")
+    assert any(f.check == "intel" for f in run_doctor(master))
