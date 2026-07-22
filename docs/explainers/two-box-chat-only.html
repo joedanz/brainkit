@@ -878,11 +878,16 @@ adduser --disabled-password brain-sync</pre>
       <pre><span class="c"># crontab — the whole orchestration layer</span>
 */5 * * * * brain cycle --master /srv/brain/master \
   --out /srv/brain/compiled --index --json \
-  &gt;&gt; /var/log/brain/cycle.jsonl || curl -fsS $ALERT_URL
+  &gt;&gt; /var/log/brain/cycle.jsonl \
+  &amp;&amp; curl -fsS $CYCLE_HC || curl -fsS $CYCLE_HC/fail
 17 3 * * *  brain doctor --master /srv/brain/master \
-  --out /srv/brain/compiled || curl -fsS $ALERT_URL
+  --out /srv/brain/compiled \
+  &amp;&amp; curl -fsS $DOCTOR_HC || curl -fsS $DOCTOR_HC/fail
 23 4 * * *  git -C /srv/brain/master push --mirror offsite</pre>
-      <p>The <code>$ALERT_URL</code> is a healthchecks.io-style ping — a nonzero
+      <p><code>$CYCLE_HC</code>/<code>$DOCTOR_HC</code> are healthchecks.io-style
+      check URLs, pinged on success and on <code>/fail</code> — a dead-man's
+      switch, so a dead box or a stopped cron alerts too, not just a failing
+      job. A nonzero
       <code>cycle</code> means a rejected write-back; a nonzero <code>doctor</code> means an
       integrity error. The nightly mirror push to one private offsite remote backs up the
       master. Optional: set <code>BRAIN_EMBED_BASE_URL</code> (an embedding API reachable

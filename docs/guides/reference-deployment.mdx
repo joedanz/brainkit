@@ -191,18 +191,29 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     ```
 
     ```bash
-    # crontab
+    # crontab — $CYCLE_HC / $DOCTOR_HC are healthchecks.io-style check URLs
     */5 * * * * brain cycle --master /srv/brain/master \
       --out /srv/brain/compiled --index --json \
-      >> /var/log/brain/cycle.jsonl || curl -fsS $ALERT_URL
+      >> /var/log/brain/cycle.jsonl 2>&1 \
+      && curl -fsS -m 10 $CYCLE_HC >/dev/null || curl -fsS -m 10 $CYCLE_HC/fail >/dev/null
     17 3 * * *  brain doctor --master /srv/brain/master \
-      --out /srv/brain/compiled || curl -fsS $ALERT_URL
+      --out /srv/brain/compiled >> /var/log/brain/doctor.jsonl 2>&1 \
+      && curl -fsS -m 10 $DOCTOR_HC >/dev/null || curl -fsS -m 10 $DOCTOR_HC/fail >/dev/null
     7 * * * *   /usr/local/sbin/backup-master.sh \
       >> /var/log/backup-master.log 2>&1   # encrypted offsite backup
     ```
 
     A nonzero `cycle` means a rejected write-back; a nonzero `doctor` means an
-    integrity error — both ping the alert URL.
+    integrity error. Ping the check on **success** and its `/fail` endpoint on
+    failure (a dead-man's switch), rather than only pinging on failure — a
+    box that dies or a cron that stops firing can't report its own failure,
+    but a missed success ping still alerts. Give each job its own check, with
+    the period matched to that job's cadence (cycle: 5 minutes; doctor: 1 day;
+    hourly backup: 1 hour) plus a small grace. The 5-minute cycle check
+    doubles as box-liveness monitoring. For the agents box,
+    [`agents-liveness.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/agents-liveness.sh)
+    gives the container fleet the same treatment: one check, success while
+    every compose service runs, `/fail` naming the dead containers otherwise.
 
     **Recommended — an embedding provider**, so `--index` builds semantic
     (not just keyword) indexes. All four
