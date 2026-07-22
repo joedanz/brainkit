@@ -119,7 +119,7 @@ After authentication, every delivery goes through the same `brain ingest` primit
 
 The receiver binds `127.0.0.1` by default. To accept deliveries from the internet, put a TLS reverse proxy (Caddy, nginx) in front and point providers at `https://your-host/hook/<source-id>`. `brain doctor` checks that `webhook.yaml` parses, its people exist, and every secret variable is set.
 
-Getting started is deliberately short: `brain init` scaffolds a commented `_meta/webhook.yaml.example` you can copy and fill in, `brain status` reminds you when intake isn't configured yet, and [`deploy/brain-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/brain-box) ships a ready-to-install systemd unit (`brain-webhook.service`) and Caddy snippet (`Caddyfile.webhook`).
+Getting started is deliberately short: `brain init` scaffolds a commented `_meta/webhook.yaml.example` you can copy and fill in, `brain status` reminds you when intake isn't configured yet, and [`deploy/brain-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/brain-box) ships a ready-to-install systemd unit (`brain-webhook.service`) and Caddy snippet (`Caddyfile.webhook`). That snippet assumes Caddy terminates TLS itself; if your box sits behind edge-terminated TLS (a CDN plus an outbound-only tunnel), use the adapted wiring under "Fronting the receiver" in the [reference deployment](/guides/reference-deployment) instead.
 
 ### The dashboard's Capture button
 
