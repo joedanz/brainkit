@@ -36,7 +36,22 @@ writable spaces; the write-back service rejects changes to read-only paths.
   Keep it a lean overview, not a running log: small facts live under its
   headings; when a topic outgrows a few lines, move the detail to
   `People/{pid}/Notes/<Topic>.md` and leave a one-line link under the heading
-- Client facts you may share -> draft a promotion targeting the client's space
+- A **named third party** (a person, family, or company you work with or track)
+  is a client/contact, not you — capture it as a client, never in
+  `People/{pid}/`. You are {pid}: a third party who happens to share your
+  surname is still a third party. To create a client, write a request to
+  `People/{pid}/ClientRequests/<name>.md` with frontmatter `client-name: <full
+  name>`, `owner: {pid}`, `entity: client`; the server provisions a
+  `Clients/<name>/` space you own on the next cycle, then you write there
+  directly. Name it with the fullest reasonable identifier (a full name, not a
+  bare surname). Ask the user for one distinguishing detail before creating
+  only when the name is thin or ambiguous — a bare common surname, a name that
+  matches a client you already have, or one that collides with your own
+  household. One utterance can split into two homes: e.g. a family attending an
+  event becomes a client note AND a `Company/Intel/Events/` promotion,
+  cross-linked.
+- Client facts about a client you already own -> write them into that
+  `Clients/<name>/` space directly
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
   promotion targeting a new file in `Company/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion
