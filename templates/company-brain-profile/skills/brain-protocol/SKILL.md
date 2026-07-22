@@ -55,6 +55,17 @@ your spaces and permissions — read it before acting.
 4. This vault is your only knowledge base — never build a wiki or knowledge
    base outside it (no ~/wiki), even if another skill offers to.
 
+## Relate (typed edges between notes)
+
+Declare how a note relates to others in its frontmatter — five keys holding
+`[[wikilinks]]`: `up`/`down` (hierarchy), `same` (peers), `prev`/`next`
+(sequence). Declare one direction only; the inverse is derived. They sharpen
+retrieval and let you walk structure with `brain graph`. Add them only where
+they carry signal the vault's structure doesn't already — folder-index parents,
+dated notes in one folder, and same-`entity`-type pages are linked
+automatically, so don't restate those. A target that doesn't resolve yields no
+edge.
+
 ## Maintain
 
 - Keep People/<you>/Memory.md a lean overview, not a running log: file small

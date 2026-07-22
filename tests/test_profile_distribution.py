@@ -44,3 +44,6 @@ def test_soul_and_skill_reference_the_vault_protocol():
     assert "mode: append" in skill           # additive page updates
     assert "mode: patch" in skill            # full-page revisions
     assert "no ~/wiki" in skill
+    # typed-relation authoring: declare up/down/same/prev/next edges
+    assert "## Relate" in skill
+    assert "brain graph" in skill

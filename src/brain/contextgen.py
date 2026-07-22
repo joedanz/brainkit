@@ -70,6 +70,16 @@ access-worthy events), `Trends/<YYYY-MM Topic>.md`. Conventions:
   separate addendum file.
 This vault is your only knowledge base — never build a wiki outside it.
 
+## Typed relations
+
+Notes can declare how they relate, in frontmatter — five keys holding
+`[[wikilinks]]`: `up`/`down` (hierarchy), `same` (peers), `prev`/`next`
+(sequence). Declare one direction only; the inverse is derived. They sharpen
+retrieval and let you walk structure with `brain graph`. Add them only where
+they carry signal structure doesn't already — folder-index parents, dated notes
+in one folder, and same-`entity`-type pages are linked automatically, so don't
+restate those. A target that doesn't resolve just yields no edge.
+
 ## Promotion protocol (moving knowledge to shared spaces)
 
 Nothing in `People/{pid}/` is shared automatically. To share knowledge:

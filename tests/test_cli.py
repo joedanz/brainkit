@@ -180,6 +180,10 @@ def test_init_scaffolds_master(tmp_path: Path):
     assert "[from:: YYYY-MM]" in protocol
     assert "[until:: date]" in protocol
     assert "entity: client" in protocol
+    # typed-relation authoring: agents declare up/down/same/prev/next edges
+    assert "## Typed relations" in protocol
+    assert "up: [[Acme]]" in protocol
+    assert "brain graph" in protocol
     # Home is the live dashboard; Memory is the overview/map — distinct jobs,
     # not two copies of the same folder index (regression: they looked alike).
     home = (dest / "Company/Home.md").read_text()
