@@ -137,9 +137,18 @@ def _check_orphan_files(master: Path) -> list[Finding]:
 
 def _check_unlinked_notes(master: Path) -> list[Finding]:
     """Notes with no graph connections at all — no resolved wikilinks in or
-    out (typed relations are wikilinks, so they count) and no fact lines.
-    Such a note is invisible to the graph leg of retrieval. Folders named
-    Inbox are exempt: unprocessed captures are expected to be unlinked."""
+    out (typed relations are wikilinks, so they count), no fact lines, and no
+    mined structural edge (folder-index parent, date-sequence neighbor, or
+    shared entity type). A note reachable only through mined structure is
+    still reachable by brain_graph and PPR retrieval — flagging it would be
+    a false positive — so this reuses the same miners the indexer's edge
+    rebuild uses (brain.edges), duplicated over master's content files to
+    keep doctor free of the indexer's store/embedding dependencies. Folders
+    named Inbox are exempt: unprocessed captures are expected to be
+    unlinked."""
+    from brain.edges import date_edges, entity_edges, folder_edges, note_date
+    from brain.facts import parse_entity
+
     findings: list[Finding] = []
     rels = _content_files(master)
     paths = set(rels)
@@ -147,6 +156,8 @@ def _check_unlinked_notes(master: Path) -> list[Finding]:
     for rel in sorted(rels):
         by_stem.setdefault(_stem(rel), rel)
     connected: set[str] = set()
+    dated: dict[str, str] = {}
+    entities: list[tuple[str, str]] = []
     for rel in rels:
         text = (master / rel).read_text(encoding="utf-8", errors="replace")
         if parse_facts(text):
@@ -156,6 +167,22 @@ def _check_unlinked_notes(master: Path) -> list[Finding]:
             if target and target != rel:
                 connected.add(rel)
                 connected.add(target)
+        meta, _body = split_frontmatter(text)
+        day = note_date(rel, meta)
+        if day:
+            dated[rel] = day
+        ent = parse_entity(meta)
+        if ent is not None:
+            entities.append((rel, ent[0]))
+    for src, dst, *_rest in folder_edges(rels):
+        connected.add(src)
+        connected.add(dst)
+    for src, dst, *_rest in date_edges(dated):
+        connected.add(src)
+        connected.add(dst)
+    for src, dst, *_rest in entity_edges(entities):
+        connected.add(src)
+        connected.add(dst)
     for rel in sorted(paths - connected):
         if "Inbox" in Path(rel).parts:
             continue

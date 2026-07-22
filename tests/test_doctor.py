@@ -388,6 +388,42 @@ def test_unlinked_notes_flags_isolated_note(tmp_path):
     assert all(f.severity == "warn" for f in unlinked)
 
 
+def test_unlinked_notes_does_not_flag_mined_edges(tmp_path):
+    """A note connected only through mined structure (folder-index parent,
+    date-sequence neighbor, or shared entity type) is still reachable by
+    brain_graph and PPR retrieval, so it must not be flagged — only a note
+    with no connection of any kind (mined or otherwise) should be."""
+    m = tmp_path / "master"
+    m.mkdir()
+    seed_meta(m)
+
+    # Folder-index parent: Projects.md is the index note for Projects/, so
+    # Sub.md gets an `up` edge to it purely from folder structure.
+    (m / "Company/Projects").mkdir(parents=True, exist_ok=True)
+    (m / "Company/Projects/Projects.md").write_text("Index note.\n")
+    (m / "Company/Projects/Sub.md").write_text("No links, no facts.\n")
+
+    # Date-sequence neighbors: same folder, dated filenames, no other links.
+    (m / "Company/Logs").mkdir(parents=True, exist_ok=True)
+    (m / "Company/Logs/2026-01-01 Standup.md").write_text("Notes.\n")
+    (m / "Company/Logs/2026-01-02 Standup.md").write_text("Notes.\n")
+
+    # Shared entity type: both are `entity: client` pages in unrelated
+    # folders with no wikilinks between them.
+    (m / "Clients/acme").mkdir(parents=True, exist_ok=True)
+    (m / "Clients/acme/Acme.md").write_text("---\nentity: client\n---\nAcme.\n")
+    (m / "Clients/beta").mkdir(parents=True, exist_ok=True)
+    (m / "Clients/beta/Beta.md").write_text("---\nentity: client\n---\nBeta.\n")
+
+    # Truly isolated: no links, no facts, no mined structure of any kind.
+    (m / "Company/Island.md").write_text("plain text, no links\n")
+
+    findings = run_doctor(m)
+    unlinked = [f for f in findings if f.check == "unlinked-notes"]
+    assert [f.message.split(":")[0] for f in unlinked] == ["Company/Island.md"]
+    assert all(f.severity == "warn" for f in unlinked)
+
+
 def test_doctor_flags_symlinked_patch_target(master, tmp_path):
     seed_meta(master)
     outside = tmp_path / "outside.md"
