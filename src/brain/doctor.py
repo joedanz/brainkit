@@ -342,6 +342,11 @@ def _check_promotions(master: Path) -> list[Finding]:
         except PromotionError as e:
             findings.append(Finding(
                 "warn", "promotions", f"{rel}: sweep will never move it ({e})"))
+            continue
+        if meta.get("mode") == "patch" and not (master / meta["target-path"]).is_file():
+            findings.append(Finding(
+                "warn", "promotions",
+                f"{rel}: patch draft targets a missing page — sweep will never queue it"))
     return findings
 
 

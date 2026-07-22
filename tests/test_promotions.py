@@ -628,3 +628,40 @@ def test_approve_patch_refuses_symlink_target(master: Path, tmp_path: Path):
     )
     with pytest.raises(PromotionError, match="symlink"):
         approve(master, "p-p4", approver="alice", date="2026-07-21")
+
+
+def test_sweep_stamps_base_hash_on_patch_drafts(master: Path):
+    from brain.promotions import sweep
+
+    page = master / "Company/Intel/Italy.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("v1\n")
+    d = master / "People/bob/Promotions/italy-update.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Italy.md\nmode: patch\n---\nv2\n")
+    moved = sweep(master, today="2026-07-21")
+    assert len(moved) == 1
+    p = list_pending(master)[0]
+    assert p.mode == "patch"
+    assert p.base_hash == hashlib.sha256(page.read_bytes()).hexdigest()
+
+
+def test_sweep_leaves_patch_draft_when_target_missing(master: Path):
+    from brain.promotions import sweep
+
+    d = master / "People/bob/Promotions/ghost.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Ghost.md\nmode: patch\n---\nbody\n")
+    assert sweep(master, today="2026-07-21") == []
+    assert d.exists()                       # left in place, never guessed at
+
+
+def test_sweep_queues_append_draft_without_target(master: Path):
+    from brain.promotions import sweep
+
+    # Appends queue regardless — existence is an approve-time question, so an
+    # append can sit behind the create that makes its target.
+    d = master / "People/bob/Promotions/later.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Later.md\nmode: append\n---\nbody\n")
+    assert len(sweep(master, today="2026-07-21")) == 1

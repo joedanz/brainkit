@@ -375,6 +375,15 @@ def sweep(master: Path, today: str) -> list[Path]:
         if (_pending_dir(master) / f"{promo_id}.md").exists():
             continue
         try:
+            _validate_target(target)
+            mode = meta.get("mode", "create")
+            _validate_mode(mode)
+            base_hash = ""
+            if mode == "patch":
+                target_file = master / target
+                if target_file.is_symlink() or not target_file.is_file():
+                    continue  # left in place; doctor flags it
+                base_hash = hashlib.sha256(target_file.read_bytes()).hexdigest()
             draft_promotion(
                 master,
                 person_id=person_id,
@@ -383,6 +392,8 @@ def sweep(master: Path, today: str) -> list[Path]:
                 body=body,
                 promo_id=promo_id,
                 created=today,
+                mode=mode,
+                base_hash=base_hash,
             )
         except PromotionError:
             continue
