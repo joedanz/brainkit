@@ -197,7 +197,14 @@ def _tool_graph(vault: Path, args: dict) -> tuple[str, bool]:
         direction = args.get("direction") or "both"
         if direction not in ("out", "in", "both"):
             return "direction must be out, in, or both", True
-        depth = max(1, min(int(args.get("depth", 1)), 5))
+        try:
+            depth = int(args.get("depth", 1))
+        except (TypeError, ValueError):
+            # A caller can send anything through JSON-RPC args (a string like
+            # "deep", null, ...). Treat anything non-numeric as the default
+            # depth of 1 rather than raising out of this tool.
+            depth = 1
+        depth = max(1, min(depth, 5))
         hops, truncated = traverse(store, note, rels=rels,
                                    direction=direction, depth=depth)
     finally:
@@ -283,20 +290,26 @@ def _handle(vault: Path, provider, msg: dict):
         params = msg.get("params") or {}
         name = params.get("name")
         args = params.get("arguments") or {}
-        if name == "brain_search":
-            text, is_err = _tool_search(vault, args, provider)
-        elif name == "brain_read":
-            text, is_err = _tool_read(vault, args)
-        elif name == "brain_links":
-            text, is_err = _tool_links(vault, args)
-        elif name == "brain_graph":
-            text, is_err = _tool_graph(vault, args)
-        elif name == "brain_recent":
-            text, is_err = _tool_recent(vault, args)
-        elif name == "brain_facts":
-            text, is_err = _tool_facts(vault, args)
-        else:
-            return _error(mid, -32602, f"unknown tool: {name}")
+        try:
+            if name == "brain_search":
+                text, is_err = _tool_search(vault, args, provider)
+            elif name == "brain_read":
+                text, is_err = _tool_read(vault, args)
+            elif name == "brain_links":
+                text, is_err = _tool_links(vault, args)
+            elif name == "brain_graph":
+                text, is_err = _tool_graph(vault, args)
+            elif name == "brain_recent":
+                text, is_err = _tool_recent(vault, args)
+            elif name == "brain_facts":
+                text, is_err = _tool_facts(vault, args)
+            else:
+                return _error(mid, -32602, f"unknown tool: {name}")
+        except Exception as e:
+            # Malformed arguments or a bug in any one tool (bad types, a
+            # crashing store call, ...) must never take down the stdio loop —
+            # this call reports an error result, the server keeps serving.
+            return _text_result(mid, f"error: {type(e).__name__}: {e}", True)
         return _text_result(mid, text, is_err)
 
     if is_notification:
