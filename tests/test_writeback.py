@@ -2,9 +2,12 @@ import json
 import subprocess
 from pathlib import Path
 
+from brain.clients import request_client
 from brain.compiler import MANIFEST_NAME, compile_vault
+from brain.schemas import load_org, load_spaces
 from brain.writeback import Change, apply_writeback, diff_vault
 from tests.conftest import ALICE, BOB, RULES
+from tests.test_cli import seed_meta
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -198,3 +201,20 @@ def test_apply_skips_symlink_appearing_after_diff(master: Path, tmp_path: Path, 
     assert result.violations == []  # path is in scope; the symlink is the issue
     # The secret's bytes were never written into master under Bob's path.
     assert not (master / "People/bob/leak.md").exists()
+
+
+def test_client_request_subdir_survives_writeback(master: Path, tmp_path: Path):
+    seed_meta(master)
+    out = tmp_path / "compiled"
+    compile_vault(master, BOB, RULES, out / "bob")
+
+    # brand-new subdir the compile never shipped
+    request_client(out / "bob", "bob", "Danziger Family", "body\n", "2026-07-22")
+
+    person = load_org(master / "_meta/org.yaml").people["bob"]
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    result = apply_writeback(master, out / "bob", person, rules)
+
+    assert not result.violations
+    assert any(c.path.startswith("People/bob/ClientRequests/") for c in result.applied)
+    assert list((master / "People/bob/ClientRequests").glob("*.md"))
