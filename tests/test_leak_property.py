@@ -58,6 +58,18 @@ def random_world(rng: random.Random, root: Path) -> Org:
     (root / "Teams" / teams[0] / "AGENTS.md").write_text("leaked server note\n")
     (root / "_meta").mkdir(exist_ok=True)
     (root / "_meta/secret.yaml").write_text("secret: true\n")
+    # Typed-relation honeypots: a shared note declares relations pointing into
+    # private spaces. The compiler stubs those frontmatter wikilinks for any
+    # non-reader, so no typed edge may ever materialize in their vault.
+    pids = sorted(people)
+    shared = root / "Company" / "note0.md"
+    shared.write_text(
+        "---\n"
+        f"up: [[People/{pids[0]}/note0]]\n"
+        f"same: [[Teams/{teams[0]}/note0]], [[note0]]\n"
+        "next: [[People/" + pids[-1] + "/note0]]\n"
+        "---\n" + shared.read_text()
+    )
     return Org(people=people)
 
 

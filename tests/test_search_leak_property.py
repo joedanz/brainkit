@@ -18,7 +18,7 @@ from brain.compiler import MANIFEST_NAME, compile_all
 from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.mcp import _tool_read
-from brain.resolver import readable_spaces
+from brain.resolver import readable_spaces, space_of_path
 from brain.search import search_index
 from brain.store import IndexStore
 
@@ -129,3 +129,35 @@ def test_mcp_read_refuses_symlink_into_master(tmp_path):
     text, is_err = _tool_read(vault, {"rel_path": f"{own_space}/leak.md"})
     assert is_err
     assert "secret" not in text
+
+
+def test_typed_edges_never_leave_readable_spaces(tmp_path):
+    """Strongest layer for the typed graph: scan what is stored. Every edge
+    endpoint must be a file of the person's own vault, in a readable space —
+    so no traversal or PPR walk can ever surface a forbidden note."""
+    for seed in range(5):
+        master, org, out_root = _build_world(tmp_path, seed)
+        for person in org.people.values():
+            allowed = set(readable_spaces(master, person, RULES))
+            store = IndexStore.open(out_root / person.id / ".brain/index.db")
+            files = set(store.files())
+            rows = store.conn.execute(
+                "SELECT src_rel_path, dst_rel_path FROM edges").fetchall()
+            for src, dst in rows:
+                for end in (src, dst):
+                    assert end in files, f"LEAK(edges) {person.id}: {end} not a vault file"
+                    assert space_of_path(end) in allowed, \
+                        f"LEAK(edges) {person.id}: {end} outside readable spaces"
+            store.close()
+        if seed == 0:
+            # the honeypot must actually generate edges for readers, or this
+            # test would pass vacuously
+            some_edges = False
+            for person in org.people.values():
+                store = IndexStore.open(out_root / person.id / ".brain/index.db")
+                n = store.conn.execute(
+                    "SELECT COUNT(*) FROM edges WHERE src_rel_path = 'Company/note0.md'"
+                ).fetchone()[0]
+                some_edges = some_edges or n > 0
+                store.close()
+            assert some_edges, "typed-relation honeypot produced no edges anywhere — test is vacuous"
