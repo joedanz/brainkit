@@ -31,27 +31,27 @@ query for a person ever returns a chunk outside their readable spaces.
 
 ## How a query is answered
 
-Search fuses two independent legs and needs no score calibration between them:
+Search fuses three independent legs by reciprocal-rank fusion (RRF), and needs
+no score calibration between them:
 
 - **Keyword** — SQLite FTS5 (BM25) over chunk text.
 - **Vector** — semantic nearest-neighbours via [sqlite-vec](https://github.com/asg017/sqlite-vec).
-- **Fusion** — reciprocal-rank fusion (RRF): a chunk both legs surface outranks
-  one only a single leg found.
+- **Graph** — personalized PageRank over the wikilink and fact-co-mention graph,
+  seeded by entity names and aliases matched in the query, the top text hits,
+  and optionally a **center note** (`--center`, or the `center` argument of the
+  `brain_search` tool — typically the note you're working from).
 
-Notes are chunked heading-aware (each chunk carries its `Heading > Subheading`
-path), code fences are never split, and results are deduped to at most two
-chunks per file. If no embedding provider is configured — or `sqlite-vec` can't
-load — search degrades to **keyword-only** with a warning, never an empty
-result.
+Reciprocal-rank fusion means a chunk multiple legs surface outranks one only a
+single leg found. Unlike the two text legs, the graph leg can introduce
+results of its own that never textually match; such hits are attributed to
+the `graph` source. Notes are chunked heading-aware (each chunk carries its
+`Heading > Subheading` path), code fences are never split, and results are
+deduped to at most two chunks per file. If no embedding provider is configured
+— or `sqlite-vec` can't load — search degrades to **keyword + graph** with a
+warning, never an empty result.
 
-Optionally, a query can name a **center note** (`--center`, or the `center`
-argument of the `brain_search` tool) — typically the note you're working from.
-Results whose file sits close to that note in the wikilink graph get a small
-boost, using the same reciprocal-rank formula with hop distance in place of
-rank: enough to lift related notes past unrelated ones, never enough to drown
-out a strong keyword + vector match. The graph only reorders what search
-already found — it never adds results of its own — and an unknown center note
-degrades to a plain search with a warning.
+An unknown center note is dropped with a warning; the graph leg still runs
+from the query's other seeds — entity names, aliases, and top text hits.
 
 <Callout type="info">
   `sqlite-vec` loads as a SQLite extension, so it needs a Python whose `sqlite3`
@@ -145,8 +145,9 @@ Claude Desktop) can search the vault as a tool:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes five read-only tools: `brain_search` (hybrid search, with an
-optional center note for graph-aware ranking), `brain_read` (a path-scoped
+It exposes five read-only tools: `brain_search` (hybrid search with keyword,
+vector, and graph legs; optional center note as a strong seed for graph-proximity
+ranking), `brain_read` (a path-scoped
 file read that refuses symlinks, vault escapes, and anything outside a
 readable space), `brain_links` (a note's backlinks and outgoing wikilinks),
 `brain_recent` (recently changed notes, from the vault's git history), and

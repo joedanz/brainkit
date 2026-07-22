@@ -27,14 +27,16 @@ _TOOLS = [
         "description": "Hybrid keyword+semantic search over this vault. Returns ranked "
                        "chunks with their file path and heading. Pass `center` (a note's "
                        "relative path, e.g. the note you are working from) to rank results "
-                       "near it in the wikilink graph higher.",
+                       "near it in the wikilink graph higher. Results may include notes linked "
+                       "to your query's entities through the note graph even when they don't "
+                       "textually match; such hits are attributed to the 'graph' source.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "natural-language query"},
                 "k": {"type": "integer", "description": "max results (default 8)"},
                 "center": {"type": "string",
-                           "description": "optional note rel path; boosts graph-nearby results"},
+                           "description": "optional note rel path; added as a strong seed for graph-proximity ranking"},
             },
             "required": ["query"],
         },
