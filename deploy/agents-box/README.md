@@ -64,6 +64,16 @@ so her key can sync exactly one repo and run nothing else.
 
 \* or another chat platform's token — see the hermes gateway docs.
 
+## Fleet liveness monitoring
+
+`agents-liveness.sh` pings a [healthchecks.io](https://healthchecks.io) check
+every cron tick: success while every compose service has a running container,
+`/fail` with the missing names as the ping body otherwise. One check (5-minute
+period) covers the whole box — missed pings mean the box or cron died, an
+active `/fail` names the dead container — and the expected list is read from
+`docker-compose.yml`, so adding an agent needs no monitoring change. Install
+to `/usr/local/sbin/` and add the cron line from the script header.
+
 ## Verifying a running container
 
 ```bash
