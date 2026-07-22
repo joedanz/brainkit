@@ -265,6 +265,27 @@ def test_brain_graph_tool_lists_typed_edges(master, tmp_path):
     assert resp["result"]["isError"] is False
 
 
+def test_brain_graph_tool_resolves_filename_with_extension(master, tmp_path):
+    # Regression: the tool schema explicitly invites "a filename stem" for
+    # `note`, but a caller passing the literal filename (with its .md
+    # extension) must resolve via the same stem fallback — not just a bare
+    # stem string.
+    (master / "Company/Projects").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Projects/Kickoff.md").write_text(
+        "---\nup: [[Home]]\n---\n# Kickoff\n")
+    v = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, v)
+    build_index(v, provider=FakeEmbeddingProvider(), cache=None)
+
+    (resp,) = _exchange(v, [{
+        "jsonrpc": "2.0", "id": 33, "method": "tools/call",
+        "params": {"name": "brain_graph", "arguments": {"note": "Kickoff.md"}},
+    }])
+    text = resp["result"]["content"][0]["text"]
+    assert "—up→" in text and "(explicit)" in text
+    assert resp["result"]["isError"] is False
+
+
 def test_brain_graph_tool_unknown_note_errors(vault):
     (resp,) = _exchange(vault, [{
         "jsonrpc": "2.0", "id": 31, "method": "tools/call",

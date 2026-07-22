@@ -185,7 +185,7 @@ def _tool_graph(vault: Path, args: dict) -> tuple[str, bool]:
         note = args.get("note", "")
         if not store.has_file(note):
             matches = sorted(rel for rel in store.files()
-                             if _stem(rel) == note.strip().lower())
+                             if _stem(rel) == _stem(note))
             if not matches:
                 return f"not in index: {note}", True
             note = matches[0]
