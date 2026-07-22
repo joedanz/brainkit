@@ -15,6 +15,10 @@ any frontmatter field.
 from __future__ import annotations
 
 import re
+from pathlib import Path, PurePosixPath
+
+from brain.promotions import _slug
+from brain.resolver import space_of_path
 
 
 class ClientError(ValueError):
@@ -33,3 +37,57 @@ def normalize_client_name(name: str) -> str:
     if collapsed in (".", "..") or collapsed.startswith("."):
         raise ClientError(f"unsafe client name {name!r}")
     return collapsed
+
+
+CLIENT_REQUESTS_REL = "People/{person_id}/ClientRequests"
+
+
+def request_client(
+    root: Path,
+    person_id: str,
+    client_name: str,
+    body: str,
+    created: str,
+    source: str = "",
+) -> str:
+    """Write a client-creation request into the person's own space; return its
+    vault-relative path. `root` may be a compiled slice — write-back carries it
+    to master, where materialize_clients provisions the Clients/<Name> space."""
+    name = normalize_client_name(client_name)
+    for field, value in (("source", source), ("created", created)):
+        if "\n" in value or "\r" in value:
+            raise ClientError(f"{field} must be a single line")
+    if not body.strip():
+        raise ClientError("empty client request — nothing to capture")
+
+    req_rel = CLIENT_REQUESTS_REL.format(person_id=person_id)
+    ancestor = root
+    for part in PurePosixPath(req_rel).parts:
+        ancestor = ancestor / part
+        if ancestor.is_symlink():
+            raise ClientError(f"{req_rel} contains a symlink — refusing to write")
+
+    dir_ = root / req_rel
+    base = _slug(name) or "client"
+    fname = f"{created}-{base}.md"
+    n = 2
+    while (dir_ / fname).exists() or (dir_ / fname).is_symlink():
+        fname = f"{created}-{base}-{n}.md"
+        n += 1
+    rel_path = f"{req_rel}/{fname}"
+    if space_of_path(rel_path) != f"People/{person_id}":
+        raise ClientError(f"refusing to write outside {req_rel}")
+
+    dest = root / rel_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        "---\n"
+        f"client-name: {name}\n"
+        f"owner: {person_id}\n"
+        "entity: client\n"
+        f"source: {source}\n"
+        f"created: {created}\n"
+        "---\n"
+        f"{body}"
+    )
+    return rel_path
