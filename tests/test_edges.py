@@ -1,7 +1,8 @@
 """Typed-edge extraction, mining, inverses, and traversal (see edges.py)."""
 
 from brain.edges import (
-    INVERSE, RELATION_KEYS, W_EXPLICIT, W_MINED, explicit_edges,
+    INVERSE, RELATION_KEYS, W_EXPLICIT, W_MINED, date_edges, entity_edges,
+    explicit_edges, folder_edges, note_date,
 )
 
 
@@ -38,3 +39,39 @@ def test_explicit_edges_skip_self_and_empty_values():
     meta = {"up": "[[Me]]", "next": "", "prev": "no wikilink here"}
     resolve = _resolve({"Me": "Company/Me.md"})
     assert explicit_edges("Company/Me.md", meta, resolve) == []
+
+
+def test_note_date_filename_wins_over_frontmatter():
+    assert note_date("Inbox/2026-07-21-standup.md", {"date": "2025-01-01"}) == "2026-07-21"
+    assert note_date("Inbox/standup.md", {"date": "2026-07-21T09:00"}) == "2026-07-21"
+    assert note_date("Inbox/standup.md", {"captured": "2026-07-20"}) == "2026-07-20"
+    assert note_date("Inbox/standup.md", {}) is None
+    assert note_date("Inbox/standup.md", {"date": "July 21"}) is None
+
+
+def test_folder_edges_index_note_convention():
+    files = ["Clients/Acme/Acme.md", "Clients/Acme/Kickoff.md",
+             "Clients/Acme/Notes.md", "Clients/Beta/Kickoff.md", "Top.md"]
+    assert folder_edges(files) == [
+        ("Clients/Acme/Kickoff.md", "Clients/Acme/Acme.md", "up", "folder", 0.5),
+        ("Clients/Acme/Notes.md", "Clients/Acme/Acme.md", "up", "folder", 0.5),
+    ]  # Beta has no index note; the index note itself and root files get nothing
+
+
+def test_date_edges_chain_per_folder_sorted():
+    dated = {
+        "Inbox/2026-07-22-b.md": "2026-07-22",
+        "Inbox/2026-07-20-a.md": "2026-07-20",
+        "Other/2026-07-21-x.md": "2026-07-21",  # different folder: own chain
+    }
+    assert date_edges(dated) == [
+        ("Inbox/2026-07-20-a.md", "Inbox/2026-07-22-b.md", "next", "date", 0.5),
+    ]
+
+
+def test_entity_edges_pairwise_canonical():
+    entities = [("Clients/Beta.md", "client"), ("Clients/Acme.md", "client"),
+                ("People/Jo.md", "person"), ("Notes/x.md", "")]
+    assert entity_edges(entities) == [
+        ("Clients/Acme.md", "Clients/Beta.md", "same", "entity", 0.5),
+    ]  # singleton and empty-type groups produce nothing
