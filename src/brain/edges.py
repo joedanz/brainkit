@@ -96,6 +96,48 @@ def date_edges(dated: dict[str, str]) -> list[Edge]:
     return edges
 
 
+def with_inverses(edges: list[Edge]) -> list[Edge]:
+    """Every edge plus its mirror (INVERSE[rel], provenance "inverse", the
+    twin's weight). Mirrors are always inverse-provenance regardless of what
+    produced the original — that is what lets retrieval skip them wholesale
+    without double-counting. Mirrors colliding on (src, dst, rel) keep the
+    highest weight."""
+    mirrors: dict[tuple[str, str, str], float] = {}
+    for src, dst, rel, _prov, weight in edges:
+        key = (dst, src, INVERSE[rel])
+        mirrors[key] = max(mirrors.get(key, 0.0), weight)
+    return list(edges) + [
+        (src, dst, rel, "inverse", weight)
+        for (src, dst, rel), weight in sorted(mirrors.items())
+    ]
+
+
+def rebuild_edges(vault: Path, store, resolve: Resolver) -> int:
+    """Wholesale-rebuild the index's edges table from its files: explicit
+    frontmatter relations, mined structure, and all mirrors. Returns the
+    number of rows written."""
+    from brain.frontmatter import split_frontmatter
+
+    files = sorted(store.files())
+    explicit: list[Edge] = []
+    dated: dict[str, str] = {}
+    for rel in files:
+        try:
+            text = (Path(vault) / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        meta, _body = split_frontmatter(text)
+        explicit += explicit_edges(rel, meta, resolve)
+        day = note_date(rel, meta)
+        if day:
+            dated[rel] = day
+    mined = (folder_edges(files) + date_edges(dated)
+             + entity_edges([(rel, etype) for rel, etype, _a in store.entities()]))
+    rows = with_inverses(explicit + mined)
+    store.replace_edges(rows)
+    return len(rows)
+
+
 def entity_edges(entities: Iterable[tuple[str, str]]) -> list[Edge]:
     """`same` between pages sharing an entity type, canonical direction
     a < b. Groups are expected small (a handful of pages per type)."""

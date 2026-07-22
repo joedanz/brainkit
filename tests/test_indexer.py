@@ -306,3 +306,31 @@ def test_alias_collision_resolves_deterministically(master, tmp_path):
     shutil.rmtree(vault / ".brain")
     second = _resolved()
     assert second == first
+
+
+def test_build_index_populates_typed_edges(master, tmp_path):
+    (master / "Company/Projects").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Projects/Projects.md").write_text("# Projects\n")
+    (master / "Company/Projects/Alpha.md").write_text(
+        "---\nup: [[Beta]]\n---\n# Alpha\n")
+    (master / "Company/Projects/Beta.md").write_text(
+        "---\nentity: project\n---\n# Beta\n")
+    (master / "Company/Projects/Gamma.md").write_text(
+        "---\nentity: project\n---\n# Gamma\n")
+
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    s = IndexStore.open_readonly(vault / ".brain" / "index.db", want_vectors=False)
+    rows = set(s.conn.execute(
+        "SELECT src_rel_path, dst_rel_path, rel, provenance FROM edges").fetchall())
+    assert ("Company/Projects/Alpha.md", "Company/Projects/Beta.md",
+            "up", "explicit") in rows
+    assert ("Company/Projects/Beta.md", "Company/Projects/Alpha.md",
+            "down", "inverse") in rows
+    assert ("Company/Projects/Alpha.md", "Company/Projects/Projects.md",
+            "up", "folder") in rows
+    assert ("Company/Projects/Beta.md", "Company/Projects/Gamma.md",
+            "same", "entity") in rows
+    s.close()
