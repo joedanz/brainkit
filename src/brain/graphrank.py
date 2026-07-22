@@ -15,6 +15,9 @@ let an isolated seed hoard mass and outrank better-connected notes.
 
 from __future__ import annotations
 
+import re
+
+from brain.compiler import _stem
 from brain.store import IndexStore
 
 _ALPHA = 0.85
@@ -75,3 +78,42 @@ def ppr(
     ranked = [(n, sc) for n, sc in p.items() if sc > 0.0]
     ranked.sort(key=lambda kv: (-kv[1], kv[0]))
     return ranked
+
+
+def extract_seeds(
+    query: str,
+    store: IndexStore,
+    *,
+    center: str | None = None,
+    text_hit_files: tuple[str, ...] | list[str] = (),
+) -> dict[str, float]:
+    """Deterministic seed vector for PPR: entity names, aliases, and file
+    stems matched in the query at weight 1.0 (word-boundary, longest match
+    claims overlapping spans), `center` at 1.0, text-hit files at 0.5.
+
+    Stems win over aliases on the same term, mirroring the indexer's link
+    resolution; all candidate orders are sorted so ties are deterministic.
+    """
+    terms: dict[str, str] = {}
+    for rel in sorted(store.files()):
+        terms.setdefault(_stem(rel), rel)
+    for alias, rel in sorted(store.alias_map().items()):
+        terms.setdefault(alias, rel)
+
+    q = query.lower()
+    seeds: dict[str, float] = {}
+    claimed: list[tuple[int, int]] = []
+    for term in sorted(terms, key=lambda t: (-len(t), t)):
+        if not term:
+            continue
+        for m in re.finditer(rf"(?<!\w){re.escape(term)}(?!\w)", q):
+            span = (m.start(), m.end())
+            if any(s0 < span[1] and span[0] < e0 for s0, e0 in claimed):
+                continue
+            claimed.append(span)
+            seeds[terms[term]] = 1.0
+    if center is not None:
+        seeds[center] = 1.0
+    for rel in text_hit_files:
+        seeds.setdefault(rel, 0.5)
+    return seeds
