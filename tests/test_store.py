@@ -204,6 +204,10 @@ def test_fact_copairs_and_first_chunk(tmp_path):
                                       heading_path="", pos=pos, text=text)
     fact = Fact(line=3, statement="Sarah is the contact", from_date="2026-01",
                 until_date=None, sources=[], targets=[])
+    # A closed fact (superseded, until_date set) on the same page co-mentioning
+    # the same pair — closed facts contribute equally; duplicates are edge weight.
+    closed_fact = Fact(line=5, statement="Sarah was the contact", from_date="2025-06",
+                        until_date="2026-06", sources=[], targets=[])
     # Acme's page carries one fact co-mentioning Sarah and Deal.
     store.add_file("Company/Acme.md", "sha1", "Company",
                    [mk("Company/Acme.md", 0, "acme intro"),
@@ -211,13 +215,16 @@ def test_fact_copairs_and_first_chunk(tmp_path):
                    ["cs1", "cs2"], None,
                    entity=("client", ["ACME"]),
                    facts=[(fact, ["Company/Acme.md", "Company/Sarah.md",
-                                  "Company/Deal.md"])])
+                                  "Company/Deal.md"]),
+                          (closed_fact, ["Company/Acme.md", "Company/Sarah.md",
+                                         "Company/Deal.md"])])
     store.add_file("Company/Sarah.md", "sha2", "Company",
                    [mk("Company/Sarah.md", 0, "sarah")], ["cs3"], None)
     # Deal.md is a fact target but NOT in files — its pairs must be excluded.
 
     pairs = sorted(store.fact_copairs())
-    assert pairs == [("Company/Acme.md", "Company/Sarah.md")]
+    assert pairs == [("Company/Acme.md", "Company/Sarah.md"),
+                      ("Company/Acme.md", "Company/Sarah.md")]
 
     cid = store.first_chunk("Company/Acme.md")
     row = store.chunk(cid)

@@ -86,8 +86,9 @@ def _seed_store(tmp_path):
 
 def test_seeds_word_boundary_and_case(tmp_path):
     store = _seed_store(tmp_path)
-    # "acme" (alias, case-insensitive) seeds Acme.md; "ace" must NOT match
-    # inside the word "acme" (word boundary), and "acme" must not seed Ace.md.
+    # "ACME" matches the "ACME" alias case-insensitively, anchored to word
+    # boundaries within the query text; Ace.md has no registered alias here,
+    # so "Ace" as a separate stem doesn't fire and only Acme.md is seeded.
     seeds = extract_seeds("what's the latest ACME news?", store)
     assert seeds == {"Company/Intel/Acme.md": 1.0}
     store.close()

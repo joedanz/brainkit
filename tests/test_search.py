@@ -50,6 +50,10 @@ def test_keyword_only_when_no_provider(indexed_alice):
     # hits are still present, not that every hit came from keyword.
     assert any("keyword" in h.sources for h in report.hits)
     assert report.hits
+    # Positive lock: this fixture deterministically has the graph leg
+    # introduce Home's non-matching neighbor (Big Deal Decision) as a
+    # graph-only hit — not just "keyword survives," but "graph adds."
+    assert any(h.sources == ["graph"] for h in report.hits)
 
 
 def test_keyword_only_flag_forces_no_vectors(indexed_alice):
