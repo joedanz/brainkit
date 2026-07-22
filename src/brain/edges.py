@@ -138,6 +138,67 @@ def rebuild_edges(vault: Path, store, resolve: Resolver) -> int:
     return len(rows)
 
 
+def traverse(
+    store,
+    start: str,
+    rels: list[str] | None = None,
+    direction: str = "both",
+    depth: int = 1,
+    node_cap: int = 200,
+) -> tuple[list[list[tuple[str, str, str, str]]], bool]:
+    """Breadth-first walk over typed edges from `start`. Returns (hops,
+    truncated): one list per hop of (src, rel, dst, provenance) rows, in
+    deterministic order. `direction` reads provenance: "out" follows only
+    declared edges (provenance != "inverse"), "in" only mirrors — relations
+    declared elsewhere that point here — and "both" follows all. The walk
+    stops expanding new nodes once `node_cap` distinct notes are seen."""
+    want = set(rels) if rels else set(RELATION_KEYS)
+    seen = {start}
+    frontier = [start]
+    hops: list[list[tuple[str, str, str, str]]] = []
+    truncated = False
+    for _ in range(depth):
+        level: list[tuple[str, str, str, str]] = []
+        nxt: list[str] = []
+        for src in frontier:
+            for dst, rel, prov, _w in store.edges_from(src):
+                if rel not in want:
+                    continue
+                if direction == "out" and prov == "inverse":
+                    continue
+                if direction == "in" and prov != "inverse":
+                    continue
+                level.append((src, rel, dst, prov))
+                if dst in seen:
+                    continue
+                if len(seen) >= node_cap:
+                    truncated = True
+                    continue
+                seen.add(dst)
+                nxt.append(dst)
+        if not level:
+            break
+        hops.append(level)
+        frontier = nxt
+    return hops, truncated
+
+
+def format_traversal(start: str, hops: list, truncated: bool) -> str:
+    """Human- and agent-readable rendering: every edge shows its relation and
+    why it exists (provenance)."""
+    total = sum(len(level) for level in hops)
+    lines = [f"{start} — {total} edge(s) within {len(hops)} hop(s):"]
+    if not hops:
+        lines.append("no typed edges")
+    for i, level in enumerate(hops, 1):
+        lines.append(f"hop {i}:")
+        lines.extend(f"  {src} —{rel}→ {dst}  ({prov})"
+                     for src, rel, dst, prov in level)
+    if truncated:
+        lines.append("(node cap reached — narrow rels, lower depth, or start closer)")
+    return "\n".join(lines)
+
+
 def entity_edges(entities: Iterable[tuple[str, str]]) -> list[Edge]:
     """`same` between pages sharing an entity type, canonical direction
     a < b. Groups are expected small (a handful of pages per type)."""

@@ -3,7 +3,7 @@
 Hand-rolled JSON-RPC 2.0 over newline-delimited stdio — five message types
 (initialize, initialized, ping, tools/list, tools/call). The official mcp SDK
 would pull pydantic/anyio/httpx into a package whose only runtime dep is pyyaml
-(+ sqlite-vec); this is five read-only tools and a read loop. `serve()` takes
+(+ sqlite-vec); this is six read-only tools and a read loop. `serve()` takes
 injectable streams so it is unit-testable in-process.
 
 It runs on the employee's device against their own vault clone, so it inherits
@@ -58,6 +58,32 @@ _TOOLS = [
             "type": "object",
             "properties": {"rel_path": {"type": "string"}},
             "required": ["rel_path"],
+        },
+    },
+    {
+        "name": "brain_graph",
+        "description": "Walk a note's typed relationships (up, down, same, prev, "
+                       "next). Edges come from frontmatter relations, their "
+                       "automatic inverses, and structure mined from folders, "
+                       "date sequences, and shared entity types — every edge is "
+                       "labeled with why it exists. Examples: rels=['up'] walks "
+                       "toward parents; rels=['prev','next'] walks a sequence.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "note": {"type": "string",
+                         "description": "note rel path, or a filename stem"},
+                "rels": {"type": "array",
+                         "items": {"type": "string",
+                                   "enum": ["up", "down", "same", "prev", "next"]},
+                         "description": "relations to follow (default: all five)"},
+                "direction": {"type": "string", "enum": ["out", "in", "both"],
+                              "description": "out: declared here; in: declared "
+                                             "elsewhere pointing here; default both"},
+                "depth": {"type": "integer",
+                          "description": "hops to walk (default 1, max 5)"},
+            },
+            "required": ["note"],
         },
     },
     {
@@ -148,6 +174,37 @@ def _tool_links(vault: Path, args: dict) -> tuple[str, bool]:
     return "\n".join(lines), False
 
 
+def _tool_graph(vault: Path, args: dict) -> tuple[str, bool]:
+    from brain.compiler import _stem
+    from brain.edges import RELATION_KEYS, format_traversal, traverse
+
+    store = _open_index(vault)
+    if store is None:
+        return f"no index at {vault / '.brain' / 'index.db'} — run: brain index", True
+    try:
+        note = args.get("note", "")
+        if not store.has_file(note):
+            matches = sorted(rel for rel in store.files()
+                             if _stem(rel) == note.strip().lower())
+            if not matches:
+                return f"not in index: {note}", True
+            note = matches[0]
+        rels = args.get("rels") or None
+        bad = sorted(set(rels or []) - set(RELATION_KEYS))
+        if bad:
+            return (f"unknown relation(s): {', '.join(bad)} — "
+                    f"valid: {', '.join(RELATION_KEYS)}", True)
+        direction = args.get("direction") or "both"
+        if direction not in ("out", "in", "both"):
+            return "direction must be out, in, or both", True
+        depth = max(1, min(int(args.get("depth", 1)), 5))
+        hops, truncated = traverse(store, note, rels=rels,
+                                   direction=direction, depth=depth)
+    finally:
+        store.close()
+    return format_traversal(note, hops, truncated), False
+
+
 def _tool_facts(vault: Path, args: dict) -> tuple[str, bool]:
     from brain.facts import query_facts, query_facts_at
 
@@ -232,6 +289,8 @@ def _handle(vault: Path, provider, msg: dict):
             text, is_err = _tool_read(vault, args)
         elif name == "brain_links":
             text, is_err = _tool_links(vault, args)
+        elif name == "brain_graph":
+            text, is_err = _tool_graph(vault, args)
         elif name == "brain_recent":
             text, is_err = _tool_recent(vault, args)
         elif name == "brain_facts":

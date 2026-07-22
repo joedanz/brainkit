@@ -134,3 +134,56 @@ def test_edges_rebuild_is_deterministic(master, tmp_path):
     build_index(vault, provider=None, cache=None)  # second run, nothing changed
     second = _rows()
     assert first == second
+
+
+from brain.edges import format_traversal, traverse
+
+
+def _traversal_store(tmp_path):
+    from brain.store import IndexStore
+    store = IndexStore.open(tmp_path / "t.db", want_vectors=False)
+    for rel in ["kickoff.md", "acme.md", "clients.md", "sibling.md"]:
+        store.add_file(rel, "sha", "Company", [], [], None)
+    store.replace_edges([
+        ("kickoff.md", "acme.md", "up", "folder", 0.5),
+        ("acme.md", "kickoff.md", "down", "inverse", 0.5),
+        ("acme.md", "clients.md", "up", "explicit", 2.0),
+        ("clients.md", "acme.md", "down", "inverse", 2.0),
+        ("kickoff.md", "sibling.md", "same", "entity", 0.5),
+        ("sibling.md", "kickoff.md", "same", "inverse", 0.5),
+    ])
+    return store
+
+
+def test_traverse_walks_up_two_hops(tmp_path):
+    store = _traversal_store(tmp_path)
+    hops, truncated = traverse(store, "kickoff.md", rels=["up"], depth=3)
+    assert not truncated
+    assert hops == [
+        [("kickoff.md", "up", "acme.md", "folder")],
+        [("acme.md", "up", "clients.md", "explicit")],
+    ]  # depth 3 requested, walk ends when no new up-edges remain
+    store.close()
+
+
+def test_traverse_direction_in_follows_only_mirrors(tmp_path):
+    store = _traversal_store(tmp_path)
+    hops, _ = traverse(store, "acme.md", direction="in", depth=1)
+    assert hops == [[("acme.md", "down", "kickoff.md", "inverse")]]
+    store.close()
+
+
+def test_traverse_node_cap_truncates(tmp_path):
+    store = _traversal_store(tmp_path)
+    hops, truncated = traverse(store, "kickoff.md", depth=2, node_cap=2)
+    assert truncated  # kickoff + acme fill the cap; sibling/clients cut
+    store.close()
+
+
+def test_format_traversal_labels_provenance(tmp_path):
+    store = _traversal_store(tmp_path)
+    hops, truncated = traverse(store, "kickoff.md", rels=["up"], depth=2)
+    text = format_traversal("kickoff.md", hops, truncated)
+    assert "kickoff.md —up→ acme.md  (folder)" in text
+    assert text.startswith("kickoff.md — 2 edge(s) within 2 hop(s):")
+    store.close()

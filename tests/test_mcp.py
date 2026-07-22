@@ -39,7 +39,8 @@ def test_initialize_handshake(vault):
 def test_tools_list_schema(vault):
     (resp,) = _exchange(vault, [{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
     names = {t["name"] for t in resp["result"]["tools"]}
-    assert names == {"brain_search", "brain_read", "brain_links", "brain_recent", "brain_facts"}
+    assert names == {"brain_search", "brain_read", "brain_links", "brain_graph",
+                      "brain_recent", "brain_facts"}
     search = next(t for t in resp["result"]["tools"] if t["name"] == "brain_search")
     assert search["inputSchema"]["required"] == ["query"]
     assert "center" in search["inputSchema"]["properties"]
@@ -114,7 +115,8 @@ def test_subprocess_smoke(vault):
     lines = [json.loads(x) for x in proc.stdout.splitlines() if x.strip()]
     assert lines[0]["result"]["serverInfo"]["name"] == "brainkit"
     assert {t["name"] for t in lines[1]["result"]["tools"]} == {
-        "brain_search", "brain_read", "brain_links", "brain_recent", "brain_facts"}
+        "brain_search", "brain_read", "brain_links", "brain_graph",
+        "brain_recent", "brain_facts"}
 
 
 def test_tools_call_search_with_center(vault):
@@ -241,3 +243,36 @@ def test_tools_call_facts_survives_pre_v3_index(master, tmp_path):
     text = resp["result"]["content"][0]["text"]
     assert "no facts" in text
     assert "index predates" in text
+
+
+def test_brain_graph_tool_lists_typed_edges(master, tmp_path):
+    # The base `vault` fixture has no explicit relation frontmatter, so build
+    # a small vault here with a note declaring `up: [[Home]]`.
+    (master / "Company/Projects").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Projects/Kickoff.md").write_text(
+        "---\nup: [[Home]]\n---\n# Kickoff\n")
+    v = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, v)
+    build_index(v, provider=FakeEmbeddingProvider(), cache=None)
+
+    (resp,) = _exchange(v, [{
+        "jsonrpc": "2.0", "id": 30, "method": "tools/call",
+        "params": {"name": "brain_graph",
+                   "arguments": {"note": "Company/Projects/Kickoff.md"}},
+    }])
+    text = resp["result"]["content"][0]["text"]
+    assert "—up→" in text and "(explicit)" in text
+    assert resp["result"]["isError"] is False
+
+
+def test_brain_graph_tool_unknown_note_errors(vault):
+    (resp,) = _exchange(vault, [{
+        "jsonrpc": "2.0", "id": 31, "method": "tools/call",
+        "params": {"name": "brain_graph", "arguments": {"note": "nope.md"}},
+    }])
+    assert resp["result"]["isError"] is True
+
+
+def test_brain_graph_listed_in_tools(vault):
+    (resp,) = _exchange(vault, [{"jsonrpc": "2.0", "id": 32, "method": "tools/list"}])
+    assert "brain_graph" in [t["name"] for t in resp["result"]["tools"]]
