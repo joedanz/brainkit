@@ -179,12 +179,14 @@ Claude Desktop) can search the vault as a tool:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes five read-only tools: `brain_search` (hybrid search with keyword,
+It exposes six read-only tools: `brain_search` (hybrid search with keyword,
 vector, and graph legs; optional center note as a strong seed for graph-proximity
 ranking), `brain_read` (a path-scoped
 file read that refuses symlinks, vault escapes, and anything outside a
 readable space), `brain_links` (a note's backlinks and outgoing wikilinks),
-`brain_recent` (recently changed notes, from the vault's git history), and
-`brain_facts` (time-stamped fact lines — current, as-of, or believed-on a
-date). See the [CLI reference](/reference/cli) for `brain index`,
-`brain search`, `brain facts`, and `brain mcp`.
+`brain_graph` (a note's typed relations — `up`, `down`, `same`, `prev`,
+`next` — each edge labeled with why it exists), `brain_recent` (recently
+changed notes, from the vault's git history), and `brain_facts`
+(time-stamped fact lines — current, as-of, or believed-on a date). See the
+[CLI reference](/reference/cli) for `brain index`, `brain search`,
+`brain graph`, `brain facts`, and `brain mcp`.

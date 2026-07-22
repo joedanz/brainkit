@@ -251,7 +251,7 @@ Register it once with a client — for Claude Code:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes five read-only tools: `brain_search` (hybrid search, with an optional `center` note for graph-aware ranking), `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space), `brain_links` (a note's backlinks and outgoing wikilinks), `brain_recent` (recently changed notes, from the vault's git history), and `brain_facts` (time-stamped fact lines, current, as-of, or believed-on a date). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
+It exposes six read-only tools: `brain_search` (hybrid search, with an optional `center` note for graph-aware ranking), `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space), `brain_links` (a note's backlinks and outgoing wikilinks), `brain_graph` (a note's typed relations, each edge labeled with why it exists), `brain_recent` (recently changed notes, from the vault's git history), and `brain_facts` (time-stamped fact lines, current, as-of, or believed-on a date). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
 
 ## `brain doctor`
 
