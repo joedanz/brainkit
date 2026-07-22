@@ -245,6 +245,10 @@ def patch_diff(master: Path, promo: Promotion) -> str | None:
     shows the reviewer exactly what changes at the moment of decision. None
     for non-patch modes and for a missing target (approval fails closed on
     that anyway)."""
+    try:
+        _validate_target(promo.target_path)
+    except PromotionError:
+        return None
     if promo.mode != "patch":
         return None
     target = master / promo.target_path

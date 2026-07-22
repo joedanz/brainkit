@@ -665,3 +665,15 @@ def test_sweep_queues_append_draft_without_target(master: Path):
     d.parent.mkdir(parents=True, exist_ok=True)
     d.write_text("---\ntarget-path: Company/Intel/Later.md\nmode: append\n---\nbody\n")
     assert len(sweep(master, today="2026-07-21")) == 1
+
+
+def test_patch_diff_refuses_tampered_target(master: Path, tmp_path: Path):
+    from brain.promotions import Promotion, patch_diff
+    outside = tmp_path / "secret.md"
+    outside.write_text("secret\n")
+    promo = Promotion(
+        id="x", person_id="bob", target_path="../secret.md",
+        source="s", created="2026-07-21", body="b",
+        mode="patch", base_hash="h",
+    )
+    assert patch_diff(master, promo) is None
