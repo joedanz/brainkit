@@ -29,6 +29,7 @@ def test_ppr_path_multiplicity_beats_single_path():
 
 def test_ppr_deterministic_under_insertion_order():
     edges = [("A", "B"), ("B", "C"), ("C", "D"), ("A", "D"), ("B", "D")]
+    seed_items = [("A", 1.0), ("C", 0.5)]
     results = []
     for seed in (0, 1, 2):
         rng = random.Random(seed)
@@ -38,7 +39,11 @@ def test_ppr_deterministic_under_insertion_order():
         for a, b in shuffled:
             adj.setdefault(a, {})[b] = 1.0
             adj.setdefault(b, {})[a] = 1.0
-        results.append(ppr(adj, {"A": 1.0, "C": 0.5}))
+        # Also shuffle the seeds dict insertion order
+        seed_shuffled = seed_items[:]
+        rng.shuffle(seed_shuffled)
+        seeds = {n: w for n, w in seed_shuffled}
+        results.append(ppr(adj, seeds))
     assert results[0] == results[1] == results[2]  # bit-identical
 
 

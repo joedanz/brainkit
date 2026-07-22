@@ -53,8 +53,8 @@ def ppr(
     nonzero scores only, ties broken by path for determinism."""
     if not seeds:
         return []
-    total = sum(seeds.values())
-    s = {n: w / total for n, w in seeds.items()}
+    total = sum(w for _, w in sorted(seeds.items()))
+    s = {n: w / total for n, w in sorted(seeds.items())}
     nodes = sorted(set(adj) | set(s))
     p = {n: s.get(n, 0.0) for n in nodes}
     for _ in range(max_iter):
