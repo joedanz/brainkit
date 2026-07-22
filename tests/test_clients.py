@@ -1,10 +1,19 @@
+import subprocess
+
 import pytest
 from pathlib import Path
 
-from brain.clients import ClientError, normalize_client_name, request_client, append_client_grant
+from brain.clients import (
+    ClientError,
+    ClientProvision,
+    normalize_client_name,
+    request_client,
+    append_client_grant,
+    materialize_clients,
+)
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path, can_read, can_write_path
-from brain.schemas import Person, load_spaces
+from brain.schemas import Org, Person, load_spaces
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -88,3 +97,43 @@ def test_append_grant_rejects_injecting_owner_id(tmp_path: Path):
         append_client_grant(sp, "Injected Client", 'x"], "read": ["everyone')
     # nothing was appended — file is unchanged, so no world-readable rule leaked
     assert sp.read_text() == _BASE_SPACES
+
+
+def _git_init(master: Path) -> None:
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-m", "seed"], check=True, capture_output=True)
+
+
+def _master_with_request(tmp_path: Path) -> Path:
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    (master / "Clients").mkdir()
+    request_client(master, "joe", "Danziger Family",
+                   "Members: Mikey (football), Roslyn (basketball). [[JCC Maccabi Games 2026]]\n",
+                   "2026-07-22", source="People/joe/Inbox/chat.md")
+    _git_init(master)
+    return master
+
+
+def test_materialize_creates_space_grant_note_and_log(tmp_path: Path):
+    master = _master_with_request(tmp_path)
+    org = Org(people={"joe": Person(id="joe", name="Joe Danziger", roles=(), teams=())})
+
+    result = materialize_clients(master, org, today="2026-07-22")
+
+    assert result == [ClientProvision("Danziger Family", "joe", "created")]
+    note = master / "Clients/Danziger Family/Danziger Family.md"
+    assert note.exists()
+    meta, body = split_frontmatter(note.read_text())
+    assert meta["entity"] == "client" and meta["owner"] == "joe"
+    assert "Mikey" in body
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    joe = org.people["joe"]
+    assert can_write_path("Clients/Danziger Family/x.md", joe, rules)
+    log = (master / "_meta/clients/created.log").read_text()
+    assert "Danziger Family" in log and "joe" in log
+    # request artifact consumed
+    assert not list((master / "People/joe/ClientRequests").glob("*.md"))

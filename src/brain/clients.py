@@ -15,11 +15,13 @@ any frontmatter field.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from brain.promotions import _slug
-from brain.resolver import space_of_path
-from brain.schemas import load_spaces
+from brain.frontmatter import split_frontmatter
+from brain.promotions import _commit, _slug
+from brain.resolver import can_write_path, space_of_path
+from brain.schemas import Org, load_spaces
 
 
 class ClientError(ValueError):
@@ -116,3 +118,78 @@ def append_client_grant(spaces_path: Path, client_name: str, owner_id: str) -> b
         text += "\n"
     spaces_path.write_text(text + line)
     return True
+
+
+@dataclass(frozen=True)
+class ClientProvision:
+    name: str
+    owner: str
+    status: str  # "created" | "merged" | "rejected"
+    reason: str = ""
+
+
+def _created_log(master: Path) -> Path:
+    return master / "_meta/clients/created.log"
+
+
+def _seed_note(body: str, owner: str, source: str, date: str) -> str:
+    return (
+        "---\n"
+        "entity: client\n"
+        f"created-by: {owner}\n"
+        f"owner: {owner}\n"
+        f"source: {source}\n"
+        f"date: {date}\n"
+        "---\n"
+        f"{body}"
+    )
+
+
+def materialize_clients(master: Path, org: Org, today: str) -> list[ClientProvision]:
+    """Provision one Clients/<Name> space per pending request, server-side.
+
+    The authoritative owner is the <pid> segment of the request path (writeback
+    already gated that write). Runs inside brain cycle, after writeback and
+    before the rules reload + compile so a freshly granted space appears this
+    cycle.
+    """
+    results: list[ClientProvision] = []
+    for req in sorted(master.glob("People/*/ClientRequests/*.md")):
+        if req.is_symlink():
+            continue
+        rel = req.relative_to(master)
+        person_id = rel.parts[1]
+        meta, body = split_frontmatter(req.read_text())
+        if not meta:
+            continue
+        try:
+            name = normalize_client_name(meta.get("client-name", ""))
+        except ClientError:
+            continue  # malformed request left in place for inspection
+        source = meta.get("source", str(rel))
+        person = org.people.get(person_id)
+        name_id = person.name if person else person_id
+
+        space = f"Clients/{name}"
+        note_rel = f"{space}/{name}.md"
+        note = master / note_rel
+
+        # create branch (Task 5 inserts merge/reject/validation before this)
+        note.parent.mkdir(parents=True, exist_ok=True)
+        note.write_text(_seed_note(body, person_id, source, today))
+        append_client_grant(master / "_meta/spaces.yaml", name, person_id)
+        log = _created_log(master)
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a") as fh:
+            fh.write(f"{today}\t{person_id}\t{name}\t{req.stem}\n")
+        req.unlink()
+        _commit(
+            master,
+            [note_rel, "_meta/spaces.yaml",
+             _created_log(master).relative_to(master).as_posix(),
+             rel.as_posix()],
+            f"clients: create {space} for {person_id}",
+            name_id, f"{person_id}@brain.local",
+        )
+        results.append(ClientProvision(name, person_id, "created"))
+    return results
