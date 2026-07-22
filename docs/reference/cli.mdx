@@ -198,6 +198,25 @@ brain search "<query>" --vault <vault> [--k 8] [--keyword-only] [--center <rel-p
 
 Each hit carries the file path, heading path, a highlighted snippet, a fused score, and which legs matched. A missing index exits `1` with the exact `brain index` command to build it.
 
+## `brain graph`
+
+Walk a note's typed relations in a compiled vault. Shows the neighborhood up
+to `--depth` hops, each edge labeled with its relation (`up`, `down`, `same`,
+`prev`, `next`) and why it exists (declared in frontmatter, an automatic
+inverse, or mined from folders, dates, or shared entity types).
+
+```bash
+brain graph "Clients/Acme/Kickoff.md" --vault out/joe --rel up --depth 3
+```
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `note` | yes | Rel path, or a filename stem (positional). |
+| `--vault` | yes | Compiled vault root. |
+| `--rel` | no | Relation to follow, repeatable (default: all five). |
+| `--direction` | no | `out` (declared on this note), `in` (declared elsewhere, pointing here), or `both` (default). |
+| `--depth` | no | Hops to walk. Default `1`, max `5`. |
+
 ## `brain facts`
 
 Query time-stamped fact lines — current, as-of a date, or believed-on a date — bullets carrying a `[from:: date]` (and optionally `[until:: date]`, `[source:: …]`) — from a compiled vault. See [Facts and time](/concepts/retrieval#facts-and-time) for the grammar and the current/as-of/believed-on distinction.
@@ -253,7 +272,7 @@ Findings carry one of three severities:
 | Severity | Meaning | Examples |
 |---|---|---|
 | `error` | An invariant is broken. Exits `1`. | Malformed `org.yaml`/`spaces.yaml`, an unknown `person:` in a rule, a symlink in the master, a crashed-compile tombstone, an unreadable manifest, or `_meta/` leaked into a compiled vault. |
-| `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, a space **readable by no one** (its rule resolves to zero readers — e.g. a folder named `Teams/Sales` when the team id is `sales`, or a departed person's `People/` folder — so its notes compile into no vault), a `.md` sitting loose under `Teams/`/`People/`/`Clients/` (in no space, so compiled into no vault), a **cross-space reference** (a wikilink) or **plain-text mention** (a restricted space's name in shared prose) whose name is visible to readers who can't see its home space, a promotion draft the sweep will silently skip (a target path it can't validate, an unrecognized `mode`, or a `mode: patch` draft whose target is a symlink or doesn't exist), or a `Company/Intel/` page that's fallen out of the wiki's conventions — its newest `as of`/`captured` citation over 12 months old, no dated citation at all (`Home.md` exempt), or a lingering `<Name> — updates YYYY-MM.md` addendum never folded back in. |
+| `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, a space **readable by no one** (its rule resolves to zero readers — e.g. a folder named `Teams/Sales` when the team id is `sales`, or a departed person's `People/` folder — so its notes compile into no vault), a `.md` sitting loose under `Teams/`/`People/`/`Clients/` (in no space, so compiled into no vault), a **cross-space reference** (a wikilink) or **plain-text mention** (a restricted space's name in shared prose) whose name is visible to readers who can't see its home space, a promotion draft the sweep will silently skip (a target path it can't validate, an unrecognized `mode`, or a `mode: patch` draft whose target is a symlink or doesn't exist), or a `Company/Intel/` page that's fallen out of the wiki's conventions — its newest `as of`/`captured` citation over 12 months old, no dated citation at all (`Home.md` exempt), or a lingering `<Name> — updates YYYY-MM.md` addendum never folded back in, or a note with no links, typed relations, or facts connecting it to anything (`unlinked-notes`) — invisible to the graph leg of retrieval until someone links it (notes under an `Inbox/` folder are exempt). |
 | `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval. |
 
 Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into CI or a pre-cron gate. Run it after setup and on a schedule.
