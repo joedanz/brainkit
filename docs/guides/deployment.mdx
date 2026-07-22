@@ -54,6 +54,13 @@ The mechanical half of that server-side loop is a single command on a schedule:
 [`brain cycle`](/reference/cli#brain-cycle) runs write-back → promotion sweep → recompile in the one order that's safe; a rejected write-back exits nonzero without halting the refresh. The `--index` flag also refreshes each vault's [search index](/concepts/retrieval) — worth it when agents run server-side (container mounts) rather than on employee devices; an index failure only warns, it never fails the cycle. [`brain doctor`](/reference/cli#brain-doctor) is the read-only health check — point it at both the master and the compiled root so it can catch a `_meta/` leak or a crashed-compile tombstone before anyone syncs.
 
 <Callout type="info">
+  A server that holds the master needs a backup story too — the master vault is
+  the one thing nothing can rebuild. [Backups & Restore](/guides/backup-restore)
+  covers what to protect, the encrypted-offsite scripts in `deploy/`, and the
+  restore drill for each failure.
+</Callout>
+
+<Callout type="info">
   Server-side indexing needs an [embedding provider](/reference/configuration#embeddings)
   in the cron environment, and its cache lives at `_meta/cache/` so a chunk
   shared across people embeds once. If no provider is set, `--index` still
