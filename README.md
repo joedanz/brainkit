@@ -109,7 +109,7 @@ The repo ships the documented [two-box reference deployment](docs/guides/referen
 
 - A **brain box** holds the master vault and everyone's compiled copies, served over SSH with a restricted, single-purpose key.
 - An **agents box** runs one Docker container per person, each mounting *only* that person's vault. The mount is the boundary — an agent physically cannot read a colleague's notes.
-- Per-person backups, supervised sync, and health checks are included as scripts in [`deploy/`](deploy/), not left as an exercise.
+- **Encrypted offsite backups**, per-person agent snapshots, supervised sync, and health checks are included as scripts in [`deploy/`](deploy/), not left as an exercise. What gets protected and how each failure recovers: [What survives](https://claude.ai/code/artifact/47825f67-2621-478b-b7ba-d181e6a17f93), or the full [Backups & Restore](docs/guides/backup-restore.mdx) guide.
 
 Start smaller if you like: a single machine and a cron job is a complete, working setup.
 
@@ -184,6 +184,7 @@ Flags and exit codes: [CLI reference](docs/reference/cli.mdx).
 - [Getting things in](docs/guides/getting-things-in.mdx) — email, chat, voice, webhooks, and uploads
 - [A brain of one](docs/guides/personal-brain.mdx) — run it solo as a personal brain
 - [Reference deployment](docs/guides/reference-deployment.mdx) — the secure two-box setup
+- [Backups & Restore](docs/guides/backup-restore.mdx) — encrypted offsite, and the restore drill for every failure
 - [Configuration](docs/reference/configuration.mdx) — `org.yaml` and `spaces.yaml`
 
 ## Contributing
