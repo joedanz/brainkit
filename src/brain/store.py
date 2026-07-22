@@ -24,7 +24,7 @@ import sqlite_vec
 
 from brain.chunker import Chunk
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS fact_entities (
     target_rel_path TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS fact_entities_by_target ON fact_entities(target_rel_path);
+CREATE TABLE IF NOT EXISTS edges (
+    src_rel_path TEXT NOT NULL,
+    dst_rel_path TEXT NOT NULL,
+    rel          TEXT NOT NULL,
+    provenance   TEXT NOT NULL,
+    weight       REAL NOT NULL,
+    PRIMARY KEY (src_rel_path, dst_rel_path, rel, provenance)
+);
+CREATE INDEX IF NOT EXISTS edges_by_src ON edges(src_rel_path);
 """
 
 
@@ -308,6 +317,30 @@ class IndexStore:
             "JOIN files fb ON fb.rel_path = b.target_rel_path"
         ).fetchall()
 
+    def typed_edge_pairs(self) -> list[tuple[str, str, float]]:
+        """Non-inverse typed edges as (src, dst, weight) — the PPR
+        contribution. Inverse rows are mirrors of these; counting both would
+        double every pair. Both ends must exist in `files` (same guard as
+        link_pairs)."""
+        return self.conn.execute(
+            "SELECT e.src_rel_path, e.dst_rel_path, e.weight FROM edges e "
+            "JOIN files fa ON fa.rel_path = e.src_rel_path "
+            "JOIN files fb ON fb.rel_path = e.dst_rel_path "
+            "WHERE e.provenance != 'inverse' "
+            "ORDER BY e.src_rel_path, e.dst_rel_path, e.rel"
+        ).fetchall()
+
+    def edges_from(self, rel_path: str) -> list[tuple[str, str, str, float]]:
+        """Typed edges out of `rel_path` as (dst, rel, provenance, weight),
+        sorted for deterministic traversal. Mirrors (provenance='inverse')
+        are included — they are how relations declared elsewhere appear
+        from this side."""
+        return self.conn.execute(
+            "SELECT dst_rel_path, rel, provenance, weight FROM edges "
+            "WHERE src_rel_path = ? ORDER BY rel, dst_rel_path, provenance",
+            (rel_path,),
+        ).fetchall()
+
     def first_chunk(self, rel_path: str) -> int | None:
         """Id of the file's first chunk (lowest pos) — the representative
         chunk for graph-leg hits on files the text legs never surfaced."""
@@ -343,6 +376,18 @@ class IndexStore:
     def set_meta(self, key: str, value: str) -> None:
         self.conn.execute(
             "INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)", (key, value)
+        )
+        self.conn.commit()
+
+    def replace_edges(self, rows: list[tuple[str, str, str, str, float]]) -> None:
+        """Wholesale-replace the typed edge set — rebuilt every index run
+        (cheap derived data; sidesteps cross-file incremental invalidation)."""
+        self.conn.execute("DELETE FROM edges")
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO edges"
+            "(src_rel_path, dst_rel_path, rel, provenance, weight) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
         )
         self.conn.commit()
 
