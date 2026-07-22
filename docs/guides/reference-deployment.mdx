@@ -162,7 +162,9 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     option. Ubuntu LTS, key-only SSH, unattended-upgrades. Then connect them
     with [whichever transport fits](#choosing-the-transport) and open no other
     inbound ports. (One documented exception exists: opting into webhook
-    intake, below, adds a single TLS-fronted public port on the brain box.)
+    intake, below, adds at most a single TLS-fronted public port on the brain
+    box — and zero when the receiver sits behind an edge-terminated tunnel;
+    see the two fronting patterns below.)
 
     ```bash
     # e.g. with Tailscale, on both boxes:
@@ -216,6 +218,44 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     [`deploy/brain-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/brain-box):
     `brain-webhook.service` (systemd, secrets from an `EnvironmentFile`) and
     `Caddyfile.webhook` (TLS, exposes only `/hook/*` and `/healthz`).
+
+    **Fronting the receiver — two TLS patterns.** `Caddyfile.webhook` assumes
+    the box terminates its own TLS: DNS points at the box's public IP, Caddy
+    binds 80/443 and manages certificates. That's pattern A. If the box
+    instead sits behind edge-terminated TLS — a CDN in front, with an
+    outbound-only tunnel connector (Cloudflare Tunnel or similar) delivering
+    traffic to a loopback listener — that's pattern B, and the box keeps
+    **zero** inbound ports.
+
+    | | Inbound ports | Choose it when |
+    | --- | --- | --- |
+    | **A — Caddy terminates TLS** (`Caddyfile.webhook` as shipped) | One (443) | The box has a public IP and DNS points straight at it. No third party in the intake path. |
+    | **B — TLS ends at a CDN edge** | Zero — the connector only dials out | You already front the box with a tunnel (say, for dashboards) and the hooks hostname can ride it. Trade: the CDN vendor becomes part of your intake path. |
+
+    Under pattern B, don't install `Caddyfile.webhook` — it would bind public
+    ports and manage certificates the edge already owns. Route the hostname
+    through what's already running instead:
+
+    ```yaml
+    # tunnel ingress (e.g. cloudflared config.yml) — before the catch-all rule
+    - hostname: hooks-team.example.com
+      service: http://127.0.0.1:8080   # the existing loopback listener
+    ```
+
+    ```text
+    # inside the existing host-routed Caddy site block
+    @hooks host hooks-team.example.com
+    handle @hooks {
+        reverse_proxy 127.0.0.1:8766
+    }
+    ```
+
+    Two edges worth knowing either way: never put `basic_auth` (or any
+    browser-login gate) on `/hook/*` — sources authenticate themselves with
+    HMAC signatures or bearer tokens, and a password prompt only breaks
+    machine senders. And free universal certificates at most CDN edges cover
+    a single subdomain level, so `hooks-team.example.com` gets a certificate
+    where `hooks.team.example.com` needs a paid tier.
 
     Go in eyes open: outside providers can't reach your private network, so
     this is the one place the brain box gains a public HTTPS surface. The receiver
