@@ -56,7 +56,7 @@ async def test_graph_and_search(aiohttp_client, master, tmp_path):
     assert graph["nodes"]
 
     res = await (await client.get("/api/search", params={"q": "pipeline"})).json()
-    assert res["mode"] == "keyword-only"
+    assert res["mode"] == "keyword-only+graph"
     assert any("Pipeline" in h["rel_path"] for h in res["hits"])
 
 
@@ -73,11 +73,13 @@ async def test_search_center_graph_rerank(aiohttp_client, master, tmp_path):
     assert not centered["warnings"]
 
     # A center the lens cannot see is indistinguishable from pure fiction:
-    # same warning, no +graph, no leak of whether it exists in master.
+    # same warning, no leak of whether it exists in master. Text hits still
+    # seed the graph leg regardless, so mode keeps +graph either way — the
+    # property that survives is the warning, not the mode suffix.
     for absent in ("People/bob/Memory.md", "Nowhere/Ghost.md"):
         res = await (await client.get(
             "/api/search", params={"q": "pipeline", "center": absent})).json()
-        assert res["mode"] == "keyword-only"
+        assert res["mode"] == "keyword-only+graph"
         assert res["warnings"] == [f"center note not in index: {absent}"]
 
 
@@ -328,7 +330,7 @@ async def test_input_clamps(aiohttp_client, master, tmp_path):
     client = await aiohttp_client(_vault_app(_vault(master, tmp_path)))
     # a negative k must not truncate to a single result via a broken break
     res = await (await client.get("/api/search", params={"q": "pipeline", "k": "-5"})).json()
-    assert res["mode"] == "keyword-only"  # still ran; clamp kept k >= 1
+    assert res["mode"] == "keyword-only+graph"  # still ran; clamp kept k >= 1
     # cap=0 falls back to the default, not the max
     graph = await (await client.get("/api/graph", params={"cap": "0"})).json()
     assert "nodes" in graph

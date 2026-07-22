@@ -5,12 +5,13 @@ combines their *rankings*, so a chunk that both legs surface outranks one only a
 single leg found. When vectors are unavailable (no provider, or sqlite-vec
 didn't load) search runs keyword-only and says so, rather than returning empty.
 
-An optional `center` note adds a third, graph-proximity signal: candidates
-whose file sits d wikilink-hops from the center get `1/(c + d + 1)` added to
-their fused score — the RRF formula with hop distance playing the role of
-rank, so proximity needs no weight knob and cannot drown out both text legs.
-Only notes already surfaced by keyword/vector search are boosted; the graph
-never introduces candidates on its own.
+A third, graph leg runs whenever the query yields PPR seeds (entity/alias/stem
+matches, the top text hits, or an explicit `center` note): personalized
+PageRank over the wikilink + fact-co-mention graph ranks files, whose
+representative chunks join the fusion as one more ranking — same RRF
+treatment, no weight knob. Unlike the old BFS center boost, the graph leg may
+*introduce* candidates the text legs missed; such hits carry sources ==
+["graph"] so a non-textual match is visibly attributed.
 """
 
 from __future__ import annotations
@@ -19,12 +20,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from brain.embeddings import EmbeddingProvider, pack_vector
+from brain.graphrank import build_graph, extract_seeds, ppr
 from brain.store import IndexStore
 
 _LEG_DEPTH = 50
 _MAX_PER_FILE = 2
 _RRF_C = 60
-_GRAPH_DEPTH = 3
+_PPR_LEG = 20   # PPR files entering the fusion
+_SEED_HITS = 5  # top text-fused chunks whose files become weak seeds
 
 
 @dataclass
@@ -52,28 +55,6 @@ def rrf(rankings: list[list[int]], *, c: int = _RRF_C) -> dict[int, float]:
         for pos, cid in enumerate(leg):
             scores[cid] = scores.get(cid, 0.0) + 1.0 / (c + pos + 1)
     return scores
-
-
-def _hop_distances(store: IndexStore, center: str, max_depth: int) -> dict[str, int]:
-    """BFS hop distance from `center` over the resolved wikilink graph,
-    undirected (a backlink is as good a signal of relatedness as a link)."""
-    adj: dict[str, set[str]] = {}
-    for src, tgt in store.link_pairs():
-        adj.setdefault(src, set()).add(tgt)
-        adj.setdefault(tgt, set()).add(src)
-    dist = {center: 0}
-    frontier = [center]
-    for d in range(1, max_depth + 1):
-        nxt: list[str] = []
-        for node in frontier:
-            for nb in adj.get(node, ()):
-                if nb not in dist:
-                    dist[nb] = d
-                    nxt.append(nb)
-        if not nxt:
-            break
-        frontier = nxt
-    return dist
 
 
 def search_index(
@@ -111,24 +92,54 @@ def search_index(
         vec_rank = [cid for cid, _ in store.knn(qvec, _LEG_DEPTH)]
 
     legs = [fts_rank, vec_rank] if use_vectors else [fts_rank]
-    fused = rrf(legs)
+    text_fused = rrf(legs)
     fts_set, vec_set = set(fts_rank), set(vec_rank)
 
-    distances: dict[str, int] | None = None
-    if center is not None:
-        if store.has_file(center):
-            distances = _hop_distances(store, center, _GRAPH_DEPTH)
-        else:
-            warnings.append(f"center note not in index: {center}")
-
     rows: dict[int, tuple[str, str, str, int, str]] = {}
-    for cid in list(fused):
+    for cid in list(text_fused):
         row = store.chunk(cid)
-        if row is None:
-            continue
-        rows[cid] = row
-        if distances is not None and row[0] in distances:
-            fused[cid] += 1.0 / (_RRF_C + distances[row[0]] + 1)
+        if row is not None:
+            rows[cid] = row
+    text_order = [cid for cid, _ in
+                  sorted(text_fused.items(), key=lambda kv: (-kv[1], kv[0]))
+                  if cid in rows]
+
+    if center is not None and not store.has_file(center):
+        warnings.append(f"center note not in index: {center}")
+        center = None
+
+    # Graph leg: PPR from deterministic seeds; may introduce new candidates.
+    seed_files: list[str] = []
+    for cid in text_order[:_SEED_HITS]:
+        rel = rows[cid][0]
+        if rel not in seed_files:
+            seed_files.append(rel)
+    seeds = extract_seeds(query, store, center=center, text_hit_files=seed_files)
+
+    graph_rank: list[int] = []
+    if seeds:
+        ranked = ppr(build_graph(store), seeds)
+        best_for_file: dict[str, int] = {}
+        for cid in text_order:
+            best_for_file.setdefault(rows[cid][0], cid)
+        for rel, _score in ranked[:_PPR_LEG]:
+            # representative chunk: the file's best text candidate if the
+            # text legs saw it, else its first chunk (a note's opening is
+            # its best blind summary)
+            cid = best_for_file.get(rel)
+            if cid is None:
+                cid = store.first_chunk(rel)
+            if cid is not None and cid not in graph_rank:
+                graph_rank.append(cid)
+        legs.append(graph_rank)
+        for cid in graph_rank:
+            if cid not in rows:
+                row = store.chunk(cid)
+                if row is not None:
+                    rows[cid] = row
+
+    fused = rrf(legs)
+    graph_set = set(graph_rank)
 
     hits: list[Hit] = []
     per_file: dict[str, int] = {}
@@ -145,7 +156,7 @@ def search_index(
         sources = [s for s, hit in (
             ("keyword", cid in fts_set),
             ("vector", cid in vec_set),
-            ("graph", distances is not None and rel in distances),
+            ("graph", cid in graph_set),
         ) if hit]
         hits.append(Hit(rel, space, heading_path, snippet, round(score, 6), sources))
         if len(hits) >= k:
@@ -153,7 +164,7 @@ def search_index(
 
     store.close()
     mode = ("hybrid" if use_vectors else "keyword-only") + \
-        ("+graph" if distances is not None else "")
+        ("+graph" if seeds else "")
     return SearchReport(query=query, mode=mode, hits=hits, warnings=warnings)
 
 

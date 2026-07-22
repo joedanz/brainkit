@@ -95,7 +95,7 @@ def test_cli_index_and_search_hybrid_over_http(master, tmp_path, hybrid_env, cap
     # search fuses both legs; a hit is corroborated by the vector leg
     assert main(["search", "pipeline", "--vault", str(vault), "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["mode"] == "hybrid"
+    assert result["mode"] == "hybrid+graph"
     assert any("vector" in h["sources"] for h in result["hits"])
 
 
