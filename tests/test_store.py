@@ -194,3 +194,33 @@ def test_schema_v3_fact_tables_roundtrip(tmp_path):
     assert s.entities() == [] and s.fact_rows() == []
     assert s.conn.execute("SELECT count(*) FROM fact_entities").fetchone()[0] == 0
     s.close()
+
+
+def test_fact_copairs_and_first_chunk(tmp_path):
+    from brain.facts import Fact
+
+    store = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    mk = lambda rel, pos, text: Chunk(rel_path=rel, space="Company",
+                                      heading_path="", pos=pos, text=text)
+    fact = Fact(line=3, statement="Sarah is the contact", from_date="2026-01",
+                until_date=None, sources=[], targets=[])
+    # Acme's page carries one fact co-mentioning Sarah and Deal.
+    store.add_file("Company/Acme.md", "sha1", "Company",
+                   [mk("Company/Acme.md", 0, "acme intro"),
+                    mk("Company/Acme.md", 1, "acme more")],
+                   ["cs1", "cs2"], None,
+                   entity=("client", ["ACME"]),
+                   facts=[(fact, ["Company/Acme.md", "Company/Sarah.md",
+                                  "Company/Deal.md"])])
+    store.add_file("Company/Sarah.md", "sha2", "Company",
+                   [mk("Company/Sarah.md", 0, "sarah")], ["cs3"], None)
+    # Deal.md is a fact target but NOT in files — its pairs must be excluded.
+
+    pairs = sorted(store.fact_copairs())
+    assert pairs == [("Company/Acme.md", "Company/Sarah.md")]
+
+    cid = store.first_chunk("Company/Acme.md")
+    row = store.chunk(cid)
+    assert row is not None and row[3] == 0  # pos 0
+    assert store.first_chunk("Company/Nope.md") is None
+    store.close()

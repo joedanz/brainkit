@@ -296,6 +296,27 @@ class IndexStore:
                                      (rel_path,)).fetchall()
         return self.conn.execute(q + " ORDER BY rel_path, line").fetchall()
 
+    def fact_copairs(self) -> list[tuple[str, str]]:
+        """Unordered pairs of entity targets co-mentioned by the same fact,
+        one row per (fact, pair) — repeats across facts are the edge weight.
+        Both ends must exist in `files` (same guard as link_pairs)."""
+        return self.conn.execute(
+            "SELECT a.target_rel_path, b.target_rel_path "
+            "FROM fact_entities a JOIN fact_entities b "
+            "ON a.fact_id = b.fact_id AND a.target_rel_path < b.target_rel_path "
+            "JOIN files fa ON fa.rel_path = a.target_rel_path "
+            "JOIN files fb ON fb.rel_path = b.target_rel_path"
+        ).fetchall()
+
+    def first_chunk(self, rel_path: str) -> int | None:
+        """Id of the file's first chunk (lowest pos) — the representative
+        chunk for graph-leg hits on files the text legs never surfaced."""
+        row = self.conn.execute(
+            "SELECT id FROM chunks WHERE rel_path = ? ORDER BY pos LIMIT 1",
+            (rel_path,),
+        ).fetchone()
+        return int(row[0]) if row else None
+
     def chunk(self, chunk_id: int) -> tuple[str, str, str, int, str] | None:
         return self.conn.execute(
             "SELECT rel_path, space, heading_path, pos, text FROM chunks WHERE id = ?",
