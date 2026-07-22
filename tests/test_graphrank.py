@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from brain.graphrank import extract_seeds, ppr
+from brain.graphrank import build_graph, extract_seeds, ppr
 from brain.store import IndexStore
 
 ALPHA = 0.85
@@ -68,6 +68,38 @@ def test_ppr_zero_score_nodes_excluded():
 
 def test_ppr_empty_seeds_returns_empty():
     assert ppr({"A": {"B": 1.0}, "B": {"A": 1.0}}, {}) == []
+
+
+def test_build_graph_edges_weights_and_no_self_loops(tmp_path):
+    from brain.chunker import Chunk
+    from brain.facts import Fact
+
+    store = IndexStore.open(tmp_path / "index.db", want_vectors=False)
+    mk = lambda rel: [Chunk(rel_path=rel, space="Company", heading_path="",
+                            pos=0, text="body")]
+    fact = lambda line, targets: (Fact(line=line, statement="s",
+                                       from_date="2026-01-01", until_date=None,
+                                       sources=[], targets=[]), targets)
+    # A wikilinks B, itself, and a note missing from the vault; A's facts
+    # co-mention (A,B) once, (B,C) twice, and C with itself.
+    store.add_file("A.md", "s1", "Company", mk("A.md"), ["c1"], None,
+                   links=[("B.md", 1), ("A.md", 1), ("Missing.md", 0)],
+                   facts=[fact(1, ["A.md", "B.md"]),
+                          fact(2, ["B.md", "C.md"]),
+                          fact(3, ["B.md", "C.md"]),
+                          fact(4, ["C.md", "C.md"])])
+    store.add_file("B.md", "s2", "Company", mk("B.md"), ["c2"], None)
+    store.add_file("C.md", "s3", "Company", mk("C.md"), ["c3"], None)
+    adj = build_graph(store)
+    store.close()
+
+    # link + fact co-mention on the same pair sum; undirected both ways
+    assert adj["A.md"]["B.md"] == 2.0 and adj["B.md"]["A.md"] == 2.0
+    # co-mention counts accumulate across facts
+    assert adj["B.md"]["C.md"] == 2.0 and adj["C.md"]["B.md"] == 2.0
+    # self-link, self-co-mention, and missing-target link produce no edges
+    assert all(node not in row for node, row in adj.items())
+    assert "Missing.md" not in adj and "Missing.md" not in adj["A.md"]
 
 
 def _seed_store(tmp_path):
