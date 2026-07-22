@@ -82,7 +82,10 @@ def cmd_promotions(args) -> int:
                     diff = patch_diff(master, p)
                     if p.mode == "patch" and diff is None:
                         print("(target missing — cannot diff; approval will fail closed)\n")
-                    print(diff if diff else p.body)
+                    if diff is not None:
+                        print(diff or "(no changes — proposed page is identical to the current one)")
+                    else:
+                        print(p.body)
                     break
             else:
                 print(f"no pending promotion {args.id!r}", file=sys.stderr)

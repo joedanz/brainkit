@@ -355,3 +355,28 @@ def test_run_doctor_includes_intel_check(master):
     seed_meta(master)
     _intel(master, "Old — updates 2025-01.md", "x\n")
     assert any(f.check == "intel" for f in run_doctor(master))
+
+
+def test_doctor_flags_unknown_mode_draft(master):
+    seed_meta(master)
+    d = master / "People/bob/Promotions/odd.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/X.md\nmode: rewrite\n---\nbody\n")
+    findings = run_doctor(master)
+    assert any(f.check == "promotions" and f.severity == "warn"
+               and "sweep will never move it" in f.message for f in findings)
+
+
+def test_doctor_flags_symlinked_patch_target(master, tmp_path):
+    seed_meta(master)
+    outside = tmp_path / "outside.md"
+    outside.write_text("x\n")
+    link = master / "Company/Intel/Link.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    d = master / "People/bob/Promotions/link.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Link.md\nmode: patch\n---\nbody\n")
+    findings = run_doctor(master)
+    assert any(f.check == "promotions" and "targets a symlink" in f.message
+               for f in findings)

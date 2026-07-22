@@ -19,7 +19,7 @@ import yaml
 
 from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
 from brain.frontmatter import split_frontmatter
-from brain.promotions import PromotionError, _parse, _pending_dir, _validate_target
+from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
 from brain.resolver import NESTED_TOPS, RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
 
@@ -344,10 +344,23 @@ def _check_promotions(master: Path) -> list[Finding]:
             findings.append(Finding(
                 "warn", "promotions", f"{rel}: sweep will never move it ({e})"))
             continue
-        if meta.get("mode") == "patch" and not (master / meta["target-path"]).is_file():
+        mode = meta.get("mode", "create")
+        try:
+            _validate_mode(mode)
+        except PromotionError as e:
             findings.append(Finding(
-                "warn", "promotions",
-                f"{rel}: patch draft targets a missing page — sweep will never queue it"))
+                "warn", "promotions", f"{rel}: sweep will never move it ({e})"))
+            continue
+        if mode == "patch":
+            t = master / meta["target-path"]
+            if t.is_symlink():
+                findings.append(Finding(
+                    "warn", "promotions",
+                    f"{rel}: patch draft targets a symlink — sweep will never queue it"))
+            elif not t.is_file():
+                findings.append(Finding(
+                    "warn", "promotions",
+                    f"{rel}: patch draft targets a missing page — sweep will never queue it"))
     return findings
 
 
