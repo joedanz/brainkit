@@ -220,3 +220,31 @@ def test_materialize_skips_malformed_pid_without_partial_writes(tmp_path: Path):
     assert all(p.status != "created" for p in result)
     assert not any(master.glob("Clients/*/*.md"))
     assert bad.exists()
+
+
+def test_materialize_unregistered_pid_collision_rejects_not_crashes(tmp_path: Path):
+    # joe owns "Danziger Family"; a request arrives from a valid-charset pid
+    # that is NOT in org.people (e.g. removed from org.yaml). It must be
+    # refused fail-closed, never crash the batch.
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    append_client_grant(master / "_meta/spaces.yaml", "Danziger Family", "joe")
+    note = master / "Clients/Danziger Family/Danziger Family.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("Joe's client.\n")
+    request_client(master, "ghost", "Danziger Family", "ghost tries to merge\n", "2026-07-22")
+    _git_init(master)
+    org = Org(people={"joe": Person(id="joe", name="Joe", roles=(), teams=())})  # no 'ghost'
+
+    result = materialize_clients(master, org, today="2026-07-22")  # must not raise
+
+    assert result and result[0].status == "rejected"
+    # no grant minted for ghost; joe's rule still the only Danziger rule
+    assert sum(r.path == "Clients/Danziger Family"
+               for r in load_spaces(master / "_meta/spaces.yaml")) == 1
+    # joe's note untouched; ghost got an inbox note that never names joe
+    assert note.read_text() == "Joe's client.\n"
+    inbox = list((master / "People/ghost/Inbox").glob("*.md"))
+    assert inbox and "joe" not in inbox[0].read_text().lower()
+    assert not list((master / "People/ghost/ClientRequests").glob("*.md"))  # consumed

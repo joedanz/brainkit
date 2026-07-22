@@ -206,7 +206,7 @@ def materialize_clients(master: Path, org: Org, today: str) -> list[ClientProvis
         exact = next((r for r in rules if r.path == space), None)
         folder = (master / space).is_dir()
 
-        if exact is not None and can_write_path(f"{space}/x.md", person, rules):
+        if exact is not None and person is not None and can_write_path(f"{space}/x.md", person, rules):
             # (2) already this owner's client -> merge, no new grant
             note.parent.mkdir(parents=True, exist_ok=True)
             current = note.read_text() if note.is_file() else ""
