@@ -322,24 +322,36 @@ class IndexStore:
         contribution. Inverse rows are mirrors of these; counting both would
         double every pair. Both ends must exist in `files` (same guard as
         link_pairs)."""
-        return self.conn.execute(
-            "SELECT e.src_rel_path, e.dst_rel_path, e.weight FROM edges e "
-            "JOIN files fa ON fa.rel_path = e.src_rel_path "
-            "JOIN files fb ON fb.rel_path = e.dst_rel_path "
-            "WHERE e.provenance != 'inverse' "
-            "ORDER BY e.src_rel_path, e.dst_rel_path, e.rel"
-        ).fetchall()
+        try:
+            return self.conn.execute(
+                "SELECT e.src_rel_path, e.dst_rel_path, e.weight FROM edges e "
+                "JOIN files fa ON fa.rel_path = e.src_rel_path "
+                "JOIN files fb ON fb.rel_path = e.dst_rel_path "
+                "WHERE e.provenance != 'inverse' "
+                "ORDER BY e.src_rel_path, e.dst_rel_path, e.rel"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # index predates schema v4 — the edges table doesn't exist yet
+            # (open_readonly deliberately skips DDL). Degrade to no typed
+            # edges rather than crash the graph leg of retrieval.
+            return []
 
     def edges_from(self, rel_path: str) -> list[tuple[str, str, str, float]]:
         """Typed edges out of `rel_path` as (dst, rel, provenance, weight),
         sorted for deterministic traversal. Mirrors (provenance='inverse')
         are included — they are how relations declared elsewhere appear
         from this side."""
-        return self.conn.execute(
-            "SELECT dst_rel_path, rel, provenance, weight FROM edges "
-            "WHERE src_rel_path = ? ORDER BY rel, dst_rel_path, provenance",
-            (rel_path,),
-        ).fetchall()
+        try:
+            return self.conn.execute(
+                "SELECT dst_rel_path, rel, provenance, weight FROM edges "
+                "WHERE src_rel_path = ? ORDER BY rel, dst_rel_path, provenance",
+                (rel_path,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # index predates schema v4 — the edges table doesn't exist yet
+            # (open_readonly deliberately skips DDL). Degrade to no typed
+            # edges rather than crash brain_graph / doctor traversal.
+            return []
 
     def first_chunk(self, rel_path: str) -> int | None:
         """Id of the file's first chunk (lowest pos) — the representative

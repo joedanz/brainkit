@@ -297,3 +297,83 @@ def test_brain_graph_tool_unknown_note_errors(vault):
 def test_brain_graph_listed_in_tools(vault):
     (resp,) = _exchange(vault, [{"jsonrpc": "2.0", "id": 32, "method": "tools/list"}])
     assert "brain_graph" in [t["name"] for t in resp["result"]["tools"]]
+
+
+def test_tools_call_graph_and_search_survive_pre_v4_index(vault):
+    """A vault indexed before schema v4 must not crash the serve() loop — the
+    edges table doesn't exist yet (open_readonly deliberately skips DDL), so
+    typed_edge_pairs()/edges_from() must degrade instead of propagating
+    sqlite3.OperationalError out of serve(). Covers both read paths that hit
+    the edges table: brain_graph directly, and brain_search's graph leg via
+    `center`."""
+    import sqlite3
+
+    conn = sqlite3.connect(vault / ".brain" / "index.db")
+    conn.execute("DROP TABLE edges")
+    conn.commit()
+    conn.close()
+
+    (search_resp, graph_resp, ping_resp) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 40, "method": "tools/call",
+         "params": {"name": "brain_search",
+                    "arguments": {"query": "pipeline", "center": "Company/Home.md"}}},
+        {"jsonrpc": "2.0", "id": 41, "method": "tools/call",
+         "params": {"name": "brain_graph",
+                    "arguments": {"note": "Company/Home.md"}}},
+        {"jsonrpc": "2.0", "id": 42, "method": "ping"},
+    ])
+    # Neither call raises out of serve(); each gets a normal (or graceful
+    # error) result, and the server is still alive to answer a later request.
+    assert "result" in search_resp
+    assert "result" in graph_resp
+    assert ping_resp == {"jsonrpc": "2.0", "id": 42, "result": {}}
+
+
+def test_tools_call_graph_bad_depth_does_not_crash_server(vault):
+    (resp1, resp2, ping) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 50, "method": "tools/call",
+         "params": {"name": "brain_graph",
+                    "arguments": {"note": "Company/Home.md", "depth": "deep"}}},
+        {"jsonrpc": "2.0", "id": 51, "method": "tools/call",
+         "params": {"name": "brain_graph",
+                    "arguments": {"note": "Company/Home.md", "depth": None}}},
+        {"jsonrpc": "2.0", "id": 52, "method": "ping"},
+    ])
+    # Invalid depth degrades to the default (1) rather than raising.
+    assert resp1["result"]["isError"] is False
+    assert resp2["result"]["isError"] is False
+    assert ping == {"jsonrpc": "2.0", "id": 52, "result": {}}
+
+
+def test_tools_call_graph_non_string_note_does_not_crash_server(vault):
+    (resp, ping) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 53, "method": "tools/call",
+         "params": {"name": "brain_graph", "arguments": {"note": 42}}},
+        {"jsonrpc": "2.0", "id": 54, "method": "ping"},
+    ])
+    assert resp["result"]["isError"] is True
+    assert ping == {"jsonrpc": "2.0", "id": 54, "result": {}}
+
+
+def test_tools_call_graph_bad_rels_reports_unknown_relations(vault):
+    (resp, ping) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 55, "method": "tools/call",
+         "params": {"name": "brain_graph",
+                    "arguments": {"note": "Company/Home.md", "rels": ["up", "sideways"]}}},
+        {"jsonrpc": "2.0", "id": 56, "method": "ping"},
+    ])
+    assert resp["result"]["isError"] is True
+    assert "unknown relation(s)" in resp["result"]["content"][0]["text"]
+    assert ping == {"jsonrpc": "2.0", "id": 56, "result": {}}
+
+
+def test_tools_call_graph_bad_direction_reports_message(vault):
+    (resp, ping) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 57, "method": "tools/call",
+         "params": {"name": "brain_graph",
+                    "arguments": {"note": "Company/Home.md", "direction": "up"}}},
+        {"jsonrpc": "2.0", "id": 58, "method": "ping"},
+    ])
+    assert resp["result"]["isError"] is True
+    assert "direction must be" in resp["result"]["content"][0]["text"]
+    assert ping == {"jsonrpc": "2.0", "id": 58, "result": {}}
