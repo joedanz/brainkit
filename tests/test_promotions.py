@@ -517,3 +517,47 @@ def test_promotions_still_work_without_git(master: Path):
                     source="s", body="n", promo_id="p-3", created="2026-07-07")
     target = approve(master, "p-3", approver="alice", date="2026-07-08")
     assert target.exists()
+
+
+def test_approve_append_adds_block_with_attribution(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/Portugal.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("# Portugal\nGolden visa ended. [src](https://x.y), as of 2026-01\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="People/bob/Notes/pt.md", body="New ferry route. [s](https://a.b), as of 2026-07\n",
+        promo_id="p-a1", created="2026-07-21", mode="append",
+    )
+    target = approve(master, "p-a1", approver="alice", date="2026-07-21")
+    text = target.read_text()
+    assert text.startswith("# Portugal\n")          # existing content intact
+    assert "\n\n---\n\n" in text                     # divider
+    assert "New ferry route." in text
+    assert "*Promoted by Bob Rivera, approved by Alice Nguyen, 2026-07-21" in text
+    assert "source: People/bob/Notes/pt.md*" in text
+
+
+def test_approve_append_requires_existing_target(master: Path):
+    _seed_org(master)
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Nowhere.md",
+        source="s", body="b", promo_id="p-a2", created="2026-07-21", mode="append",
+    )
+    with pytest.raises(PromotionError, match="does not exist"):
+        approve(master, "p-a2", approver="alice", date="2026-07-21")
+
+
+def test_approve_append_refuses_symlink_target(master: Path, tmp_path: Path):
+    _seed_org(master)
+    outside = tmp_path / "outside.md"
+    outside.write_text("secret\n")
+    link = master / "Company/Intel/Link.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Link.md",
+        source="s", body="b", promo_id="p-a3", created="2026-07-21", mode="append",
+    )
+    with pytest.raises(PromotionError, match="symlink"):
+        approve(master, "p-a3", approver="alice", date="2026-07-21")

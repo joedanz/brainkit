@@ -106,6 +106,18 @@ def _validate_mode(mode: str) -> None:
         )
 
 
+def _require_existing(target: Path, rel: str) -> None:
+    """append/patch update a page in place — a symlink would carry the write
+    outside master, and a missing page means the agent meant mode: create."""
+    if target.is_symlink():
+        raise PromotionError(f"target {rel!r} is a symlink — refusing to modify")
+    if not target.is_file():
+        raise PromotionError(
+            f"target {rel!r} does not exist — append/patch update an existing "
+            "page; use mode: create for new files"
+        )
+
+
 def draft_promotion(
     master: Path,
     person_id: str,
@@ -246,25 +258,40 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
     # hand-edited target can't escape the master root.
     _validate_target(promo.target_path)
     target = master / promo.target_path
-    # Promotions only ever add knowledge. An existing target means approval
-    # would replace a shared note wholesale — including curated files like
-    # Company/Memory.md, whose history is the whole point. Fail closed; the
-    # fix is to edit the pending file's target-path to a fresh filename.
-    if target.exists() or target.is_symlink():
-        raise PromotionError(
-            f"target {promo.target_path!r} already exists — promotions create new "
-            "files, never overwrite; edit the pending file's target-path and retry"
+    if promo.mode == "create":
+        # Promotions only ever add knowledge. An existing target means approval
+        # would replace a shared note wholesale — including curated files like
+        # Company/Memory.md, whose history is the whole point. Fail closed; the
+        # fix is to edit the pending file's target-path to a fresh filename.
+        if target.exists() or target.is_symlink():
+            raise PromotionError(
+                f"target {promo.target_path!r} already exists — promotions create new "
+                "files, never overwrite; edit the pending file's target-path and retry"
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "---\n"
+            f"promoted-by: {promo.person_id}\n"
+            f"approved-by: {approver}\n"
+            f"source: {promo.source}\n"
+            f"date: {date}\n"
+            "---\n"
+            f"{promo.body}"
         )
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        "---\n"
-        f"promoted-by: {promo.person_id}\n"
-        f"approved-by: {approver}\n"
-        f"source: {promo.source}\n"
-        f"date: {date}\n"
-        "---\n"
-        f"{promo.body}"
-    )
+    elif promo.mode == "append":
+        _require_existing(target, promo.target_path)
+        promoter = people.get(promo.person_id)
+        promoter_name = promoter.name if promoter else promo.person_id
+        current = target.read_text()
+        target.write_text(
+            current.rstrip("\n")
+            + "\n\n---\n\n"
+            + promo.body.strip()
+            + f"\n\n*Promoted by {promoter_name}, approved by "
+              f"{people[approver].name}, {date} — source: {promo.source}*\n"
+        )
+    else:
+        raise PromotionError(f"mode {promo.mode!r} not yet supported")
     archived = master / "_meta/promotions/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, promo_body = pending.read_text().split("---\n", 2)
