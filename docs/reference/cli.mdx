@@ -105,17 +105,28 @@ Every changed path is checked against the person's write permissions server-side
 Manage the [promotion queue](/concepts/promotions).
 
 ```bash
-brain promotions {list,sweep,approve,reject} [id] --master <master> [--approver <who>] [--reason <text>]
+brain promotions {list,show,sweep,approve,reject} [id] --master <master> [--approver <who>] [--reason <text>]
 ```
 
 | Action | Uses | Meaning |
 |---|---|---|
 | `list` | `--master` | Print pending promotions (`id`, from, target). |
-| `sweep` | `--master` | Pull agent drafts from `People/*/Promotions/` into the pending queue. |
+| `show <id>` | `--master` | Print a pending promotion's metadata (`mode`, target, source) and, for `mode: patch`, a live unified diff of the proposed body against the current target — computed at review time, not from the queued draft. |
+| `sweep` | `--master` | Pull agent drafts from `People/*/Promotions/` into the pending queue. For `mode: patch` drafts, stamps `base-hash` (a sha256 of the target file, taken at sweep time) into the queued promotion. |
 | `approve <id>` | `--master --approver` | Publish the promotion to its target space with provenance frontmatter. |
 | `reject <id>` | `--master --reason` | Move it to `rejected/` with the reason. |
 
-`approve` requires `--approver`, and it must be a person id from `_meta/org.yaml` — a blank or unknown name is refused, so the note's `approved-by` line always resolves to a real person. It also re-validates the target path at publish time, so a tampered pending file cannot write outside the master root or into a private space — and it refuses a target that already exists, so an approval can only ever add a new note, never overwrite one.
+`approve` requires `--approver`, and it must be a person id from `_meta/org.yaml` — a blank or unknown name is refused, so the note's `approved-by` line always resolves to a real person. It also re-validates the target path at publish time, so a tampered pending file cannot write outside the master root or into a private space.
+
+Every promotion carries a `mode`, chosen when the agent drafts it:
+
+| Mode | Target must | On approval |
+|---|---|---|
+| `create` (default) | not already exist | writes the whole note as a new file with provenance frontmatter |
+| `append` | already exist | adds the body under a `---` divider, with an italic attribution line naming who promoted and approved it |
+| `patch` | already exist, unchanged since sweep | replaces the file wholesale with the promotion's body (the complete revised page) |
+
+`create` and `append` fail closed on a target that doesn't meet their requirement — an approval can never silently create where it should update, or overwrite where it should add. `patch` fails closed if the target's sha256 no longer matches the `base-hash` stamped at sweep time: a hand edit, a bad merge, or another approval could have changed the page after this draft was queued, and re-checking at approval time (not draft time) is what catches it. Use `brain promotions show <id>` — or the dashboard's Promotions card — to review the live diff before approving a patch.
 
 Every queue decision is its own git commit, scoped to just the files it touched: `sweep` and `reject` commit as `Brain Promotions`, and `approve` commits under the approver's identity — so `git log` answers "who published this, and when" the same way it does for ingest and write-back.
 

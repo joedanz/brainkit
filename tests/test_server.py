@@ -276,6 +276,32 @@ async def test_reject_requires_reason(aiohttp_client, master, tmp_path):
     assert (await client.post(f"/api/promotions/{pid}/reject", json={}, headers=_LOCAL)).status == 400
 
 
+async def test_promotion_api_carries_mode_and_diff(aiohttp_client, master, tmp_path):
+    import hashlib
+    from brain.promotions import draft_promotion
+
+    app, _ = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+
+    page = master / "Company/Intel/Portugal.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("# Portugal\nOld claim.\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="s", body="# Portugal\nNew claim.\n", promo_id="p-d1",
+        created="2026-07-21", mode="patch",
+        base_hash=hashlib.sha256(page.read_bytes()).hexdigest(),
+    )
+    stats = await (await client.get("/api/stats")).json()
+    entry = next(p for p in stats["promotions_pending"] if p["id"] == "p-d1")
+    assert entry["mode"] == "patch"
+    full = await (await client.get("/api/promotion", params={"id": "p-d1"},
+                                   headers=_LOCAL)).json()
+    assert full["mode"] == "patch"
+    assert "-Old claim." in full["diff"]
+    assert "+New claim." in full["diff"]
+
+
 async def test_vault_lens_cannot_approve(aiohttp_client, master, tmp_path):
     client = await aiohttp_client(_vault_app(_vault(master, tmp_path)))
     assert (await client.post("/api/promotions/x/approve", json={}, headers=_LOCAL)).status == 403

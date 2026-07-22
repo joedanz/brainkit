@@ -26,11 +26,13 @@ flowchart LR
     The personal agent spots something promotable — a decision, a reusable client
     fact, an SOP, a lesson — and writes a **sanitized** note (only what is being
     shared) into its own writable space, `People/<you>/Promotions/`, with
-    frontmatter naming the `target-path` and the `source` note. The target must
-    be a **new** file in the shared space — decisions in `Company/Decisions/`,
-    standing processes in `Company/Playbook/` — never an existing note.
-    Promotions add knowledge; curated running files like `Company/Memory.md`
-    are maintained by the admin, not replaced by an approval.
+    frontmatter naming the `target-path`, the `source` note, and a `mode`:
+    `create` (default), `append`, or `patch` — see [modes](#three-modes)
+    below. New knowledge — decisions in `Company/Decisions/`, standing
+    processes in `Company/Playbook/` — uses the default `mode: create` and
+    targets a fresh file. Curated running files like `Company/Memory.md` stay
+    maintained by the admin; an agent updates an existing shared page only
+    through `append` or `patch`, never by targeting it with `create`.
 
     It writes there, not into `_meta/`, because a personal agent has no write
     access to `_meta/`. That is deliberate: the agent can *propose*, never
@@ -46,7 +48,9 @@ flowchart LR
 
     Malformed drafts are left in place for inspection; symlinked drafts are
     ignored entirely. What lands in `pending/` is a clean, provenance-stamped
-    candidate.
+    candidate. For a `mode: patch` draft, sweep also stamps `base-hash` — a
+    sha256 of the target file **as it stood at this moment** — into the
+    queued promotion; that hash is what approval re-checks before it writes.
   </Step>
 
   <Step title="Approve or reject">
@@ -71,7 +75,7 @@ flowchart LR
     history alongside every ingest and write-back, whether the decision came
     from the CLI or the dashboard.
 
-    The admin [`brain dashboard`](/reference/cli#brain-dashboard) exposes this same gate as a live surface: the **Promotions** tab renders each pending item with its destination, a warning naming exactly who will be able to read it, and its full body, with **Approve** / **Reject** (reason required) and **Sweep drafts** actions wired to these same primitives. You pick who you are from a dropdown of the org's people (remembered for next time) rather than typing a name, so approvals can't carry a typo. It never bypasses the human gate — it *is* the human gate, with a nicer view.
+    The admin [`brain dashboard`](/reference/cli#brain-dashboard) exposes this same gate as a live surface: the **Promotions** tab renders each pending item with its destination, a warning naming exactly who will be able to read it, a mode badge, and its full body — or, for a `patch`, a live diff against the current target — with **Approve** / **Reject** (reason required) and **Sweep drafts** actions wired to these same primitives. You pick who you are from a dropdown of the org's people (remembered for next time) rather than typing a name, so approvals can't carry a typo. It never bypasses the human gate — it *is* the human gate, with a nicer view.
   </Step>
 </Steps>
 
@@ -79,7 +83,19 @@ flowchart LR
 
 A pending file sits on disk between draft and approval, where a human edit, a bad merge, or a compromised process could tamper with its `target-path`. So `approve` re-validates the target at the moment it publishes — a hand-edited path that tries to escape the master root, or one that names a private space or a bare space root, is refused. Validation at draft time is not trusted to still hold at approve time.
 
-The same check refuses a target that **already exists**. An approval writes the whole note to the target path; if that path held a curated file, approving would silently replace it. Failing closed keeps promotions strictly additive — to resolve the conflict, edit the pending file's `target-path` to a fresh filename and approve again. This is exactly how the [`Company/Intel/` wiki](/guides/getting-things-in#articles-and-links-the-intel-wiki) updates an existing page: the agent promotes a dated addendum (`<Name> — updates YYYY-MM.md`) to a fresh path, and the approver folds it into the main page and deletes the addendum in the same commit.
+## Three modes
+
+The safety story isn't "strictly additive" anymore — it's **never destroys**. Each mode makes a different promise about the target, enforced at approval time:
+
+| Mode | Target must be | On mismatch |
+|---|---|---|
+| `create` (default) | absent | refused — an approval can never silently overwrite a curated file like `Company/Memory.md` |
+| `append` | present | refused if the target is missing — nothing to append to |
+| `patch` | present **and unchanged since sweep** | refused if the target's sha256 no longer matches the `base-hash` sweep stamped on it |
+
+`create` and `append` each refuse the one target state that would let them do damage — create can't overwrite, append can't invent a page from nothing. `patch` goes further because it replaces the whole file: at sweep time, `brain promotions sweep` hashes the target and stores that sha256 as `base-hash` on the queued promotion; at approval, `approve` re-hashes the live target and refuses to write if it no longer matches. This is deliberately honest about what the hash does and doesn't cover: it guards the pending→approve window (however long that queue sits), but a master edit landing between the agent drafting its patch and the sweep that stamps the hash isn't caught by it — the hash is taken from whatever the target looked like *at sweep time*, not when the agent read it. That's why approval is never just the hash check: `brain promotions show <id>` (and the dashboard's Promotions card) renders a live unified diff of the proposed body against the current target, computed fresh at review time, so the approver's own eyes are the second check.
+
+To resolve a `create` or `append` mismatch, edit the pending file's `target-path` (or its `mode`) and approve again. This is how the [`Company/Intel/` wiki](/guides/getting-things-in#articles-and-links-the-intel-wiki) updates an existing page: the agent promotes with `mode: append` for an additive note, or `mode: patch` carrying the complete revised page, instead of drafting a separate addendum file.
 
 The approver is checked the same way, at every layer: the core `approve` call, the dashboard's API, and the CLI all refuse a blank approver or one that isn't in the org roster. However an approval arrives, the `approved-by` line resolves to a real person.
 

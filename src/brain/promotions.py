@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -64,6 +66,8 @@ class Promotion:
     source: str
     created: str
     body: str
+    mode: str = "create"
+    base_hash: str = ""
 
 
 def _pending_dir(master: Path) -> Path:
@@ -93,6 +97,28 @@ def _validate_target(target_path: str) -> None:
         raise PromotionError(f"target {target_path!r} names a space root, not a file in it")
 
 
+_MODES = ("create", "append", "patch")
+
+
+def _validate_mode(mode: str) -> None:
+    if mode not in _MODES:
+        raise PromotionError(
+            f"unknown promotion mode {mode!r} — expected one of: {', '.join(_MODES)}"
+        )
+
+
+def _require_existing(target: Path, rel: str) -> None:
+    """append/patch update a page in place — a symlink would carry the write
+    outside master, and a missing page means the agent meant mode: create."""
+    if target.is_symlink():
+        raise PromotionError(f"target {rel!r} is a symlink — refusing to modify")
+    if not target.is_file():
+        raise PromotionError(
+            f"target {rel!r} does not exist — append/patch update an existing "
+            "page; use mode: create for new files"
+        )
+
+
 def draft_promotion(
     master: Path,
     person_id: str,
@@ -101,15 +127,23 @@ def draft_promotion(
     body: str,
     promo_id: str,
     created: str,
+    mode: str = "create",
+    base_hash: str = "",
 ) -> Path:
     _validate_target(target_path)
+    _validate_mode(mode)
+    if "\n" in base_hash or "\r" in base_hash:
+        raise PromotionError("base-hash must be a single line")
     dest = _pending_dir(master) / f"{promo_id}.md"
     dest.parent.mkdir(parents=True, exist_ok=True)
+    hash_line = f"base-hash: {base_hash}\n" if base_hash else ""
     dest.write_text(
         "---\n"
         f"promotion-id: {promo_id}\n"
         f"from: {person_id}\n"
         f"target-path: {target_path}\n"
+        f"mode: {mode}\n"
+        f"{hash_line}"
         f"source: {source}\n"
         f"created: {created}\n"
         "---\n"
@@ -177,6 +211,8 @@ def draft_into_space(
 
 def _parse(path: Path) -> Promotion:
     meta, body = split_frontmatter(path.read_text())
+    mode = meta.get("mode", "create")
+    _validate_mode(mode)
     return Promotion(
         id=meta["promotion-id"],
         person_id=meta["from"],
@@ -184,6 +220,8 @@ def _parse(path: Path) -> Promotion:
         source=meta["source"],
         created=meta["created"],
         body=body,
+        mode=mode,
+        base_hash=str(meta.get("base-hash", "")),
     )
 
 
@@ -198,6 +236,30 @@ def list_pending(master: Path) -> list[Promotion]:
         except (KeyError, ValueError):
             continue  # malformed file stays on disk for manual inspection
     return pending
+
+
+def patch_diff(master: Path, promo: Promotion) -> str | None:
+    """Live unified diff of a patch promotion against its current target.
+
+    Computed at review time on purpose: the hash guards the write, the diff
+    shows the reviewer exactly what changes at the moment of decision. None
+    for non-patch modes and for a missing target (approval fails closed on
+    that anyway)."""
+    try:
+        _validate_target(promo.target_path)
+    except PromotionError:
+        return None
+    if promo.mode != "patch":
+        return None
+    target = master / promo.target_path
+    if target.is_symlink() or not target.is_file():
+        return None
+    return "".join(difflib.unified_diff(
+        target.read_text().splitlines(keepends=True),
+        promo.body.splitlines(keepends=True),
+        fromfile=f"{promo.target_path} (current)",
+        tofile=f"{promo.target_path} (proposed)",
+    ))
 
 
 def _find_pending(master: Path, promo_id: str) -> Path:
@@ -221,25 +283,51 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
     # hand-edited target can't escape the master root.
     _validate_target(promo.target_path)
     target = master / promo.target_path
-    # Promotions only ever add knowledge. An existing target means approval
-    # would replace a shared note wholesale — including curated files like
-    # Company/Memory.md, whose history is the whole point. Fail closed; the
-    # fix is to edit the pending file's target-path to a fresh filename.
-    if target.exists() or target.is_symlink():
-        raise PromotionError(
-            f"target {promo.target_path!r} already exists — promotions create new "
-            "files, never overwrite; edit the pending file's target-path and retry"
+    if promo.mode == "create":
+        # Promotions only ever add knowledge. An existing target means approval
+        # would replace a shared note wholesale — including curated files like
+        # Company/Memory.md, whose history is the whole point. Fail closed; the
+        # fix is to edit the pending file's target-path to a fresh filename.
+        if target.exists() or target.is_symlink():
+            raise PromotionError(
+                f"target {promo.target_path!r} already exists — promotions create new "
+                "files, never overwrite; edit the pending file's target-path and retry"
+            )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "---\n"
+            f"promoted-by: {promo.person_id}\n"
+            f"approved-by: {approver}\n"
+            f"source: {promo.source}\n"
+            f"date: {date}\n"
+            "---\n"
+            f"{promo.body}"
         )
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        "---\n"
-        f"promoted-by: {promo.person_id}\n"
-        f"approved-by: {approver}\n"
-        f"source: {promo.source}\n"
-        f"date: {date}\n"
-        "---\n"
-        f"{promo.body}"
-    )
+    elif promo.mode == "append":
+        _require_existing(target, promo.target_path)
+        promoter = people.get(promo.person_id)
+        promoter_name = promoter.name if promoter else promo.person_id
+        current = target.read_text()
+        target.write_text(
+            current.rstrip("\n")
+            + "\n\n---\n\n"
+            + promo.body.strip()
+            + f"\n\n*Promoted by {promoter_name}, approved by "
+              f"{people[approver].name}, {date} — source: {promo.source}*\n"
+        )
+    else:  # patch — _parse already rejected anything outside _MODES
+        _require_existing(target, promo.target_path)
+        if not promo.base_hash:
+            raise PromotionError(
+                f"patch promotion {promo_id!r} has no base-hash — it was queued "
+                "by hand; re-run sweep or redraft"
+            )
+        if hashlib.sha256(target.read_bytes()).hexdigest() != promo.base_hash:
+            raise PromotionError(
+                f"target {promo.target_path!r} changed since this was queued — "
+                "redraft against the current page"
+            )
+        target.write_text(promo.body)
     archived = master / "_meta/promotions/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, promo_body = pending.read_text().split("---\n", 2)
@@ -312,6 +400,15 @@ def sweep(master: Path, today: str) -> list[Path]:
         if (_pending_dir(master) / f"{promo_id}.md").exists():
             continue
         try:
+            _validate_target(target)
+            mode = meta.get("mode", "create")
+            _validate_mode(mode)
+            base_hash = ""
+            if mode == "patch":
+                target_file = master / target
+                if target_file.is_symlink() or not target_file.is_file():
+                    continue  # left in place; doctor flags it
+                base_hash = hashlib.sha256(target_file.read_bytes()).hexdigest()
             draft_promotion(
                 master,
                 person_id=person_id,
@@ -320,6 +417,8 @@ def sweep(master: Path, today: str) -> list[Path]:
                 body=body,
                 promo_id=promo_id,
                 created=today,
+                mode=mode,
+                base_hash=base_hash,
             )
         except PromotionError:
             continue

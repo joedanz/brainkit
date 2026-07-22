@@ -72,6 +72,21 @@ def cmd_promotions(args) -> int:
         if args.action == "list":
             for p in list_pending(master):
                 print(f"{p.id}  from={p.person_id}  target={p.target_path}")
+        elif args.action == "show":
+            from brain.promotions import patch_diff
+            for p in list_pending(master):
+                if p.id == args.id:
+                    print(f"id: {p.id}\nfrom: {p.person_id}\nmode: {p.mode}\n"
+                          f"target: {p.target_path}\nsource: {p.source}\n"
+                          f"created: {p.created}\n")
+                    diff = patch_diff(master, p)
+                    if p.mode == "patch" and diff is None:
+                        print("(target missing — cannot diff; approval will fail closed)\n")
+                    print(diff if diff else p.body)
+                    break
+            else:
+                print(f"no pending promotion {args.id!r}", file=sys.stderr)
+                return 1
         elif args.action == "sweep":
             moved = sweep(master, today=date.today().isoformat())
             print(f"swept {len(moved)} draft(s) into the pending queue")
@@ -433,7 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
     w.set_defaults(func=cmd_writeback)
 
     p = sub.add_parser("promotions", help="manage the promotion queue")
-    p.add_argument("action", choices=["list", "sweep", "approve", "reject"])
+    p.add_argument("action", choices=["list", "show", "sweep", "approve", "reject"])
     p.add_argument("id", nargs="?")
     p.add_argument("--master", required=True)
     p.add_argument("--approver", default="")

@@ -443,7 +443,7 @@ def _require_master(request: web.Request) -> Path:
 async def handle_promotion(request: web.Request) -> web.Response:
     """The full body/source/target of one pending promotion, so a reviewer can
     read what they're about to make visible before approving."""
-    from brain.promotions import list_pending
+    from brain.promotions import list_pending, patch_diff
 
     master = _require_master(request)
     promo_id = request.query.get("id", "")
@@ -451,7 +451,9 @@ async def handle_promotion(request: web.Request) -> web.Response:
     def _find() -> dict | None:
         for p in list_pending(master):
             if p.id == promo_id:
-                return asdict(p)
+                d = asdict(p)
+                d["diff"] = patch_diff(master, p)
+                return d
         return None
 
     found = await asyncio.to_thread(_find)

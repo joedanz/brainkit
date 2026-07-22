@@ -415,6 +415,7 @@ class PromotionSummary:
     person_id: str
     target_path: str
     created: str
+    mode: str = "create"
 
 
 @dataclass
@@ -513,7 +514,8 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
 
     promotions = [
         PromotionSummary(id=p.id, person_id=p.person_id,
-                         target_path=p.target_path, created=p.created)
+                         target_path=p.target_path, created=p.created,
+                         mode=p.mode)
         for p in list_pending(master)
     ]
 

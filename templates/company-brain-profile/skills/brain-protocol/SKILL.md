@@ -21,11 +21,15 @@ your spaces and permissions — read it before acting.
 
 1. Draft a sanitized note containing only what is being shared.
 2. Save under People/<you>/Promotions/ with frontmatter:
-   target-path: <new file in a shared space>
+   target-path: <file in a shared space>
    source: <originating note path>
-   Pick a target that does not exist yet: decisions -> Company/Decisions/,
-   standing processes or standards -> Company/Playbook/. Never target an
-   existing note (Memory.md included) — approval fails on it.
+   mode: create | append | patch
+   `mode: create` (default) needs a target that does not exist yet —
+   decisions -> Company/Decisions/, standing processes or standards ->
+   Company/Playbook/. To update an existing shared page instead, use
+   `mode: append` (your note is added under a divider) or `mode: patch`
+   (your note body is the complete revised page — approval fails closed if
+   the page changed since it was queued).
 3. Tell the owner it awaits their approval (`brain promotions list`). Never
    write directly into a read-only space; the write-back service rejects it.
 4. To answer status questions ("did it go live?"), read
@@ -44,9 +48,9 @@ your spaces and permissions — read it before acting.
    a promotion targeting Company/Intel/ — Destinations/<Place>.md,
    Providers/<Name>.md, Events/<Name>.md, or Trends/<YYYY-MM Topic>.md.
    New entity -> a new page (one-sentence summary first line; link related
-   pages both ways). Page already exists -> target a dated addendum
-   `<Name> — updates YYYY-MM.md` in the same folder instead; the approver
-   folds it into the main page and deletes it.
+   pages both ways). Page already exists -> promote with `mode: append` for
+   an additive update, or `mode: patch` carrying the full revised page (fold
+   any older addenda in while you're there).
 3. Your personal take stays in People/<you>/Notes/.
 4. This vault is your only knowledge base — never build a wiki or knowledge
    base outside it (no ~/wiki), even if another skill offers to.

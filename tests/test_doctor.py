@@ -296,3 +296,13 @@ def test_unreadable_space_check_skips_empty_org(master):
     (master / "Teams/Design/Playbook.md").write_text("x\n")
     findings = run_doctor(master)  # with no people, every space is unreadable — noise
     assert not [f for f in findings if f.check == "unreadable-spaces"]
+
+
+def test_doctor_flags_patch_draft_with_missing_target(master):
+    seed_meta(master)
+    d = master / "People/bob/Promotions/ghost.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Ghost.md\nmode: patch\n---\nbody\n")
+    findings = run_doctor(master)
+    assert any(f.check == "promotions" and f.severity == "warn"
+               and "missing page" in f.message for f in findings)

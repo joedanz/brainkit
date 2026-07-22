@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import hashlib
 import pytest
 
 from brain.promotions import (
@@ -10,6 +11,10 @@ from brain.promotions import (
     list_pending,
     reject,
 )
+
+
+def _hash_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 ORG_YAML = """\
 people:
@@ -98,6 +103,62 @@ def test_approve_revalidates_target(master: Path):
     )
     with pytest.raises(PromotionError):
         approve(master, "p-evil", approver="alice", date="2026-07-08")
+
+
+def test_parse_defaults_to_create_for_legacy_files(master: Path):
+    # A pending file written before modes existed has no mode key at all.
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Playbook/Legacy.md",
+        source="s", body="b", promo_id="p-m1", created="2026-07-21",
+    )
+    pending = master / "_meta/promotions/pending/p-m1.md"
+    text = pending.read_text()
+    pending.write_text(text.replace("mode: create\n", ""))  # simulate legacy file
+    p = list_pending(master)[0]
+    assert p.mode == "create"
+    assert p.base_hash == ""
+
+
+def test_draft_writes_mode_and_base_hash(master: Path):
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="s", body="b", promo_id="p-m2", created="2026-07-21",
+        mode="patch", base_hash="abc123",
+    )
+    text = (master / "_meta/promotions/pending/p-m2.md").read_text()
+    assert "mode: patch" in text
+    assert "base-hash: abc123" in text
+    p = list_pending(master)[0]
+    assert p.mode == "patch"
+    assert p.base_hash == "abc123"
+
+
+def test_draft_rejects_unknown_mode(master: Path):
+    with pytest.raises(PromotionError):
+        draft_promotion(
+            master, person_id="bob", target_path="Company/Playbook/X.md",
+            source="s", body="b", promo_id="p-m3", created="2026-07-21",
+            mode="replace",
+        )
+
+
+def test_draft_rejects_multiline_base_hash(master: Path):
+    with pytest.raises(PromotionError, match="single line"):
+        draft_promotion(
+            master, person_id="bob", target_path="Company/Playbook/Z.md",
+            source="s", body="b", promo_id="p-m5", created="2026-07-21",
+            mode="patch", base_hash="x\ntarget-path: Company/Playbook/Evil.md",
+        )
+
+
+def test_list_pending_skips_unknown_mode(master: Path):
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Playbook/Y.md",
+        source="s", body="b", promo_id="p-m4", created="2026-07-21",
+    )
+    pending = master / "_meta/promotions/pending/p-m4.md"
+    pending.write_text(pending.read_text().replace("mode: create", "mode: rewrite"))
+    assert list_pending(master) == []  # malformed file stays on disk, skipped
 
 
 def test_approve_refuses_existing_target(master: Path):
@@ -461,3 +522,158 @@ def test_promotions_still_work_without_git(master: Path):
                     source="s", body="n", promo_id="p-3", created="2026-07-07")
     target = approve(master, "p-3", approver="alice", date="2026-07-08")
     assert target.exists()
+
+
+def test_approve_append_adds_block_with_attribution(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/Portugal.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("# Portugal\nGolden visa ended. [src](https://x.y), as of 2026-01\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="People/bob/Notes/pt.md", body="New ferry route. [s](https://a.b), as of 2026-07\n",
+        promo_id="p-a1", created="2026-07-21", mode="append",
+    )
+    target = approve(master, "p-a1", approver="alice", date="2026-07-21")
+    text = target.read_text()
+    assert text.startswith("# Portugal\n")          # existing content intact
+    assert "\n\n---\n\n" in text                     # divider
+    assert "New ferry route." in text
+    assert "*Promoted by Bob Rivera, approved by Alice Nguyen, 2026-07-21" in text
+    assert "source: People/bob/Notes/pt.md*" in text
+
+
+def test_approve_append_requires_existing_target(master: Path):
+    _seed_org(master)
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Nowhere.md",
+        source="s", body="b", promo_id="p-a2", created="2026-07-21", mode="append",
+    )
+    with pytest.raises(PromotionError, match="does not exist"):
+        approve(master, "p-a2", approver="alice", date="2026-07-21")
+
+
+def test_approve_append_refuses_symlink_target(master: Path, tmp_path: Path):
+    _seed_org(master)
+    outside = tmp_path / "outside.md"
+    outside.write_text("secret\n")
+    link = master / "Company/Intel/Link.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Link.md",
+        source="s", body="b", promo_id="p-a3", created="2026-07-21", mode="append",
+    )
+    with pytest.raises(PromotionError, match="symlink"):
+        approve(master, "p-a3", approver="alice", date="2026-07-21")
+
+
+def test_approve_patch_replaces_file_verbatim(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/Portugal.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("# Portugal\nOld claim. [s](https://x.y), as of 2025-01\n")
+    revised = "# Portugal\nNew claim. [s](https://x.y), as of 2026-07\n"
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="s", body=revised, promo_id="p-p1", created="2026-07-21",
+        mode="patch", base_hash=_hash_of(page),
+    )
+    target = approve(master, "p-p1", approver="alice", date="2026-07-21")
+    assert target.read_text() == revised          # verbatim, no injected frontmatter
+
+
+def test_approve_patch_fails_closed_on_base_drift(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/Spain.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("v1\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Spain.md",
+        source="s", body="v2\n", promo_id="p-p2", created="2026-07-21",
+        mode="patch", base_hash=_hash_of(page),
+    )
+    page.write_text("v1 edited meanwhile\n")      # drift after queueing
+    with pytest.raises(PromotionError, match="changed since"):
+        approve(master, "p-p2", approver="alice", date="2026-07-21")
+    assert page.read_text() == "v1 edited meanwhile\n"   # untouched
+    assert (master / "_meta/promotions/pending/p-p2.md").exists()  # still queued
+
+
+def test_approve_patch_requires_base_hash_and_target(master: Path):
+    _seed_org(master)
+    page = master / "Company/Intel/France.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("v1\n")
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/France.md",
+        source="s", body="v2\n", promo_id="p-p3", created="2026-07-21",
+        mode="patch",                              # no base_hash
+    )
+    with pytest.raises(PromotionError, match="base-hash"):
+        approve(master, "p-p3", approver="alice", date="2026-07-21")
+
+
+def test_approve_patch_refuses_symlink_target(master: Path, tmp_path: Path):
+    _seed_org(master)
+    outside = tmp_path / "outside2.md"
+    outside.write_text("secret\n")
+    link = master / "Company/Intel/PLink.md"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(outside)
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/PLink.md",
+        source="s", body="v2\n", promo_id="p-p4", created="2026-07-21",
+        mode="patch", base_hash="deadbeef",
+    )
+    with pytest.raises(PromotionError, match="symlink"):
+        approve(master, "p-p4", approver="alice", date="2026-07-21")
+
+
+def test_sweep_stamps_base_hash_on_patch_drafts(master: Path):
+    from brain.promotions import sweep
+
+    page = master / "Company/Intel/Italy.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("v1\n")
+    d = master / "People/bob/Promotions/italy-update.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Italy.md\nmode: patch\n---\nv2\n")
+    moved = sweep(master, today="2026-07-21")
+    assert len(moved) == 1
+    p = list_pending(master)[0]
+    assert p.mode == "patch"
+    assert p.base_hash == hashlib.sha256(page.read_bytes()).hexdigest()
+
+
+def test_sweep_leaves_patch_draft_when_target_missing(master: Path):
+    from brain.promotions import sweep
+
+    d = master / "People/bob/Promotions/ghost.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Ghost.md\nmode: patch\n---\nbody\n")
+    assert sweep(master, today="2026-07-21") == []
+    assert d.exists()                       # left in place, never guessed at
+
+
+def test_sweep_queues_append_draft_without_target(master: Path):
+    from brain.promotions import sweep
+
+    # Appends queue regardless — existence is an approve-time question, so an
+    # append can sit behind the create that makes its target.
+    d = master / "People/bob/Promotions/later.md"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_text("---\ntarget-path: Company/Intel/Later.md\nmode: append\n---\nbody\n")
+    assert len(sweep(master, today="2026-07-21")) == 1
+
+
+def test_patch_diff_refuses_tampered_target(master: Path, tmp_path: Path):
+    from brain.promotions import Promotion, patch_diff
+    outside = tmp_path / "secret.md"
+    outside.write_text("secret\n")
+    promo = Promotion(
+        id="x", person_id="bob", target_path="../secret.md",
+        source="s", created="2026-07-21", body="b",
+        mode="patch", base_hash="h",
+    )
+    assert patch_diff(master, promo) is None

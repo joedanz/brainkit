@@ -96,6 +96,9 @@ function promoCard(p, people) {
   const h = el("div", "promo-head");
   h.appendChild(el("span", "promo-target", p.target_path));
   h.appendChild(el("span", "meta", "from " + p.person_id + " · " + p.created));
+  if (p.mode && p.mode !== "create") {
+    h.appendChild(badge(p.mode === "patch" ? "warn" : "info", p.mode));
+  }
   card.appendChild(h);
 
   const space = p.target_path.split("/").slice(0, 2).join("/");
@@ -111,9 +114,13 @@ function promoCard(p, people) {
     reviewBtn.textContent = "Loading…";
     try {
       const full = await api.promotion({ id: p.id });
-      const doc = renderMarkdown(full.body || "", {});
-      doc.className = "note-doc promo-body";
-      bodyHost.appendChild(doc);
+      if (full.diff) {
+        bodyHost.appendChild(diffBlock(full.diff));
+      } else {
+        const doc = renderMarkdown(full.body || "", {});
+        doc.className = "note-doc promo-body";
+        bodyHost.appendChild(doc);
+      }
       loaded = true;
       reviewBtn.textContent = "Contents";
       reviewBtn.disabled = true;
@@ -161,6 +168,21 @@ function promoCard(p, people) {
   card.appendChild(actions);
   card.appendChild(rejectRow);
   return card;
+}
+
+// A patch promotion is a full-page replace — the reviewable artifact is the
+// diff against the live page, not the proposed body on its own.
+function diffBlock(diff) {
+  const pre = el("pre", "promo-body");
+  pre.style.overflowX = "auto";
+  diff.split("\n").forEach((line) => {
+    const row = el("div", null, line);
+    if (line.startsWith("+") && !line.startsWith("+++")) row.style.color = "var(--ok, #3fb950)";
+    else if (line.startsWith("-") && !line.startsWith("---")) row.style.color = "var(--error, #f85149)";
+    else if (line.startsWith("@@")) row.style.color = "var(--warn, #d29922)";
+    pre.appendChild(row);
+  });
+  return pre;
 }
 
 function clearNode(n) { while (n.firstChild) n.removeChild(n.firstChild); }
