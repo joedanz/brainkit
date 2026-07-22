@@ -145,6 +145,19 @@ def _seed_note(body: str, owner: str, source: str, date: str) -> str:
     )
 
 
+def _inbox_note(master: Path, person_id: str, name: str, slug: str, today: str) -> str:
+    rel = f"People/{person_id}/Inbox/client-taken-{slug}.md"
+    dest = master / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        f"---\ncreated: {today}\n---\n"
+        f"A client named **{name}** already exists. Add a distinguishing "
+        "detail (first name, company, or city) and try again, or ask an admin "
+        "if you believe it should be shared with you.\n"
+    )
+    return rel
+
+
 def materialize_clients(master: Path, org: Org, today: str) -> list[ClientProvision]:
     """Provision one Clients/<Name> space per pending request, server-side.
 
@@ -159,6 +172,10 @@ def materialize_clients(master: Path, org: Org, today: str) -> list[ClientProvis
             continue
         rel = req.relative_to(master)
         person_id = rel.parts[1]
+        try:
+            _validate_owner_id(person_id)
+        except ClientError:
+            continue  # malformed pid: leave the request in place, touch nothing
         meta, body = split_frontmatter(req.read_text())
         if not meta:
             continue
@@ -173,15 +190,53 @@ def materialize_clients(master: Path, org: Org, today: str) -> list[ClientProvis
         space = f"Clients/{name}"
         note_rel = f"{space}/{name}.md"
         note = master / note_rel
+        slug = req.stem
 
-        # create branch (Task 5 inserts merge/reject/validation before this)
+        # (1) owner binding: path <pid> is authoritative; a disagreeing
+        # frontmatter owner is tampering.
+        if meta.get("owner", person_id) != person_id:
+            req.unlink()
+            _commit(master, [rel.as_posix()],
+                    f"clients: reject {space} (owner mismatch)",
+                    name_id, f"{person_id}@brain.local")
+            results.append(ClientProvision(name, person_id, "rejected", "owner mismatch"))
+            continue
+
+        rules = load_spaces(master / "_meta/spaces.yaml")
+        exact = next((r for r in rules if r.path == space), None)
+        folder = (master / space).is_dir()
+
+        if exact is not None and can_write_path(f"{space}/x.md", person, rules):
+            # (2) already this owner's client -> merge, no new grant
+            note.parent.mkdir(parents=True, exist_ok=True)
+            current = note.read_text() if note.is_file() else ""
+            merged = (current.rstrip("\n") + "\n\n---\n\n" + body.strip() + "\n") if current else _seed_note(body, person_id, source, today)
+            note.write_text(merged)
+            req.unlink()
+            _commit(master, [note_rel, rel.as_posix()],
+                    f"clients: merge into {space} for {person_id}",
+                    name_id, f"{person_id}@brain.local")
+            results.append(ClientProvision(name, person_id, "merged"))
+            continue
+
+        if exact is not None or folder:
+            # (3) name taken by someone else -> refuse, notify, never reveal owner
+            inbox_rel = _inbox_note(master, person_id, name, slug, today)
+            req.unlink()
+            _commit(master, [inbox_rel, rel.as_posix()],
+                    f"clients: reject {space} (name taken)",
+                    name_id, f"{person_id}@brain.local")
+            results.append(ClientProvision(name, person_id, "rejected", "name taken"))
+            continue
+
+        # (4) create
         note.parent.mkdir(parents=True, exist_ok=True)
         note.write_text(_seed_note(body, person_id, source, today))
         append_client_grant(master / "_meta/spaces.yaml", name, person_id)
         log = _created_log(master)
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("a") as fh:
-            fh.write(f"{today}\t{person_id}\t{name}\t{req.stem}\n")
+            fh.write(f"{today}\t{person_id}\t{name}\t{slug}\n")
         req.unlink()
         _commit(
             master,

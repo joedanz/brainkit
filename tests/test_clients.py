@@ -137,3 +137,86 @@ def test_materialize_creates_space_grant_note_and_log(tmp_path: Path):
     assert "Danziger Family" in log and "joe" in log
     # request artifact consumed
     assert not list((master / "People/joe/ClientRequests").glob("*.md"))
+
+
+def test_materialize_merges_when_owner_already_granted(tmp_path: Path):
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    append_client_grant(master / "_meta/spaces.yaml", "Danziger Family", "joe")
+    note = master / "Clients/Danziger Family/Danziger Family.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("---\nentity: client\n---\n# Danziger Family\nExisting.\n")
+    request_client(master, "joe", "Danziger Family", "New detail: moved to KC.\n", "2026-07-22")
+    _git_init(master)
+    org = Org(people={"joe": Person(id="joe", name="Joe Danziger", roles=(), teams=())})
+
+    result = materialize_clients(master, org, today="2026-07-22")
+    assert result == [ClientProvision("Danziger Family", "joe", "merged")]
+    text = note.read_text()
+    assert "Existing." in text and "New detail: moved to KC." in text
+    # no duplicate grant
+    assert sum(r.path == "Clients/Danziger Family"
+               for r in load_spaces(master / "_meta/spaces.yaml")) == 1
+
+
+def test_materialize_rejects_name_owned_by_other_without_leak(tmp_path: Path):
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    append_client_grant(master / "_meta/spaces.yaml", "Smith", "mary")  # mary owns Smith
+    (master / "Clients/Smith").mkdir(parents=True)
+    (master / "Clients/Smith/Smith.md").write_text("Mary's client.\n")
+    request_client(master, "joe", "Smith", "Joe's new Smith.\n", "2026-07-22")
+    _git_init(master)
+    org = Org(people={
+        "joe": Person(id="joe", name="Joe", roles=(), teams=()),
+        "mary": Person(id="mary", name="Mary", roles=(), teams=()),
+    })
+
+    result = materialize_clients(master, org, today="2026-07-22")
+    assert result[0].status == "rejected"
+    # no new grant for joe, mary's note untouched, ownership never revealed
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    assert not can_write_path("Clients/Smith/x.md", org.people["joe"], rules)
+    assert "Joe's new Smith." not in (master / "Clients/Smith/Smith.md").read_text()
+    inbox = list((master / "People/joe/Inbox").glob("*.md"))
+    assert inbox and "already exists" in inbox[0].read_text()
+    assert "mary" not in inbox[0].read_text()  # no owner leak
+    assert not list((master / "People/joe/ClientRequests").glob("*.md"))  # consumed, no loop
+
+
+def test_materialize_rejects_owner_mismatch(tmp_path: Path):
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    (master / "Clients").mkdir()
+    rel = request_client(master, "joe", "Danziger", "body\n", "2026-07-22")
+    # tamper: claim a different owner than the path's <pid>
+    p = master / rel
+    p.write_text(p.read_text().replace("owner: joe", "owner: mary"))
+    _git_init(master)
+    org = Org(people={"joe": Person(id="joe", name="Joe", roles=(), teams=()),
+                      "mary": Person(id="mary", name="Mary", roles=(), teams=())})
+
+    result = materialize_clients(master, org, today="2026-07-22")
+    assert result[0].status == "rejected" and "owner" in result[0].reason
+    assert not (master / "Clients/Danziger").exists()
+
+
+def test_materialize_skips_malformed_pid_without_partial_writes(tmp_path: Path):
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    (master / "Clients").mkdir()
+    # a request under a pid folder whose name is not a valid owner id
+    bad = master / 'People/joe joe/ClientRequests/2026-07-22-x.md'
+    bad.parent.mkdir(parents=True)
+    bad.write_text("---\nclient-name: X\nowner: joe\nentity: client\nsource: s\ncreated: 2026-07-22\n---\nbody\n")
+    _git_init(master)
+    org = Org(people={"joe": Person(id="joe", name="Joe", roles=(), teams=())})
+    result = materialize_clients(master, org, today="2026-07-22")
+    # skipped cleanly: no crash, no Clients space created, request left in place
+    assert all(p.status != "created" for p in result)
+    assert not any(master.glob("Clients/*/*.md"))
+    assert bad.exists()
