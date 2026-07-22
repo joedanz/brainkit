@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 
 from brain.promotions import _slug
 from brain.resolver import space_of_path
+from brain.schemas import load_spaces
 
 
 class ClientError(ValueError):
@@ -91,3 +92,20 @@ def request_client(
         f"{body}"
     )
     return rel_path
+
+
+def append_client_grant(spaces_path: Path, client_name: str, owner_id: str) -> bool:
+    """Append an exact owner-bound Clients/<Name> rule. Text append preserves
+    the file's comments (yaml round-tripping would strip them). Idempotent: a
+    pre-existing rule for the same path returns False and appends nothing."""
+    name = normalize_client_name(client_name)
+    space = f"Clients/{name}"
+    if any(r.path == space for r in load_spaces(spaces_path)):
+        return False
+    subjects = f'["role:admin", "person:{owner_id}"]'
+    line = f'  - {{path: "{space}", read: {subjects}, write: {subjects}}}\n'
+    text = spaces_path.read_text()
+    if not text.endswith("\n"):
+        text += "\n"
+    spaces_path.write_text(text + line)
+    return True
