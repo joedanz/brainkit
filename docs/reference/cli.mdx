@@ -150,7 +150,7 @@ Every queue decision is its own git commit, scoped to just the files it touched:
 
 ## `brain shares`
 
-Manage [space shares](/concepts/spaces-and-permissions#sharing-a-space) — an owner granting or revoking a colleague or team's access to a space they own.
+Manage [space shares](/concepts/spaces-and-permissions#sharing-a-space) — an owner granting or revoking a colleague, a team, or everyone (company-wide, read-only) access to a space they own.
 
 ```bash
 brain shares {list,approve,reject,revoke} [id] --master <master> [--approver <who>] [--reason <text>] [--space <path>] [--subject <grant>]
@@ -160,18 +160,18 @@ brain shares {list,approve,reject,revoke} [id] --master <master> [--approver <wh
 |---|---|---|
 | `list` | `--master` | Print pending share requests (`id`, from, space, share-with, access). |
 | `approve <id>` | `--master --approver` | Amend `spaces.yaml` per the pending request; archive it to `approved/`. |
-| `reject <id>` | `--master --reason` | Move it to `rejected/` with the reason. |
+| `reject <id>` | `--master --approver --reason` | Move it to `rejected/` with the reason. |
 | `revoke` | `--master --space --subject` | Remove `--subject` (e.g. `person:yuki`) from `--space`'s rule directly. |
 
 `list`, `approve`, and `reject` act on a **pending share id**, the same shape as `brain promotions`. `revoke` is different: there's no id, because it isn't a queued decision — it's a live admin action that takes the space and the subject to remove directly, and it doubles as the veto lever for a self-service-created client space (see [Self-service client spaces](/concepts/spaces-and-permissions#self-service-client-spaces)) or any other grant an admin wants to pull immediately, with no request in the queue.
 
-`approve` requires `--approver`, a person id from `_meta/org.yaml` — a blank or unknown name is refused, the same rule as `brain promotions approve`. Both `approve` and `revoke` refuse to touch `role:admin` — it can never be removed from a rule. Every decision is its own git commit: `approve` under the approver's identity, `reject`/`revoke` as `Brain Shares`.
+`approve` and `reject` both require `--approver`, a person id from `_meta/org.yaml` — a blank or unknown name is refused, the same base rule as `brain promotions approve`. Being a known person isn't enough on its own, though: the approver must also be eligible to decide *this* share — `role:admin`, the named `person:<id>` recipient, or someone with `role: lead` on the named `team:<name>` — or the command refuses. A `share-with: everyone` request is always decided by an admin; see [Sharing a space](/concepts/spaces-and-permissions#sharing-a-space) for the full routing table and the in-vault Approvals seam that enforces it the same way. Both `approve` and `revoke` refuse to touch `role:admin` — it can never be removed from a rule. A rejection reason is collapsed to a single line before it's archived; a reason that's blank (or whitespace-only) is refused. Every decision is its own git commit: `approve` and `reject` under the approver's identity, `revoke` as `Brain Shares`.
 
 This command manages the *queue and direct revokes*; it doesn't create requests. An owner asks for a share or revoke by writing into their own `People/<id>/ShareRequests/`, and [`brain cycle`](#brain-cycle) routes it — `share` requests land in the pending queue this command works, `revoke` requests from that folder auto-apply during the cycle instead of ever reaching a queue. See [Sharing a space](/concepts/spaces-and-permissions#sharing-a-space) for the full request shape and the ownership rules `brain cycle` enforces on it.
 
 ## `brain cycle`
 
-Run the whole server-side loop once: write back every person's edits, provision any self-service [client requests](/concepts/spaces-and-permissions#self-service-client-spaces), route pending/auto-applied [share requests](/concepts/spaces-and-permissions#sharing-a-space), sweep agent drafts into the promotions pending queue, then recompile all vaults.
+Run the whole server-side loop once: write back every person's edits, provision any self-service [client requests](/concepts/spaces-and-permissions#self-service-client-spaces), route pending/auto-applied [share requests](/concepts/spaces-and-permissions#sharing-a-space) and apply any delegated decisions on them, sweep agent drafts into the promotions pending queue, then recompile all vaults.
 
 ```bash
 brain cycle --master <master> --out <out> [--json] [--index]
@@ -197,14 +197,16 @@ brain cycle --master <master> --out <out> [--json] [--index]
 | `clients_tampering` | Of those rejections, how many were an owner-mismatch — a tamper signal, not a routine outcome. |
 | `shares_queued` | Share requests routed into `_meta/shares/pending/` for approval. |
 | `shares_revoked` | Revoke requests auto-applied this cycle. |
-| `shares_tampering` | Share/revoke requests from someone who doesn't own the space at cycle time — a tamper signal. |
+| `share_decisions_applied` | Delegated decisions — recipient/lead `Approvals/` notes — successfully approved or rejected this cycle. |
+| `share_decisions_refused` | Delegated decisions refused this cycle — usually an ineligible decider or an already-decided share. |
+| `shares_tampering` | Share/revoke requests from someone who doesn't own the space at cycle time, plus delegated decision notes with a forged `owner` — a tamper signal. |
 | `indexed` | Vaults reindexed (only meaningful with `--index`). |
 | `index_warnings` | Per-vault indexing warnings (only meaningful with `--index`). |
 | `ok` | `false` if any write-back was rejected or a tampering signal fired — see below. |
 
-The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, and share requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes. Both of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, and the recompile runs *last* so every vault reflects the fully updated master. A rejected write-back never halts the cycle — the rest of the pipeline still runs, and the fresh compile reverts the rejected edits server-side (fail closed).
+The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, share, and decision requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes — and `sweep_approvals` applies any delegated decisions sitting in `People/*/Approvals/`, re-checking eligibility against the live rule before touching anything. All of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, and the recompile runs *last* so every vault reflects the fully updated master. A rejected write-back never halts the cycle — the rest of the pipeline still runs, and the fresh compile reverts the rejected edits server-side (fail closed).
 
-`ok` is `false` when any write-back is rejected, or when a client or share request is flagged as **tampering** — an owner-mismatch client request, or a share/revoke request from someone who turns out not to own the space when the cycle runs. Routine outcomes don't flip it: a client request that loses a name collision (`clients_rejected`) or a share request rejected for an ordinary reason (unknown recipient, already shared, nothing to revoke) is a normal user outcome, surfaced via the requester's own inbox note — not a security event. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns and never flips `ok`.
+`ok` is `false` when any write-back is rejected, or when a client or share request is flagged as **tampering** — an owner-mismatch client request, a share/revoke request from someone who turns out not to own the space when the cycle runs, or a delegated decision note (`Approvals/`) with a forged `owner`. Routine outcomes don't flip it: a client request that loses a name collision (`clients_rejected`), a share request rejected for an ordinary reason (unknown recipient, already shared, nothing to revoke), or a delegated decision refused for an ordinary reason (an ineligible decider, an already-decided share) is a normal user outcome, surfaced via the requester's or decider's own inbox note — not a security event. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns and never flips `ok`.
 
 <Callout type="info">
   This is the one command to run on a schedule — a cron entry or a git
@@ -331,7 +333,7 @@ Findings carry one of three severities:
 |---|---|---|
 | `error` | An invariant is broken. Exits `1`. | Malformed `org.yaml`/`spaces.yaml`, an unknown `person:` in a rule, a symlink in the master, a crashed-compile tombstone, an unreadable manifest, or `_meta/` leaked into a compiled vault. |
 | `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, a space **readable by no one** (its rule resolves to zero readers — e.g. a folder named `Teams/Sales` when the team id is `sales`, or a departed person's `People/` folder — so its notes compile into no vault), a `.md` sitting loose under `Teams/`/`People/`/`Clients/` (in no space, so compiled into no vault), a **cross-space reference** (a wikilink) or **plain-text mention** (a restricted space's name in shared prose) whose name is visible to readers who can't see its home space, a promotion draft the sweep will silently skip (a target path it can't validate, an unrecognized `mode`, or a `mode: patch` draft whose target is a symlink or doesn't exist), or a `Company/Intel/` page that's fallen out of the wiki's conventions — its newest `as of`/`captured` citation over 12 months old, no dated citation at all (`Home.md` exempt), or a lingering `<Name> — updates YYYY-MM.md` addendum never folded back in, or a note with no links, typed relations, or facts connecting it to anything (`unlinked-notes`) — invisible to the graph leg of retrieval until someone links it (notes under an `Inbox/` folder are exempt). |
-| `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval, one finding per self-service-created client space (`clients` — for admin review: rename, merge, or revoke), one finding per share request awaiting approval (`shares`). |
+| `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval, one finding per self-service-created client space (`clients` — for admin review: rename, merge, or revoke), one finding per share request awaiting approval (`shares`), and one finding per share decision made in-vault by a recipient or team lead in the last 30 days (`shares` — the delegated-decision audit trail, e.g. "Clients/Acme → person:mary approved by mary on 2026-07-23 (delegated)"). |
 
 Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into CI or a pre-cron gate. Run it after setup and on a schedule.
 

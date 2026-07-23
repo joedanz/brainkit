@@ -56,10 +56,18 @@ writable spaces; the write-back service rejects changes to read-only paths.
   created): write `People/{pid}/ShareRequests/<name>.md` with frontmatter
   `space: <the space>`, `share-with: person:<id>` or `team:<name>`,
   `access: read|write`, `action: share` — the body is an optional note to the
-  approver. An admin approves shares; status shows in `People/{pid}/Shares.md`,
+  approver. The share's decider approves it — the recipient for `person:`, a
+  team lead for `team:`, an admin for `everyone`; status shows in
+  `People/{pid}/Shares.md`,
   and your own access never blocks — keep writing while it's pending. To
   remove someone, use `action: revoke` (applies automatically; you cannot
   revoke your own access).
+- If your `People/{pid}/Shares.md` has an **Awaiting your decision** section,
+  those shares name you (or a team you lead) as recipient. Decide by writing
+  `People/{pid}/Approvals/<share-id>.md` with `decision: approve` or
+  `decision: reject` (rejections need a `reason:`), `owner: {pid}`. Record
+  only a decision your human has explicitly made — never decide on your own.
+  Company-wide shares (to `everyone`) always need an admin, not you.
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
   promotion targeting a new file in `Company/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion

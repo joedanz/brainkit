@@ -26,7 +26,7 @@ from brain.clients import _validate_owner_id
 from brain.frontmatter import split_frontmatter
 from brain.promotions import _commit, _slug
 from brain.resolver import can_write_path, space_of_path
-from brain.schemas import Org, load_org, load_spaces
+from brain.schemas import Org, Person, SchemaError, load_org, load_spaces
 
 
 class ShareError(ValueError):
@@ -40,10 +40,34 @@ _SLUG = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def validate_subject(subject: str) -> tuple[str, str]:
+    if subject == "everyone":
+        return "everyone", ""
     kind, sep, name = subject.partition(":")
     if not sep or kind not in ("person", "team") or not _SLUG.fullmatch(name or ""):
-        raise ShareError(f"invalid subject {subject!r} — expected person:<id> or team:<name>")
+        raise ShareError(
+            f"invalid subject {subject!r} — expected person:<id>, team:<name>, "
+            "or everyone")
     return kind, name
+
+
+def may_decide(person: Person | None, share_with: str) -> bool:
+    """One authority definition for share decisions, used by both the
+    server-side gate (approve/reject) and the in-vault Approvals seam.
+    Fail closed: an unknown person or malformed subject decides nothing.
+    everyone-shares are admin-only by design."""
+    if person is None:
+        return False
+    if "admin" in person.roles:
+        return True
+    try:
+        kind, name = validate_subject(share_with)
+    except ShareError:
+        return False
+    if kind == "person":
+        return person.id == name
+    if kind == "team":
+        return "lead" in person.roles and name in person.teams
+    return False  # "everyone" — admin only
 
 
 def validate_space(space: str) -> None:
@@ -153,6 +177,8 @@ def request_share(
         raise ShareError(f"unknown access {access!r} — expected read or write")
     if action not in ACTIONS:
         raise ShareError(f"unknown action {action!r} — expected share or revoke")
+    if share_with == "everyone" and action == "share" and access != "read":
+        raise ShareError("company-wide shares are read-only — use access: read")
     for field, value in (("space", space), ("share-with", share_with),
                          ("owner", person_id), ("created", created)):
         if "\n" in value or "\r" in value:
@@ -241,6 +267,8 @@ def list_pending_shares(master: Path) -> list[dict]:
 
 
 def _subject_known(subject: str, org: Org) -> bool:
+    if subject == "everyone":
+        return True
     kind, name = validate_subject(subject)
     if kind == "person":
         return name in org.people
@@ -313,6 +341,13 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
                 continue
 
             if action == "share":
+                if subject == "everyone" and access != "read":
+                    note = _share_inbox_note(
+                        master, person_id, slug,
+                        f"Cannot share {space} with everyone as write — "
+                        "company-wide shares are read-only.", today)
+                    consume("rejected", "company-wide shares are read-only", [note])
+                    continue
                 if not _subject_known(subject, org):
                     note = _share_inbox_note(
                         master, person_id, slug,
@@ -395,6 +430,112 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
     return results
 
 
+APPROVALS_REL = "People/{person_id}/Approvals"
+
+
+@dataclass(frozen=True)
+class DecisionOutcome:
+    share_id: str
+    decider: str
+    decision: str
+    status: str  # "applied" | "refused" | "tampering"
+    reason: str = ""
+
+
+def sweep_approvals(master: Path, org: Org, today: str) -> list[DecisionOutcome]:
+    """Apply delegated decisions from People/*/Approvals/*.md to the pending
+    share queue. The <pid> path segment is the authoritative decider (writeback
+    already gated the write); the filename stem is the share id. Eligibility is
+    re-checked at decision time with may_decide. Company-wide (everyone) shares
+    are never decidable here — master-side admins only. Only a forged owner:
+    is tampering; every other failure is a routine refusal with an inbox note."""
+    results: list[DecisionOutcome] = []
+    for note in sorted(master.glob("People/*/Approvals/*.md")):
+        if note.is_symlink():
+            continue
+        rel = note.relative_to(master)
+        decider_id = rel.parts[1]
+        try:
+            _validate_owner_id(decider_id)
+        except Exception:
+            continue  # malformed pid folder: leave in place, touch nothing
+        try:
+            share_id = note.stem
+            if not _SLUG.fullmatch(share_id):
+                continue  # malformed id: leave in place for inspection
+            meta, _ = split_frontmatter(note.read_text())
+            if not meta:
+                continue
+            decider = org.people.get(decider_id)
+            name_id = decider.name if decider else decider_id
+            decision = str(meta.get("decision", ""))
+            reason = str(meta.get("reason", ""))
+
+            def consume(status: str, why: str = "",
+                        extra: list[str] | None = None) -> None:
+                note.unlink()
+                _commit(master, [rel.as_posix(), *(extra or [])],
+                        f"shares: decision {share_id} {status}",
+                        name_id, f"{decider_id}@brain.local")
+                results.append(DecisionOutcome(share_id, decider_id, decision,
+                                               status, why))
+
+            if meta.get("owner", decider_id) != decider_id:
+                consume("tampering", "owner mismatch")
+                continue
+
+            try:
+                pending = _find_pending_share(master, share_id)
+            except ShareError:
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Share {share_id} is already decided or unknown.", today)
+                consume("refused", "already decided or unknown", [inbox])
+                continue
+
+            pmeta, _ = split_frontmatter(pending.read_text())
+            share_with = str(pmeta.get("share-with", ""))
+            if share_with == "everyone" or not may_decide(decider, share_with):
+                msg = ("Company-wide shares are decided by an admin with "
+                       "brain shares approve." if share_with == "everyone" else
+                       f"You are not an eligible approver for {share_id}.")
+                inbox = _share_inbox_note(master, decider_id, _slug(share_id),
+                                          msg, today)
+                consume("refused", "not eligible", [inbox])
+                continue
+
+            if decision not in ("approve", "reject"):
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Decision for {share_id} must be approve or reject.", today)
+                consume("refused", "bad decision", [inbox])
+                continue
+            if decision == "reject" and not reason.strip():
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Rejecting {share_id} needs a reason: line.", today)
+                consume("refused", "missing reason", [inbox])
+                continue
+
+            try:
+                if decision == "approve":
+                    approve_share(master, share_id, approver=decider_id,
+                                  date=today, via="delegated")
+                else:
+                    reject_share(master, share_id, reason=reason, date=today,
+                                 approver=decider_id, via="delegated")
+            except ShareError as e:
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Could not apply your decision on {share_id}: {e}", today)
+                consume("refused", str(e), [inbox])
+                continue
+            consume("applied", decision)
+        except Exception:
+            continue  # unexpected per-note error: leave file in place, touch nothing
+    return results
+
+
 def _find_pending_share(master: Path, share_id: str) -> Path:
     # A path/traversal-shaped id (e.g. "../../evil") must fail exactly like an
     # unknown one — the charset check happens before any filesystem lookup,
@@ -407,7 +548,8 @@ def _find_pending_share(master: Path, share_id: str) -> Path:
     return p
 
 
-def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
+def approve_share(master: Path, share_id: str, approver: str, date: str,
+                   via: str = "") -> str:
     """Amend the rule per the pending request. Everything is re-validated at
     decision time: the pending file sat on disk between sweep and approval."""
     if not approver.strip():
@@ -425,6 +567,12 @@ def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
     validate_subject(subject)
     if access not in ACCESS_LEVELS:
         raise ShareError(f"pending share {share_id!r} has invalid access {access!r}")
+    if subject == "everyone" and access != "read":
+        raise ShareError("company-wide shares are read-only")
+    if not may_decide(people[approver], subject):
+        raise ShareError(
+            f"{approver!r} may not decide this share — the approver must be "
+            "role:admin, the recipient, or a lead of the recipient team")
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     owner_person = org.people.get(owner)
@@ -436,7 +584,9 @@ def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
     archived = master / "_meta/shares/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, body = pending.read_text().split("---\n", 2)
-    archived.write_text(f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n---\n{body}")
+    via_line = f"via: {via}\n" if via else ""
+    archived.write_text(
+        f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n{via_line}---\n{body}")
     pending.unlink()
     _commit(
         master,
@@ -449,19 +599,37 @@ def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
     return space
 
 
-def reject_share(master: Path, share_id: str, reason: str, date: str) -> Path:
+def reject_share(master: Path, share_id: str, reason: str, date: str, approver: str,
+                  via: str = "") -> Path:
+    if not approver.strip():
+        raise ShareError("an approver is required")
+    people = load_org(master / "_meta/org.yaml").people
+    if approver not in people:
+        raise ShareError(f"unknown approver {approver!r} — not a person in the org")
     pending = _find_pending_share(master, share_id)
+    meta, _ = split_frontmatter(pending.read_text())
+    subject = str(meta.get("share-with", ""))
+    if not may_decide(people[approver], subject):
+        raise ShareError(
+            f"{approver!r} may not decide this share — the approver must be "
+            "role:admin, the recipient, or a lead of the recipient team")
+    reason = " ".join(reason.split())
+    if not reason:
+        raise ShareError("a rejection reason is required")
     _, fm, body = pending.read_text().split("---\n", 2)
     rejected = master / "_meta/shares/rejected" / pending.name
     rejected.parent.mkdir(parents=True, exist_ok=True)
-    rejected.write_text(f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n---\n{body}")
+    via_line = f"via: {via}\n" if via else ""
+    rejected.write_text(
+        f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n"
+        f"rejected-by: {approver}\n{via_line}---\n{body}")
     pending.unlink()
     _commit(
         master,
         [rejected.relative_to(master).as_posix(),
          pending.relative_to(master).as_posix()],
         f"shares: reject {share_id} ({reason})",
-        "Brain Shares", "shares@brain.local",
+        people[approver].name, f"{approver}@brain.local",
     )
     return rejected
 
@@ -548,4 +716,47 @@ def generate_space_shares_section(master: Path, person_id: str, today: str) -> s
                   for m in pending]
     if decided:
         lines += ["", "### Recently decided", ""] + [line for _, line in decided]
+    return "\n".join(lines) + "\n"
+
+
+def generate_decider_section(master: Path, person_id: str, today: str) -> str | None:
+    """Markdown section for Shares.md: pending shares this person may decide
+    from their own vault. Admin eligibility is deliberately excluded — admins
+    decide master-side and duplicating the whole queue into every admin slice
+    would be noise, not signal. None when there is nothing to decide."""
+    try:
+        org = load_org(master / "_meta/org.yaml")
+    except (SchemaError, OSError, yaml.YAMLError):
+        # A missing/malformed org.yaml means nothing is decidable, not a
+        # crashed compile — same fail-quiet posture as the rest of this
+        # module's per-entry handling (sweep_shares, sweep_approvals).
+        return None
+    person = org.people.get(person_id)
+    if person is None:
+        return None
+    delegated_view = Person(
+        id=person.id, name=person.name,
+        roles=tuple(r for r in person.roles if r != "admin"),
+        teams=person.teams)
+    mine = [s for s in list_pending_shares(master)
+            if may_decide(delegated_view, str(s.get("share-with", "")))]
+    if not mine:
+        return None
+    lines = [
+        "## Awaiting your decision", "",
+        "These share requests name you (or a team you lead) as recipient.",
+        "Record only a decision your human has explicitly made.", "",
+    ]
+    for s in mine:
+        lines.append(
+            f"- `{s['id']}`: `{s.get('space', '?')}` from {s.get('from', '?')} "
+            f"→ {s.get('share-with', '?')} ({s.get('access', '?')}), "
+            f"requested {s.get('created', '?')}")
+    lines += [
+        "",
+        f"To decide, write `People/{person_id}/Approvals/<share-id>.md`:", "",
+        "```", "---", "decision: approve   # or: reject",
+        "reason: required when rejecting", f"owner: {person_id}",
+        f"created: {today}", "---", "```",
+    ]
     return "\n".join(lines) + "\n"

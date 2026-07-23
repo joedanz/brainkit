@@ -65,9 +65,17 @@ frontmatter-key names from there; the shapes below use placeholders.
    `People/<you>/ShareRequests/<name>.md` with frontmatter: `space: <the space>`,
    `share-with: person:<id>` or `team:<name>`, `access: read|write`,
    `action: share` or `action: revoke`. The body is an optional note for the
-   approver. Shares await admin approval; revokes apply automatically. Your own
+   approver. Shares await their decider's approval — the recipient for a
+   person-share, a team lead for a team-share, an admin for company-wide;
+   revokes apply automatically. Your own
    access is never blocked by pending shares — keep writing. Status appears in
    `People/<you>/Shares.md`. You cannot revoke your own access.
+6. If your `Shares.md` shows an **Awaiting your decision** section, those
+   shares name you (or a team you lead) as recipient. Decide by writing
+   `People/<you>/Approvals/<share-id>.md` with `decision: approve` or
+   `decision: reject` (a rejection needs a `reason:` line) and `owner: <you>`.
+   Record only a decision your human has explicitly made — never decide on
+   your own. Company-wide shares (to `everyone`) always need an admin.
 
 ## Intel (articles, posts, links, PDFs, screenshots)
 

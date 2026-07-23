@@ -457,3 +457,198 @@ def test_cycle_provisions_and_compiles_custom_entity_tree(tmp_path):
     assert "ClientRequests" not in agents
     # deny-by-default: mary sees nothing under Families/
     assert not (out / "mary/Families").exists()
+
+
+# ---- sweep_approvals (Task 4: in-vault delegated decisions) ---------------- #
+
+def _acme_master(tmp_path):
+    import subprocess
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n"
+        "  admin: {name: Admin, roles: [admin]}\n"
+        "  joe: {name: Joe}\n"
+        "  mary: {name: Mary}\n")
+    (master / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,      read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "People/*",   read: ["person:{name}"], write: ["person:{name}"]}\n'
+        '  - {path: "Clients/*",  read: ["role:admin"],    write: ["role:admin"]}\n')
+    (master / "Company").mkdir()
+    (master / "Company/Home.md").write_text("# Home\n")
+    (master / "People/joe").mkdir(parents=True)
+    (master / "People/joe/Memory.md").write_text("# Joe\n")
+    (master / "People/mary").mkdir(parents=True)
+    (master / "People/mary/Memory.md").write_text("# Mary\n")
+    (master / "Clients").mkdir()
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "add", "-A"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t",
+                    "-c", "user.email=t@t", "commit", "-m", "seed"],
+                   check=True, capture_output=True)
+    return master, tmp_path / "out"
+
+
+def test_cycle_runs_sweep_approvals_and_reports(tmp_path):
+    from brain.clients import request_client
+    from brain.shares import list_pending_shares, request_share
+
+    master, _ = _acme_master(tmp_path)
+    out = _first_compile(master, tmp_path)  # creates joe's + mary's vaults
+
+    # cycle 1: joe creates the Acme client (auto-provisioned, owner-bound)
+    request_client(out / "joe", "joe", "Acme", "notes\n", "2026-07-22")
+    run_cycle(master, out, "2026-07-22")
+
+    # cycle 2: joe queues a share of Clients/Acme with mary
+    request_share(out / "joe", "joe", "Clients/Acme", "person:mary", "read",
+                  "2026-07-23")
+    run_cycle(master, out, "2026-07-23")
+    pid = list_pending_shares(master)[0]["id"]
+
+    # mary drops a delegated decision note directly in master (as writeback would)
+    (master / "People/mary/Approvals").mkdir(parents=True)
+    (master / f"People/mary/Approvals/{pid}.md").write_text(
+        "---\ndecision: approve\nowner: mary\ncreated: 2026-07-24\n---\n")
+
+    report = run_cycle(master, out, "2026-07-24")
+    assert report.ok
+    assert report.share_decisions_applied == 1
+    # same-cycle property: the decision's grant is visible to this cycle's compile
+    assert (out / "mary/Clients/Acme").is_dir()
+
+
+# ---- Task 8: cycle E2E — the three flows ----------------------------------- #
+
+def _team_master(tmp_path):
+    """Like _acme_master, but the org carries team leads for the team-share
+    flow: mary leads ops, sam leads sales, bob is a plain ops member."""
+    import subprocess
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n"
+        "  admin: {name: Admin, roles: [admin]}\n"
+        "  joe:   {name: Joe}\n"
+        "  mary:  {name: Mary, roles: [lead], teams: [ops]}\n"
+        "  sam:   {name: Sam, roles: [lead], teams: [sales]}\n"
+        "  bob:   {name: Bob, teams: [ops]}\n")
+    (master / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,      read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "People/*",   read: ["person:{name}"], write: ["person:{name}"]}\n'
+        '  - {path: "Clients/*",  read: ["role:admin"],    write: ["role:admin"]}\n')
+    (master / "Company").mkdir()
+    (master / "Company/Home.md").write_text("# Home\n")
+    (master / "People/joe").mkdir(parents=True)
+    (master / "People/joe/Memory.md").write_text("# Joe\n")
+    (master / "Clients").mkdir()
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "add", "-A"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t",
+                    "-c", "user.email=t@t", "commit", "-m", "seed"],
+                   check=True, capture_output=True)
+    return master, tmp_path / "out"
+
+
+def test_recipient_consent_end_to_end(tmp_path):
+    """request -> queue -> decider section rendered in recipient's slice ->
+    recipient's Approvals note (via writeback-equivalent direct master write)
+    -> same-cycle grant -> compile delivers the space."""
+    from brain.clients import request_client
+    from brain.shares import list_pending_shares, request_share
+
+    master, _ = _acme_master(tmp_path)  # org: admin, joe, mary
+    out = _first_compile(master, tmp_path)
+
+    # joe owns Clients/Acme (folder + exact rule + note), auto-provisioned
+    request_client(out / "joe", "joe", "Acme", "notes\n", "2026-07-22")
+    run_cycle(master, out, "2026-07-22")
+
+    request_share(out / "joe", "joe", "Clients/Acme", "person:mary", "read",
+                  "2026-07-23")
+    r1 = run_cycle(master, out, "2026-07-23")
+    assert r1.ok and r1.shares_queued == 1
+    # the recipient's compiled slice shows the decider section
+    shares_md = (out / "mary/People/mary/Shares.md").read_text()
+    assert "Awaiting your decision" in shares_md
+
+    pid = list_pending_shares(master)[0]["id"]
+    (master / "People/mary/Approvals").mkdir(parents=True)
+    (master / f"People/mary/Approvals/{pid}.md").write_text(
+        "---\ndecision: approve\nowner: mary\ncreated: 2026-07-24\n---\nyes please\n")
+    r2 = run_cycle(master, out, "2026-07-24")
+    assert r2.ok and r2.share_decisions_applied == 1
+    assert (out / "mary/Clients/Acme/Acme.md").is_file()
+
+
+def test_lead_approves_team_share_wrong_lead_refused(tmp_path):
+    from brain.clients import request_client
+    from brain.shares import list_pending_shares, request_share
+
+    master, _ = _team_master(tmp_path)  # admin, joe, mary(lead/ops), sam(lead/sales), bob(ops)
+    out = _first_compile(master, tmp_path)
+
+    request_client(out / "joe", "joe", "Acme", "notes\n", "2026-07-22")
+    run_cycle(master, out, "2026-07-22")
+
+    request_share(out / "joe", "joe", "Clients/Acme", "team:ops", "read",
+                  "2026-07-23")
+    run_cycle(master, out, "2026-07-23")
+    pid = list_pending_shares(master)[0]["id"]
+
+    # wrong-team lead refused, share still pending, cycle still ok
+    (master / "People/sam/Approvals").mkdir(parents=True)
+    (master / f"People/sam/Approvals/{pid}.md").write_text(
+        "---\ndecision: approve\nowner: sam\ncreated: 2026-07-24\n---\n")
+    r = run_cycle(master, out, "2026-07-24")
+    assert r.ok and r.share_decisions_refused == 1 and list_pending_shares(master)
+
+    # right-team lead applies; team member bob's slice gains the space
+    (master / "People/mary/Approvals").mkdir(parents=True)
+    (master / f"People/mary/Approvals/{pid}.md").write_text(
+        "---\ndecision: approve\nowner: mary\ncreated: 2026-07-25\n---\n")
+    r2 = run_cycle(master, out, "2026-07-25")
+    assert r2.share_decisions_applied == 1
+    assert (out / "bob/Clients/Acme/Acme.md").is_file()
+
+
+def test_everyone_share_admin_only_end_to_end(tmp_path):
+    from brain.clients import request_client
+    from brain.shares import approve_share, list_pending_shares, request_share
+
+    master, _ = _acme_master(tmp_path)  # org: admin, joe, mary
+    org_yaml = (master / "_meta/org.yaml").read_text()
+    (master / "_meta/org.yaml").write_text(org_yaml + "  carol: {name: Carol}\n")
+
+    out = _first_compile(master, tmp_path)
+
+    request_client(out / "joe", "joe", "Acme", "notes\n", "2026-07-22")
+    run_cycle(master, out, "2026-07-22")
+
+    request_share(out / "joe", "joe", "Clients/Acme", "everyone", "read",
+                  "2026-07-23")
+    run_cycle(master, out, "2026-07-23")
+    pid = list_pending_shares(master)[0]["id"]
+
+    # nobody's decider section lists an everyone-share (admin-only by design)
+    mary_shares = out / "mary/People/mary/Shares.md"
+    if mary_shares.exists():
+        assert "Awaiting your decision" not in mary_shares.read_text()
+
+    # master-side admin approval; every slice gains the space read-only
+    approve_share(master, pid, approver="admin", date="2026-07-24")
+    run_cycle(master, out, "2026-07-24")
+    for who in ("mary", "carol"):
+        assert (out / who / "Clients/Acme/Acme.md").is_file()
+
+    # read-only: carol's edit is rejected by the next cycle's writeback
+    (out / "carol/Clients/Acme/Acme.md").write_text("tampered\n")
+    r = run_cycle(master, out, "2026-07-25")
+    carol_wb = next(w for w in r.writebacks if w.person_id == "carol")
+    assert carol_wb.status == "rejected"

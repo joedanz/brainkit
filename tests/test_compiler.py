@@ -286,3 +286,34 @@ def test_shares_note_includes_space_shares_section(master, tmp_path):
                   today="2026-07-22")
     text = (dest / "People/bob/Shares.md").read_text()
     assert "## Space shares" in text and "Clients/acme" in text
+
+
+def test_decider_section_compiles_into_shares_md(master, tmp_path):
+    from brain.compiler import compile_vault
+    from brain.schemas import Person, load_org, load_spaces
+    from brain.shares import request_share, sweep_shares
+
+    with (master / "_meta/spaces.yaml").open("w") as fh:
+        fh.write(
+            "spaces:\n"
+            '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
+            '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
+            '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
+            '  - {path: "Clients/*", read: ["role:admin"],    write: ["role:admin"]}\n'
+            '  - {path: "Clients/acme", read: ["role:admin", "person:bob"], write: ["role:admin", "person:bob"]}\n'
+        )
+    (master / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice, roles: [admin]}\n"
+        "  bob: {name: Bob, teams: [ops]}\n"
+        "  mary: {name: Mary Ops}\n")
+    import subprocess
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   capture_output=True)
+    request_share(master, "bob", "Clients/acme", "person:mary", "read", "2026-07-22")
+    sweep_shares(master, load_org(master / "_meta/org.yaml"), today="2026-07-22")
+    mary = Person(id="mary", name="Mary Ops")
+    dest = tmp_path / "mary"
+    compile_vault(master, mary, load_spaces(master / "_meta/spaces.yaml"), dest,
+                  today="2026-07-22")
+    text = (dest / "People/mary/Shares.md").read_text()
+    assert "Awaiting your decision" in text

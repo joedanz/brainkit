@@ -129,8 +129,11 @@ def cmd_shares(args) -> int:
                                   date=date.today().isoformat())
             print(f"approved {args.id} -> {space}")
         elif args.action == "reject":
+            if not args.approver:
+                print("--approver is required for reject", file=sys.stderr)
+                return 2
             reject_share(master, args.id, reason=args.reason,
-                         date=date.today().isoformat())
+                         date=date.today().isoformat(), approver=args.approver)
             print(f"rejected {args.id}")
         elif args.action == "revoke":
             if not args.space or not args.subject:

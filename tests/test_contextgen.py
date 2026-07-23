@@ -211,3 +211,28 @@ def test_space_notes_generated_for_custom_tree(tmp_path):
     written = generate_context_files(
         tmp_path, person, ["Families/Danziger"], rules, config=FAM)
     assert "Families/Danziger/AGENTS.md" in written
+
+
+def test_root_template_carries_decider_guidance():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+    text = render_root_protocol(Person(id="joe", name="Joe"), [("People/joe", True)])
+    for needle in ("Awaiting your decision", "Approvals/",
+                   "decision: approve", "explicitly", "everyone"):
+        assert needle in text, needle
+
+
+def test_assistant_protocol_carries_decider_guidance():
+    from brain.templates import ASSISTANT_PROTOCOL
+    for needle in ("Awaiting your decision", "Approvals/", "explicitly"):
+        assert needle in ASSISTANT_PROTOCOL, needle
+
+
+def test_skill_carries_decider_guidance_noun_neutral():
+    from pathlib import Path
+    skill = (Path(__file__).resolve().parents[1] /
+             "templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
+    for needle in ("Awaiting your decision", "Approvals/", "explicitly"):
+        assert needle in skill, needle
+    for literal in ("Clients/", "ClientRequests", "client-name"):
+        assert literal not in skill, literal   # noun-neutral pin still holds

@@ -160,7 +160,7 @@ Full walkthrough: [Getting started](docs/getting-started.mdx) · [Per-employee s
 | `brain writeback` | Apply a person's edits to the master, validating every path |
 | `brain promotions` | List, approve, or reject drafts waiting to be shared |
 | `brain shares` | List, approve, reject, or revoke access someone requested to share on a space they own |
-| `brain cycle` | The cron loop: write-back → materialize clients → sweep shares → sweep promotions → recompile |
+| `brain cycle` | The cron loop: write-back → materialize clients → sweep shares → sweep share decisions → sweep promotions → recompile |
 | `brain index` | Build or refresh a vault's local search index |
 | `brain search` | Query a vault — keyword, semantic, or both |
 | `brain facts` | Query time-stamped facts (now, as-of, or believed-on a date) |

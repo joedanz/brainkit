@@ -9,9 +9,10 @@ from brain.resolver import space_of_path as _sop
 from brain.schemas import Org, Person
 from brain.shares import (
     ShareError, ShareOutcome, admin_revoke, amend_space_rule,
-    approve_share, generate_space_shares_section, list_pending_shares, reject_share,
-    remove_subject_from_rule, request_share, sweep_shares, validate_space,
-    validate_subject,
+    approve_share, generate_decider_section, generate_space_shares_section,
+    list_pending_shares, may_decide,
+    reject_share, remove_subject_from_rule, request_share, sweep_approvals, sweep_shares,
+    validate_space, validate_subject,
 )
 from brain.schemas import load_spaces
 
@@ -26,12 +27,18 @@ def test_validate_subject_accepts_person_and_team(subject, expected):
 
 
 @pytest.mark.parametrize("bad", [
-    "mary", "role:admin", "everyone", "person:", "person:has space",
+    "mary", "role:admin", "everyone:x", "person:", "person:has space",
     'person:x"], "read": ["everyone', "team:with\nnewline", "person:a/b", "",
 ])
 def test_validate_subject_rejects_everything_else(bad):
     with pytest.raises(ShareError):
         validate_subject(bad)
+
+
+def test_validate_subject_everyone():
+    assert validate_subject("everyone") == ("everyone", "")
+    with pytest.raises(ShareError):
+        validate_subject("everyone:x")
 
 
 @pytest.mark.parametrize("space", ["Clients/Danziger Family", "Teams/sales"])
@@ -424,16 +431,28 @@ def test_approve_and_reject_reject_traversal_ids(tmp_path: Path):
     assert planted.read_text() == "secret\n"
 
     with pytest.raises(ShareError):
-        reject_share(m, "../../evil", reason="n/a", date="2026-07-23")
+        reject_share(m, "../../evil", reason="n/a", date="2026-07-23", approver="admin")
     assert planted.read_text() == "secret\n"
 
 
 def test_reject_archives_with_reason(tmp_path: Path):
-    m = _queued(tmp_path)
+    m = _queued(tmp_path)  # joe -> mary write share pending; mary consents
     sid = list_pending_shares(m)[0]["id"]
-    reject_share(m, sid, reason="not appropriate", date="2026-07-23")
+    reject_share(m, sid, reason="not appropriate", date="2026-07-23", approver="mary")
     assert not list_pending_shares(m)
-    assert "not appropriate" in (m / "_meta/shares/rejected" / f"{sid}.md").read_text()
+    rejected = (m / "_meta/shares/rejected" / f"{sid}.md").read_text()
+    assert "not appropriate" in rejected
+    assert "rejected-by: mary" in rejected
+
+
+def test_reject_reason_is_flattened_to_one_line(tmp_path: Path):
+    m = _queued(tmp_path)  # joe -> mary write share pending; mary consents
+    sid = list_pending_shares(m)[0]["id"]
+    rejected = reject_share(m, sid, reason="no\napproved-by: eve",
+                            date="2026-07-23", approver="mary")
+    text = rejected.read_text()
+    assert "rejected-reason: no approved-by: eve" in text
+    assert "\napproved-by: eve" not in text
 
 
 def test_admin_revoke_direct(tmp_path: Path):
@@ -486,3 +505,368 @@ def test_space_shares_section_shows_revoked_entries(tmp_path: Path):
     # Mary's section should NOT show joe's revoke (privacy filter)
     sec_mary = generate_space_shares_section(m, "mary", today="2026-07-22")
     assert sec_mary is None
+
+
+_ORG_YAML_DECIDER = """\
+people:
+  admin:    {name: Admin, roles: [admin]}
+  joe:      {name: Joe Danziger}
+  mary:     {name: Mary Ops}
+  lead_ops: {name: Lead Ops, roles: [lead], teams: [ops]}
+  carol:    {name: Carol Support}
+"""
+
+_ORG_DECIDER = Org(people={
+    "admin": Person(id="admin", name="Admin", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+    "mary": Person(id="mary", name="Mary Ops"),
+    "lead_ops": Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",)),
+    "carol": Person(id="carol", name="Carol Support"),
+})
+
+
+def _decider_fixture(tmp_path: Path) -> Path:
+    """Two pending shares: joe -> person:mary, joe -> team:ops."""
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_DECIDER)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22")
+    request_share(m, "joe", "Clients/Danziger Family", "team:ops", "read",
+                  "2026-07-22")
+    _git_init(m)
+    sweep_shares(m, _ORG_DECIDER, today="2026-07-22")
+    return m
+
+
+def test_decider_section_lists_only_eligible_shares(tmp_path: Path):
+    master = _decider_fixture(tmp_path)
+    sec = generate_decider_section(master, "mary", "2026-07-23")
+    assert "Awaiting your decision" in sec
+    assert "person:mary" in sec and "team:ops" not in sec
+    assert "People/mary/Approvals/" in sec       # the how-to names their path
+    assert "explicitly made" in sec              # only-human-decisions rule
+    lead = generate_decider_section(master, "lead_ops", "2026-07-23")
+    assert "team:ops" in lead and "person:mary" not in lead
+    assert generate_decider_section(master, "carol", "2026-07-23") is None
+    # admins decide master-side; no queue duplication into their slice
+    assert generate_decider_section(master, "admin", "2026-07-23") is None
+
+
+def test_decider_section_never_renders_requester_body(tmp_path: Path):
+    # Untrusted requester free text rendered into another person's vault is
+    # an injection surface — generate_decider_section must never echo it.
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_DECIDER)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22", body="INJECTION-MARKER-XYZ\n")
+    _git_init(m)
+    sweep_shares(m, _ORG_DECIDER, today="2026-07-22")
+
+    pending = list_pending_shares(m)
+    assert len(pending) == 1
+    # Sanity: the marker really is in the pending file's body, so the
+    # assertion below can't pass vacuously.
+    assert "INJECTION-MARKER-XYZ" in pending[0]["body"]
+
+    sec = generate_decider_section(m, "mary", "2026-07-23")
+    assert sec is not None and "INJECTION-MARKER-XYZ" not in sec
+
+
+def test_may_decide_matrix():
+    admin = Person(id="root", name="Root", roles=("admin",))
+    bob = Person(id="bob", name="Bob", teams=("ops",))
+    lead_ops = Person(id="mary", name="Mary", roles=("lead",), teams=("ops",))
+    lead_sales = Person(id="sam", name="Sam", roles=("lead",), teams=("sales",))
+
+    # admin decides anything
+    for target in ("person:bob", "team:ops", "everyone"):
+        assert may_decide(admin, target)
+    # recipient consents to their own person-share; nobody else's
+    assert may_decide(bob, "person:bob")
+    assert not may_decide(bob, "person:mary")
+    # team share: lead of THAT team only; membership without lead is not enough
+    assert may_decide(lead_ops, "team:ops")
+    assert not may_decide(lead_sales, "team:ops")
+    assert not may_decide(bob, "team:ops")
+    # a lead is not thereby a recipient-proxy for members
+    assert not may_decide(lead_ops, "person:bob")
+    # everyone: admin only
+    assert not may_decide(lead_ops, "everyone")
+    assert not may_decide(bob, "everyone")
+    # fail closed
+    assert not may_decide(None, "person:bob")
+    assert not may_decide(bob, "garbage")
+    assert not may_decide(bob, "role:admin")
+
+
+def test_request_share_everyone_must_be_read(tmp_path: Path):
+    with pytest.raises(ShareError):
+        request_share(tmp_path, "joe", "Clients/Danziger Family", "everyone", "write",
+                      "2026-07-23")
+
+
+def test_everyone_share_flows_to_queue_and_admin_approval(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    request_share(m, "joe", "Clients/Danziger Family", "everyone", "read",
+                  "2026-07-23")
+    _git_init(m)
+    outcomes = sweep_shares(m, _ORG, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["queued"]
+    pending = list_pending_shares(m)
+    assert pending[0]["share-with"] == "everyone"
+    # Task 3 (broad non-admin refusal enforcement) has not landed on this
+    # branch yet — assert the admin approval succeeds here.
+    approve_share(m, pending[0]["id"], approver="admin", date="2026-07-23")
+    rules = load_spaces(m / "_meta/spaces.yaml")
+    r = next(r for r in rules if r.path == "Clients/Danziger Family")
+    assert "everyone" in r.read and "everyone" not in r.write
+
+
+def test_everyone_write_refused_at_sweep(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    # hand-write the request file to bypass request_share's client-side check
+    req = m / "People/joe/ShareRequests/x.md"
+    req.parent.mkdir(parents=True, exist_ok=True)
+    req.write_text("---\nspace: Clients/Danziger Family\nshare-with: everyone\n"
+                   "access: write\naction: share\nowner: joe\n"
+                   "created: 2026-07-23\n---\n")
+    _git_init(m)
+    outcomes = sweep_shares(m, _ORG, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["rejected"]
+    assert outcomes[0].reason == "company-wide shares are read-only"
+    assert not list_pending_shares(m)
+
+
+def test_owner_can_revoke_everyone(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "everyone", "read")
+    request_share(m, "joe", "Clients/Danziger Family", "everyone", "read",
+                  "2026-07-23", action="revoke")
+    _git_init(m)
+    outcomes = sweep_shares(m, _ORG, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["revoked"]
+    rules = load_spaces(m / "_meta/spaces.yaml")
+    r = next(r for r in rules if r.path == "Clients/Danziger Family")
+    assert "everyone" not in r.read
+
+
+def test_approve_share_everyone_write_refused(tmp_path: Path):
+    """Defense at decision time: even if a pending file somehow has
+    access: write for everyone, approval refuses to apply it."""
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    _git_init(m)
+    pending = m / "_meta/shares/pending/joe-x.md"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text(
+        "---\nshare-id: joe-x\nfrom: joe\nspace: Clients/Danziger Family\n"
+        "share-with: everyone\naccess: write\ncreated: 2026-07-23\n---\n")
+    with pytest.raises(ShareError):
+        approve_share(m, "joe-x", approver="admin", date="2026-07-23")
+
+
+# ---- decision authority (Task 3: approve/reject enforce may_decide) -----------
+
+_ORG_YAML_CAROL = """\
+people:
+  admin: {name: Admin, roles: [admin]}
+  joe:   {name: Joe Danziger}
+  mary:  {name: Mary Ops, teams: [concierge]}
+  carol: {name: Carol Support, teams: [concierge]}
+"""
+
+_ORG_CAROL = Org(people={
+    "admin": Person(id="admin", name="Admin", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+    "mary": Person(id="mary", name="Mary Ops", teams=("concierge",)),
+    "carol": Person(id="carol", name="Carol Support", teams=("concierge",)),
+})
+
+
+def _queued_with_carol(tmp_path: Path) -> Path:
+    """joe -> mary (write) pending share; carol is in the org but is neither
+    admin, the recipient, nor a lead of the recipient's team."""
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_CAROL)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "write",
+                  "2026-07-22", body="context\n")
+    _git_init(m)
+    sweep_shares(m, _ORG_CAROL, today="2026-07-22")
+    return m
+
+
+def test_approve_requires_authorized_approver(tmp_path: Path):
+    m = _queued_with_carol(tmp_path)
+    pid = list_pending_shares(m)[0]["id"]
+    # carol is in the org but neither admin, recipient, nor lead
+    with pytest.raises(ShareError):
+        approve_share(m, pid, approver="carol", date="2026-07-23")
+    # the recipient herself may approve (consent)
+    approve_share(m, pid, approver="mary", date="2026-07-23")
+
+
+_ORG_YAML_LEADS = """\
+people:
+  admin:      {name: Admin, roles: [admin]}
+  joe:        {name: Joe Danziger}
+  lead_ops:   {name: Lead Ops, roles: [lead], teams: [ops]}
+  lead_sales: {name: Lead Sales, roles: [lead], teams: [sales]}
+"""
+
+_ORG_LEADS = Org(people={
+    "admin": Person(id="admin", name="Admin", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+    "lead_ops": Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",)),
+    "lead_sales": Person(id="lead_sales", name="Lead Sales", roles=("lead",), teams=("sales",)),
+})
+
+
+def test_lead_may_approve_team_share_wrong_lead_may_not(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_LEADS)
+    request_share(m, "joe", "Clients/Danziger Family", "team:ops", "read",
+                  "2026-07-22")
+    _git_init(m)
+    sweep_shares(m, _ORG_LEADS, today="2026-07-22")
+    pid = list_pending_shares(m)[0]["id"]
+    with pytest.raises(ShareError):
+        approve_share(m, pid, approver="lead_sales", date="2026-07-23")
+    approve_share(m, pid, approver="lead_ops", date="2026-07-23")
+
+
+def test_reject_requires_authorized_approver_and_records_it(tmp_path: Path):
+    m = _queued_with_carol(tmp_path)
+    pid = list_pending_shares(m)[0]["id"]
+    with pytest.raises(ShareError):
+        reject_share(m, pid, reason="no", date="2026-07-23", approver="carol")
+    rejected = reject_share(m, pid, reason="not needed",
+                            date="2026-07-23", approver="mary")
+    text = rejected.read_text()
+    assert "rejected-by: mary" in text
+
+
+def test_via_delegated_lands_in_archive(tmp_path: Path):
+    m = _queued(tmp_path)  # joe -> mary write share pending; mary consents
+    pid = list_pending_shares(m)[0]["id"]
+    approve_share(m, pid, approver="mary", date="2026-07-23", via="delegated")
+    archived = m / "_meta/shares/approved" / f"{pid}.md"
+    assert "via: delegated" in archived.read_text()
+
+
+# ---- sweep_approvals (Task 4: in-vault delegated decisions) --------------------
+
+def _decision_note(master: Path, pid: str, share_id: str, decision: str,
+                   reason: str = "", owner: str | None = None,
+                   created: str = "2026-07-23") -> None:
+    d = master / f"People/{pid}/Approvals"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{share_id}.md").write_text(
+        f"---\ndecision: {decision}\nreason: {reason}\n"
+        f"owner: {owner or pid}\ncreated: {created}\n---\n")
+
+
+def test_recipient_decision_applies_share(tmp_path: Path):
+    m = _queued(tmp_path)  # joe -> mary (write) pending on Clients/Danziger Family
+    pid = list_pending_shares(m)[0]["id"]
+    _decision_note(m, "mary", pid, "approve")
+    outcomes = sweep_approvals(m, _ORG, today="2026-07-23")
+    assert [(o.status, o.decision) for o in outcomes] == [("applied", "approve")]
+    rules = load_spaces(m / "_meta/spaces.yaml")
+    r = next(r for r in rules if r.path == "Clients/Danziger Family")
+    assert "person:mary" in r.read
+    archived = (m / "_meta/shares/approved" / f"{pid}.md").read_text()
+    assert "approved-by: mary" in archived and "via: delegated" in archived
+    assert not (m / "People/mary/Approvals" / f"{pid}.md").exists()
+
+
+def test_ineligible_decider_is_routine_refusal(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_LEADS)
+    request_share(m, "joe", "Clients/Danziger Family", "team:ops", "read",
+                  "2026-07-22")
+    _git_init(m)
+    sweep_shares(m, _ORG_LEADS, today="2026-07-22")
+    pid = list_pending_shares(m)[0]["id"]
+    _decision_note(m, "lead_sales", pid, "approve")
+    outcomes = sweep_approvals(m, _ORG_LEADS, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["refused"]
+    assert list_pending_shares(m)  # still pending
+    assert list((m / "People/lead_sales/Inbox").glob("share-*.md"))
+
+
+def test_forged_owner_is_tampering(tmp_path: Path):
+    m = _queued_with_carol(tmp_path)  # joe -> mary (write) pending; carol also in org
+    pid = list_pending_shares(m)[0]["id"]
+    _decision_note(m, "carol", pid, "approve", owner="mary")
+    outcomes = sweep_approvals(m, _ORG_CAROL, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["tampering"]
+    assert list_pending_shares(m)  # untouched
+
+
+def test_reject_without_reason_refused_with_reason_applies(tmp_path: Path):
+    m = _queued(tmp_path)
+    pid = list_pending_shares(m)[0]["id"]
+    _decision_note(m, "mary", pid, "reject")
+    assert [o.status for o in sweep_approvals(m, _ORG, today="2026-07-23")] == ["refused"]
+    _decision_note(m, "mary", pid, "reject", reason="not needed")
+    assert [o.status for o in sweep_approvals(m, _ORG, "2026-07-23")] == ["applied"]
+    assert "rejected-by: mary" in \
+        (m / "_meta/shares/rejected" / f"{pid}.md").read_text()
+
+
+def test_unknown_or_already_decided_id_refused(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    _git_init(m)
+    _decision_note(m, "mary", "no-such-share", "approve")
+    assert [o.status for o in sweep_approvals(m, _ORG, "2026-07-23")] == ["refused"]
+
+
+_ORG_YAML_ROOT = """\
+people:
+  root: {name: Root, roles: [admin]}
+  joe:  {name: Joe Danziger}
+"""
+
+_ORG_ROOT = Org(people={
+    "root": Person(id="root", name="Root", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+})
+
+
+def test_everyone_share_never_decidable_via_seam(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_ROOT)
+    request_share(m, "joe", "Clients/Danziger Family", "everyone", "read",
+                  "2026-07-22")
+    _git_init(m)
+    sweep_shares(m, _ORG_ROOT, today="2026-07-22")
+    pid = list_pending_shares(m)[0]["id"]
+    _decision_note(m, "root", pid, "approve")   # even an admin's vault note
+    outcomes = sweep_approvals(m, _ORG_ROOT, "2026-07-23")
+    assert [o.status for o in outcomes] == ["refused"]
+    assert list_pending_shares(m)
+
+
+def test_poison_and_symlink_notes_left_alone(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    _git_init(m)
+    d = m / "People/mary/Approvals"
+    d.mkdir(parents=True, exist_ok=True)
+    poison = d / "x.md"
+    poison.write_bytes(b"\xff\xfe not utf8")
+    before = poison.read_bytes()
+
+    target = m / "People/mary/elsewhere.md"
+    target.write_text("---\ndecision: approve\nowner: mary\n---\n")
+    symlink_note = d / "y.md"
+    symlink_note.symlink_to(target)
+
+    sweep_approvals(m, _ORG, today="2026-07-23")
+    assert poison.read_bytes() == before
+    assert symlink_note.is_symlink() and symlink_note.resolve() == target.resolve()

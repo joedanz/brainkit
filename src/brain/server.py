@@ -509,7 +509,10 @@ async def handle_share_action(request: web.Request) -> web.Response:
             reason = str(data.get("reason") or "").strip()
             if not reason:
                 raise web.HTTPBadRequest(reason="a rejection reason is required")
-            reject_share(master, share_id, reason, _today())
+            approver = str(data.get("approver") or "").strip()
+            if approver not in request.app["people"]:
+                raise web.HTTPBadRequest(reason="approver must be a person in the org")
+            reject_share(master, share_id, reason, _today(), approver)
         else:
             raise web.HTTPNotFound(reason=f"unknown action {action!r}")
 

@@ -581,6 +581,44 @@ def _check_pending_shares(master: Path) -> list[Finding]:
     return findings
 
 
+def _check_delegated_decisions(master: Path) -> list[Finding]:
+    """Share decisions made in-vault (via: delegated) in the last 30 days,
+    surfaced for admin review — the audit counterweight to delegating the
+    human gate into deciders' vaults."""
+    from datetime import date as _date, timedelta
+
+    from brain.frontmatter import split_frontmatter
+
+    cutoff = _date.today() - timedelta(days=30)
+    findings: list[Finding] = []
+    for state, key, by_key, verb in (
+        ("approved", "approved-on", "approved-by", "approved"),
+        ("rejected", "rejected-on", "rejected-by", "rejected"),
+    ):
+        d = master / "_meta/shares" / state
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.md")):
+            try:
+                meta, _ = split_frontmatter(f.read_text())
+            except (KeyError, ValueError, UnicodeDecodeError):
+                continue
+            if not meta or meta.get("via") != "delegated":
+                continue
+            try:
+                when = _date.fromisoformat(str(meta.get(key, "")))
+            except ValueError:
+                continue
+            if when < cutoff:
+                continue
+            findings.append(Finding(
+                "info", "shares",
+                f"{meta.get('space', '?')} → {meta.get('share-with', '?')} "
+                f"{verb} by {meta.get(by_key, '?')} on {when.isoformat()} "
+                f"(delegated)"))
+    return findings
+
+
 def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
@@ -603,6 +641,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_promotions(master)
     findings += _check_created_clients(master, config)
     findings += _check_pending_shares(master)
+    findings += _check_delegated_decisions(master)
     findings += _check_intel(master)
     findings += _check_webhook(master, org)
     if out_root is not None:
