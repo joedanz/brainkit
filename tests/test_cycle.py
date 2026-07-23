@@ -14,6 +14,16 @@ def _first_compile(master: Path, tmp_path: Path) -> Path:
     return out
 
 
+def _add_carol_to_org(master: Path) -> None:
+    """Add carol (non-admin) to org.yaml for testing non-owner share requests."""
+    org_yaml = (master / "_meta/org.yaml").read_text()
+    org_yaml = org_yaml.replace(
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}",
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}\n  carol: {name: Carol, teams: [], email: carol@acme.com}"
+    )
+    (master / "_meta/org.yaml").write_text(org_yaml)
+
+
 def test_cycle_applies_writebacks_sweeps_and_recompiles(master, tmp_path):
     seed_meta(master)
     out = _first_compile(master, tmp_path)
@@ -258,6 +268,56 @@ def test_cycle_owner_mismatch_request_trips_ok(master, tmp_path):
     assert report.ok is False
 
 
+def test_cycle_report_shares_tampering_flips_ok():
+    from brain.cycle import CycleReport
+    tamper = CycleReport(writebacks=[], swept=0, compiled=0, pending=0,
+                         shares_tampering=1)
+    assert tamper.ok is False
+    routine = CycleReport(writebacks=[], swept=0, compiled=0, pending=0,
+                          shares_queued=2, shares_revoked=1)
+    assert routine.ok is True  # routine rejections don't flip ok
+
+
+def test_cycle_share_request_lifecycle(master, tmp_path):
+    from brain.clients import request_client
+    from brain.shares import list_pending_shares, request_share
+
+    seed_meta(master)
+    _add_carol_to_org(master)
+
+    out = _first_compile(master, tmp_path)
+    # cycle 1: bob creates a client (auto)
+    request_client(out / "bob", "bob", "Danziger Family", "fam\n", "2026-07-22")
+    run_cycle(master, out, today="2026-07-22")
+    # cycle 2: bob asks to share it with carol (not yet approved)
+    request_share(out / "bob", "bob", "Clients/Danziger Family",
+                  "person:carol", "read", "2026-07-23")
+    report = run_cycle(master, out, today="2026-07-23")
+    assert report.ok and report.shares_queued == 1
+    assert len(list_pending_shares(master)) == 1
+    # not yet approved: carol's slice from the same cycle lacks the space
+    assert not (out / "carol/Clients/Danziger Family").exists()
+
+
+def test_cycle_nonowner_share_request_trips_ok(master, tmp_path):
+    from brain.clients import request_client
+    from brain.shares import request_share
+
+    seed_meta(master)
+    _add_carol_to_org(master)
+
+    out = _first_compile(master, tmp_path)
+    request_client(out / "bob", "bob", "Danziger Family", "fam\n", "2026-07-22")
+    run_cycle(master, out, today="2026-07-22")
+    # carol (not the owner of Clients/Danziger Family) requests a share on it
+    # This is tampering because carol cannot write to this space
+    request_share(out / "carol", "carol", "Clients/Danziger Family",
+                  "person:alice", "write", "2026-07-23")
+    report = run_cycle(master, out, today="2026-07-23")
+    assert report.shares_tampering == 1
+    assert report.ok is False
+
+
 def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
     from brain.promotions import approve, draft_into_space
 
@@ -289,3 +349,60 @@ def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
     # And the tampered generated file must not even register as a writeback change.
     bob_wb = next(w for w in report.writebacks if w.person_id == "bob")
     assert bob_wb.applied == 0
+
+
+def test_share_approve_delivers_space_and_read_only_is_enforced(master, tmp_path):
+    from brain.clients import request_client
+    from brain.shares import approve_share, list_pending_shares, request_share
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    # Swapped: alice (owner) shares with bob (non-admin recipient) so read-only
+    # enforcement can be tested. alice is admin and could write despite read-only;
+    # bob is non-admin and cannot.
+    request_client(out / "alice", "alice", "Danziger Family", "fam\n", "2026-07-22")
+    run_cycle(master, out, today="2026-07-22")
+    (out / "alice/Clients/Danziger Family/Danziger Family.md").write_text(
+        "fam\nwritten while share pending\n")
+    request_share(out / "alice", "alice", "Clients/Danziger Family",
+                  "person:bob", "read", "2026-07-23")
+    run_cycle(master, out, today="2026-07-23")   # queues; owner write landed too
+    sid = list_pending_shares(master)[0]["id"]
+    approve_share(master, sid, approver="alice", date="2026-07-23")
+    report = run_cycle(master, out, today="2026-07-24")
+    assert report.ok
+    # bob received the whole space, including the pending-window write
+    note = out / "bob/Clients/Danziger Family/Danziger Family.md"
+    assert note.exists() and "written while share pending" in note.read_text()
+    # read-only: bob's edits are rejected by writeback next cycle
+    note.write_text("bob tries to edit\n")
+    report2 = run_cycle(master, out, today="2026-07-25")
+    bob_wb = next(w for w in report2.writebacks if w.person_id == "bob")
+    assert bob_wb.status == "rejected"
+    assert "bob tries to edit" not in (
+        master / "Clients/Danziger Family/Danziger Family.md").read_text()
+
+
+def test_revoke_removes_space_from_recipient_slice(master, tmp_path):
+    from brain.clients import request_client
+    from brain.shares import approve_share, list_pending_shares, request_share
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    # alice (owner) shares with bob (non-admin recipient) to test revoke behavior.
+    # alice being admin would retain role:admin access even after person revoke.
+    request_client(out / "alice", "alice", "Danziger Family", "fam\n", "2026-07-22")
+    run_cycle(master, out, today="2026-07-22")
+    request_share(out / "alice", "alice", "Clients/Danziger Family",
+                  "person:bob", "write", "2026-07-23")
+    run_cycle(master, out, today="2026-07-23")
+    approve_share(master, list_pending_shares(master)[0]["id"],
+                  approver="alice", date="2026-07-23")
+    run_cycle(master, out, today="2026-07-24")
+    assert (out / "bob/Clients/Danziger Family").is_dir()
+    # alice revokes; the same cycle applies it and recompiles bob without the space
+    request_share(out / "alice", "alice", "Clients/Danziger Family",
+                  "person:bob", "read", "2026-07-25", action="revoke")
+    report = run_cycle(master, out, today="2026-07-25")
+    assert report.shares_revoked == 1 and report.ok
+    assert not (out / "bob/Clients/Danziger Family").exists()

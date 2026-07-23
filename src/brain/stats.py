@@ -419,6 +419,16 @@ class PromotionSummary:
 
 
 @dataclass
+class SharesSummary:
+    id: str
+    person_id: str
+    space: str
+    share_with: str
+    access: str
+    created: str
+
+
+@dataclass
 class SpacePermission:
     space: str
     readers: list[str]  # person ids
@@ -440,6 +450,7 @@ class MasterStats:
     findings: list[Finding]
     webhook_sources: int | None = None  # None = no _meta/webhook.yaml (or unreadable)
     warnings: list[str] = field(default_factory=list)
+    shares_pending: list[SharesSummary] = field(default_factory=list)
 
 
 def _vault_disk_bytes(vault: Path) -> int:
@@ -519,6 +530,17 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
         for p in list_pending(master)
     ]
 
+    from brain.shares import list_pending_shares
+
+    shares = [
+        SharesSummary(id=s["id"], person_id=str(s.get("from", "")),
+                      space=str(s.get("space", "")),
+                      share_with=str(s.get("share-with", "")),
+                      access=str(s.get("access", "")),
+                      created=str(s.get("created", "")))
+        for s in list_pending_shares(master)
+    ]
+
     # A count, not a health check: doctor (included in findings below) already
     # reports a broken webhook.yaml, so an unreadable config just stays None.
     webhook_sources: int | None = None
@@ -545,6 +567,7 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
         findings=run_doctor(master, Path(out_root) if out_root else None),
         webhook_sources=webhook_sources,
         warnings=warnings,
+        shares_pending=shares,
     )
 
 

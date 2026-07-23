@@ -457,3 +457,24 @@ def test_doctor_surfaces_created_clients(tmp_path):
 def test_doctor_no_findings_without_log(tmp_path):
     from brain.doctor import _check_created_clients
     assert _check_created_clients(tmp_path / "master") == []
+
+
+def test_doctor_surfaces_pending_shares(tmp_path):
+    from brain.doctor import _check_pending_shares
+
+    master = tmp_path / "master"
+    d = master / "_meta/shares/pending"
+    d.mkdir(parents=True)
+    (d / "joe-x.md").write_text(
+        "---\nshare-id: joe-x\nfrom: joe\nspace: Clients/Danziger Family\n"
+        "share-with: person:mary\naccess: write\ncreated: 2026-07-22\n---\nnote\n")
+    findings = _check_pending_shares(master)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == "info" and f.check == "shares"
+    assert "Danziger Family" in f.message and "person:mary" in f.message
+
+
+def test_doctor_no_share_findings_without_queue(tmp_path):
+    from brain.doctor import _check_pending_shares
+    assert _check_pending_shares(tmp_path / "master") == []

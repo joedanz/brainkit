@@ -491,6 +491,35 @@ async def handle_promotion_action(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "id": promo_id, "action": action})
 
 
+async def handle_share_action(request: web.Request) -> web.Response:
+    from brain.shares import ShareError, approve_share, reject_share
+
+    master = _require_master(request)
+    share_id = request.match_info["id"]
+    action = request.match_info["action"]
+    data = await _json_body(request)
+
+    def _do() -> None:
+        if action == "approve":
+            approver = str(data.get("approver") or "").strip()
+            if approver not in request.app["people"]:
+                raise web.HTTPBadRequest(reason="approver must be a person in the org")
+            approve_share(master, share_id, approver, _today())
+        elif action == "reject":
+            reason = str(data.get("reason") or "").strip()
+            if not reason:
+                raise web.HTTPBadRequest(reason="a rejection reason is required")
+            reject_share(master, share_id, reason, _today())
+        else:
+            raise web.HTTPNotFound(reason=f"unknown action {action!r}")
+
+    try:
+        await asyncio.to_thread(_do)
+    except ShareError as e:
+        raise web.HTTPNotFound(reason=str(e))
+    return web.json_response({"ok": True, "id": share_id, "action": action})
+
+
 async def handle_promotion_sweep(request: web.Request) -> web.Response:
     from brain.promotions import sweep
 
@@ -706,6 +735,7 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     app.router.add_get("/api/promotion", handle_promotion)
     app.router.add_post("/api/promotions/sweep", handle_promotion_sweep)
     app.router.add_post("/api/promotions/{id}/{action}", handle_promotion_action)
+    app.router.add_post("/api/shares/{id}/{action}", handle_share_action)
     app.router.add_get("/ws", handle_ws)
     if assets_dir().is_dir():
         app.router.add_static("/assets/", assets_dir(), follow_symlinks=False)

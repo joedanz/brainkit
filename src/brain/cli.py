@@ -110,6 +110,43 @@ def cmd_promotions(args) -> int:
     return 0
 
 
+def cmd_shares(args) -> int:
+    from brain.schemas import SchemaError
+    from brain.shares import (ShareError, admin_revoke, approve_share,
+                              list_pending_shares, reject_share)
+
+    master = Path(args.master)
+    try:
+        if args.action == "list":
+            for s in list_pending_shares(master):
+                print(f"{s['id']}  from={s.get('from')}  space={s.get('space')}  "
+                      f"with={s.get('share-with')}  access={s.get('access')}")
+        elif args.action == "approve":
+            if not args.approver:
+                print("--approver is required for approve", file=sys.stderr)
+                return 2
+            space = approve_share(master, args.id, approver=args.approver,
+                                  date=date.today().isoformat())
+            print(f"approved {args.id} -> {space}")
+        elif args.action == "reject":
+            reject_share(master, args.id, reason=args.reason,
+                         date=date.today().isoformat())
+            print(f"rejected {args.id}")
+        elif args.action == "revoke":
+            if not args.space or not args.subject:
+                print("--space and --subject are required for revoke", file=sys.stderr)
+                return 2
+            if admin_revoke(master, args.space, args.subject,
+                            date=date.today().isoformat()):
+                print(f"revoked {args.subject} from {args.space}")
+            else:
+                print(f"{args.subject} was not on {args.space}; nothing to revoke")
+    except (ShareError, SchemaError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_init(args) -> int:
     from brain.templates import scaffold_master
 
@@ -487,6 +524,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--approver", default="")
     p.add_argument("--reason", default="")
     p.set_defaults(func=cmd_promotions)
+
+    sp = sub.add_parser("shares", help="manage space share requests")
+    sp.add_argument("action", choices=["list", "approve", "reject", "revoke"])
+    sp.add_argument("id", nargs="?")
+    sp.add_argument("--master", required=True)
+    sp.add_argument("--approver", default="")
+    sp.add_argument("--reason", default="")
+    sp.add_argument("--space", default="")
+    sp.add_argument("--subject", default="")
+    sp.set_defaults(func=cmd_shares)
 
     i = sub.add_parser("init", help="scaffold a new company master vault")
     i.add_argument("dir")

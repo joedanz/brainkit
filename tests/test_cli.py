@@ -330,3 +330,24 @@ def test_promotions_show_noop_patch_prints_no_changes(master: Path, capsys):
     out = capsys.readouterr().out
     assert "(no changes" in out
     assert out.rstrip().endswith("(no changes — proposed page is identical to the current one)")
+
+
+def test_cli_shares_list_approve(master: Path, tmp_path: Path, capsys):
+    from brain.shares import amend_space_rule  # noqa: F401 (import check)
+    seed_meta(master)
+    (master / "Clients/acme").mkdir(exist_ok=True, parents=True)
+    # give bob an exact rule so he owns Clients/acme, then queue a share
+    with (master / "_meta/spaces.yaml").open("a") as fh:
+        fh.write('  - {path: "Clients/acme", read: ["role:admin", "person:bob"], write: ["role:admin", "person:bob"]}\n')
+    from brain.shares import request_share, sweep_shares
+    from brain.schemas import load_org
+    request_share(master, "bob", "Clients/acme", "person:alice", "read", "2026-07-22")
+    sweep_shares(master, load_org(master / "_meta/org.yaml"), today="2026-07-22")
+    assert main(["shares", "list", "--master", str(master)]) == 0
+    out = capsys.readouterr().out
+    assert "Clients/acme" in out and "person:alice" in out
+    sid = out.split()[0]
+    assert main(["shares", "approve", sid, "--master", str(master),
+                 "--approver", "alice"]) == 0
+    assert main(["shares", "revoke", "--master", str(master),
+                 "--space", "Clients/acme", "--subject", "person:alice"]) == 0

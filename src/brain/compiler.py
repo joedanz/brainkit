@@ -195,6 +195,15 @@ def _post_process(
     from brain.promotions import SHARES_NOTE_REL, generate_shares_note
 
     note = generate_shares_note(master, person.id, today)
+    from brain.shares import generate_space_shares_section
+
+    section = generate_space_shares_section(master, person.id, today)
+    if section is not None:
+        if note is None:
+            note = ("---\ngenerated: true\n---\n# My Shares\n\n"
+                    "Status of what you have proposed to share. This file is\n"
+                    "regenerated on every compile — edits here are discarded.\n")
+        note = note.rstrip("\n") + "\n\n" + section
     if note is not None:
         # People/<pid>/Shares.md is a reserved generated filename — regenerated from queue truth each compile.
         rel = SHARES_NOTE_REL.format(person_id=person.id)

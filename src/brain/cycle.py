@@ -1,4 +1,4 @@
-"""One-shot server cycle: writeback -> materialize clients -> sweep -> compile-all.
+"""One-shot server cycle: writeback -> materialize clients -> sweep shares -> sweep promotions -> compile-all.
 
 Ordering is load-bearing: writebacks land person edits (including freshly
 synced promotion drafts) in master BEFORE the sweep reads People/*/Promotions,
@@ -37,6 +37,9 @@ class CycleReport:
     clients_created: int = 0
     clients_rejected: int = 0
     clients_tampering: int = 0  # owner-mismatch client rejections — a tamper signal
+    shares_queued: int = 0
+    shares_revoked: int = 0
+    shares_tampering: int = 0  # non-owner share/revoke requests — a tamper signal
     indexed: int = 0
     index_warnings: list[str] = field(default_factory=list)
 
@@ -50,6 +53,7 @@ class CycleReport:
         return (
             all(w.status != "rejected" for w in self.writebacks)
             and self.clients_tampering == 0
+            and self.shares_tampering == 0
         )
 
 
@@ -104,10 +108,12 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             )
 
     from brain.clients import materialize_clients
+    from brain.shares import sweep_shares
 
     provisioned = materialize_clients(master, org, today=today)
-    # materialize_clients appended grants to spaces.yaml; the compile below must
-    # see them, so reload the rules it was given at the top of the cycle.
+    share_outcomes = sweep_shares(master, org, today=today)
+    # sweep_shares may have modified spaces.yaml (revokes); materialize_clients
+    # appended grants too. The compile below must see both, so reload.
     rules = load_spaces(master / "_meta/spaces.yaml")
 
     swept = len(sweep(master, today=today))
@@ -127,5 +133,8 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             1 for p in provisioned
             if p.status == "rejected" and p.reason == "owner mismatch"
         ),
+        shares_queued=sum(1 for o in share_outcomes if o.status == "queued"),
+        shares_revoked=sum(1 for o in share_outcomes if o.status == "revoked"),
+        shares_tampering=sum(1 for o in share_outcomes if o.status == "tampering"),
         indexed=indexed, index_warnings=index_warnings,
     )

@@ -159,6 +159,36 @@ function table(parent, headers, rows, centerFrom) {
   parent.appendChild(t);
 }
 function badge(kind, text) { return el("span", "badge " + kind, text); }
+function shareActions(id) {
+  var box = el("div");
+  var approveBtn = el("button", null, "Approve");
+  approveBtn.type = "button";
+  approveBtn.addEventListener("click", function () {
+    var approver = window.prompt("Approver (person id in the org):");
+    if (!approver) return;
+    fetch("/api/shares/" + encodeURIComponent(id) + "/approve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approver: approver }),
+    }).then(function (r) {
+      if (r.ok) location.reload(); else r.text().then(function (t) { window.alert(t); });
+    });
+  });
+  var rejectBtn = el("button", null, "Reject");
+  rejectBtn.type = "button";
+  rejectBtn.addEventListener("click", function () {
+    var reason = window.prompt("Reason for rejecting this share:");
+    if (!reason) return;
+    fetch("/api/shares/" + encodeURIComponent(id) + "/reject", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason }),
+    }).then(function (r) {
+      if (r.ok) location.reload(); else r.text().then(function (t) { window.alert(t); });
+    });
+  });
+  box.appendChild(approveBtn);
+  box.appendChild(rejectBtn);
+  return box;
+}
 function fmtBytes(n) {
   var units = ["B", "KB", "MB", "GB"], i = 0;
   while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
@@ -504,6 +534,8 @@ function renderMaster(app, d) {
     { value: d.spaces.length, label: "spaces" },
     { value: d.promotions_pending.length, label: "promotions pending",
       tone: d.promotions_pending.length ? "warn" : "" },
+    { value: d.shares_pending.length, label: "share requests pending",
+      tone: d.shares_pending.length ? "warn" : "" },
     { value: errs, label: "doctor errors", tone: errs ? "err" : "" },
     { value: warns, label: "doctor warnings", tone: warns ? "warn" : "" },
   ]);
@@ -529,6 +561,15 @@ function renderMaster(app, d) {
     table(pq, ["id", "from", "target"], d.promotions_pending.map(function (p) {
       return [p.id, p.person_id, p.target_path];
     }));
+  }
+
+  if (d.shares_pending && d.shares_pending.length) {
+    var sq = section(app, "Share requests");
+    table(sq, ["id", "from", "space", "with", "access", ""],
+      d.shares_pending.map(function (s) {
+        return [s.id, s.person_id, s.space, s.share_with, s.access,
+                shareActions(s.id)];
+      }));
   }
 
   var pm = section(app, "Permissions (read / write)");

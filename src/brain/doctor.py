@@ -563,6 +563,21 @@ def _check_created_clients(master: Path) -> list[Finding]:
     return findings
 
 
+def _check_pending_shares(master: Path) -> list[Finding]:
+    """Share requests awaiting approval, surfaced for the admin. Informational:
+    the queue is the human gate working as designed, but it should be visible."""
+    from brain.shares import list_pending_shares
+
+    findings: list[Finding] = []
+    for s in list_pending_shares(master):
+        findings.append(Finding(
+            "info", "shares",
+            f"{s.get('space', '?')} → {s.get('share-with', '?')} "
+            f"({s.get('access', '?')}) requested by {s.get('from', '?')} "
+            f"on {s.get('created', '?')} — awaiting approval"))
+    return findings
+
+
 def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
@@ -579,6 +594,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
     findings += _check_created_clients(master)
+    findings += _check_pending_shares(master)
     findings += _check_intel(master)
     findings += _check_webhook(master, org)
     if out_root is not None:

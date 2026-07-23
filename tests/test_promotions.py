@@ -264,6 +264,33 @@ def test_sweep_moves_agent_drafts_into_queue(master: Path):
     assert (d / "broken.md").exists()               # skipped, left in place
 
 
+def test_sweep_skips_poison_utf8_request_and_processes_valid_one(master: Path):
+    """An invalid-UTF-8 request file must not abort the whole sweep — the
+    valid draft alongside it still gets queued, and the poison file is left
+    untouched for inspection."""
+    from brain.promotions import sweep
+
+    d = master / "People/bob/Promotions"
+    d.mkdir(parents=True)
+    (d / "Good.md").write_text(
+        "---\n"
+        "target-path: Company/Playbook/Good-SOP.md\n"
+        "source: People/bob/Sessions/call.md\n"
+        "---\n"
+        "Step one.\n"
+    )
+    poison = d / "Poison.md"
+    poison.write_bytes(b"\xff\xfe garbage")
+
+    moved = sweep(master, today="2026-07-07")
+
+    assert len(moved) == 1
+    pending = list_pending(master)
+    assert pending[0].target_path == "Company/Playbook/Good-SOP.md"
+    assert poison.exists()
+    assert poison.read_bytes() == b"\xff\xfe garbage"
+
+
 def _draft(master: Path, title: str = "CBS Result") -> Path:
     """Write an agent draft into bob's Promotions folder; return its path."""
     d = master / "People/bob/Promotions"
@@ -370,6 +397,22 @@ def test_approve_and_reject_unknown_id_raise(master: Path):
         approve(master, "does-not-exist", approver="alice", date="2026-07-08")
     with pytest.raises(PromotionError, match="no pending promotion"):
         reject(master, "does-not-exist", reason="n/a", date="2026-07-20")
+
+
+def test_approve_and_reject_reject_traversal_ids(master: Path):
+    # A path/traversal-shaped id must fail the same not-found way as an
+    # unknown one, and never touch anything outside _meta/promotions/pending/.
+    _seed_org(master)
+    planted = master / "_meta/evil.md"
+    planted.write_text("secret\n")
+
+    with pytest.raises(PromotionError, match="no pending promotion"):
+        approve(master, "../../evil", approver="alice", date="2026-07-08")
+    assert planted.read_text() == "secret\n"
+
+    with pytest.raises(PromotionError, match="no pending promotion"):
+        reject(master, "../../evil", reason="n/a", date="2026-07-20")
+    assert planted.read_text() == "secret\n"
 
 
 def _draft_p1(master: Path) -> None:
