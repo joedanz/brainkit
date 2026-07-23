@@ -100,7 +100,9 @@ When a transcript appears in any `People/<person>/Inbox/`:
      Owners share or revoke access to their spaces via
      `People/<person>/ShareRequests/` (`space`/`share-with`/`access`/`action`
      frontmatter); shares wait for admin approval (`brain shares`), revokes
-     apply automatically, and status lands in that person's `Shares.md`.
+     apply automatically, and status lands in that person's `Shares.md`. Your
+     own access is never blocked by pending shares — keep writing. You cannot
+     revoke your own access; ask an admin.
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
    - Standing processes and standards -> a new file in `Company/Playbook/`

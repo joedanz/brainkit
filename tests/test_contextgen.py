@@ -96,23 +96,54 @@ def test_generated_files_listed_in_manifest(master: Path, tmp_path: Path):
 
 
 def test_root_protocol_carries_share_mechanic():
+    import re
     from brain.contextgen import render_root_protocol
     from brain.schemas import Person
 
     joe = Person(id="joe", name="Joe Danziger", roles=(), teams=())
     text = render_root_protocol(joe, [("People/joe", True), ("Company", False)])
     low = text.lower()
-    assert "sharerequests" in low
+    # frontmatter keys
     assert "share-with" in low and "access" in low and "action" in low
+    # file structure
+    assert "sharerequests" in low
+    # revoke action
     assert "revoke" in low
+    # keep-writing guarantee
     assert "keep writing" in low or "never blocks" in low
+    # no-self-revoke rule: "you cannot" + "revoke" pattern (may have whitespace/newlines between)
+    assert re.search(r"you\s+cannot.*revoke.*own", low, re.DOTALL) is not None
 
 
-def test_assistant_protocol_and_skill_carry_share_mechanic():
+def test_assistant_protocol_carries_share_mechanic():
+    import re
+    from brain.templates import ASSISTANT_PROTOCOL
+
+    low = ASSISTANT_PROTOCOL.lower()
+    # frontmatter keys
+    assert "share-with" in low and "access" in low and "action" in low
+    # file structure
+    assert "sharerequests" in low
+    # revoke action
+    assert "revoke" in low
+    # keep-writing guarantee
+    assert "keep writing" in low or "never blocks" in low
+    # no-self-revoke rule: "you cannot" + "revoke" pattern (may have whitespace/newlines between)
+    assert re.search(r"you\s+cannot.*revoke.*own", low, re.DOTALL) is not None
+
+
+def test_skill_carries_share_mechanic():
+    import re
     from pathlib import Path
 
-    from brain.templates import ASSISTANT_PROTOCOL
-    low = ASSISTANT_PROTOCOL.lower()
-    assert "sharerequests" in low and "share-with" in low and "revoke" in low
     skill = Path("templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text().lower()
-    assert "sharerequests" in skill and "share-with" in skill and "revoke" in skill
+    # frontmatter keys
+    assert "share-with" in skill and "access" in skill and "action" in skill
+    # file structure
+    assert "sharerequests" in skill
+    # revoke action
+    assert "revoke" in skill
+    # keep-writing guarantee
+    assert "keep writing" in skill or "never blocked" in skill
+    # no-self-revoke rule: "cannot revoke" or "you cannot revoke" pattern
+    assert "cannot revoke" in skill or re.search(r"you\s+cannot.*revoke", skill, re.DOTALL) is not None
