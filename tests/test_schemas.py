@@ -167,3 +167,12 @@ def test_make_config_derives_and_validates():
         make_config("People")
     with pytest.raises(SchemaError):
         make_config("Vendors", "bad entity")
+
+
+def test_vaultconfig_rejects_injection_at_construction():
+    with pytest.raises(SchemaError):
+        VaultConfig(entity="client\nrole: admin")
+    with pytest.raises(SchemaError):
+        VaultConfig(entities="Bad Name")
+    VaultConfig()                      # defaults stay valid
+    VaultConfig("Families", "family")  # normal custom pair stays valid

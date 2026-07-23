@@ -19,6 +19,14 @@ _CONFIG_WORD = re.compile(r"[A-Za-z0-9._-]+")
 _RESERVED_TOPS = ("company", "teams", "people", "_meta")
 
 
+def _config_word(value: object, key: str) -> str:
+    if not isinstance(value, str):
+        raise SchemaError(f"config.yaml: {key} must be a string")
+    if not _CONFIG_WORD.fullmatch(value) or value.startswith("."):
+        raise SchemaError(f"config.yaml: invalid {key} {value!r}")
+    return value
+
+
 @dataclass(frozen=True)
 class VaultConfig:
     """Vault-level naming: what the restricted third-party tree is called.
@@ -26,9 +34,18 @@ class VaultConfig:
     The structural/permission layer never reads this — spaces.yaml is the only
     readability authority. Config feeds naming surfaces only: scaffold,
     guidance text, the request seam, and human-facing messages.
+
+    Charset validity is an intrinsic invariant of the type, enforced here so
+    every construction path (not just make_config/load_config) is safe to
+    write into frontmatter unescaped. Reserved-name rejection is vault policy,
+    not type validity, and stays in make_config.
     """
     entities: str = "Clients"   # TitleCase tree/folder name (plural)
     entity: str = "client"      # lowercase singular: prose + frontmatter key
+
+    def __post_init__(self) -> None:
+        _config_word(self.entities, "entities")
+        _config_word(self.entity, "entity")
 
     @property
     def requests_folder(self) -> str:
@@ -37,14 +54,6 @@ class VaultConfig:
     @property
     def name_key(self) -> str:
         return f"{self.entity}-name"
-
-
-def _config_word(value: object, key: str) -> str:
-    if not isinstance(value, str):
-        raise SchemaError(f"config.yaml: {key} must be a string")
-    if not _CONFIG_WORD.fullmatch(value) or value.startswith("."):
-        raise SchemaError(f"config.yaml: invalid {key} {value!r}")
-    return value
 
 
 def derive_entity(entities: str) -> str:
