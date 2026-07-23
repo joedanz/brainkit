@@ -21,7 +21,7 @@ from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
 from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
-from brain.resolver import NESTED_TOPS, RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
+from brain.resolver import RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
 from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
 
 
@@ -117,14 +117,15 @@ def _check_unreadable_spaces(master: Path, org: Org, rules: tuple[SpaceRule, ...
 
 
 def _check_orphan_files(master: Path) -> list[Finding]:
-    """A .md placed directly under a nested top (Teams/, People/, Clients/)
-    belongs to no space — those tops only form spaces from their subfolders — so
-    the compiler copies it into nobody's vault. It vanishes silently. Company is
-    itself a space, so files directly under it are fine and not checked here."""
+    """A .md placed directly under a nested top (Teams/, People/, the entity
+    tree, or any other top-level dir) belongs to no space — those tops only
+    form spaces from their subfolders — so the compiler copies it into
+    nobody's vault. It vanishes silently. Company is itself a space, so files
+    directly under it are fine and not checked here."""
     findings: list[Finding] = []
-    for top in NESTED_TOPS:
-        d = master / top
-        if not d.is_dir():
+    for d in sorted(p for p in master.iterdir() if p.is_dir()):
+        top = d.name
+        if top in RESERVED or top.startswith(".") or top == "Company":
             continue
         for f in sorted(d.glob("*.md")):
             if f.is_file():

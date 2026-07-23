@@ -6,19 +6,25 @@ from pathlib import Path, PurePosixPath
 
 from brain.schemas import Person, SpaceRule
 
-# Top-level dirs whose children are each a space; Company is itself a space.
-NESTED_TOPS = ("Teams", "People", "Clients")
+# Company is itself a space; every other non-reserved top-level directory is a
+# nested top whose child directories are each a space. No tree name is special:
+# spaces.yaml is the only authority on readability, so a space under a top no
+# rule covers has zero readers (fail closed).
 RESERVED = ("_meta", ".git")
+
+
+def _is_top(name: str) -> bool:
+    return name not in RESERVED and not name.startswith(".")
 
 
 def enumerate_spaces(master: Path) -> list[str]:
     spaces: list[str] = []
     for top in sorted(p for p in master.iterdir() if p.is_dir()):
-        if top.name in RESERVED or top.name.startswith("."):
+        if not _is_top(top.name):
             continue
         if top.name == "Company":
             spaces.append("Company")
-        elif top.name in NESTED_TOPS:
+        else:
             spaces.extend(
                 f"{top.name}/{child.name}"
                 for child in sorted(top.iterdir())
@@ -32,11 +38,11 @@ def space_of_path(rel_path: str) -> str | None:
     parts = path.parts
     if not parts or path.is_absolute() or ".." in parts:
         return None
-    if parts[0] in RESERVED or parts[0].startswith("."):
+    if not _is_top(parts[0]):
         return None
     if parts[0] == "Company":
         return "Company"
-    if parts[0] in NESTED_TOPS and len(parts) >= 2:
+    if len(parts) >= 2:
         return f"{parts[0]}/{parts[1]}"
     return None
 

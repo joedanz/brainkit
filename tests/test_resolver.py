@@ -76,3 +76,26 @@ def test_readable_spaces(tmp_path: Path):
     master = make_master(tmp_path)
     spaces = set(readable_spaces(master, BOB, RULES))
     assert spaces == {"Company", "Teams/ops", "People/bob", "Clients/acme"}
+
+
+def test_any_top_level_dir_is_a_nested_top(tmp_path):
+    (tmp_path / "Vendors/Acme").mkdir(parents=True)
+    (tmp_path / "Company").mkdir()
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / ".hidden/x").mkdir(parents=True)
+    assert enumerate_spaces(tmp_path) == ["Company", "Vendors/Acme"]
+
+
+def test_space_of_path_generic_top():
+    assert space_of_path("Vendors/Acme/notes.md") == "Vendors/Acme"
+    assert space_of_path("Archive/old/x.md") == "Archive/old"
+    assert space_of_path("_meta/spaces.yaml") is None
+    assert space_of_path(".git/config") is None
+    assert space_of_path("loose.md") is None
+    assert space_of_path("Company/Home.md") == "Company"
+
+
+def test_unknown_top_space_is_denied_without_a_rule():
+    person = Person(id="joe", name="Joe", roles=("admin",))
+    # no rule matches Archive/old -> denied even for an admin
+    assert not can_write_path("Archive/old/x.md", person, ())

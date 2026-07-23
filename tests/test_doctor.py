@@ -96,6 +96,15 @@ def test_orphan_loose_file_under_nested_top_is_warn(master):
     assert "warn" not in _severities(findings, "orphan-files")
 
 
+def test_orphan_check_covers_custom_tops(master):
+    seed_meta(master)
+    (master / "Vendors").mkdir()
+    (master / "Vendors/loose.md").write_text("stray\n")
+    findings = run_doctor(master)
+    assert any(f.check == "orphan-files" and "Vendors/loose.md" in f.message
+               for f in findings)
+
+
 def test_cross_space_reference_warns_and_same_space_is_silent(master):
     seed_meta(master)
     # The fixture's Company/Home.md links to [[Big Deal Decision]] (Company, same
