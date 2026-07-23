@@ -26,7 +26,7 @@ from brain.clients import _validate_owner_id
 from brain.frontmatter import split_frontmatter
 from brain.promotions import _commit, _slug
 from brain.resolver import can_write_path, space_of_path
-from brain.schemas import Org, load_org, load_spaces
+from brain.schemas import Org, Person, load_org, load_spaces
 
 
 class ShareError(ValueError):
@@ -44,6 +44,26 @@ def validate_subject(subject: str) -> tuple[str, str]:
     if not sep or kind not in ("person", "team") or not _SLUG.fullmatch(name or ""):
         raise ShareError(f"invalid subject {subject!r} — expected person:<id> or team:<name>")
     return kind, name
+
+
+def may_decide(person: Person | None, share_with: str) -> bool:
+    """One authority definition for share decisions, used by both the
+    server-side gate (approve/reject) and the in-vault Approvals seam.
+    Fail closed: an unknown person or malformed subject decides nothing.
+    everyone-shares are admin-only by design."""
+    if person is None:
+        return False
+    if "admin" in person.roles:
+        return True
+    try:
+        kind, name = validate_subject(share_with)
+    except ShareError:
+        return False
+    if kind == "person":
+        return person.id == name
+    if kind == "team":
+        return "lead" in person.roles and name in person.teams
+    return False  # "everyone" — admin only
 
 
 def validate_space(space: str) -> None:

@@ -9,8 +9,8 @@ from brain.resolver import space_of_path as _sop
 from brain.schemas import Org, Person
 from brain.shares import (
     ShareError, ShareOutcome, admin_revoke, amend_space_rule,
-    approve_share, generate_space_shares_section, list_pending_shares, reject_share,
-    remove_subject_from_rule, request_share, sweep_shares, validate_space,
+    approve_share, generate_space_shares_section, list_pending_shares, may_decide,
+    reject_share, remove_subject_from_rule, request_share, sweep_shares, validate_space,
     validate_subject,
 )
 from brain.schemas import load_spaces
@@ -486,3 +486,30 @@ def test_space_shares_section_shows_revoked_entries(tmp_path: Path):
     # Mary's section should NOT show joe's revoke (privacy filter)
     sec_mary = generate_space_shares_section(m, "mary", today="2026-07-22")
     assert sec_mary is None
+
+
+def test_may_decide_matrix():
+    admin = Person(id="root", name="Root", roles=("admin",))
+    bob = Person(id="bob", name="Bob", teams=("ops",))
+    lead_ops = Person(id="mary", name="Mary", roles=("lead",), teams=("ops",))
+    lead_sales = Person(id="sam", name="Sam", roles=("lead",), teams=("sales",))
+
+    # admin decides anything
+    for target in ("person:bob", "team:ops", "everyone"):
+        assert may_decide(admin, target)
+    # recipient consents to their own person-share; nobody else's
+    assert may_decide(bob, "person:bob")
+    assert not may_decide(bob, "person:mary")
+    # team share: lead of THAT team only; membership without lead is not enough
+    assert may_decide(lead_ops, "team:ops")
+    assert not may_decide(lead_sales, "team:ops")
+    assert not may_decide(bob, "team:ops")
+    # a lead is not thereby a recipient-proxy for members
+    assert not may_decide(lead_ops, "person:bob")
+    # everyone: admin only
+    assert not may_decide(lead_ops, "everyone")
+    assert not may_decide(bob, "everyone")
+    # fail closed
+    assert not may_decide(None, "person:bob")
+    assert not may_decide(bob, "garbage")
+    assert not may_decide(bob, "role:admin")
