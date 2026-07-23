@@ -406,3 +406,54 @@ def test_revoke_removes_space_from_recipient_slice(master, tmp_path):
     report = run_cycle(master, out, today="2026-07-25")
     assert report.shares_revoked == 1 and report.ok
     assert not (out / "bob/Clients/Danziger Family").exists()
+
+
+# ---- configurable entity noun --------------------------------------------- #
+
+def _families_master(tmp_path):
+    import subprocess
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n"
+        "  admin: {name: Admin, roles: [admin]}\n"
+        "  joe: {name: Joe}\n"
+        "  mary: {name: Mary}\n")
+    (master / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,      read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "People/*",   read: ["person:{name}"], write: ["person:{name}"]}\n'
+        '  - {path: "Families/*", read: ["role:admin"],    write: ["role:admin"]}\n')
+    (master / "_meta/config.yaml").write_text("entities: Families\nentity: family\n")
+    (master / "Company").mkdir()
+    (master / "Company/Home.md").write_text("# Home\n")
+    (master / "People/joe").mkdir(parents=True)
+    (master / "People/joe/Memory.md").write_text("# Joe\n")
+    (master / "Families").mkdir()
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "add", "-A"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t",
+                    "-c", "user.email=t@t", "commit", "-m", "init"],
+                   check=True, capture_output=True)
+    return master, tmp_path / "out"
+
+
+def test_cycle_provisions_and_compiles_custom_entity_tree(tmp_path):
+    master, out = _families_master(tmp_path)
+    req = master / "People/joe/FamilyRequests/2026-07-23-danziger.md"
+    req.parent.mkdir(parents=True)
+    req.write_text("---\nfamily-name: Danziger\nowner: joe\nentity: family\n"
+                   "source: t\ncreated: 2026-07-23\n---\nMoved to KC.\n")
+    report = run_cycle(master, out, "2026-07-23")
+    assert report.ok
+    assert report.clients_created == 1
+    assert (master / "Families/Danziger/Danziger.md").is_file()
+    # owner's slice carries the new space and custom-noun guidance
+    assert (out / "joe/Families/Danziger/Danziger.md").is_file()
+    agents = (out / "joe/AGENTS.md").read_text()
+    assert "FamilyRequests" in agents and "family-name" in agents
+    assert "ClientRequests" not in agents
+    # deny-by-default: mary sees nothing under Families/
+    assert not (out / "mary/Families").exists()

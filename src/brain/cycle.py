@@ -16,7 +16,7 @@ from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_all
 from brain.promotions import list_pending, sweep
-from brain.schemas import load_org, load_spaces
+from brain.schemas import load_config, load_org, load_spaces
 from brain.writeback import ManifestError, apply_writeback
 
 
@@ -82,6 +82,7 @@ def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]
 def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) -> CycleReport:
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
+    config = load_config(master)
 
     writebacks: list[PersonWriteback] = []
     for person in org.people.values():
@@ -110,14 +111,14 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     from brain.clients import materialize_clients
     from brain.shares import sweep_shares
 
-    provisioned = materialize_clients(master, org, today=today)
+    provisioned = materialize_clients(master, org, today=today, config=config)
     share_outcomes = sweep_shares(master, org, today=today)
     # sweep_shares may have modified spaces.yaml (revokes); materialize_clients
     # appended grants too. The compile below must see both, so reload.
     rules = load_spaces(master / "_meta/spaces.yaml")
 
     swept = len(sweep(master, today=today))
-    compiled = len(compile_all(master, org, rules, out_root, today=today))
+    compiled = len(compile_all(master, org, rules, out_root, today=today, config=config))
     pending = len(list_pending(master))
 
     indexed = 0
