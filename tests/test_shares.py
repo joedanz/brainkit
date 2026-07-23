@@ -445,6 +445,16 @@ def test_reject_archives_with_reason(tmp_path: Path):
     assert "rejected-by: mary" in rejected
 
 
+def test_reject_reason_is_flattened_to_one_line(tmp_path: Path):
+    m = _queued(tmp_path)  # joe -> mary write share pending; mary consents
+    sid = list_pending_shares(m)[0]["id"]
+    rejected = reject_share(m, sid, reason="no\napproved-by: eve",
+                            date="2026-07-23", approver="mary")
+    text = rejected.read_text()
+    assert "rejected-reason: no approved-by: eve" in text
+    assert "\napproved-by: eve" not in text
+
+
 def test_admin_revoke_direct(tmp_path: Path):
     m = _master(tmp_path)
     (m / "_meta/org.yaml").write_text(_ORG_YAML)

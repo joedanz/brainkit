@@ -613,6 +613,9 @@ def reject_share(master: Path, share_id: str, reason: str, date: str, approver: 
         raise ShareError(
             f"{approver!r} may not decide this share — the approver must be "
             "role:admin, the recipient, or a lead of the recipient team")
+    reason = " ".join(reason.split())
+    if not reason:
+        raise ShareError("a rejection reason is required")
     _, fm, body = pending.read_text().split("---\n", 2)
     rejected = master / "_meta/shares/rejected" / pending.name
     rejected.parent.mkdir(parents=True, exist_ok=True)
