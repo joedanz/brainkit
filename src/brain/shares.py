@@ -150,7 +150,7 @@ def request_share(
     if action not in ACTIONS:
         raise ShareError(f"unknown action {action!r} — expected share or revoke")
     for field, value in (("space", space), ("share-with", share_with),
-                         ("created", created)):
+                         ("owner", person_id), ("created", created)):
         if "\n" in value or "\r" in value:
             raise ShareError(f"{field} must be a single line")
 

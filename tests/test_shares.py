@@ -147,3 +147,12 @@ def test_request_share_refuses_symlinked_ancestor(tmp_path: Path):
     (tmp_path / "People/joe").symlink_to(tmp_path / "elsewhere")
     with pytest.raises(ShareError):
         request_share(tmp_path, "joe", "Clients/X", "person:mary", "read", "2026-07-22")
+
+
+def test_request_share_rejects_newline_person_id(tmp_path: Path):
+    """Verify person_id injection attacks are rejected and no file is written."""
+    with pytest.raises(ShareError):
+        request_share(tmp_path, "joe\naccess: write", "Clients/X", "person:mary",
+                      "read", "2026-07-22")
+    # Verify nothing was written
+    assert not (tmp_path / "People").exists()
