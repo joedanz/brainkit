@@ -41,6 +41,36 @@ def test_root_protocol_mentions_shares_note():
     assert "People/bob/Shares.md" in text
 
 
+def test_root_protocol_routes_third_parties_to_clients():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+
+    joe = Person(id="joe", name="Joe Danziger", roles=(), teams=())
+    text = render_root_protocol(joe, [("People/joe", True), ("Company", False)])
+
+    low = text.lower()
+    # third-party vs self
+    assert "clientrequests" in low
+    assert "third part" in low  # "third party"/"third parties"
+    # owner-identity disambiguation (surname collision)
+    assert "surname" in low or "same last name" in low
+    # adaptive ask
+    assert "ask" in low and "distinguishing" in low
+
+
+def test_assistant_protocol_mentions_client_requests():
+    from brain.templates import ASSISTANT_PROTOCOL
+    assert "ClientRequests" in ASSISTANT_PROTOCOL or "Clients/<client>" in ASSISTANT_PROTOCOL
+    assert "third part" in ASSISTANT_PROTOCOL.lower()
+
+
+def test_assistant_protocol_has_multi_entity_capture():
+    from brain.templates import ASSISTANT_PROTOCOL
+    low = ASSISTANT_PROTOCOL.lower()
+    assert "two homes" in low
+    assert "intel/events" in low and "cross-link" in low
+
+
 def test_compile_writes_context_files(master: Path, tmp_path: Path):
     out = tmp_path / "bob-vault"
     compile_vault(master, BOB, RULES, out)

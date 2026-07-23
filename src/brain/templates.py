@@ -88,7 +88,15 @@ When a transcript appears in any `People/<person>/Inbox/`:
    - Personal durable facts -> that person's `People/<person>/Memory.md`,
      kept as a lean overview: topic-sized detail goes to
      `People/<person>/Notes/<Topic>.md` with a one-line link under the heading
-   - Client facts -> the matching `Clients/<client>/` file
+   - Client facts -> the matching `Clients/<client>/` file. A named third party
+     is a client/contact, never a `People/` note — even one sharing a person's
+     surname. If a client space does not exist yet, an employee agent requests
+     one via `People/<person>/ClientRequests/` (server provisions it); you, with
+     full access, may create `Clients/<client>/` directly. Prefer the fullest
+     reasonable identifier; when a name is ambiguous, ask before creating.
+     A single mention can split into two homes — a client note in
+     `Clients/<client>/` and, for a dated occurrence, a
+     `Company/Intel/Events/<Name>.md` page — cross-linked.
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
    - Standing processes and standards -> a new file in `Company/Playbook/`

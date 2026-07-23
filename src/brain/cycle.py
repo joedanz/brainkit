@@ -1,4 +1,4 @@
-"""One-shot server cycle: writeback (all people) -> sweep -> compile-all.
+"""One-shot server cycle: writeback -> materialize clients -> sweep -> compile-all.
 
 Ordering is load-bearing: writebacks land person edits (including freshly
 synced promotion drafts) in master BEFORE the sweep reads People/*/Promotions,
@@ -34,14 +34,23 @@ class CycleReport:
     swept: int
     compiled: int
     pending: int
+    clients_created: int = 0
+    clients_rejected: int = 0
+    clients_tampering: int = 0  # owner-mismatch client rejections — a tamper signal
     indexed: int = 0
     index_warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         # Retrieval is a convenience layer; a failed index warns but never fails
-        # the cycle. Only a rejected writeback (a security-relevant event) does.
-        return all(w.status != "rejected" for w in self.writebacks)
+        # the cycle. A rejected writeback (a security-relevant event) fails it,
+        # as does an owner-mismatch client request (a tamper signal). Routine
+        # "name taken" client rejections do NOT — they're a normal user outcome
+        # surfaced via the requester's inbox note.
+        return (
+            all(w.status != "rejected" for w in self.writebacks)
+            and self.clients_tampering == 0
+        )
 
 
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
@@ -94,6 +103,13 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
                 PersonWriteback(person.id, "applied", applied=len(result.applied))
             )
 
+    from brain.clients import materialize_clients
+
+    provisioned = materialize_clients(master, org, today=today)
+    # materialize_clients appended grants to spaces.yaml; the compile below must
+    # see them, so reload the rules it was given at the top of the cycle.
+    rules = load_spaces(master / "_meta/spaces.yaml")
+
     swept = len(sweep(master, today=today))
     compiled = len(compile_all(master, org, rules, out_root, today=today))
     pending = len(list_pending(master))
@@ -105,5 +121,11 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
+        clients_created=sum(1 for p in provisioned if p.status == "created"),
+        clients_rejected=sum(1 for p in provisioned if p.status == "rejected"),
+        clients_tampering=sum(
+            1 for p in provisioned
+            if p.status == "rejected" and p.reason == "owner mismatch"
+        ),
         indexed=indexed, index_warnings=index_warnings,
     )

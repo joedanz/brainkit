@@ -437,3 +437,23 @@ def test_doctor_flags_symlinked_patch_target(master, tmp_path):
     findings = run_doctor(master)
     assert any(f.check == "promotions" and "targets a symlink" in f.message
                for f in findings)
+
+
+def test_doctor_surfaces_created_clients(tmp_path):
+    from brain.doctor import _check_created_clients
+
+    master = tmp_path / "master"
+    log = master / "_meta/clients/created.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("2026-07-22\tjoe\tDanziger Family\t2026-07-22-danziger-family\n")
+
+    findings = _check_created_clients(master)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == "info" and f.check == "clients"
+    assert "Danziger Family" in f.message and "joe" in f.message
+
+
+def test_doctor_no_findings_without_log(tmp_path):
+    from brain.doctor import _check_created_clients
+    assert _check_created_clients(tmp_path / "master") == []
