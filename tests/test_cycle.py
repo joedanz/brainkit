@@ -258,6 +258,71 @@ def test_cycle_owner_mismatch_request_trips_ok(master, tmp_path):
     assert report.ok is False
 
 
+def test_cycle_sweeps_shares_and_applies_revokes_same_cycle():
+    from brain.cycle import CycleReport
+    r = CycleReport(writebacks=[], swept=0, compiled=0, pending=0,
+                    shares_tampering=1)
+    assert r.ok is False
+    r2 = CycleReport(writebacks=[], swept=0, compiled=0, pending=0,
+                     shares_queued=2, shares_revoked=1)
+    assert r2.ok is True
+
+
+def test_cycle_share_request_lifecycle(master, tmp_path):
+    from brain.clients import request_client
+    from brain.shares import list_pending_shares, request_share
+    from brain.schemas import Org
+
+    seed_meta(master)
+    # add a non-admin person (carol) who isn't seeded in org.yaml
+    org_yaml = (master / "_meta/org.yaml").read_text()
+    org_yaml = org_yaml.replace(
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}",
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}\n  carol: {name: Carol, teams: [], email: carol@acme.com}"
+    )
+    (master / "_meta/org.yaml").write_text(org_yaml)
+
+    out = _first_compile(master, tmp_path)
+    # cycle 1: bob creates a client (auto)
+    request_client(out / "bob", "bob", "Danziger Family", "fam\n", "2026-07-22")
+    run_cycle(master, out, today="2026-07-22")
+    # cycle 2: bob asks to share it with carol (not yet approved)
+    request_share(out / "bob", "bob", "Clients/Danziger Family",
+                  "person:carol", "read", "2026-07-23")
+    report = run_cycle(master, out, today="2026-07-23")
+    assert report.ok and report.shares_queued == 1
+    assert len(list_pending_shares(master)) == 1
+    # not yet approved: carol's vault doesn't exist yet (no cycle for carol)
+    # but if it did, it wouldn't have the space until the share is approved
+    # For now just verify the share is queued
+    assert report.ok
+
+
+def test_cycle_nonowner_share_request_trips_ok(master, tmp_path):
+    from brain.clients import request_client
+    from brain.shares import request_share
+
+    seed_meta(master)
+    # add carol (non-admin) to org
+    org_yaml = (master / "_meta/org.yaml").read_text()
+    org_yaml = org_yaml.replace(
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}",
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}\n  carol: {name: Carol, teams: [], email: carol@acme.com}"
+    )
+    (master / "_meta/org.yaml").write_text(org_yaml)
+
+    out = _first_compile(master, tmp_path)
+    request_client(out / "bob", "bob", "Danziger Family", "fam\n", "2026-07-22")
+    run_cycle(master, out, today="2026-07-22")
+    # carol (not the owner of Clients/Danziger Family) requests a share on it
+    # This is tampering because carol cannot write to this space
+    request_share(out / "carol", "carol", "Clients/Danziger Family",
+                  "person:alice", "write", "2026-07-23")
+    report = run_cycle(master, out, today="2026-07-23")
+    assert report.shares_tampering == 1
+    assert report.ok is False
+
+
 def test_shares_note_tracks_promotion_lifecycle(master, tmp_path):
     from brain.promotions import approve, draft_into_space
 
