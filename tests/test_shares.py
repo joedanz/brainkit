@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -5,7 +6,12 @@ import yaml
 
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path as _sop
-from brain.shares import ShareError, amend_space_rule, remove_subject_from_rule, request_share, validate_space, validate_subject
+from brain.schemas import Org, Person
+from brain.shares import (
+    ShareError, ShareOutcome, amend_space_rule, list_pending_shares,
+    remove_subject_from_rule, request_share, sweep_shares, validate_space,
+    validate_subject,
+)
 from brain.schemas import load_spaces
 
 
@@ -156,3 +162,89 @@ def test_request_share_rejects_newline_person_id(tmp_path: Path):
                       "read", "2026-07-22")
     # Verify nothing was written
     assert not (tmp_path / "People").exists()
+
+
+_ORG = Org(people={
+    "admin": Person(id="admin", name="Admin", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+    "mary": Person(id="mary", name="Mary Ops", teams=("concierge",)),
+})
+
+
+def _git_init(master: Path) -> None:
+    for cmd in (["init", "-b", "main"], ["add", "-A"],
+                ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "seed"]):
+        subprocess.run(["git", "-C", str(master), *cmd], check=True, capture_output=True)
+
+
+def _master(tmp_path: Path) -> Path:
+    m = tmp_path / "master"
+    (m / "_meta").mkdir(parents=True)
+    (m / "_meta/spaces.yaml").write_text(_SPACES)
+    (m / "Clients/Danziger Family").mkdir(parents=True)
+    (m / "Clients/Danziger Family/Danziger Family.md").write_text("client\n")
+    return m
+
+
+def test_sweep_queues_valid_share_request(tmp_path: Path):
+    m = _master(tmp_path)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "write",
+                  "2026-07-22", body="context for approver\n")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["queued"]
+    pending = list_pending_shares(m)
+    assert len(pending) == 1
+    p = pending[0]
+    assert p["from"] == "joe" and p["space"] == "Clients/Danziger Family"
+    assert p["share-with"] == "person:mary" and p["access"] == "write"
+    assert "context for approver" in p["body"]
+    assert not list((m / "People/joe/ShareRequests").glob("*.md"))  # consumed
+
+
+def test_sweep_nonowner_request_is_tampering(tmp_path: Path):
+    m = _master(tmp_path)
+    # mary does NOT own Danziger Family (rule grants joe)
+    request_share(m, "mary", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["tampering"]
+    assert not list_pending_shares(m)  # never queued
+    assert not list((m / "People/mary/ShareRequests").glob("*.md"))  # consumed
+
+
+def test_sweep_unknown_recipient_and_already_shared(tmp_path: Path):
+    m = _master(tmp_path)
+    request_share(m, "joe", "Clients/Danziger Family", "person:ghost", "read",
+                  "2026-07-22")
+    request_share(m, "joe", "Clients/Danziger Family", "person:joe", "read",
+                  "2026-07-22")  # joe already on the rule
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert sorted(o.status for o in out) == ["rejected", "rejected"]
+    assert not list_pending_shares(m)
+    inbox = list((m / "People/joe/Inbox").glob("*.md"))
+    texts = " ".join(f.read_text() for f in inbox)
+    assert "already" in texts.lower()          # already-shared note
+    assert "ghost" in texts                    # unknown-recipient note
+
+
+def test_sweep_decided_ids_never_requeue(tmp_path: Path):
+    m = _master(tmp_path)
+    rel = request_share(m, "joe", "Clients/Danziger Family", "person:mary",
+                        "read", "2026-07-22")
+    stem = Path(rel).stem
+    decided = m / f"_meta/shares/approved/joe-{_slug_for_test(stem)}.md"
+    decided.parent.mkdir(parents=True)
+    decided.write_text("---\nshare-id: x\n---\n")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert out == []            # stale request dropped, nothing queued
+    assert not list_pending_shares(m)
+    assert not list((m / "People/joe/ShareRequests").glob("*.md"))
+
+
+def _slug_for_test(stem: str) -> str:
+    from brain.promotions import _slug
+    return _slug(stem)

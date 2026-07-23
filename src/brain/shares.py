@@ -17,12 +17,16 @@ removed; subjects pass a strict charset before touching YAML.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 import yaml
 
-from brain.promotions import _slug
-from brain.resolver import space_of_path
+from brain.clients import _validate_owner_id
+from brain.frontmatter import split_frontmatter
+from brain.promotions import _commit, _slug
+from brain.resolver import can_write_path, space_of_path
+from brain.schemas import Org, load_spaces
 
 
 class ShareError(ValueError):
@@ -186,3 +190,160 @@ def request_share(
         f"{body}"
     )
     return rel_path
+
+
+@dataclass(frozen=True)
+class ShareOutcome:
+    space: str
+    owner: str
+    subject: str
+    action: str
+    status: str  # "queued" | "revoked" | "rejected" | "tampering"
+    reason: str = ""
+
+
+def _pending_dir(master: Path) -> Path:
+    return master / "_meta/shares/pending"
+
+
+def _decided_ids(master: Path) -> set[str]:
+    ids: set[str] = set()
+    for state in ("approved", "rejected", "revoked"):
+        d = master / "_meta/shares" / state
+        if d.is_dir():
+            ids.update(f.stem for f in d.glob("*.md"))
+    return ids
+
+
+def _share_inbox_note(master: Path, person_id: str, slug: str, text: str,
+                      today: str) -> str:
+    rel = f"People/{person_id}/Inbox/share-{slug}.md"
+    dest = master / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"---\ncreated: {today}\n---\n{text}\n")
+    return rel
+
+
+def list_pending_shares(master: Path) -> list[dict]:
+    d = _pending_dir(master)
+    if not d.exists():
+        return []
+    entries: list[dict] = []
+    for f in sorted(d.glob("*.md")):
+        try:
+            meta, body = split_frontmatter(f.read_text())
+        except (KeyError, ValueError):
+            continue
+        if not meta:
+            continue
+        entries.append({**meta, "body": body, "id": meta.get("share-id", f.stem)})
+    return entries
+
+
+def _subject_known(subject: str, org: Org) -> bool:
+    kind, name = validate_subject(subject)
+    if kind == "person":
+        return name in org.people
+    return any(name in p.teams for p in org.people.values())
+
+
+def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
+    """Route People/*/ShareRequests/*.md: shares to the human-gated pending
+    queue, revokes auto-applied (Task 5). The <pid> path segment is the
+    authoritative requester; server-side ownership is re-checked against the
+    live exact rule per iteration."""
+    results: list[ShareOutcome] = []
+    decided = _decided_ids(master)
+    for req in sorted(master.glob("People/*/ShareRequests/*.md")):
+        if req.is_symlink():
+            continue
+        rel = req.relative_to(master)
+        person_id = rel.parts[1]
+        try:
+            _validate_owner_id(person_id)
+        except Exception:
+            continue  # malformed pid folder: leave in place, touch nothing
+        meta, body = split_frontmatter(req.read_text())
+        if not meta:
+            continue
+        person = org.people.get(person_id)
+        name_id = person.name if person else person_id
+        space = str(meta.get("space", ""))
+        subject = str(meta.get("share-with", ""))
+        access = str(meta.get("access", "read"))
+        action = str(meta.get("action", "share"))
+        slug = _slug(req.stem)
+        share_id = f"{person_id}-{slug}"
+
+        def consume(status: str, reason: str = "", extra: list[str] | None = None,
+                    message: str = "") -> None:
+            req.unlink()
+            _commit(master, [rel.as_posix(), *(extra or [])],
+                    message or f"shares: {status} {share_id}",
+                    name_id, f"{person_id}@brain.local")
+            results.append(ShareOutcome(space, person_id, subject, action,
+                                        status, reason))
+
+        # syntactic validity — malformed stays in place for inspection
+        try:
+            validate_space(space)
+            validate_subject(subject)
+            if access not in ACCESS_LEVELS or action not in ACTIONS:
+                raise ShareError("bad access/action")
+        except ShareError:
+            continue
+
+        if meta.get("owner", person_id) != person_id:
+            consume("tampering", "owner mismatch")
+            continue
+
+        # ownership: the live exact rule must grant this pid write
+        rules = load_spaces(master / "_meta/spaces.yaml")
+        exact = next((r for r in rules if r.path == space), None)
+        if exact is None or person is None or not can_write_path(
+                f"{space}/x.md", person, rules):
+            consume("tampering", "not the owner of this space")
+            continue
+
+        if share_id in decided:
+            req.unlink()
+            _commit(master, [rel.as_posix()], f"shares: drop stale {share_id}",
+                    name_id, f"{person_id}@brain.local")
+            continue
+
+        if not _subject_known(subject, org):
+            note = _share_inbox_note(
+                master, person_id, slug,
+                f"Cannot share {space}: {subject} is not in the org.", today)
+            consume("rejected", "unknown recipient", [note])
+            continue
+
+        if action == "share":
+            if subject in exact.read and (access == "read" or subject in exact.write):
+                note = _share_inbox_note(
+                    master, person_id, slug,
+                    f"{subject} already has {access} access to {space}.", today)
+                consume("rejected", "already shared", [note])
+                continue
+            if (_pending_dir(master) / f"{share_id}.md").exists():
+                continue  # already queued: leave request untouched (promotions posture)
+            dest = _pending_dir(master) / f"{share_id}.md"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(
+                "---\n"
+                f"share-id: {share_id}\n"
+                f"from: {person_id}\n"
+                f"space: {space}\n"
+                f"share-with: {subject}\n"
+                f"access: {access}\n"
+                f"created: {meta.get('created', today)}\n"
+                "---\n"
+                f"{body}"
+            )
+            consume("queued", extra=[dest.relative_to(master).as_posix()],
+                    message=f"shares: queue {share_id}")
+            continue
+
+        # action == "revoke" — implemented in Task 5
+        continue
+    return results
