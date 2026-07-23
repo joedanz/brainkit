@@ -1,7 +1,7 @@
 """Space shares: owner-requested grant changes on spaces they own.
 
-Mirrors the clients/promotions seams and is deliberately noun-agnostic — it
-operates on space paths, never on entity vocabulary. An agent drops a request
+Mirrors the existing propose-then-server-acts seams and is deliberately
+noun-agnostic — it operates on space paths, never on entity vocabulary. An agent drops a request
 in its own writable People/<pid>/ShareRequests/; sweep_shares (run inside
 brain cycle) routes it: `share` requests go to the human-gated
 _meta/shares/pending/ queue (adding access is risk-increasing), `revoke`
