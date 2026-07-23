@@ -256,3 +256,33 @@ def test_compile_omits_shares_note_when_no_activity(master: Path, tmp_path: Path
     out = tmp_path / "out" / "bob"
     compile_vault(master, BOB, RULES, out, today="2026-07-20")
     assert not (out / "People/bob/Shares.md").exists()
+
+
+def test_shares_note_includes_space_shares_section(master, tmp_path):
+    from brain.compiler import compile_vault
+    from brain.shares import request_share, sweep_shares
+    from tests.conftest import BOB, ORG, RULES
+
+    with (master / "_meta/spaces.yaml").open("w") as fh:
+        fh.write(
+            "spaces:\n"
+            '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
+            '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
+            '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
+            '  - {path: "Clients/*", read: ["role:admin"],    write: ["role:admin"]}\n'
+            '  - {path: "Clients/acme", read: ["role:admin", "person:bob"], write: ["role:admin", "person:bob"]}\n'
+        )
+    (master / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice, roles: [admin]}\n"
+        "  bob: {name: Bob, teams: [ops]}\n")
+    import subprocess
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   capture_output=True)
+    request_share(master, "bob", "Clients/acme", "person:alice", "read", "2026-07-22")
+    from brain.schemas import load_org, load_spaces
+    sweep_shares(master, load_org(master / "_meta/org.yaml"), today="2026-07-22")
+    dest = tmp_path / "bob"
+    compile_vault(master, BOB, load_spaces(master / "_meta/spaces.yaml"), dest,
+                  today="2026-07-22")
+    text = (dest / "People/bob/Shares.md").read_text()
+    assert "## Space shares" in text and "Clients/acme" in text

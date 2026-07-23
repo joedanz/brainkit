@@ -9,7 +9,7 @@ from brain.resolver import space_of_path as _sop
 from brain.schemas import Org, Person
 from brain.shares import (
     ShareError, ShareOutcome, admin_revoke, amend_space_rule,
-    approve_share, list_pending_shares, reject_share,
+    approve_share, generate_space_shares_section, list_pending_shares, reject_share,
     remove_subject_from_rule, request_share, sweep_shares, validate_space,
     validate_subject,
 )
@@ -359,3 +359,16 @@ def test_admin_revoke_direct(tmp_path: Path):
     assert list((m / "_meta/shares/revoked").glob("admin-*.md"))
     with pytest.raises(ShareError):
         admin_revoke(m, "Clients/Danziger Family", "role:admin", date="2026-07-23")
+
+
+def test_space_shares_section_lists_pending_and_decided(tmp_path: Path):
+    m = _queued(tmp_path)  # joe -> mary write share pending
+    sec = generate_space_shares_section(m, "joe", today="2026-07-22")
+    assert sec is not None and "## Space shares" in sec
+    assert "Clients/Danziger Family" in sec and "person:mary" in sec
+    assert "awaiting approval" in sec
+    sid = list_pending_shares(m)[0]["id"]
+    approve_share(m, sid, approver="admin", date="2026-07-23")
+    sec2 = generate_space_shares_section(m, "joe", today="2026-07-23")
+    assert "approved 2026-07-23" in sec2
+    assert generate_space_shares_section(m, "mary", today="2026-07-23") is None

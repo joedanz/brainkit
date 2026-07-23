@@ -452,3 +452,70 @@ def admin_revoke(master: Path, space: str, subject: str, date: str) -> bool:
             f"shares: admin revoke {subject} from {space}",
             "Brain Shares", "shares@brain.local")
     return True
+
+
+_DECIDED_WINDOW_DAYS = 30
+_DECIDED_CAP = 20
+
+
+def generate_space_shares_section(master: Path, person_id: str, today: str) -> str | None:
+    """Markdown section for the person's Shares.md: their pending share
+    requests plus decisions from the last 30 days. None when empty."""
+    from datetime import date as _date, timedelta
+
+    base = master / "_meta/shares"
+
+    def _entries(state: str) -> list[dict]:
+        d = base / state
+        if not d.is_dir():
+            return []
+        out = []
+        for f in sorted(d.glob("*.md")):
+            try:
+                meta, _ = split_frontmatter(f.read_text())
+            except (KeyError, ValueError):
+                continue
+            if meta and meta.get("from") == person_id:
+                out.append(meta)
+        return out
+
+    cutoff = _date.fromisoformat(today) - timedelta(days=_DECIDED_WINDOW_DAYS)
+
+    def _when(meta: dict, key: str) -> _date | None:
+        try:
+            return _date.fromisoformat(meta.get(key) or meta.get("created", ""))
+        except ValueError:
+            return None
+
+    decided: list[tuple[_date, str]] = []
+    for state, key, fmt in (
+        ("approved", "approved-on",
+         "- ✅ `{space}` → {who} ({access}) — approved {d}"),
+        ("rejected", "rejected-on",
+         "- ❌ `{space}` → {who} ({access}) — rejected {d}: {reason}"),
+        ("revoked", "revoked-on",
+         "- ↩️ `{space}` → {who} — revoked {d}"),
+    ):
+        for meta in _entries(state):
+            d = _when(meta, key)
+            if d is None or d < cutoff:
+                continue
+            decided.append((d, fmt.format(
+                space=meta.get("space", "?"), who=meta.get("share-with", "?"),
+                access=meta.get("access", "?"), d=d.isoformat(),
+                reason=meta.get("rejected-reason", "no reason recorded"))))
+    decided.sort(key=lambda t: t[0], reverse=True)
+    decided = decided[:_DECIDED_CAP]
+
+    pending = _entries("pending")
+    if not pending and not decided:
+        return None
+
+    lines = ["## Space shares", ""]
+    if pending:
+        lines += [f"- `{m.get('space', '?')}` → {m.get('share-with', '?')} "
+                  f"({m.get('access', '?')}) — awaiting approval"
+                  for m in pending]
+    if decided:
+        lines += ["", "### Recently decided", ""] + [line for _, line in decided]
+    return "\n".join(lines) + "\n"
