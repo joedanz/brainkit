@@ -240,12 +240,14 @@ def _intel_home_md() -> str:
     )
 
 
-def scaffold_master(dest: Path, company: str) -> list[str]:
+def scaffold_master(dest: Path, company: str,
+                     config: VaultConfig | None = None) -> list[str]:
+    config = config or VaultConfig()
     files: dict[str, str] = {
         # the cycle's embedding cache lives under _meta/cache/ — binary,
         # rebuildable, must never enter the master's git history
         ".gitignore": "_meta/cache/\n",
-        "AGENTS.md": ASSISTANT_PROTOCOL,
+        "AGENTS.md": assistant_protocol(config),
         "Company/Home.md": _home_md(company),
         "Company/Memory.md": _memory_md(company),
         "Company/Decisions/.gitkeep": "",
@@ -258,9 +260,10 @@ def scaffold_master(dest: Path, company: str) -> list[str]:
         "Company/Intel/Trends/.gitkeep": "",
         "Teams/.gitkeep": "",
         "People/.gitkeep": "",
-        "Clients/.gitkeep": "",
+        f"{config.entities}/.gitkeep": "",
         "_meta/org.yaml": ORG_YAML,
-        "_meta/spaces.yaml": SPACES_YAML,
+        "_meta/spaces.yaml": spaces_yaml(config),
+        "_meta/config.yaml": f"entities: {config.entities}\nentity: {config.entity}\n",
         "_meta/webhook.yaml.example": WEBHOOK_YAML_EXAMPLE,
         "_meta/promotions/pending/.gitkeep": "",
         "_meta/promotions/approved/.gitkeep": "",

@@ -148,14 +148,20 @@ def cmd_shares(args) -> int:
 
 
 def cmd_init(args) -> int:
+    from brain.schemas import SchemaError, make_config
     from brain.templates import scaffold_master
 
+    try:
+        config = make_config(args.entities, args.entity or None)
+    except SchemaError as e:
+        print(str(e), file=sys.stderr)
+        return 1
     dest = Path(args.dir)
     if dest.exists() and any(dest.iterdir()):
         print(f"{dest} exists and is not empty", file=sys.stderr)
         return 1
     dest.mkdir(parents=True, exist_ok=True)
-    created = scaffold_master(dest, args.company)
+    created = scaffold_master(dest, args.company, config)
     print(f"initialized {args.company} master vault at {dest} ({len(created)} files)")
     return 0
 
@@ -538,6 +544,10 @@ def build_parser() -> argparse.ArgumentParser:
     i = sub.add_parser("init", help="scaffold a new company master vault")
     i.add_argument("dir")
     i.add_argument("--company", required=True)
+    i.add_argument("--entities", default="Clients",
+                   help="name of the third-party tree (default: Clients)")
+    i.add_argument("--entity", default="",
+                   help="singular form (default: derived — Clients -> client)")
     i.set_defaults(func=cmd_init)
 
     g = sub.add_parser("ingest", help="write one note into a person's Inbox in master")

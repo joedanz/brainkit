@@ -332,6 +332,38 @@ def test_promotions_show_noop_patch_prints_no_changes(master: Path, capsys):
     assert out.rstrip().endswith("(no changes — proposed page is identical to the current one)")
 
 
+def test_init_custom_entities_scaffolds_config_and_tree(tmp_path: Path):
+    dest = tmp_path / "vault"
+    rc = main(["init", str(dest), "--company", "Acme",
+               "--entities", "Families", "--entity", "family"])
+    assert rc == 0
+    assert (dest / "Families/.gitkeep").exists()
+    assert not (dest / "Clients").exists()
+    assert (dest / "_meta/config.yaml").read_text() == \
+        "entities: Families\nentity: family\n"
+    spaces = (dest / "_meta/spaces.yaml").read_text()
+    assert '"Families/*"' in spaces and "Clients" not in spaces
+    agents = (dest / "AGENTS.md").read_text()
+    assert "Families/<family>" in agents and "Clients" not in agents
+
+
+def test_init_default_writes_default_config(tmp_path: Path):
+    dest = tmp_path / "vault"
+    rc = main(["init", str(dest), "--company", "Acme"])
+    assert rc == 0
+    assert (dest / "_meta/config.yaml").read_text() == \
+        "entities: Clients\nentity: client\n"
+    assert (dest / "Clients/.gitkeep").exists()
+
+
+def test_init_rejects_reserved_entities_before_writing(tmp_path: Path):
+    dest = tmp_path / "vault"
+    rc = main(["init", str(dest), "--company", "Acme",
+               "--entities", "People"])
+    assert rc == 1
+    assert not dest.exists()
+
+
 def test_cli_shares_list_approve(master: Path, tmp_path: Path, capsys):
     from brain.shares import amend_space_rule  # noqa: F401 (import check)
     seed_meta(master)
