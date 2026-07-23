@@ -263,132 +263,135 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
             _validate_owner_id(person_id)
         except Exception:
             continue  # malformed pid folder: leave in place, touch nothing
-        meta, body = split_frontmatter(req.read_text())
-        if not meta:
-            continue
-        person = org.people.get(person_id)
-        name_id = person.name if person else person_id
-        space = str(meta.get("space", ""))
-        subject = str(meta.get("share-with", ""))
-        access = str(meta.get("access", "read"))
-        action = str(meta.get("action", "share"))
-        slug = _slug(req.stem)
-        share_id = f"{person_id}-{slug}"
-
-        def consume(status: str, reason: str = "", extra: list[str] | None = None,
-                    message: str = "") -> None:
-            req.unlink()
-            _commit(master, [rel.as_posix(), *(extra or [])],
-                    message or f"shares: {status} {share_id}",
-                    name_id, f"{person_id}@brain.local")
-            results.append(ShareOutcome(space, person_id, subject, action,
-                                        status, reason))
-
-        # syntactic validity — malformed stays in place for inspection
         try:
-            validate_space(space)
-            validate_subject(subject)
-            if access not in ACCESS_LEVELS or action not in ACTIONS:
-                raise ShareError("bad access/action")
-        except ShareError:
-            continue
+            meta, body = split_frontmatter(req.read_text())
+            if not meta:
+                continue
+            person = org.people.get(person_id)
+            name_id = person.name if person else person_id
+            space = str(meta.get("space", ""))
+            subject = str(meta.get("share-with", ""))
+            access = str(meta.get("access", "read"))
+            action = str(meta.get("action", "share"))
+            slug = _slug(req.stem)
+            share_id = f"{person_id}-{slug}"
 
-        if meta.get("owner", person_id) != person_id:
-            consume("tampering", "owner mismatch")
-            continue
+            def consume(status: str, reason: str = "", extra: list[str] | None = None,
+                        message: str = "") -> None:
+                req.unlink()
+                _commit(master, [rel.as_posix(), *(extra or [])],
+                        message or f"shares: {status} {share_id}",
+                        name_id, f"{person_id}@brain.local")
+                results.append(ShareOutcome(space, person_id, subject, action,
+                                            status, reason))
 
-        # ownership: the live exact rule must grant this pid write
-        rules = load_spaces(master / "_meta/spaces.yaml")
-        exact = next((r for r in rules if r.path == space), None)
-        if exact is None or person is None or not can_write_path(
-                f"{space}/x.md", person, rules):
-            consume("tampering", "not the owner of this space")
-            continue
+            # syntactic validity — malformed stays in place for inspection
+            try:
+                validate_space(space)
+                validate_subject(subject)
+                if access not in ACCESS_LEVELS or action not in ACTIONS:
+                    raise ShareError("bad access/action")
+            except ShareError:
+                continue
 
-        if share_id in decided:
-            req.unlink()
-            _commit(master, [rel.as_posix()], f"shares: drop stale {share_id}",
-                    name_id, f"{person_id}@brain.local")
-            continue
+            if meta.get("owner", person_id) != person_id:
+                consume("tampering", "owner mismatch")
+                continue
 
-        if action == "share":
-            if not _subject_known(subject, org):
+            # ownership: the live exact rule must grant this pid write
+            rules = load_spaces(master / "_meta/spaces.yaml")
+            exact = next((r for r in rules if r.path == space), None)
+            if exact is None or person is None or not can_write_path(
+                    f"{space}/x.md", person, rules):
+                consume("tampering", "not the owner of this space")
+                continue
+
+            if share_id in decided:
+                req.unlink()
+                _commit(master, [rel.as_posix()], f"shares: drop stale {share_id}",
+                        name_id, f"{person_id}@brain.local")
+                continue
+
+            if action == "share":
+                if not _subject_known(subject, org):
+                    note = _share_inbox_note(
+                        master, person_id, slug,
+                        f"Cannot share {space}: {subject} is not in the org.", today)
+                    consume("rejected", "unknown recipient", [note])
+                    continue
+                if subject in exact.read and (access == "read" or subject in exact.write):
+                    note = _share_inbox_note(
+                        master, person_id, slug,
+                        f"{subject} already has {access} access to {space}.", today)
+                    consume("rejected", "already shared", [note])
+                    continue
+                if (_pending_dir(master) / f"{share_id}.md").exists():
+                    continue  # already queued: leave request untouched (promotions posture)
+                dest = _pending_dir(master) / f"{share_id}.md"
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(
+                    "---\n"
+                    f"share-id: {share_id}\n"
+                    f"from: {person_id}\n"
+                    f"space: {space}\n"
+                    f"share-with: {subject}\n"
+                    f"access: {access}\n"
+                    f"created: {meta.get('created', today)}\n"
+                    "---\n"
+                    f"{body}"
+                )
+                consume("queued", extra=[dest.relative_to(master).as_posix()],
+                        message=f"shares: queue {share_id}")
+                continue
+
+            # action == "revoke" — auto-applied: removing access is risk-decreasing
+            if subject == f"person:{person_id}":
                 note = _share_inbox_note(
                     master, person_id, slug,
-                    f"Cannot share {space}: {subject} is not in the org.", today)
-                consume("rejected", "unknown recipient", [note])
+                    "Cannot revoke your own access — ask an admin.", today)
+                consume("rejected", "self-revocation", [note])
                 continue
-            if subject in exact.read and (access == "read" or subject in exact.write):
+
+            # revoke authority is structural, not effective: a write-holder whose
+            # write is team/role-derived (or who simply isn't the bound owner)
+            # must not be able to auto-apply a revoke. Only the space's bound
+            # owner — the first literal person: entry on the exact rule's write
+            # list, set at space creation and never reordered — may revoke.
+            rule_line = _find_rule_line((master / "_meta/spaces.yaml").read_text(), space)
+            rule_write = rule_line[2] if rule_line else []
+            if f"person:{person_id}" not in rule_write:
                 note = _share_inbox_note(
                     master, person_id, slug,
-                    f"{subject} already has {access} access to {space}.", today)
-                consume("rejected", "already shared", [note])
+                    "Only the space owner can revoke access — ask an admin.", today)
+                consume("rejected", "not the bound owner", [note])
                 continue
-            if (_pending_dir(master) / f"{share_id}.md").exists():
-                continue  # already queued: leave request untouched (promotions posture)
-            dest = _pending_dir(master) / f"{share_id}.md"
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(
-                "---\n"
-                f"share-id: {share_id}\n"
-                f"from: {person_id}\n"
-                f"space: {space}\n"
-                f"share-with: {subject}\n"
-                f"access: {access}\n"
-                f"created: {meta.get('created', today)}\n"
-                "---\n"
-                f"{body}"
-            )
-            consume("queued", extra=[dest.relative_to(master).as_posix()],
-                    message=f"shares: queue {share_id}")
-            continue
+            bound_owner = next((s for s in rule_write if s.startswith("person:")), None)
+            if subject == bound_owner:
+                note = _share_inbox_note(
+                    master, person_id, slug,
+                    "Only an admin can remove the space owner's access.", today)
+                consume("rejected", "cannot revoke the space owner", [note])
+                continue
 
-        # action == "revoke" — auto-applied: removing access is risk-decreasing
-        if subject == f"person:{person_id}":
-            note = _share_inbox_note(
-                master, person_id, slug,
-                "Cannot revoke your own access — ask an admin.", today)
-            consume("rejected", "self-revocation", [note])
+            removed = remove_subject_from_rule(
+                master / "_meta/spaces.yaml", space, subject)
+            if not removed:
+                note = _share_inbox_note(
+                    master, person_id, slug,
+                    f"{subject} is not shared on {space} — nothing to revoke.", today)
+                consume("rejected", "not shared", [note])
+                continue
+            archived = master / "_meta/shares/revoked" / f"{share_id}.md"
+            archived.parent.mkdir(parents=True, exist_ok=True)
+            _, fm, req_body = req.read_text().split("---\n", 2)
+            archived.write_text(f"---\n{fm}revoked-on: {today}\n---\n{req_body}")
+            consume("revoked",
+                    extra=["_meta/spaces.yaml",
+                           archived.relative_to(master).as_posix()],
+                    message=f"shares: revoke {subject} from {space}")
             continue
-
-        # revoke authority is structural, not effective: a write-holder whose
-        # write is team/role-derived (or who simply isn't the bound owner)
-        # must not be able to auto-apply a revoke. Only the space's bound
-        # owner — the first literal person: entry on the exact rule's write
-        # list, set at space creation and never reordered — may revoke.
-        rule_line = _find_rule_line((master / "_meta/spaces.yaml").read_text(), space)
-        rule_write = rule_line[2] if rule_line else []
-        if f"person:{person_id}" not in rule_write:
-            note = _share_inbox_note(
-                master, person_id, slug,
-                "Only the space owner can revoke access — ask an admin.", today)
-            consume("rejected", "not the bound owner", [note])
-            continue
-        bound_owner = next((s for s in rule_write if s.startswith("person:")), None)
-        if subject == bound_owner:
-            note = _share_inbox_note(
-                master, person_id, slug,
-                "Only an admin can remove the space owner's access.", today)
-            consume("rejected", "cannot revoke the space owner", [note])
-            continue
-
-        removed = remove_subject_from_rule(
-            master / "_meta/spaces.yaml", space, subject)
-        if not removed:
-            note = _share_inbox_note(
-                master, person_id, slug,
-                f"{subject} is not shared on {space} — nothing to revoke.", today)
-            consume("rejected", "not shared", [note])
-            continue
-        archived = master / "_meta/shares/revoked" / f"{share_id}.md"
-        archived.parent.mkdir(parents=True, exist_ok=True)
-        _, fm, req_body = req.read_text().split("---\n", 2)
-        archived.write_text(f"---\n{fm}revoked-on: {today}\n---\n{req_body}")
-        consume("revoked",
-                extra=["_meta/spaces.yaml",
-                       archived.relative_to(master).as_posix()],
-                message=f"shares: revoke {subject} from {space}")
-        continue
+        except Exception:
+            continue  # unexpected per-request error: leave file in place, touch nothing
     return results
 
 

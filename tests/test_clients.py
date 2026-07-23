@@ -204,6 +204,29 @@ def test_materialize_rejects_owner_mismatch(tmp_path: Path):
     assert not (master / "Clients/Danziger").exists()
 
 
+def test_materialize_skips_poison_utf8_request_and_processes_valid_one(tmp_path: Path):
+    """An invalid-UTF-8 request file must not abort the whole sweep — the
+    valid request alongside it still gets provisioned, and the poison file
+    is left untouched for inspection."""
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    (master / "Clients").mkdir()
+    request_client(master, "joe", "Danziger Family",
+                   "Members: Mikey (football).\n", "2026-07-22",
+                   source="People/joe/Inbox/chat.md")
+    poison = master / "People/joe/ClientRequests/poison.md"
+    poison.write_bytes(b"\xff\xfe garbage")
+    _git_init(master)
+    org = Org(people={"joe": Person(id="joe", name="Joe Danziger", roles=(), teams=())})
+
+    result = materialize_clients(master, org, today="2026-07-22")
+
+    assert result == [ClientProvision("Danziger Family", "joe", "created")]
+    assert poison.exists()
+    assert poison.read_bytes() == b"\xff\xfe garbage"
+
+
 def test_materialize_skips_malformed_pid_without_partial_writes(tmp_path: Path):
     master = tmp_path / "master"
     (master / "_meta").mkdir(parents=True)

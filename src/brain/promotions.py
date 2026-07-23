@@ -397,44 +397,47 @@ def sweep(master: Path, today: str) -> list[Path]:
             continue  # never read through links out of the person's space
         rel = f.relative_to(master)
         person_id = rel.parts[1]
-        meta, body = split_frontmatter(f.read_text())
-        if not meta:
-            continue
-        target = meta.get("target-path", "")
-        promo_id = f"{person_id}-{_slug(f.stem)}"
-        if promo_id in resolved:
-            f.unlink()  # already approved/rejected: clear the stale draft, don't re-queue
-            changed.append(rel.as_posix())
-            continue
-        if (_pending_dir(master) / f"{promo_id}.md").exists():
-            continue
         try:
-            _validate_target(target)
-            mode = meta.get("mode", "create")
-            _validate_mode(mode)
-            base_hash = ""
-            if mode == "patch":
-                target_file = master / target
-                if target_file.is_symlink() or not target_file.is_file():
-                    continue  # left in place; doctor flags it
-                base_hash = hashlib.sha256(target_file.read_bytes()).hexdigest()
-            draft_promotion(
-                master,
-                person_id=person_id,
-                target_path=target,
-                source=meta.get("source", str(rel)),
-                body=body,
-                promo_id=promo_id,
-                created=today,
-                mode=mode,
-                base_hash=base_hash,
-            )
-        except PromotionError:
-            continue
-        f.unlink()
-        pending = _pending_dir(master) / f"{promo_id}.md"
-        moved.append(pending)
-        changed += [rel.as_posix(), pending.relative_to(master).as_posix()]
+            meta, body = split_frontmatter(f.read_text())
+            if not meta:
+                continue
+            target = meta.get("target-path", "")
+            promo_id = f"{person_id}-{_slug(f.stem)}"
+            if promo_id in resolved:
+                f.unlink()  # already approved/rejected: clear the stale draft, don't re-queue
+                changed.append(rel.as_posix())
+                continue
+            if (_pending_dir(master) / f"{promo_id}.md").exists():
+                continue
+            try:
+                _validate_target(target)
+                mode = meta.get("mode", "create")
+                _validate_mode(mode)
+                base_hash = ""
+                if mode == "patch":
+                    target_file = master / target
+                    if target_file.is_symlink() or not target_file.is_file():
+                        continue  # left in place; doctor flags it
+                    base_hash = hashlib.sha256(target_file.read_bytes()).hexdigest()
+                draft_promotion(
+                    master,
+                    person_id=person_id,
+                    target_path=target,
+                    source=meta.get("source", str(rel)),
+                    body=body,
+                    promo_id=promo_id,
+                    created=today,
+                    mode=mode,
+                    base_hash=base_hash,
+                )
+            except PromotionError:
+                continue
+            f.unlink()
+            pending = _pending_dir(master) / f"{promo_id}.md"
+            moved.append(pending)
+            changed += [rel.as_posix(), pending.relative_to(master).as_posix()]
+        except Exception:
+            continue  # unexpected per-request error: leave file in place, touch nothing
     if changed:
         _commit(
             master, changed, f"promotions: sweep {len(moved)} draft(s)",

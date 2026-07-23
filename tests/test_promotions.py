@@ -264,6 +264,33 @@ def test_sweep_moves_agent_drafts_into_queue(master: Path):
     assert (d / "broken.md").exists()               # skipped, left in place
 
 
+def test_sweep_skips_poison_utf8_request_and_processes_valid_one(master: Path):
+    """An invalid-UTF-8 request file must not abort the whole sweep — the
+    valid draft alongside it still gets queued, and the poison file is left
+    untouched for inspection."""
+    from brain.promotions import sweep
+
+    d = master / "People/bob/Promotions"
+    d.mkdir(parents=True)
+    (d / "Good.md").write_text(
+        "---\n"
+        "target-path: Company/Playbook/Good-SOP.md\n"
+        "source: People/bob/Sessions/call.md\n"
+        "---\n"
+        "Step one.\n"
+    )
+    poison = d / "Poison.md"
+    poison.write_bytes(b"\xff\xfe garbage")
+
+    moved = sweep(master, today="2026-07-07")
+
+    assert len(moved) == 1
+    pending = list_pending(master)
+    assert pending[0].target_path == "Company/Playbook/Good-SOP.md"
+    assert poison.exists()
+    assert poison.read_bytes() == b"\xff\xfe garbage"
+
+
 def _draft(master: Path, title: str = "CBS Result") -> Path:
     """Write an agent draft into bob's Promotions folder; return its path."""
     d = master / "People/bob/Promotions"

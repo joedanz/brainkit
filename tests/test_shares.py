@@ -284,6 +284,23 @@ def test_sweep_revoke_guards(tmp_path: Path):
     assert "person:joe" in r.read and "person:joe" in r.write
 
 
+def test_sweep_skips_poison_utf8_request_and_processes_valid_one(tmp_path: Path):
+    """An invalid-UTF-8 request file must not abort the whole sweep — the
+    valid share request alongside it still gets queued, and the poison file
+    is left untouched for inspection."""
+    m = _master(tmp_path)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "write",
+                  "2026-07-22", body="context for approver\n")
+    poison = m / "People/joe/ShareRequests/poison.md"
+    poison.write_bytes(b"\xff\xfe garbage")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["queued"]
+    assert len(list_pending_shares(m)) == 1
+    assert poison.exists()
+    assert poison.read_bytes() == b"\xff\xfe garbage"
+
+
 def test_sweep_revoke_by_team_derived_write_recipient_is_rejected_not_tampering(tmp_path: Path):
     """mary holds write only via team:concierge (not literally on the rule's
     write list). She must not be able to auto-revoke joe, the bound owner."""
