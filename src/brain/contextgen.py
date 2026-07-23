@@ -60,6 +60,12 @@ writable spaces; the write-back service rejects changes to read-only paths.
   and your own access never blocks — keep writing while it's pending. To
   remove someone, use `action: revoke` (applies automatically; you cannot
   revoke your own access).
+- If your `People/{pid}/Shares.md` has an **Awaiting your decision** section,
+  those shares name you (or a team you lead) as recipient. Decide by writing
+  `People/{pid}/Approvals/<share-id>.md` with `decision: approve` or
+  `decision: reject` (rejections need a `reason:`), `owner: {pid}`. Record
+  only a decision your human has explicitly made — never decide on your own.
+  Company-wide shares (to `everyone`) always need an admin, not you.
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
   promotion targeting a new file in `Company/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion

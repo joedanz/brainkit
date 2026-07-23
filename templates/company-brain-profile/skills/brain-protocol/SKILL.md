@@ -68,6 +68,12 @@ frontmatter-key names from there; the shapes below use placeholders.
    approver. Shares await admin approval; revokes apply automatically. Your own
    access is never blocked by pending shares — keep writing. Status appears in
    `People/<you>/Shares.md`. You cannot revoke your own access.
+6. If your `Shares.md` shows an **Awaiting your decision** section, those
+   shares name you (or a team you lead) as recipient. Decide by writing
+   `People/<you>/Approvals/<share-id>.md` with `decision: approve` or
+   `decision: reject` (a rejection needs a `reason:` line) and `owner: <you>`.
+   Record only a decision your human has explicitly made — never decide on
+   your own. Company-wide shares (to `everyone`) always need an admin.
 
 ## Intel (articles, posts, links, PDFs, screenshots)
 
