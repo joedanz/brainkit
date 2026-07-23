@@ -119,11 +119,13 @@ def test_rename_then_cycle_processes_all_pending_state(tmp_path):
     # the pending entity request provisioned under the NEW tree
     assert report.clients_created == 1
     assert (m / "Vendors/Smith/Smith.md").is_file()
-    # the rewritten pending share is still valid: approving it grants mary
+    # the rewritten pending share is still valid: approving it grants mary.
+    # mary is the recipient (person:mary) — she consents to her own share;
+    # joe (the requester, with no admin role) may not decide it.
     from brain.shares import approve_share, list_pending_shares
     pending = list_pending_shares(m)
     assert len(pending) == 1 and pending[0]["space"] == "Vendors/Acme"
-    approve_share(m, pending[0]["id"], approver="joe", date="2026-07-24")
+    approve_share(m, pending[0]["id"], approver="mary", date="2026-07-24")
     rules = load_spaces(m / "_meta/spaces.yaml")
     acme = next(r for r in rules if r.path == "Vendors/Acme")
     assert "person:mary" in acme.read

@@ -176,11 +176,13 @@ function shareActions(id) {
   var rejectBtn = el("button", null, "Reject");
   rejectBtn.type = "button";
   rejectBtn.addEventListener("click", function () {
+    var approver = window.prompt("Approver (person id in the org):");
+    if (!approver) return;
     var reason = window.prompt("Reason for rejecting this share:");
     if (!reason) return;
     fetch("/api/shares/" + encodeURIComponent(id) + "/reject", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: reason }),
+      body: JSON.stringify({ reason: reason, approver: approver }),
     }).then(function (r) {
       if (r.ok) location.reload(); else r.text().then(function (t) { window.alert(t); });
     });

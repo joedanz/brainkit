@@ -442,7 +442,8 @@ def _find_pending_share(master: Path, share_id: str) -> Path:
     return p
 
 
-def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
+def approve_share(master: Path, share_id: str, approver: str, date: str,
+                   via: str = "") -> str:
     """Amend the rule per the pending request. Everything is re-validated at
     decision time: the pending file sat on disk between sweep and approval."""
     if not approver.strip():
@@ -462,6 +463,10 @@ def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
         raise ShareError(f"pending share {share_id!r} has invalid access {access!r}")
     if subject == "everyone" and access != "read":
         raise ShareError("company-wide shares are read-only")
+    if not may_decide(people[approver], subject):
+        raise ShareError(
+            f"{approver!r} may not decide this share — the approver must be "
+            "role:admin, the recipient, or a lead of the recipient team")
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     owner_person = org.people.get(owner)
@@ -473,7 +478,9 @@ def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
     archived = master / "_meta/shares/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, body = pending.read_text().split("---\n", 2)
-    archived.write_text(f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n---\n{body}")
+    via_line = f"via: {via}\n" if via else ""
+    archived.write_text(
+        f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n{via_line}---\n{body}")
     pending.unlink()
     _commit(
         master,
@@ -486,19 +493,34 @@ def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
     return space
 
 
-def reject_share(master: Path, share_id: str, reason: str, date: str) -> Path:
+def reject_share(master: Path, share_id: str, reason: str, date: str, approver: str,
+                  via: str = "") -> Path:
+    if not approver.strip():
+        raise ShareError("an approver is required")
+    people = load_org(master / "_meta/org.yaml").people
+    if approver not in people:
+        raise ShareError(f"unknown approver {approver!r} — not a person in the org")
     pending = _find_pending_share(master, share_id)
+    meta, _ = split_frontmatter(pending.read_text())
+    subject = str(meta.get("share-with", ""))
+    if not may_decide(people[approver], subject):
+        raise ShareError(
+            f"{approver!r} may not decide this share — the approver must be "
+            "role:admin, the recipient, or a lead of the recipient team")
     _, fm, body = pending.read_text().split("---\n", 2)
     rejected = master / "_meta/shares/rejected" / pending.name
     rejected.parent.mkdir(parents=True, exist_ok=True)
-    rejected.write_text(f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n---\n{body}")
+    via_line = f"via: {via}\n" if via else ""
+    rejected.write_text(
+        f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n"
+        f"rejected-by: {approver}\n{via_line}---\n{body}")
     pending.unlink()
     _commit(
         master,
         [rejected.relative_to(master).as_posix(),
          pending.relative_to(master).as_posix()],
         f"shares: reject {share_id} ({reason})",
-        "Brain Shares", "shares@brain.local",
+        people[approver].name, f"{approver}@brain.local",
     )
     return rejected
 

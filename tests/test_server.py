@@ -357,7 +357,9 @@ async def test_share_reject_requires_reason(aiohttp_client, master, tmp_path):
     resp = await client.post(f"/api/shares/{sid}/reject", json={}, headers=_LOCAL)
     assert resp.status == 400
 
-    resp = await client.post(f"/api/shares/{sid}/reject", json={"reason": "not needed"},
+    # share-with is person:alice, and alice is admin — an authorized approver
+    resp = await client.post(f"/api/shares/{sid}/reject",
+                             json={"reason": "not needed", "approver": "alice"},
                              headers=_LOCAL)
     assert resp.status == 200
     assert not list_pending_shares(master)

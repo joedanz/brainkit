@@ -430,16 +430,18 @@ def test_approve_and_reject_reject_traversal_ids(tmp_path: Path):
     assert planted.read_text() == "secret\n"
 
     with pytest.raises(ShareError):
-        reject_share(m, "../../evil", reason="n/a", date="2026-07-23")
+        reject_share(m, "../../evil", reason="n/a", date="2026-07-23", approver="admin")
     assert planted.read_text() == "secret\n"
 
 
 def test_reject_archives_with_reason(tmp_path: Path):
-    m = _queued(tmp_path)
+    m = _queued(tmp_path)  # joe -> mary write share pending; mary consents
     sid = list_pending_shares(m)[0]["id"]
-    reject_share(m, sid, reason="not appropriate", date="2026-07-23")
+    reject_share(m, sid, reason="not appropriate", date="2026-07-23", approver="mary")
     assert not list_pending_shares(m)
-    assert "not appropriate" in (m / "_meta/shares/rejected" / f"{sid}.md").read_text()
+    rejected = (m / "_meta/shares/rejected" / f"{sid}.md").read_text()
+    assert "not appropriate" in rejected
+    assert "rejected-by: mary" in rejected
 
 
 def test_admin_revoke_direct(tmp_path: Path):
@@ -589,3 +591,91 @@ def test_approve_share_everyone_write_refused(tmp_path: Path):
         "share-with: everyone\naccess: write\ncreated: 2026-07-23\n---\n")
     with pytest.raises(ShareError):
         approve_share(m, "joe-x", approver="admin", date="2026-07-23")
+
+
+# ---- decision authority (Task 3: approve/reject enforce may_decide) -----------
+
+_ORG_YAML_CAROL = """\
+people:
+  admin: {name: Admin, roles: [admin]}
+  joe:   {name: Joe Danziger}
+  mary:  {name: Mary Ops, teams: [concierge]}
+  carol: {name: Carol Support, teams: [concierge]}
+"""
+
+_ORG_CAROL = Org(people={
+    "admin": Person(id="admin", name="Admin", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+    "mary": Person(id="mary", name="Mary Ops", teams=("concierge",)),
+    "carol": Person(id="carol", name="Carol Support", teams=("concierge",)),
+})
+
+
+def _queued_with_carol(tmp_path: Path) -> Path:
+    """joe -> mary (write) pending share; carol is in the org but is neither
+    admin, the recipient, nor a lead of the recipient's team."""
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_CAROL)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "write",
+                  "2026-07-22", body="context\n")
+    _git_init(m)
+    sweep_shares(m, _ORG_CAROL, today="2026-07-22")
+    return m
+
+
+def test_approve_requires_authorized_approver(tmp_path: Path):
+    m = _queued_with_carol(tmp_path)
+    pid = list_pending_shares(m)[0]["id"]
+    # carol is in the org but neither admin, recipient, nor lead
+    with pytest.raises(ShareError):
+        approve_share(m, pid, approver="carol", date="2026-07-23")
+    # the recipient herself may approve (consent)
+    approve_share(m, pid, approver="mary", date="2026-07-23")
+
+
+_ORG_YAML_LEADS = """\
+people:
+  admin:      {name: Admin, roles: [admin]}
+  joe:        {name: Joe Danziger}
+  lead_ops:   {name: Lead Ops, roles: [lead], teams: [ops]}
+  lead_sales: {name: Lead Sales, roles: [lead], teams: [sales]}
+"""
+
+_ORG_LEADS = Org(people={
+    "admin": Person(id="admin", name="Admin", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+    "lead_ops": Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",)),
+    "lead_sales": Person(id="lead_sales", name="Lead Sales", roles=("lead",), teams=("sales",)),
+})
+
+
+def test_lead_may_approve_team_share_wrong_lead_may_not(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_LEADS)
+    request_share(m, "joe", "Clients/Danziger Family", "team:ops", "read",
+                  "2026-07-22")
+    _git_init(m)
+    sweep_shares(m, _ORG_LEADS, today="2026-07-22")
+    pid = list_pending_shares(m)[0]["id"]
+    with pytest.raises(ShareError):
+        approve_share(m, pid, approver="lead_sales", date="2026-07-23")
+    approve_share(m, pid, approver="lead_ops", date="2026-07-23")
+
+
+def test_reject_requires_authorized_approver_and_records_it(tmp_path: Path):
+    m = _queued_with_carol(tmp_path)
+    pid = list_pending_shares(m)[0]["id"]
+    with pytest.raises(ShareError):
+        reject_share(m, pid, reason="no", date="2026-07-23", approver="carol")
+    rejected = reject_share(m, pid, reason="not needed",
+                            date="2026-07-23", approver="mary")
+    text = rejected.read_text()
+    assert "rejected-by: mary" in text
+
+
+def test_via_delegated_lands_in_archive(tmp_path: Path):
+    m = _queued(tmp_path)  # joe -> mary write share pending; mary consents
+    pid = list_pending_shares(m)[0]["id"]
+    approve_share(m, pid, approver="mary", date="2026-07-23", via="delegated")
+    archived = m / "_meta/shares/approved" / f"{pid}.md"
+    assert "via: delegated" in archived.read_text()

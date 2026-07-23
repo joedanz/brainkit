@@ -227,9 +227,12 @@ function shareCard(s, people) {
   cancelReject.addEventListener("click", () => { rejectRow.style.display = "none"; });
   confirmReject.addEventListener("click", async () => {
     if (!reason.value.trim()) { reason.focus(); return; }
+    if (!approver.value) { approver.focus(); return; }
     setBusy(rejectRow, true);
-    try { await api.rejectShare(s.id, { reason: reason.value.trim() }); card.remove(); }
-    catch (e) { cardError(card, rejectRow, "Reject failed: " + e.message); setBusy(rejectRow, false); }
+    try {
+      await api.rejectShare(s.id, { reason: reason.value.trim(), approver: approver.value });
+      card.remove();
+    } catch (e) { cardError(card, rejectRow, "Reject failed: " + e.message); setBusy(rejectRow, false); }
   });
 
   actions.appendChild(approver);
