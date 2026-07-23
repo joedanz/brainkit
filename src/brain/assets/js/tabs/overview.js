@@ -121,6 +121,8 @@ function renderMaster(app, d, ctx) {
   attention(app, [
     { n: d.promotions_pending.length, label: "promotions awaiting approval", tone: "var(--warn)",
       onClick: () => ctx.goTab("promotions") },
+    { n: d.shares_pending ? d.shares_pending.length : 0, label: "share requests pending", tone: "var(--warn)",
+      onClick: () => ctx.goTab("shares") },
     { n: errs, label: "doctor errors", tone: "var(--err)", onClick: () => ctx.goTab("doctor") },
     { n: warns, label: "doctor warnings", tone: "var(--warn)", onClick: () => ctx.goTab("doctor") },
     { n: d.uncovered_spaces.length, label: "unreachable spaces", tone: "var(--err)" },

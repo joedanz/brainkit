@@ -175,6 +175,71 @@ function promoCard(p, people) {
   return card;
 }
 
+export function renderShares(container, ctx) {
+  const d = guard(container, ctx); if (!d) return;
+  const pending = d.shares_pending || [];
+
+  container.appendChild(el("h2", null, "Share requests awaiting approval"));
+
+  if (!pending.length) {
+    container.appendChild(el("div", "meta", "The queue is empty — no pending share requests."));
+    return;
+  }
+  // Same posture as promotions: a human gates every grant of read/write access
+  // to a space someone else owns before it takes effect.
+  pending.forEach((s) => container.appendChild(shareCard(s, d.people)));
+}
+
+function shareCard(s, people) {
+  const card = el("div", "promo");
+  const h = el("div", "promo-head");
+  h.appendChild(el("span", "promo-target", s.space));
+  h.appendChild(el("span", "meta", "from " + s.person_id + " · " + s.created));
+  card.appendChild(h);
+
+  card.appendChild(el("div", "promo-visibility",
+    "⚠ approving grants " + s.share_with + " " + s.access + " access to " + s.space));
+
+  const actions = el("div", "promo-actions");
+  const approver = approverSelect(people);
+  const approve = el("button", "btn primary", "Approve");
+  const reject = el("button", "btn", "Reject");
+  approve.disabled = !approver.value;
+  approver.addEventListener("change", () => {
+    approve.disabled = !approver.value;
+    if (approver.value) localStorage.setItem(APPROVER_KEY, approver.value);
+  });
+  approve.addEventListener("click", async () => {
+    setBusy(actions, true);
+    try { await api.approveShare(s.id, { approver: approver.value }); card.remove(); }
+    catch (e) { cardError(card, actions, "Approve failed: " + e.message); setBusy(actions, false); }
+  });
+
+  // Reject reveals an inline reason row (a required reason, no native prompt) —
+  // same idiom as promotions, and the server rejects an empty reason either way.
+  const rejectRow = el("div", "promo-actions"); rejectRow.style.display = "none";
+  const reason = el("input"); reason.type = "text"; reason.placeholder = "reason for rejecting (required)";
+  reason.setAttribute("aria-label", "Rejection reason");
+  const confirmReject = el("button", "btn", "Confirm reject");
+  const cancelReject = el("button", "btn", "Cancel");
+  rejectRow.appendChild(reason); rejectRow.appendChild(confirmReject); rejectRow.appendChild(cancelReject);
+  reject.addEventListener("click", () => { rejectRow.style.display = "flex"; reason.focus(); });
+  cancelReject.addEventListener("click", () => { rejectRow.style.display = "none"; });
+  confirmReject.addEventListener("click", async () => {
+    if (!reason.value.trim()) { reason.focus(); return; }
+    setBusy(rejectRow, true);
+    try { await api.rejectShare(s.id, { reason: reason.value.trim() }); card.remove(); }
+    catch (e) { cardError(card, rejectRow, "Reject failed: " + e.message); setBusy(rejectRow, false); }
+  });
+
+  actions.appendChild(approver);
+  actions.appendChild(approve);
+  actions.appendChild(reject);
+  card.appendChild(actions);
+  card.appendChild(rejectRow);
+  return card;
+}
+
 // A patch promotion is a full-page replace — the reviewable artifact is the
 // diff against the live page, not the proposed body on its own.
 function diffBlock(diff) {

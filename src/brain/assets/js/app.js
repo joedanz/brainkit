@@ -47,6 +47,7 @@ function tabsFor(kind) {
       { id: "people", label: "People", render: admin.renderPeople, live: "rerender" },
       { id: "permissions", label: "Permissions", render: admin.renderPermissions, live: "rerender" },
       { id: "promotions", label: "Promotions", render: admin.renderPromotions, live: "rerender" },
+      { id: "shares", label: "Shares", render: admin.renderShares, live: "rerender" },
       { id: "doctor", label: "Doctor", render: admin.renderDoctor, live: "rerender" },
       graphTab, queryTab,
     ];
@@ -115,12 +116,18 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden && pendingRefresh) { pendingRefresh = false; onStats("refresh"); }
 });
 
-// Badge the Promotions tab with the pending count so an admin on any tab sees
-// the queue grow — the one event that most wants to be ambient.
+// Badge the Promotions and Shares tabs with their pending counts so an admin
+// on any tab sees either queue grow — the one event that most wants to be
+// ambient.
 function updateBadges() {
-  const b = buttons.get("promotions");
-  if (!b || !ctx.stats || ctx.stats.kind !== "master") return;
-  const n = (ctx.stats.promotions_pending || []).length;
+  if (!ctx.stats || ctx.stats.kind !== "master") return;
+  setTabBadge("promotions", (ctx.stats.promotions_pending || []).length);
+  setTabBadge("shares", (ctx.stats.shares_pending || []).length);
+}
+
+function setTabBadge(id, n) {
+  const b = buttons.get(id);
+  if (!b) return;
   let badge = b.querySelector(".tab-count");
   if (!n) { if (badge) badge.remove(); return; }
   if (!badge) { badge = document.createElement("span"); badge.className = "tab-count"; b.appendChild(badge); }
