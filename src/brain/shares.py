@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
+from brain.promotions import _slug
 from brain.resolver import space_of_path
 
 
@@ -123,3 +124,65 @@ def remove_subject_from_rule(spaces_path: Path, space: str, subject: str) -> boo
     write = [s for s in write if s != subject]
     _rewrite_line(spaces_path, idx, _emit_rule(space, read, write))
     return True
+
+
+SHARE_REQUESTS_REL = "People/{person_id}/ShareRequests"
+
+
+def request_share(
+    root: Path,
+    person_id: str,
+    space: str,
+    share_with: str,
+    access: str,
+    created: str,
+    body: str = "",
+    action: str = "share",
+) -> str:
+    """Write a share/revoke request into the person's own space; return its
+    vault-relative path. ``root`` may be a compiled slice — write-back carries
+    it to master, where sweep_shares routes it. ``body`` is an optional note
+    to the approver."""
+    validate_space(space)
+    validate_subject(share_with)
+    if access not in ACCESS_LEVELS:
+        raise ShareError(f"unknown access {access!r} — expected read or write")
+    if action not in ACTIONS:
+        raise ShareError(f"unknown action {action!r} — expected share or revoke")
+    for field, value in (("space", space), ("share-with", share_with),
+                         ("created", created)):
+        if "\n" in value or "\r" in value:
+            raise ShareError(f"{field} must be a single line")
+
+    req_rel = SHARE_REQUESTS_REL.format(person_id=person_id)
+    ancestor = root
+    for part in PurePosixPath(req_rel).parts:
+        ancestor = ancestor / part
+        if ancestor.is_symlink():
+            raise ShareError(f"{req_rel} contains a symlink — refusing to write")
+
+    dir_ = root / req_rel
+    base = _slug(f"{action}-{PurePosixPath(space).name}-{share_with}") or "share"
+    fname = f"{created}-{base}.md"
+    n = 2
+    while (dir_ / fname).exists() or (dir_ / fname).is_symlink():
+        fname = f"{created}-{base}-{n}.md"
+        n += 1
+    rel_path = f"{req_rel}/{fname}"
+    if space_of_path(rel_path) != f"People/{person_id}":
+        raise ShareError(f"refusing to write outside {req_rel}")
+
+    dest = root / rel_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        "---\n"
+        f"space: {space}\n"
+        f"share-with: {share_with}\n"
+        f"access: {access}\n"
+        f"action: {action}\n"
+        f"owner: {person_id}\n"
+        f"created: {created}\n"
+        "---\n"
+        f"{body}"
+    )
+    return rel_path

@@ -3,7 +3,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from brain.shares import ShareError, amend_space_rule, remove_subject_from_rule, validate_space, validate_subject
+from brain.frontmatter import split_frontmatter
+from brain.resolver import space_of_path as _sop
+from brain.shares import ShareError, amend_space_rule, remove_subject_from_rule, request_share, validate_space, validate_subject
 from brain.schemas import load_spaces
 
 
@@ -107,3 +109,41 @@ def test_remove_strips_both_lists_and_protects_admin(tmp_path: Path):
     with pytest.raises(ShareError):
         remove_subject_from_rule(sp, "Clients/Danziger Family", "role:admin")
     assert remove_subject_from_rule(sp, "Clients/Danziger Family", "person:ghost") is False
+
+
+def test_request_share_writes_artifact_in_owner_space(tmp_path: Path):
+    rel = request_share(tmp_path, "joe", "Clients/Danziger Family",
+                        "person:mary", "write", "2026-07-22",
+                        body="Mary covers the KC trip.\n")
+    assert _sop(rel) == "People/joe"
+    meta, body = split_frontmatter((tmp_path / rel).read_text())
+    assert meta["space"] == "Clients/Danziger Family"
+    assert meta["share-with"] == "person:mary"
+    assert meta["access"] == "write"
+    assert meta["action"] == "share"
+    assert meta["owner"] == "joe"
+    assert "KC trip" in body
+
+
+def test_request_share_revoke_and_validation(tmp_path: Path):
+    rel = request_share(tmp_path, "joe", "Clients/Danziger Family",
+                        "person:mary", "read", "2026-07-22", action="revoke")
+    meta, _ = split_frontmatter((tmp_path / rel).read_text())
+    assert meta["action"] == "revoke"
+    for kwargs in (
+        dict(space="People/joe", share_with="person:mary", access="read"),
+        dict(space="Clients/X", share_with="mary", access="read"),
+        dict(space="Clients/X", share_with="person:mary", access="admin"),
+        dict(space="Clients/X", share_with="person:mary", access="read", action="delete"),
+    ):
+        with pytest.raises(ShareError):
+            request_share(tmp_path, "joe", kwargs["space"], kwargs["share_with"],
+                          kwargs["access"], "2026-07-22",
+                          action=kwargs.get("action", "share"))
+
+
+def test_request_share_refuses_symlinked_ancestor(tmp_path: Path):
+    (tmp_path / "People").mkdir()
+    (tmp_path / "People/joe").symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(ShareError):
+        request_share(tmp_path, "joe", "Clients/X", "person:mary", "read", "2026-07-22")
