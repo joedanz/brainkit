@@ -475,7 +475,7 @@ def generate_space_shares_section(master: Path, person_id: str, today: str) -> s
                 meta, _ = split_frontmatter(f.read_text())
             except (KeyError, ValueError):
                 continue
-            if meta and meta.get("from") == person_id:
+            if meta and (meta.get("from") or meta.get("owner")) == person_id:
                 out.append(meta)
         return out
 

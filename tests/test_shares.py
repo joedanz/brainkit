@@ -372,3 +372,27 @@ def test_space_shares_section_lists_pending_and_decided(tmp_path: Path):
     sec2 = generate_space_shares_section(m, "joe", today="2026-07-23")
     assert "approved 2026-07-23" in sec2
     assert generate_space_shares_section(m, "mary", today="2026-07-23") is None
+
+
+def test_space_shares_section_shows_revoked_entries(tmp_path: Path):
+    """Verify revoked entries appear in the Shares.md section (regression: revoked archives use owner field)."""
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    # Grant mary write access initially
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "person:mary", "write")
+    # Joe files a revoke request for mary's access
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22", action="revoke")
+    _git_init(m)
+    # Revoke auto-applies during sweep
+    sweep_shares(m, _ORG, today="2026-07-22")
+    # Joe's section should show the revoked entry
+    sec = generate_space_shares_section(m, "joe", today="2026-07-22")
+    assert sec is not None
+    assert "revoked 2026-07-22" in sec
+    assert "person:mary" in sec
+    assert "Clients/Danziger Family" in sec
+    # Mary's section should NOT show joe's revoke (privacy filter)
+    sec_mary = generate_space_shares_section(m, "mary", today="2026-07-22")
+    assert sec_mary is None
