@@ -284,6 +284,63 @@ def test_sweep_revoke_guards(tmp_path: Path):
     assert "person:joe" in r.read and "person:joe" in r.write
 
 
+def test_sweep_revoke_by_team_derived_write_recipient_is_rejected_not_tampering(tmp_path: Path):
+    """mary holds write only via team:concierge (not literally on the rule's
+    write list). She must not be able to auto-revoke joe, the bound owner."""
+    m = _master(tmp_path)
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "team:concierge", "write")
+    request_share(m, "mary", "Clients/Danziger Family", "person:joe", "read",
+                  "2026-07-22", action="revoke")
+    _git_init(m)
+    before_after_amend = (m / "_meta/spaces.yaml").read_text()
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["rejected"]
+    r = {r.path: r for r in load_spaces(m / "_meta/spaces.yaml")}["Clients/Danziger Family"]
+    assert "person:joe" in r.write  # owner's grant survives
+    assert (m / "_meta/spaces.yaml").read_text() == before_after_amend  # untouched by the revoke attempt
+    inbox = list((m / "People/mary/Inbox").glob("*.md"))
+    assert inbox and "owner" in inbox[0].read_text().lower()
+    assert not list((m / "People/mary/ShareRequests").glob("*.md"))  # consumed
+
+
+def test_sweep_revoke_by_direct_write_recipient_against_owner_is_rejected(tmp_path: Path):
+    """mary holds write directly (person:mary on the rule) but is still not
+    the bound owner — joe (first person: write entry) is. mary must not be
+    able to auto-revoke joe."""
+    m = _master(tmp_path)
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "person:mary", "write")
+    request_share(m, "mary", "Clients/Danziger Family", "person:joe", "read",
+                  "2026-07-22", action="revoke")
+    _git_init(m)
+    before = (m / "_meta/spaces.yaml").read_text()
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["rejected"]
+    r = {r.path: r for r in load_spaces(m / "_meta/spaces.yaml")}["Clients/Danziger Family"]
+    assert "person:joe" in r.write  # owner's grant survives
+    assert (m / "_meta/spaces.yaml").read_text() == before
+    inbox = list((m / "People/mary/Inbox").glob("*.md"))
+    assert inbox and "admin" in inbox[0].read_text().lower()
+    assert not list((m / "People/mary/ShareRequests").glob("*.md"))  # consumed
+
+
+def test_sweep_revoke_by_owner_of_shared_recipient_still_works(tmp_path: Path):
+    """Positive control: the bound owner (joe, first person: write entry)
+    revoking a recipient they shared with still auto-applies."""
+    m = _master(tmp_path)
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "person:mary", "write")
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22", action="revoke")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["revoked"]
+    r = {r.path: r for r in load_spaces(m / "_meta/spaces.yaml")}["Clients/Danziger Family"]
+    assert "person:mary" not in r.read and "person:mary" not in r.write
+    assert "person:joe" in r.write
+
+
 def test_sweep_revoke_unknown_subject_wording(tmp_path: Path):
     """Verify revoke requests with unknown subjects get 'not shared' wording, not 'Cannot share'."""
     m = _master(tmp_path)

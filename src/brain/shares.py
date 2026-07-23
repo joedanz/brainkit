@@ -350,6 +350,28 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
                 "Cannot revoke your own access — ask an admin.", today)
             consume("rejected", "self-revocation", [note])
             continue
+
+        # revoke authority is structural, not effective: a write-holder whose
+        # write is team/role-derived (or who simply isn't the bound owner)
+        # must not be able to auto-apply a revoke. Only the space's bound
+        # owner — the first literal person: entry on the exact rule's write
+        # list, set at space creation and never reordered — may revoke.
+        rule_line = _find_rule_line((master / "_meta/spaces.yaml").read_text(), space)
+        rule_write = rule_line[2] if rule_line else []
+        if f"person:{person_id}" not in rule_write:
+            note = _share_inbox_note(
+                master, person_id, slug,
+                "Only the space owner can revoke access — ask an admin.", today)
+            consume("rejected", "not the bound owner", [note])
+            continue
+        bound_owner = next((s for s in rule_write if s.startswith("person:")), None)
+        if subject == bound_owner:
+            note = _share_inbox_note(
+                master, person_id, slug,
+                "Only an admin can remove the space owner's access.", today)
+            consume("rejected", "cannot revoke the space owner", [note])
+            continue
+
         removed = remove_subject_from_rule(
             master / "_meta/spaces.yaml", space, subject)
         if not removed:
