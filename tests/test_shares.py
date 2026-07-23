@@ -8,7 +8,8 @@ from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path as _sop
 from brain.schemas import Org, Person
 from brain.shares import (
-    ShareError, ShareOutcome, amend_space_rule, list_pending_shares,
+    ShareError, ShareOutcome, admin_revoke, amend_space_rule,
+    approve_share, list_pending_shares, reject_share,
     remove_subject_from_rule, request_share, sweep_shares, validate_space,
     validate_subject,
 )
@@ -296,3 +297,65 @@ def test_sweep_revoke_unknown_subject_wording(tmp_path: Path):
     # Should say "not shared", not "Cannot share"
     assert "not shared" in texts.lower()
     assert "Cannot share" not in texts
+
+
+_ORG_YAML = """\
+people:
+  admin: {name: Admin, roles: [admin]}
+  joe:   {name: Joe Danziger}
+  mary:  {name: Mary Ops, teams: [concierge]}
+"""
+
+
+def _queued(tmp_path: Path) -> Path:
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "write",
+                  "2026-07-22", body="context\n")
+    _git_init(m)
+    sweep_shares(m, _ORG, today="2026-07-22")
+    return m
+
+
+def test_approve_amends_rule_and_archives(tmp_path: Path):
+    m = _queued(tmp_path)
+    sid = list_pending_shares(m)[0]["id"]
+    space = approve_share(m, sid, approver="admin", date="2026-07-23")
+    assert space == "Clients/Danziger Family"
+    r = {r.path: r for r in load_spaces(m / "_meta/spaces.yaml")}[space]
+    assert "person:mary" in r.read and "person:mary" in r.write
+    assert not list_pending_shares(m)
+    archived = (m / "_meta/shares/approved" / f"{sid}.md").read_text()
+    assert "approved-by: admin" in archived and "approved-on: 2026-07-23" in archived
+
+
+def test_approve_validates_approver_and_id(tmp_path: Path):
+    m = _queued(tmp_path)
+    sid = list_pending_shares(m)[0]["id"]
+    with pytest.raises(ShareError):
+        approve_share(m, sid, approver="ghost", date="2026-07-23")
+    with pytest.raises(ShareError):
+        approve_share(m, "no-such-id", approver="admin", date="2026-07-23")
+
+
+def test_reject_archives_with_reason(tmp_path: Path):
+    m = _queued(tmp_path)
+    sid = list_pending_shares(m)[0]["id"]
+    reject_share(m, sid, reason="not appropriate", date="2026-07-23")
+    assert not list_pending_shares(m)
+    assert "not appropriate" in (m / "_meta/shares/rejected" / f"{sid}.md").read_text()
+
+
+def test_admin_revoke_direct(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "person:mary", "read")
+    _git_init(m)
+    assert admin_revoke(m, "Clients/Danziger Family", "person:mary",
+                        date="2026-07-23") is True
+    r = {r.path: r for r in load_spaces(m / "_meta/spaces.yaml")}["Clients/Danziger Family"]
+    assert "person:mary" not in r.read
+    assert list((m / "_meta/shares/revoked").glob("admin-*.md"))
+    with pytest.raises(ShareError):
+        admin_revoke(m, "Clients/Danziger Family", "role:admin", date="2026-07-23")

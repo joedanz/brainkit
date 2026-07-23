@@ -26,7 +26,7 @@ from brain.clients import _validate_owner_id
 from brain.frontmatter import split_frontmatter
 from brain.promotions import _commit, _slug
 from brain.resolver import can_write_path, space_of_path
-from brain.schemas import Org, load_spaces
+from brain.schemas import Org, load_org, load_spaces
 
 
 class ShareError(ValueError):
@@ -368,3 +368,87 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
                 message=f"shares: revoke {subject} from {space}")
         continue
     return results
+
+
+def _find_pending_share(master: Path, share_id: str) -> Path:
+    p = _pending_dir(master) / f"{share_id}.md"
+    if not p.exists():
+        raise ShareError(f"no pending share {share_id!r}")
+    return p
+
+
+def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
+    """Amend the rule per the pending request. Everything is re-validated at
+    decision time: the pending file sat on disk between sweep and approval."""
+    if not approver.strip():
+        raise ShareError("an approver is required")
+    people = load_org(master / "_meta/org.yaml").people
+    if approver not in people:
+        raise ShareError(f"unknown approver {approver!r} — not a person in the org")
+    pending = _find_pending_share(master, share_id)
+    meta, _ = split_frontmatter(pending.read_text())
+    space = str(meta.get("space", ""))
+    subject = str(meta.get("share-with", ""))
+    access = str(meta.get("access", "read"))
+    owner = str(meta.get("from", ""))
+    validate_space(space)
+    validate_subject(subject)
+    if access not in ACCESS_LEVELS:
+        raise ShareError(f"pending share {share_id!r} has invalid access {access!r}")
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    owner_person = org.people.get(owner)
+    if owner_person is None or not can_write_path(f"{space}/x.md", owner_person, rules):
+        raise ShareError(f"{owner!r} no longer owns {space!r} — refusing to apply")
+    if not _subject_known(subject, org):
+        raise ShareError(f"{subject!r} no longer resolves in the org")
+    amend_space_rule(master / "_meta/spaces.yaml", space, subject, access)
+    archived = master / "_meta/shares/approved" / pending.name
+    archived.parent.mkdir(parents=True, exist_ok=True)
+    _, fm, body = pending.read_text().split("---\n", 2)
+    archived.write_text(f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n---\n{body}")
+    pending.unlink()
+    _commit(
+        master,
+        ["_meta/spaces.yaml",
+         archived.relative_to(master).as_posix(),
+         pending.relative_to(master).as_posix()],
+        f"shares: approve {share_id} -> {subject} on {space}",
+        people[approver].name, f"{approver}@brain.local",
+    )
+    return space
+
+
+def reject_share(master: Path, share_id: str, reason: str, date: str) -> Path:
+    pending = _find_pending_share(master, share_id)
+    _, fm, body = pending.read_text().split("---\n", 2)
+    rejected = master / "_meta/shares/rejected" / pending.name
+    rejected.parent.mkdir(parents=True, exist_ok=True)
+    rejected.write_text(f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n---\n{body}")
+    pending.unlink()
+    _commit(
+        master,
+        [rejected.relative_to(master).as_posix(),
+         pending.relative_to(master).as_posix()],
+        f"shares: reject {share_id} ({reason})",
+        "Brain Shares", "shares@brain.local",
+    )
+    return rejected
+
+
+def admin_revoke(master: Path, space: str, subject: str, date: str) -> bool:
+    """Direct admin revoke — no request file. Doubles as the veto lever for
+    the created-clients review list. role:admin remains irremovable."""
+    removed = remove_subject_from_rule(master / "_meta/spaces.yaml", space, subject)
+    if not removed:
+        return False
+    audit = master / "_meta/shares/revoked" / f"admin-{date}-{_slug(f'{space}-{subject}')}.md"
+    audit.parent.mkdir(parents=True, exist_ok=True)
+    audit.write_text(
+        f"---\nspace: {space}\nshare-with: {subject}\nrevoked-on: {date}\n"
+        "revoked-by: admin\n---\n"
+    )
+    _commit(master, ["_meta/spaces.yaml", audit.relative_to(master).as_posix()],
+            f"shares: admin revoke {subject} from {space}",
+            "Brain Shares", "shares@brain.local")
+    return True
