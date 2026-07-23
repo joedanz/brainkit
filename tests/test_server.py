@@ -309,6 +309,65 @@ async def test_vault_lens_cannot_approve(aiohttp_client, master, tmp_path):
     assert (await client.post("/api/promotions/x/approve", json={}, headers=_LOCAL)).status == 403
 
 
+# ---- space shares --------------------------------------------------------------
+
+async def test_shares_pending_in_stats_and_approve_endpoint(aiohttp_client, master, tmp_path):
+    from brain.schemas import load_org
+    from brain.shares import list_pending_shares, request_share, sweep_shares
+
+    app, _ = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+
+    with (master / "_meta/spaces.yaml").open("a") as fh:
+        fh.write('  - {path: "Clients/acme", read: ["role:admin", "person:bob"], '
+                 'write: ["role:admin", "person:bob"]}\n')
+    (master / "Clients/acme").mkdir(parents=True, exist_ok=True)
+    request_share(master, "bob", "Clients/acme", "person:alice", "read", "2026-07-22")
+    sweep_shares(master, load_org(master / "_meta/org.yaml"), today="2026-07-22")
+    sid = list_pending_shares(master)[0]["id"]
+
+    stats = await (await client.get("/api/stats")).json()
+    assert stats["shares_pending"][0]["space"] == "Clients/acme"
+
+    resp = await client.post(f"/api/shares/{sid}/approve", json={"approver": "alice"},
+                             headers=_LOCAL)
+    assert resp.status == 200
+    assert not list_pending_shares(master)
+
+    resp = await client.post(f"/api/shares/{sid}/approve", json={"approver": "alice"},
+                             headers=_LOCAL)
+    assert resp.status == 404  # already decided
+
+
+async def test_share_reject_requires_reason(aiohttp_client, master, tmp_path):
+    from brain.schemas import load_org
+    from brain.shares import list_pending_shares, request_share, sweep_shares
+
+    app, _ = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+
+    with (master / "_meta/spaces.yaml").open("a") as fh:
+        fh.write('  - {path: "Clients/acme", read: ["role:admin", "person:bob"], '
+                 'write: ["role:admin", "person:bob"]}\n')
+    (master / "Clients/acme").mkdir(parents=True, exist_ok=True)
+    request_share(master, "bob", "Clients/acme", "person:alice", "read", "2026-07-22")
+    sweep_shares(master, load_org(master / "_meta/org.yaml"), today="2026-07-22")
+    sid = list_pending_shares(master)[0]["id"]
+
+    resp = await client.post(f"/api/shares/{sid}/reject", json={}, headers=_LOCAL)
+    assert resp.status == 400
+
+    resp = await client.post(f"/api/shares/{sid}/reject", json={"reason": "not needed"},
+                             headers=_LOCAL)
+    assert resp.status == 200
+    assert not list_pending_shares(master)
+
+
+async def test_vault_lens_cannot_act_on_shares(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_vault_app(_vault(master, tmp_path)))
+    assert (await client.post("/api/shares/x/approve", json={}, headers=_LOCAL)).status == 403
+
+
 # ---- note backlinks, inbox, actions ------------------------------------------
 
 async def test_note_payload_has_backlinks(aiohttp_client, master, tmp_path):
