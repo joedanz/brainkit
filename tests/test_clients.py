@@ -13,7 +13,7 @@ from brain.clients import (
 )
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path, can_read, can_write_path
-from brain.schemas import Org, Person, load_spaces
+from brain.schemas import Org, Person, VaultConfig, load_spaces
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -104,6 +104,21 @@ def _git_init(master: Path) -> None:
     subprocess.run(["git", "-C", str(master), "add", "-A"], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(master), "-c", "user.name=t", "-c", "user.email=t@t",
                     "commit", "-m", "seed"], check=True, capture_output=True)
+
+
+def _git_master(tmp_path: Path) -> Path:
+    """A bare git-initialized master with spaces.yaml and an empty Clients/
+    tree — no requests filed yet."""
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/spaces.yaml").write_text(_BASE_SPACES)
+    (master / "Clients").mkdir()
+    _git_init(master)
+    return master
+
+
+def _org() -> Org:
+    return Org(people={"joe": Person(id="joe", name="Joe Danziger", roles=(), teams=())})
 
 
 def _master_with_request(tmp_path: Path) -> Path:
@@ -271,3 +286,38 @@ def test_materialize_unregistered_pid_collision_rejects_not_crashes(tmp_path: Pa
     inbox = list((master / "People/ghost/Inbox").glob("*.md"))
     assert inbox and "joe" not in inbox[0].read_text().lower()
     assert not list((master / "People/ghost/ClientRequests").glob("*.md"))  # consumed
+
+
+FAM = VaultConfig(entities="Families", entity="family")
+
+
+def test_request_client_custom_noun_writes_derived_folder_and_key(tmp_path):
+    rel = request_client(tmp_path, "joe", "Danziger", "Moved to KC.\n",
+                         "2026-07-23", config=FAM)
+    assert rel.startswith("People/joe/FamilyRequests/")
+    text = (tmp_path / rel).read_text()
+    assert "family-name: Danziger" in text
+    assert "entity: family" in text
+    assert "client-name" not in text
+
+
+def test_materialize_custom_noun_provisions_custom_tree(tmp_path):
+    master = _git_master(tmp_path)
+    (master / "_meta/config.yaml").write_text("entities: Families\nentity: family\n")
+    request_client(master, "joe", "Danziger", "body\n", "2026-07-23", config=FAM)
+    results = materialize_clients(master, _org(), today="2026-07-23")
+    assert [r.status for r in results] == ["created"]
+    assert (master / "Families/Danziger/Danziger.md").is_file()
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    assert any(r.path == "Families/Danziger" for r in rules)
+
+
+def test_materialize_accepts_legacy_client_name_key(tmp_path):
+    master = _git_master(tmp_path)
+    (master / "_meta/config.yaml").write_text("entities: Families\nentity: family\n")
+    req = master / "People/joe/FamilyRequests/2026-07-23-x.md"
+    req.parent.mkdir(parents=True, exist_ok=True)
+    req.write_text("---\nclient-name: Smith\nowner: joe\ncreated: 2026-07-23\n---\nb\n")
+    results = materialize_clients(master, _org(), today="2026-07-23")
+    assert [r.status for r in results] == ["created"]
+    assert (master / "Families/Smith").is_dir()

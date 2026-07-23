@@ -148,15 +148,42 @@ def cmd_shares(args) -> int:
 
 
 def cmd_init(args) -> int:
+    from brain.schemas import SchemaError, make_config
     from brain.templates import scaffold_master
 
+    try:
+        config = make_config(args.entities, args.entity or None)
+    except SchemaError as e:
+        print(str(e), file=sys.stderr)
+        return 1
     dest = Path(args.dir)
     if dest.exists() and any(dest.iterdir()):
         print(f"{dest} exists and is not empty", file=sys.stderr)
         return 1
     dest.mkdir(parents=True, exist_ok=True)
-    created = scaffold_master(dest, args.company)
+    created = scaffold_master(dest, args.company, config)
     print(f"initialized {args.company} master vault at {dest} ({len(created)} files)")
+    return 0
+
+
+def cmd_rename_entities(args) -> int:
+    from brain.rename import RenameError, rename_entities
+    from brain.schemas import SchemaError
+
+    try:
+        rep = rename_entities(Path(args.master), args.entities, args.entity or None)
+    except (RenameError, SchemaError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    if not rep.moved_tree and rep.old == rep.new:
+        print(f"already named {rep.new.entities} — nothing to do")
+        return 0
+    print(f"renamed {rep.old.entities}/ -> {rep.new.entities}/ "
+          f"({rep.rules_rewritten} rule lines, {rep.request_dirs_moved} request "
+          f"folders, {rep.queue_files_rewritten} pending queue files)")
+    print("run `brain cycle` now so every slice recompiles under the new name; "
+          "edits still sitting in a stale slice under the old name will be "
+          "rejected fail-closed and reported by that cycle")
     return 0
 
 
@@ -538,7 +565,19 @@ def build_parser() -> argparse.ArgumentParser:
     i = sub.add_parser("init", help="scaffold a new company master vault")
     i.add_argument("dir")
     i.add_argument("--company", required=True)
+    i.add_argument("--entities", default="Clients",
+                   help="name of the third-party tree (default: Clients)")
+    i.add_argument("--entity", default="",
+                   help="singular form (default: derived — Clients -> client)")
     i.set_defaults(func=cmd_init)
+
+    rn = sub.add_parser("rename-entities",
+                        help="rename the third-party tree (e.g. Clients -> Vendors)")
+    rn.add_argument("--master", required=True)
+    rn.add_argument("--entities", required=True)
+    rn.add_argument("--entity", default="",
+                    help="singular form (default: derived from --entities)")
+    rn.set_defaults(func=cmd_rename_entities)
 
     g = sub.add_parser("ingest", help="write one note into a person's Inbox in master")
     g.add_argument("--master", required=True)

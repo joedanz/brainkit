@@ -21,8 +21,8 @@ from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
 from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
-from brain.resolver import NESTED_TOPS, RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
-from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
+from brain.resolver import RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
+from brain.schemas import Org, SchemaError, SpaceRule, VaultConfig, load_config, load_org, load_spaces
 
 
 @dataclass(frozen=True)
@@ -117,14 +117,15 @@ def _check_unreadable_spaces(master: Path, org: Org, rules: tuple[SpaceRule, ...
 
 
 def _check_orphan_files(master: Path) -> list[Finding]:
-    """A .md placed directly under a nested top (Teams/, People/, Clients/)
-    belongs to no space — those tops only form spaces from their subfolders — so
-    the compiler copies it into nobody's vault. It vanishes silently. Company is
-    itself a space, so files directly under it are fine and not checked here."""
+    """A .md placed directly under a nested top (Teams/, People/, the entity
+    tree, or any other top-level dir) belongs to no space — those tops only
+    form spaces from their subfolders — so the compiler copies it into
+    nobody's vault. It vanishes silently. Company is itself a space, so files
+    directly under it are fine and not checked here."""
     findings: list[Finding] = []
-    for top in NESTED_TOPS:
-        d = master / top
-        if not d.is_dir():
+    for d in sorted(p for p in master.iterdir() if p.is_dir()):
+        top = d.name
+        if top in RESERVED or top.startswith(".") or top == "Company":
             continue
         for f in sorted(d.glob("*.md")):
             if f.is_file():
@@ -542,12 +543,14 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
     return findings
 
 
-def _check_created_clients(master: Path) -> list[Finding]:
+def _check_created_clients(master: Path, config: VaultConfig = None) -> list[Finding]:
     """Auto-created client spaces, surfaced for admin review (rename/merge/revoke).
     Informational: self-service creation is normal, but a human should be able to
     see the roster grow."""
     from brain.clients import _created_log
 
+    if config is None:
+        config = VaultConfig()
     log = _created_log(master)
     if not log.is_file():
         return []
@@ -559,7 +562,7 @@ def _check_created_clients(master: Path) -> list[Finding]:
         date_, owner, name = parts[0], parts[1], parts[2]
         findings.append(Finding(
             "info", "clients",
-            f"Clients/{name} — created by {owner} on {date_} (self-service)"))
+            f"{config.entities}/{name} — created by {owner} on {date_} (self-service)"))
     return findings
 
 
@@ -582,6 +585,11 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
         return findings  # dependent checks are meaningless on broken meta
+    try:
+        config = load_config(master)
+    except SchemaError as e:
+        findings.append(Finding("error", "meta", f"config.yaml: {e}"))
+        config = VaultConfig()
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
     findings += _check_space_coverage(master, rules)
@@ -593,7 +601,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_facts(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
-    findings += _check_created_clients(master)
+    findings += _check_created_clients(master, config)
     findings += _check_pending_shares(master)
     findings += _check_intel(master)
     findings += _check_webhook(master, org)

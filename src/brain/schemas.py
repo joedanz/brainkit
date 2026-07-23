@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,6 +14,81 @@ class SchemaError(ValueError):
 
 
 SUBJECT_PREFIXES = ("person:", "team:", "role:")
+
+_CONFIG_WORD = re.compile(r"[A-Za-z0-9._-]+")
+_RESERVED_TOPS = ("company", "teams", "people", "_meta")
+
+
+def _config_word(value: object, key: str) -> str:
+    if not isinstance(value, str):
+        raise SchemaError(f"config.yaml: {key} must be a string")
+    if not _CONFIG_WORD.fullmatch(value) or value.startswith("."):
+        raise SchemaError(f"config.yaml: invalid {key} {value!r}")
+    return value
+
+
+@dataclass(frozen=True)
+class VaultConfig:
+    """Vault-level naming: what the restricted third-party tree is called.
+
+    The structural/permission layer never reads this — spaces.yaml is the only
+    readability authority. Config feeds naming surfaces only: scaffold,
+    guidance text, the request seam, and human-facing messages.
+
+    Charset validity is an intrinsic invariant of the type, enforced here so
+    every construction path (not just make_config/load_config) is safe to
+    write into frontmatter unescaped. Reserved-name rejection is vault policy,
+    not type validity, and stays in make_config.
+    """
+    entities: str = "Clients"   # TitleCase tree/folder name (plural)
+    entity: str = "client"      # lowercase singular: prose + frontmatter key
+
+    def __post_init__(self) -> None:
+        _config_word(self.entities, "entities")
+        _config_word(self.entity, "entity")
+
+    @property
+    def requests_folder(self) -> str:
+        return self.entity[:1].upper() + self.entity[1:] + "Requests"
+
+    @property
+    def name_key(self) -> str:
+        return f"{self.entity}-name"
+
+
+def derive_entity(entities: str) -> str:
+    """Naive singular: lowercase, strip one trailing 's'. Irregular plurals
+    (Families -> family) need the explicit entity value."""
+    low = entities.lower()
+    return low[:-1] if low.endswith("s") and len(low) > 1 else low
+
+
+def make_config(entities: str, entity: str | None = None) -> VaultConfig:
+    entities = _config_word(entities, "entities")
+    if entities.lower() in _RESERVED_TOPS:
+        raise SchemaError(f"config.yaml: entities {entities!r} is a reserved name")
+    entity = _config_word(entity if entity is not None else derive_entity(entities),
+                          "entity")
+    return VaultConfig(entities=entities, entity=entity)
+
+
+def load_config(master: Path) -> VaultConfig:
+    """Read _meta/config.yaml. Missing file or keys default (entity derives
+    from entities); a present-but-invalid file raises SchemaError — a typo'd
+    config must fail the cycle loudly, not silently regress every surface to
+    the default noun."""
+    path = master / "_meta/config.yaml"
+    if not path.is_file():
+        return VaultConfig()
+    try:
+        data = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as e:
+        raise SchemaError(f"config.yaml does not parse: {e}")
+    if data is None:
+        return VaultConfig()
+    if not isinstance(data, dict):
+        raise SchemaError("config.yaml must be a mapping")
+    return make_config(data.get("entities", "Clients"), data.get("entity"))
 
 
 @dataclass(frozen=True)

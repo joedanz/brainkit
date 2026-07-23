@@ -27,7 +27,7 @@ from datetime import date
 from pathlib import Path, PurePosixPath
 
 from brain.resolver import readable_spaces
-from brain.schemas import Org, Person, SpaceRule
+from brain.schemas import Org, Person, SpaceRule, VaultConfig, load_config
 
 MANIFEST_NAME = ".brain-manifest.json"
 
@@ -86,8 +86,10 @@ def compile_vault(
     rules: tuple[SpaceRule, ...],
     out: Path,
     today: str | None = None,
+    config: VaultConfig | None = None,
 ) -> CompileResult:
     today = today or date.today().isoformat()
+    config = config or load_config(master)
     spaces = readable_spaces(master, person, rules)
     building = out.parent / f".{out.name}.building"
     old = out.parent / f".{out.name}.old"
@@ -121,7 +123,7 @@ def compile_vault(
                 compiled.append(rel)
 
         generated = _post_process(
-            building, master, person, spaces, rules, compiled, today
+            building, master, person, spaces, rules, compiled, today, config
         )
 
         # Hash what was actually shipped (post-stubbing); generated files are
@@ -167,6 +169,7 @@ def _post_process(
     rules: tuple[SpaceRule, ...],
     compiled: list[str],
     today: str,
+    config: VaultConfig,
 ) -> list[str]:
     """Post-process the built vault: stub cross-boundary links, generate the
     AGENTS.md/CLAUDE.md context files, and generate the read-only
@@ -190,7 +193,7 @@ def _post_process(
 
     from brain.contextgen import generate_context_files
 
-    generated = generate_context_files(building, person, spaces, rules)
+    generated = generate_context_files(building, person, spaces, rules, config=config)
 
     from brain.promotions import SHARES_NOTE_REL, generate_shares_note
 
@@ -226,12 +229,14 @@ def compile_all(
     rules: tuple[SpaceRule, ...],
     out_root: Path,
     today: str | None = None,
+    config: VaultConfig | None = None,
 ) -> list[CompileResult]:
     today = today or date.today().isoformat()
+    config = config or load_config(master)
     results = []
     for person in org.people.values():
         out = out_root / person.id
-        result = compile_vault(master, person, rules, out, today)
+        result = compile_vault(master, person, rules, out, today, config=config)
         if not (out / ".git").exists():
             _git(out, "init", "-b", "main")
         _git(out, "add", "-A")

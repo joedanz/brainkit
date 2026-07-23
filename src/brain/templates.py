@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from brain.schemas import VaultConfig
+
 ORG_YAML = """\
 people:
   # id: {name: Full Name, roles: [admin], teams: [sales], email: name@example.com}
@@ -21,17 +23,17 @@ people:
   # alice: {name: Alice Example, teams: [sales], email: alice@example.com}
 """
 
-SPACES_YAML = """\
+_SPACES_YAML_T = """\
 spaces:
   - {path: Company,     read: [everyone],        write: ["role:admin"]}
   - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}
   - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}
 
-  # Clients are deny-by-default: only admins see a client until it's assigned.
-  # An exact per-client rule below overrides this wildcard. Grant each client to
+  # @ENTITIES@ are deny-by-default: only admins see a @ENTITY@ until it's assigned.
+  # An exact per-@ENTITY@ rule below overrides this wildcard. Grant each @ENTITY@ to
   # its advisor(s) and any team that supports it, e.g.:
-  #   - {path: "Clients/Acme", read: ["role:admin", "person:alice", "team:concierge"], write: ["role:admin", "person:alice"]}
-  - {path: "Clients/*", read: ["role:admin"], write: ["role:admin"]}
+  #   - {path: "@ENTITIES@/Acme", read: ["role:admin", "person:alice", "team:concierge"], write: ["role:admin", "person:alice"]}
+  - {path: "@ENTITIES@/*", read: ["role:admin"], write: ["role:admin"]}
 """
 
 WEBHOOK_YAML_EXAMPLE = """\
@@ -72,7 +74,7 @@ WEBHOOK_YAML_EXAMPLE = """\
 #     source: zapier
 """
 
-ASSISTANT_PROTOCOL = """\
+_ASSISTANT_PROTOCOL_T = """\
 # Assistant Protocol (server — full master vault)
 
 This is the master vault. You are the company assistant with full
@@ -88,14 +90,14 @@ When a transcript appears in any `People/<person>/Inbox/`:
    - Personal durable facts -> that person's `People/<person>/Memory.md`,
      kept as a lean overview: topic-sized detail goes to
      `People/<person>/Notes/<Topic>.md` with a one-line link under the heading
-   - Client facts -> the matching `Clients/<client>/` file. A named third party
-     is a client/contact, never a `People/` note — even one sharing a person's
-     surname. If a client space does not exist yet, an employee agent requests
-     one via `People/<person>/ClientRequests/` (server provisions it); you, with
-     full access, may create `Clients/<client>/` directly. Prefer the fullest
+   - @ENTITY_TITLE@ facts -> the matching `@ENTITIES@/<@ENTITY@>/` file. A named third party
+     is a @ENTITY@/contact, never a `People/` note — even one sharing a person's
+     surname. If a @ENTITY@ space does not exist yet, an employee agent requests
+     one via `People/<person>/@REQUESTS@/` (server provisions it); you, with
+     full access, may create `@ENTITIES@/<@ENTITY@>/` directly. Prefer the fullest
      reasonable identifier; when a name is ambiguous, ask before creating.
-     A single mention can split into two homes — a client note in
-     `Clients/<client>/` and, for a dated occurrence, a
+     A single mention can split into two homes — a @ENTITY@ note in
+     `@ENTITIES@/<@ENTITY@>/` and, for a dated occurrence, a
      `Company/Intel/Events/<Name>.md` page — cross-linked.
      Owners share or revoke access to their spaces via
      `People/<person>/ShareRequests/` (`space`/`share-with`/`access`/`action`
@@ -138,11 +140,11 @@ they can be queried by time:
 Pages about a single thing get entity frontmatter:
 
     ---
-    entity: client
+    entity: @ENTITY@
     aliases: [Other Name, ABBR]
     ---
 
-Types in use: client (a paying customer), person (someone we work with),
+Types in use: @ENTITY@ (a paying customer), person (someone we work with),
 provider (a vendor or service), destination (a place we cover), event
 (a dated occurrence), tool (software or equipment we use). Add a new type
 when none fits — lowercase, singular — and use it consistently.
@@ -162,7 +164,7 @@ holding `[[wikilinks]]`: `up`/`down` (hierarchy), `same` (peers), `prev`/`next`
 Declare one direction only; the inverse is derived (a note you point `up` at
 knows you as `down`). These sharpen retrieval and let agents walk structure
 with `brain graph`. Add them only where they carry signal the vault's structure
-doesn't already — folder-index parents (`Clients/Acme/Acme.md`), dated notes in
+doesn't already — folder-index parents (`@ENTITIES@/Acme/Acme.md`), dated notes in
 one folder, and same-`entity`-type pages are linked automatically, so don't
 restate those. A target that doesn't resolve just yields no edge.
 
@@ -179,6 +181,27 @@ owner, pending promotions, recent decisions.
 - Drafts only for anything outward-facing: a human sends every message and
   approves every commitment.
 """
+
+
+def _render(template: str, config: VaultConfig) -> str:
+    entity_title = config.entity[:1].upper() + config.entity[1:]
+    return (template
+            .replace("@ENTITIES@", config.entities)
+            .replace("@ENTITY_TITLE@", entity_title)
+            .replace("@ENTITY@", config.entity)
+            .replace("@REQUESTS@", config.requests_folder))
+
+
+def spaces_yaml(config: VaultConfig = VaultConfig()) -> str:
+    return _render(_SPACES_YAML_T, config)
+
+
+def assistant_protocol(config: VaultConfig = VaultConfig()) -> str:
+    return _render(_ASSISTANT_PROTOCOL_T, config)
+
+
+SPACES_YAML = spaces_yaml()
+ASSISTANT_PROTOCOL = assistant_protocol()
 
 
 def _home_md(company: str) -> str:
@@ -217,12 +240,14 @@ def _intel_home_md() -> str:
     )
 
 
-def scaffold_master(dest: Path, company: str) -> list[str]:
+def scaffold_master(dest: Path, company: str,
+                     config: VaultConfig | None = None) -> list[str]:
+    config = config or VaultConfig()
     files: dict[str, str] = {
         # the cycle's embedding cache lives under _meta/cache/ — binary,
         # rebuildable, must never enter the master's git history
         ".gitignore": "_meta/cache/\n",
-        "AGENTS.md": ASSISTANT_PROTOCOL,
+        "AGENTS.md": assistant_protocol(config),
         "Company/Home.md": _home_md(company),
         "Company/Memory.md": _memory_md(company),
         "Company/Decisions/.gitkeep": "",
@@ -235,9 +260,10 @@ def scaffold_master(dest: Path, company: str) -> list[str]:
         "Company/Intel/Trends/.gitkeep": "",
         "Teams/.gitkeep": "",
         "People/.gitkeep": "",
-        "Clients/.gitkeep": "",
+        f"{config.entities}/.gitkeep": "",
         "_meta/org.yaml": ORG_YAML,
-        "_meta/spaces.yaml": SPACES_YAML,
+        "_meta/spaces.yaml": spaces_yaml(config),
+        "_meta/config.yaml": f"entities: {config.entities}\nentity: {config.entity}\n",
         "_meta/webhook.yaml.example": WEBHOOK_YAML_EXAMPLE,
         "_meta/promotions/pending/.gitkeep": "",
         "_meta/promotions/approved/.gitkeep": "",

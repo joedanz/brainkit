@@ -2,8 +2,10 @@ from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_vault
 from brain.contextgen import ROOT_LIMIT, SPACE_LIMIT, render_root_protocol
-from brain.schemas import Person
+from brain.schemas import Person, VaultConfig
 from tests.conftest import ALICE, BOB, RULES
+
+FAM = VaultConfig(entities="Families", entity="family")
 
 
 def test_root_protocol_content():
@@ -147,3 +149,65 @@ def test_skill_carries_share_mechanic():
     assert "keep writing" in skill or "never blocked" in skill
     # no-self-revoke rule: "cannot revoke" or "you cannot revoke" pattern
     assert "cannot revoke" in skill or re.search(r"you\s+cannot.*revoke", skill, re.DOTALL) is not None
+
+
+def test_assistant_protocol_defaults_are_canonical():
+    from brain.templates import ASSISTANT_PROTOCOL, assistant_protocol
+    assert assistant_protocol() == ASSISTANT_PROTOCOL
+    assert "ClientRequests" in ASSISTANT_PROTOCOL
+    assert "Clients/<client>" in ASSISTANT_PROTOCOL
+
+
+def test_assistant_protocol_custom_noun_has_no_client_literals():
+    from brain.templates import assistant_protocol
+    text = assistant_protocol(FAM)
+    assert "FamilyRequests" in text
+    assert "Families/<family>" in text
+    assert "Clients/" not in text and "ClientRequests" not in text
+
+
+def test_spaces_yaml_custom_noun_parses_with_custom_wildcard():
+    import yaml
+    from brain.templates import spaces_yaml
+    text = spaces_yaml(FAM)
+    data = yaml.safe_load(text)
+    paths = [e["path"] for e in data["spaces"]]
+    assert "Families/*" in paths and "Clients/*" not in paths
+    assert "Clients" not in text
+
+
+def test_brain_protocol_skill_is_noun_neutral():
+    from pathlib import Path
+    skill = (Path(__file__).resolve().parents[1] /
+             "templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
+    for literal in ("Clients/", "ClientRequests", "client-name"):
+        assert literal not in skill, literal
+
+
+def test_root_protocol_custom_noun():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+    person = Person(id="joe", name="Joe")
+    text = render_root_protocol(person, [("People/joe", True)], config=FAM)
+    assert "FamilyRequests" in text
+    assert "family-name: <full" in text
+    assert "`Families/<name>/` space" in text
+    assert "ClientRequests" not in text and "Clients/" not in text
+
+
+def test_root_protocol_default_matches_current_text():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+    person = Person(id="joe", name="Joe")
+    text = render_root_protocol(person, [("People/joe", True)])
+    assert "ClientRequests" in text and "client-name: <full" in text
+
+
+def test_space_notes_generated_for_custom_tree(tmp_path):
+    from brain.contextgen import generate_context_files
+    from brain.schemas import Person, SpaceRule
+    person = Person(id="joe", name="Joe")
+    rules = (SpaceRule(path="Families/Danziger", read=("person:joe",), write=("person:joe",)),)
+    written = generate_context_files(
+        tmp_path, person, ["Families/Danziger"], rules, config=FAM)
+    assert "Families/Danziger/AGENTS.md" in written

@@ -95,13 +95,19 @@ See [Per-employee setup](/guides/per-employee-setup) for the detailed version.
   ```
 
   It applies every person's writeback (rejections are reported and revert on the
-  next compile), sweeps agent drafts into the pending queue, and recompiles all
-  vaults. Nonzero exit = at least one rejected writeback.
+  next compile), provisions any self-service client requests and routes pending
+  or auto-applied share requests, sweeps agent drafts into the pending queue, and
+  recompiles all vaults. Nonzero exit = at least one rejected writeback or a
+  tampering signal (an owner-mismatch client or share request).
 
 - **Sharing:** the agent drafts promotions; approve with
   `brain promotions approve <id> --master ... --approver admin` (the approver is
   an admin-role identity from `org.yaml` — a dedicated operator account, not an
-  employee; anything else is refused).
+  employee; anything else is refused). A separate, owner-initiated flow runs
+  alongside it: whoever owns a space (an advisor granted, or self-service-created,
+  a client) can share or revoke a colleague's access to it themselves via
+  [`brain shares`](/reference/cli#brain-shares) — `share` still queues for admin
+  approval, but `revoke` auto-applies the same cycle.
 
 - **Search:** after pulling, the agent refreshes its index (`brain index --vault
   ~/brain` — cheap, only changed files re-embed) and queries via the `brain` MCP

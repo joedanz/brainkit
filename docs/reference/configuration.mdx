@@ -66,6 +66,28 @@ When a space matches both an exact rule and a wildcard, the exact rule wins. Def
   open — there is no implicit "readable by default."
 </Callout>
 
+## `_meta/config.yaml` — vault-level settings
+
+Optional. Two keys name the restricted third-party tree:
+
+```yaml
+entities: Clients   # the top-level folder (default)
+entity: client      # singular form: used in guidance text and as the
+                    # request frontmatter key (client-name:) and folder
+                    # (ClientRequests/)
+```
+
+Missing file or keys fall back to the defaults shown (a missing `entity`
+derives from `entities` by stripping a trailing "s"). A malformed file fails
+the cycle loudly rather than silently reverting the vault's vocabulary.
+Change the pair on a live vault with [`brain rename-entities`](/reference/cli#brain-rename-entities), not by hand —
+the command also renames the folder and rewrites the affected rules and
+pending queues.
+
+`entities` may not be `Company`, `Teams`, `People`, or `_meta` (checked case-insensitively) — those names are already the fixed tops of the master layout. `brain init --entities People` (or `Company`, `Teams`, `_meta`) fails fast with a clear error instead of silently colliding with them.
+
+The default pair (`Clients`/`client` → `ClientRequests/`, `client-name:`) is one case of a general rule: the request folder is `entity` with its first letter capitalized, plus `Requests` (`family` → `FamilyRequests/`), and the frontmatter key is `<entity>-name` (`family-name:`). Reach for `--entity`/`entity:` whenever the naive plural-stripping default would get an irregular noun wrong, e.g. `--entities Families --entity family`.
+
 ## Changing the org
 
 Adding a person, a team, or a space is an edit to these two files plus a `brain compile`. There is no migration step: the compiler reads the current `org.yaml` / `spaces.yaml` on every run, so the next compile reflects the change for everyone.

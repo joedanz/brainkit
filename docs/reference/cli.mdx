@@ -7,7 +7,7 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,ingest,webhook,compile,writeback,promotions,cycle,index,search,graph,facts,mcp,status,dashboard,doctor} …
+brain {init,rename-entities,ingest,webhook,compile,writeback,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
@@ -24,8 +24,26 @@ brain init <dir> --company "Acme Co"
 |---|---|---|
 | `dir` | yes | Destination directory; must be empty or nonexistent. |
 | `--company` | yes | Company name, woven into the seeded `Company/` notes. |
+| `--entities` | no | Top-level folder name for the restricted third-party tree (default `Clients`). |
+| `--entity` | no | Singular form for the entity type, used in guidance and folder names (default derived from `--entities` by stripping trailing "s"). |
 
 Creates the space layout — including the seeded `Company/Intel/` reference wiki (`Destinations/`, `Providers/`, `Events/`, `Trends/`, mapped in `Intel/Home.md`) — `_meta/org.yaml` and `_meta/spaces.yaml`, the `_meta/promotions/{pending,approved,rejected}/` queue, the master-root `AGENTS.md` (assistant protocol), and an initial git commit.
+
+## `brain rename-entities`
+
+```bash
+brain rename-entities --master <master> --entities Vendors [--entity vendor]
+```
+
+Renames the third-party tree of an existing vault: moves the folder (via
+`git mv`), rewrites the affected `spaces.yaml` rules, moves each person's
+request folder (`ClientRequests/` -> `VendorRequests/`, rewriting the
+frontmatter key in pending requests), rewrites `space:`/`target-path:` values
+in *pending* share and promotion queues (decided history is never touched),
+writes `_meta/config.yaml`, and commits. Run it immediately after `brain
+cycle`, then run a cycle again: slices recompile under the new name. Edits
+still sitting in a stale slice under the old name are rejected fail-closed by
+that next cycle and reported.
 
 ## `brain ingest`
 
@@ -130,12 +148,33 @@ Every promotion carries a `mode`, chosen when the agent drafts it:
 
 Every queue decision is its own git commit, scoped to just the files it touched: `sweep` and `reject` commit as `Brain Promotions`, and `approve` commits under the approver's identity — so `git log` answers "who published this, and when" the same way it does for ingest and write-back.
 
-## `brain cycle`
+## `brain shares`
 
-Run the whole server-side loop once: write back every person's edits, sweep agent drafts into the pending queue, then recompile all vaults.
+Manage [space shares](/concepts/spaces-and-permissions#sharing-a-space) — an owner granting or revoking a colleague or team's access to a space they own.
 
 ```bash
-brain cycle --master <master> --out <out> [--json]
+brain shares {list,approve,reject,revoke} [id] --master <master> [--approver <who>] [--reason <text>] [--space <path>] [--subject <grant>]
+```
+
+| Action | Uses | Meaning |
+|---|---|---|
+| `list` | `--master` | Print pending share requests (`id`, from, space, share-with, access). |
+| `approve <id>` | `--master --approver` | Amend `spaces.yaml` per the pending request; archive it to `approved/`. |
+| `reject <id>` | `--master --reason` | Move it to `rejected/` with the reason. |
+| `revoke` | `--master --space --subject` | Remove `--subject` (e.g. `person:yuki`) from `--space`'s rule directly. |
+
+`list`, `approve`, and `reject` act on a **pending share id**, the same shape as `brain promotions`. `revoke` is different: there's no id, because it isn't a queued decision — it's a live admin action that takes the space and the subject to remove directly, and it doubles as the veto lever for a self-service-created client space (see [Self-service client spaces](/concepts/spaces-and-permissions#self-service-client-spaces)) or any other grant an admin wants to pull immediately, with no request in the queue.
+
+`approve` requires `--approver`, a person id from `_meta/org.yaml` — a blank or unknown name is refused, the same rule as `brain promotions approve`. Both `approve` and `revoke` refuse to touch `role:admin` — it can never be removed from a rule. Every decision is its own git commit: `approve` under the approver's identity, `reject`/`revoke` as `Brain Shares`.
+
+This command manages the *queue and direct revokes*; it doesn't create requests. An owner asks for a share or revoke by writing into their own `People/<id>/ShareRequests/`, and [`brain cycle`](#brain-cycle) routes it — `share` requests land in the pending queue this command works, `revoke` requests from that folder auto-apply during the cycle instead of ever reaching a queue. See [Sharing a space](/concepts/spaces-and-permissions#sharing-a-space) for the full request shape and the ownership rules `brain cycle` enforces on it.
+
+## `brain cycle`
+
+Run the whole server-side loop once: write back every person's edits, provision any self-service [client requests](/concepts/spaces-and-permissions#self-service-client-spaces), route pending/auto-applied [share requests](/concepts/spaces-and-permissions#sharing-a-space), sweep agent drafts into the promotions pending queue, then recompile all vaults.
+
+```bash
+brain cycle --master <master> --out <out> [--json] [--index]
 ```
 
 | Flag | Required | Meaning |
@@ -143,10 +182,29 @@ brain cycle --master <master> --out <out> [--json]
 | `--master` | yes | Path to the master vault. |
 | `--out` | yes | Compiled-vault root — the same `--out` you pass to `compile`. |
 | `--json` | no | Emit a single JSON summary object on stdout instead of human lines. |
-
 | `--index` | no | After recompiling, refresh each vault's search index (see [`brain index`](#brain-index)). Index failures warn but never fail the cycle. |
 
-The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion drafts) in the master *before* the sweep reads them, and the recompile runs *last* so every vault reflects the updated master. A rejected write-back never halts the cycle — the sweep and recompile still run, and the fresh compile reverts the rejected edits server-side (fail closed). Any rejection flips the summary's `ok` to `false` and the command exits `1`, so cron alerts. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns — only a rejected write-back flips `ok`.
+### The `--json` summary
+
+| Field | Meaning |
+|---|---|
+| `writebacks` | Per-person write-back results (`person_id`, `status`, `applied` count, `violations`). |
+| `swept` | Promotion drafts pulled into the pending queue this cycle. |
+| `compiled` | Vaults recompiled this cycle. |
+| `pending` | Promotions still awaiting approval after this cycle. |
+| `clients_created` | Self-service client spaces provisioned this cycle. |
+| `clients_rejected` | Client requests refused this cycle — usually a routine name collision. |
+| `clients_tampering` | Of those rejections, how many were an owner-mismatch — a tamper signal, not a routine outcome. |
+| `shares_queued` | Share requests routed into `_meta/shares/pending/` for approval. |
+| `shares_revoked` | Revoke requests auto-applied this cycle. |
+| `shares_tampering` | Share/revoke requests from someone who doesn't own the space at cycle time — a tamper signal. |
+| `indexed` | Vaults reindexed (only meaningful with `--index`). |
+| `index_warnings` | Per-vault indexing warnings (only meaningful with `--index`). |
+| `ok` | `false` if any write-back was rejected or a tampering signal fired — see below. |
+
+The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, and share requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes. Both of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, and the recompile runs *last* so every vault reflects the fully updated master. A rejected write-back never halts the cycle — the rest of the pipeline still runs, and the fresh compile reverts the rejected edits server-side (fail closed).
+
+`ok` is `false` when any write-back is rejected, or when a client or share request is flagged as **tampering** — an owner-mismatch client request, or a share/revoke request from someone who turns out not to own the space when the cycle runs. Routine outcomes don't flip it: a client request that loses a name collision (`clients_rejected`) or a share request rejected for an ordinary reason (unknown recipient, already shared, nothing to revoke) is a normal user outcome, surfaced via the requester's own inbox note — not a security event. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns and never flips `ok`.
 
 <Callout type="info">
   This is the one command to run on a schedule — a cron entry or a git
@@ -273,7 +331,7 @@ Findings carry one of three severities:
 |---|---|---|
 | `error` | An invariant is broken. Exits `1`. | Malformed `org.yaml`/`spaces.yaml`, an unknown `person:` in a rule, a symlink in the master, a crashed-compile tombstone, an unreadable manifest, or `_meta/` leaked into a compiled vault. |
 | `warn` | Probably a mistake, but nothing leaks. | An empty team/role, a rule path that matches nothing, a space no rule covers, a space **readable by no one** (its rule resolves to zero readers — e.g. a folder named `Teams/Sales` when the team id is `sales`, or a departed person's `People/` folder — so its notes compile into no vault), a `.md` sitting loose under `Teams/`/`People/`/`Clients/` (in no space, so compiled into no vault), a **cross-space reference** (a wikilink) or **plain-text mention** (a restricted space's name in shared prose) whose name is visible to readers who can't see its home space, a promotion draft the sweep will silently skip (a target path it can't validate, an unrecognized `mode`, or a `mode: patch` draft whose target is a symlink or doesn't exist), or a `Company/Intel/` page that's fallen out of the wiki's conventions — its newest `as of`/`captured` citation over 12 months old, no dated citation at all (`Home.md` exempt), or a lingering `<Name> — updates YYYY-MM.md` addendum never folded back in, or a note with no links, typed relations, or facts connecting it to anything (`unlinked-notes`) — invisible to the graph leg of retrieval until someone links it (notes under an `Inbox/` folder are exempt). |
-| `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval. |
+| `info` | Normal state worth seeing. | Files awaiting write-back (vault drift), a count of promotions pending approval, one finding per self-service-created client space (`clients` — for admin review: rename, merge, or revoke), one finding per share request awaiting approval (`shares`). |
 
 Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into CI or a pre-cron gate. Run it after setup and on a schedule.
 
@@ -346,6 +404,8 @@ The live dashboard is organized into tabs. The **user lens** (`--vault`) shows:
 A **Capture** button (or `c`) is always in the header: jot a note straight into your Inbox. The composer names the exact destination (`People/<you>/Inbox`) before you save — under the user lens it writes into your compiled slice and write-back carries it to master on the next `brain cycle`; there is no way to write outside your own Inbox. From an open note you can also **Propose to share**, drafting a promotion an admin approves. The header carries a light/dark **theme toggle** (system by default, your choice persisted).
 
 The **admin lens** (`--master`) adds tabs for **People** (per-person vault size, notes, index age, write-back drift), **Permissions** (a spaces × people read/write matrix), **Promotions**, and **Doctor** (integrity findings with severity badges). The **Promotions** tab is a live review surface: each pending item shows its destination, a warning naming exactly who will be able to read it, and its rendered body, with **Approve** / **Reject** (reason required) actions and a **Sweep drafts** button — the whole human gate the promotion queue exists for. Before approving you pick who you are from a dropdown of the org's people (your last pick is remembered), so `approved-by` is always a real person id, never a typo. A count badge on the tab surfaces new arrivals from any tab. The Graph and Query tabs gain a person selector that reads the chosen person's compiled vault under `--out`; Capture can file into any person's Inbox via the hardened `brain ingest` primitive.
+
+Pending [space shares](/concepts/spaces-and-permissions#sharing-a-space) are collected into the master stats alongside promotions: `/api/stats` and `brain status --master --json` both carry a `shares_pending` array (`id`, `person_id`, `space`, `share_with`, `access`, `created`), and `POST /api/shares/{id}/{action}` (`approve`/`reject`) is the same primitive [`brain shares`](#brain-shares) uses — the static `--html` snapshot's admin view renders them in a **Share requests** section mirroring the Promotions table. The live tabbed dashboard doesn't yet give shares their own tab or Overview tile the way it does for promotions, and `brain status --master`'s human-readable output carries no shares line either (only its `--json` form does) — use `brain shares list` to see the queue, or `brain doctor` (one `info` finding per pending share) for a human-readable count, until the dashboard catches up.
 
 As `brain cycle`/`brain index` run (or you commit to a vault), the page updates within a couple of seconds over a WebSocket — new notes spring into the graph and pulse, tiles retick, the connection dot stays green, and a disconnect shows a "data may be stale" notice until it self-heals.
 

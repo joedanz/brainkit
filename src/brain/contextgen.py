@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from brain.schemas import Person, SpaceRule
+from brain.schemas import Person, SpaceRule, VaultConfig
 
 ROOT_LIMIT = 20_000
 SPACE_LIMIT = 8_000
@@ -37,22 +37,22 @@ writable spaces; the write-back service rejects changes to read-only paths.
   headings; when a topic outgrows a few lines, move the detail to
   `People/{pid}/Notes/<Topic>.md` and leave a one-line link under the heading
 - A **named third party** (a person, family, or company you work with or track)
-  is a client/contact, not you — capture it as a client, never in
+  is a {entity}/contact, not you — capture it as a {entity}, never in
   `People/{pid}/`. You are {pid}: a third party who happens to share your
-  surname is still a third party. To create a client, write a request to
-  `People/{pid}/ClientRequests/<name>.md` with frontmatter `client-name: <full
-  name>`, `owner: {pid}`, `entity: client`; the server provisions a
-  `Clients/<name>/` space you own on the next cycle, then you write there
+  surname is still a third party. To create a {entity}, write a request to
+  `People/{pid}/{requests}/<name>.md` with frontmatter `{name_key}: <full
+  name>`, `owner: {pid}`, `entity: {entity}`; the server provisions a
+  `{entities}/<name>/` space you own on the next cycle, then you write there
   directly. Name it with the fullest reasonable identifier (a full name, not a
   bare surname). Ask the user for one distinguishing detail before creating
   only when the name is thin or ambiguous — a bare common surname, a name that
-  matches a client you already have, or one that collides with your own
+  matches a {entity} you already have, or one that collides with your own
   household. One utterance can split into two homes: e.g. a family attending an
-  event becomes a client note AND a `Company/Intel/Events/` promotion,
+  event becomes a {entity} note AND a `Company/Intel/Events/` promotion,
   cross-linked.
-- Client facts about a client you already own -> write them into that
-  `Clients/<name>/` space directly
-- To give a colleague or team access to a space you own (e.g. a client you
+- {entity_title} facts about a {entity} you already own -> write them into that
+  `{entities}/<name>/` space directly
+- To give a colleague or team access to a space you own (e.g. a {entity} you
   created): write `People/{pid}/ShareRequests/<name>.md` with frontmatter
   `space: <the space>`, `share-with: person:<id>` or `team:<name>`,
   `access: read|write`, `action: share` — the body is an optional note to the
@@ -127,16 +127,25 @@ Nothing in `People/{pid}/` is shared automatically. To share knowledge:
 - Content in `People/{pid}/` is private to {pid}.
 - Never copy content from a private space into a shared space directly; use a
   promotion.
-- When drafting anything client-facing, cite the source note.
+- When drafting anything {entity}-facing, cite the source note.
 """
 
 
-def render_root_protocol(person: Person, spaces_rw: list[tuple[str, bool]]) -> str:
+def render_root_protocol(
+    person: Person,
+    spaces_rw: list[tuple[str, bool]],
+    config: VaultConfig = VaultConfig(),
+) -> str:
     space_lines = "\n".join(
         f"- `{space}/` — {'writable' if writable else 'read-only'}"
         for space, writable in spaces_rw
     )
-    text = _ROOT_TEMPLATE.format(name=person.name, pid=person.id, space_lines=space_lines)
+    text = _ROOT_TEMPLATE.format(
+        name=person.name, pid=person.id, space_lines=space_lines,
+        entities=config.entities, entity=config.entity,
+        entity_title=config.entity[:1].upper() + config.entity[1:],
+        requests=config.requests_folder, name_key=config.name_key,
+    )
     if len(text) > ROOT_LIMIT:
         raise ValueError(f"root protocol exceeds {ROOT_LIMIT} chars")
     return text
@@ -171,12 +180,16 @@ def _writable(space: str, person: Person, rules: tuple[SpaceRule, ...]) -> bool:
 
 
 def generate_context_files(
-    vault: Path, person: Person, spaces: list[str], rules: tuple[SpaceRule, ...]
+    vault: Path,
+    person: Person,
+    spaces: list[str],
+    rules: tuple[SpaceRule, ...],
+    config: VaultConfig = VaultConfig(),
 ) -> list[str]:
     written: list[str] = []
     spaces_rw = [(s, _writable(s, person, rules)) for s in spaces]
 
-    root_text = render_root_protocol(person, spaces_rw)
+    root_text = render_root_protocol(person, spaces_rw, config)
     for fname in ("AGENTS.md", "CLAUDE.md"):
         (vault / fname).write_text(root_text)
         written.append(fname)
@@ -190,7 +203,7 @@ def generate_context_files(
 
     for space, writable in spaces_rw:
         owner = space == f"People/{person.id}"
-        if not owner and not space.startswith("Clients/"):
+        if not owner and not space.startswith(f"{config.entities}/"):
             continue
         note = render_space_note(space, writable, owner)
         for fname in ("AGENTS.md", "CLAUDE.md"):

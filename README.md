@@ -52,6 +52,8 @@ flowchart TB
 
 Sharing something new goes through one door: someone drafts a suggestion ("this looks useful for the whole team") — a person, or an agent acting on their behalf — and a person approves it before it's published. Nothing moves from private to shared any other way.
 
+The third-party tree (`Clients/` by default) works the same way from the other direction: a person's agent can request its own new client space instead of an admin hand-editing config, and once granted, that client's owner can share access to a colleague themselves — new grants still go through the same human approval, revokes apply immediately. See [Spaces & permissions](docs/concepts/spaces-and-permissions.mdx#self-service-client-spaces).
+
 Want it just for yourself — personal notes, family stuff? Run your own instance as a company of one: [A brain of one](docs/guides/personal-brain.mdx).
 
 ## Your knowledge is protected by design
@@ -157,7 +159,8 @@ Full walkthrough: [Getting started](docs/getting-started.mdx) · [Per-employee s
 | `brain compile` | Build each person's filtered copy from the master vault |
 | `brain writeback` | Apply a person's edits to the master, validating every path |
 | `brain promotions` | List, approve, or reject drafts waiting to be shared |
-| `brain cycle` | The cron loop: write-back → sweep drafts → recompile |
+| `brain shares` | List, approve, reject, or revoke access someone requested to share on a space they own |
+| `brain cycle` | The cron loop: write-back → materialize clients → sweep shares → sweep promotions → recompile |
 | `brain index` | Build or refresh a vault's local search index |
 | `brain search` | Query a vault — keyword, semantic, or both |
 | `brain facts` | Query time-stamped facts (now, as-of, or believed-on a date) |
