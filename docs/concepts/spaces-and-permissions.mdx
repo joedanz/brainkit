@@ -26,6 +26,8 @@ master/
     org.yaml              # people, roles, teams
     spaces.yaml           # space path → read/write rules
     promotions/           # pending/ approved/ rejected/
+    clients/created.log   # audit trail of self-service-created client spaces
+    shares/                # pending/ approved/ rejected/ revoked/
 ```
 
 The `Clients/` name is configurable per vault (`brain init --entities`, or
@@ -79,6 +81,83 @@ The same fail-closed posture applies to a typo: `{name}` binds the folder name e
   flags every cross-space reference (see below) so these slips don't accumulate
   silently.
 </Callout>
+
+Clients can also arrive by self-service request instead of an admin hand-editing this file — see [Self-service client spaces](#self-service-client-spaces) below — and once granted, a client's owner can extend read or write access to a colleague or team themselves via [`brain shares`](/reference/cli#brain-shares) / `ShareRequests/`, without an admin touching `spaces.yaml` directly (a new grant still needs admin approval; a revoke doesn't) — see [Sharing a space](#sharing-a-space). Both paths keep the same fail-closed posture as a hand-edited rule: a name collision is refused without ever revealing who owns it, and a request whose frontmatter `owner` disagrees with the requester's own `People/<id>/` path is treated as tampering and rejected outright.
+
+## Self-service client spaces
+
+An agent with write access to only its own `People/<id>/` space can request a brand-new client without an admin touching `spaces.yaml` directly. It writes the request into its own space:
+
+```
+People/marco/ClientRequests/Vandenberg.md
+```
+
+```yaml
+---
+client-name: Vandenberg
+owner: marco
+entity: client
+source: chat
+created: 2026-07-22
+---
+```
+
+<Callout type="info">
+  The folder name (`ClientRequests/`) and the frontmatter key (`client-name:`)
+  follow the vault's configured entity noun — see
+  [`_meta/config.yaml`](/reference/configuration#_metaconfigyaml--vault-level-settings).
+  A vault configured with `--entities Vendors --entity vendor` uses
+  `VendorRequests/` and `vendor-name:` instead.
+</Callout>
+
+The request reaches master with the person's next write-back. Server-side, `materialize_clients` — run as part of [`brain cycle`](/reference/cli#brain-cycle), between write-back and the shares/promotions sweep — provisions `Clients/Vandenberg/` and appends an owner-bound exact rule to `spaces.yaml`:
+
+```yaml
+  - {path: "Clients/Vandenberg", read: ["role:admin", "person:marco"], write: ["role:admin", "person:marco"]}
+```
+
+The requester's `People/<id>/` path segment is the authoritative owner — never a frontmatter field. Three other outcomes are possible:
+
+- **Same owner, existing client.** If Marco already owns `Clients/Vandenberg`, the request merges into the existing note instead of creating a new grant.
+- **Name taken by someone else.** The request is refused fail-closed — the existing owner is never revealed — and an inbox note (`People/marco/Inbox/client-taken-….md`) asks Marco to add a distinguishing detail (a first name, company, or city) and try again.
+- **Owner mismatch.** A request whose frontmatter `owner` disagrees with its own `People/<id>/` path is tampering, not an ordinary collision — it's rejected outright and counted separately (`clients_tampering` in [`brain cycle --json`](/reference/cli#brain-cycle)), which flips the cycle's `ok` to `false`.
+
+Every self-service creation is appended to `_meta/clients/created.log` and surfaced to the admin as an `info` finding by [`brain doctor`](/reference/cli#brain-doctor), so the client roster's growth stays visible even though no admin action created it. An admin can rename, merge, or revoke a self-service-created client the same way as any other — including with [`brain shares revoke`](/reference/cli#brain-shares), which doubles as the veto lever for this list.
+
+## Sharing a space
+
+Once someone owns a space — most commonly a self-service-created client — they can grant a colleague or team access to it themselves, without an admin hand-editing `spaces.yaml`. They write a request into their own space:
+
+```
+People/marco/ShareRequests/share-vandenberg-yuki.md
+```
+
+```yaml
+---
+space: Clients/Vandenberg
+share-with: person:yuki
+access: read
+action: share
+owner: marco
+created: 2026-07-22
+---
+```
+
+<Callout type="info">
+  `ShareRequests/` sits alongside the configured entity's request folder
+  (`ClientRequests/` by default) — see
+  [`_meta/config.yaml`](/reference/configuration#_metaconfigyaml--vault-level-settings)
+  if you've renamed the entity tree.
+</Callout>
+
+`action` is `share` (grant) or `revoke` (remove); `access` is `read` or `write`. `brain cycle` treats the two very differently, because they change risk in opposite directions:
+
+- **`share` requests queue for human approval.** Adding access is risk-increasing, so the request lands in `_meta/shares/pending/` — the same human-gated posture as [promotions](/concepts/promotions) — where an admin approves or rejects it with [`brain shares`](/reference/cli#brain-shares) or the dashboard.
+- **`revoke` requests auto-apply, in the same cycle.** Removing access is risk-decreasing, so no approval gate is needed — the grant is amended immediately and the request archived to `_meta/shares/revoked/` for the audit trail.
+
+Ownership is re-verified server-side against the live `spaces.yaml` rule, never trusted from the request: only the space's **bound owner** — the first `person:` grant on the exact rule's write list, set when the space was created — may revoke access to it. Anyone else's revoke request is refused ("not the bound owner"). Self-revocation is refused too (ask an admin), and `role:admin` can never be revoked from any rule — it's structural oversight, not a grant to negotiate away. A request whose frontmatter `owner` disagrees with its own `People/<id>/` path, or whose requester turns out not to own the space when `brain cycle` runs, is tampering — rejected outright and counted in `shares_tampering` ([`brain cycle --json`](/reference/cli#brain-cycle)), which flips the cycle's `ok` to `false`. Routine rejections (an unknown recipient, a subject who already has the access, revoking access that isn't there) do not.
+
+Every pending share, and every decision from the last 30 days, shows up in the requester's own `People/<you>/Shares.md` under a **Space shares** heading — see [Promotions: where the person sees status](/concepts/promotions#where-the-person-sees-status).
 
 ## Who exists: `org.yaml`
 
