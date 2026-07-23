@@ -487,3 +487,25 @@ def test_doctor_surfaces_pending_shares(tmp_path):
 def test_doctor_no_share_findings_without_queue(tmp_path):
     from brain.doctor import _check_pending_shares
     assert _check_pending_shares(tmp_path / "master") == []
+
+
+def test_created_log_message_uses_configured_noun(tmp_path):
+    master = tmp_path / "master"
+    master.mkdir()
+    seed_meta(master)
+    (master / "_meta/config.yaml").write_text("entities: Families\nentity: family\n")
+    log = master / "_meta/clients/created.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("2026-07-23\tjoe\tDanziger\tslug\n")
+    findings = run_doctor(master)
+    assert any("Families/Danziger" in f.message for f in findings)
+
+
+def test_malformed_config_is_an_error_finding(tmp_path):
+    master = tmp_path / "master"
+    master.mkdir()
+    seed_meta(master)
+    (master / "_meta/config.yaml").write_text("entities: [broken\n")
+    findings = run_doctor(master)
+    assert any(f.severity == "error" and "config.yaml" in f.message
+               for f in findings)

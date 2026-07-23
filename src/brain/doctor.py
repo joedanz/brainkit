@@ -22,7 +22,7 @@ from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
 from brain.resolver import RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
-from brain.schemas import Org, SchemaError, SpaceRule, load_org, load_spaces
+from brain.schemas import Org, SchemaError, SpaceRule, VaultConfig, load_config, load_org, load_spaces
 
 
 @dataclass(frozen=True)
@@ -543,12 +543,14 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
     return findings
 
 
-def _check_created_clients(master: Path) -> list[Finding]:
+def _check_created_clients(master: Path, config: VaultConfig = None) -> list[Finding]:
     """Auto-created client spaces, surfaced for admin review (rename/merge/revoke).
     Informational: self-service creation is normal, but a human should be able to
     see the roster grow."""
     from brain.clients import _created_log
 
+    if config is None:
+        config = VaultConfig()
     log = _created_log(master)
     if not log.is_file():
         return []
@@ -560,7 +562,7 @@ def _check_created_clients(master: Path) -> list[Finding]:
         date_, owner, name = parts[0], parts[1], parts[2]
         findings.append(Finding(
             "info", "clients",
-            f"Clients/{name} — created by {owner} on {date_} (self-service)"))
+            f"{config.entities}/{name} — created by {owner} on {date_} (self-service)"))
     return findings
 
 
@@ -583,6 +585,11 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
         return findings  # dependent checks are meaningless on broken meta
+    try:
+        config = load_config(master)
+    except SchemaError as e:
+        findings.append(Finding("error", "meta", f"config.yaml: {e}"))
+        config = VaultConfig()
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
     findings += _check_space_coverage(master, rules)
@@ -594,7 +601,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_facts(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
-    findings += _check_created_clients(master)
+    findings += _check_created_clients(master, config)
     findings += _check_pending_shares(master)
     findings += _check_intel(master)
     findings += _check_webhook(master, org)
