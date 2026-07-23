@@ -36,26 +36,32 @@ your spaces and permissions — read it before acting.
    People/<you>/Shares.md — generated and read-only: pending items,
    approvals, and rejections with reasons. Never edit it.
 
-## Clients (third parties, not you)
+## Third parties (not you)
+
+Your vault's root AGENTS.md names the restricted tree for third parties
+(clients, customers, families — whatever the company calls them) and the
+request folder under `People/<you>/`. Take the exact folder and
+frontmatter-key names from there; the shapes below use placeholders.
 
 1. A **named third party** — a person, family, or company you work with or
-   track — is a client/contact, never a `People/` note, even one sharing your
-   own surname. You are a specific person with your own id; a third party who
-   happens to share your last name is still a third party. Check the vault's
-   routing rules for your id before filing anything under `People/`.
-2. No client space yet -> write a request to
-   `People/<you>/ClientRequests/<name>.md` with frontmatter `client-name: <full
-   name>`, `owner: <you>`, `entity: client`. The server provisions
-   `Clients/<name>/` on the next cycle; from then on write there directly.
+   track — belongs in that tree, never in a `People/` note, even one sharing
+   your own surname. You are a specific person with your own id; a third party
+   who happens to share your last name is still a third party. Check the
+   vault's routing rules for your id before filing anything under `People/`.
+2. No space for it yet -> write a request into the requests folder your
+   AGENTS.md names (`People/<you>/<Entity>Requests/<name>.md`) with the
+   frontmatter keys it shows (`<entity>-name: <full name>`, `owner: <you>`,
+   `entity: <type>`). The server provisions the space on the next cycle; from
+   then on write there directly.
 3. Name it with the fullest reasonable identifier (a full name, not a bare
    surname). Ask the user for one distinguishing detail before creating only
    when the name is thin or ambiguous — a bare common surname, a name that
-   matches a client you already have, or one that collides with your own
+   matches an entry you already have, or one that collides with your own
    household. Don't interrogate a distinctive name that's already unambiguous.
 4. One utterance can split into two homes: e.g. a family attending an event
-   becomes a client note AND a `Company/Intel/Events/` promotion, cross-linked
-   so each references the other.
-5. To share or revoke access to a space you own (e.g. a client space), write
+   becomes a third-party note AND a `Company/Intel/Events/` promotion,
+   cross-linked so each references the other.
+5. To share or revoke access to a space you own, write
    `People/<you>/ShareRequests/<name>.md` with frontmatter: `space: <the space>`,
    `share-with: person:<id>` or `team:<name>`, `access: read|write`,
    `action: share` or `action: revoke`. The body is an optional note for the
