@@ -26,12 +26,18 @@ def test_validate_subject_accepts_person_and_team(subject, expected):
 
 
 @pytest.mark.parametrize("bad", [
-    "mary", "role:admin", "everyone", "person:", "person:has space",
+    "mary", "role:admin", "everyone:x", "person:", "person:has space",
     'person:x"], "read": ["everyone', "team:with\nnewline", "person:a/b", "",
 ])
 def test_validate_subject_rejects_everything_else(bad):
     with pytest.raises(ShareError):
         validate_subject(bad)
+
+
+def test_validate_subject_everyone():
+    assert validate_subject("everyone") == ("everyone", "")
+    with pytest.raises(ShareError):
+        validate_subject("everyone:x")
 
 
 @pytest.mark.parametrize("space", ["Clients/Danziger Family", "Teams/sales"])
@@ -513,3 +519,73 @@ def test_may_decide_matrix():
     assert not may_decide(None, "person:bob")
     assert not may_decide(bob, "garbage")
     assert not may_decide(bob, "role:admin")
+
+
+def test_request_share_everyone_must_be_read(tmp_path: Path):
+    with pytest.raises(ShareError):
+        request_share(tmp_path, "joe", "Clients/Danziger Family", "everyone", "write",
+                      "2026-07-23")
+
+
+def test_everyone_share_flows_to_queue_and_admin_approval(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    request_share(m, "joe", "Clients/Danziger Family", "everyone", "read",
+                  "2026-07-23")
+    _git_init(m)
+    outcomes = sweep_shares(m, _ORG, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["queued"]
+    pending = list_pending_shares(m)
+    assert pending[0]["share-with"] == "everyone"
+    # Task 3 (broad non-admin refusal enforcement) has not landed on this
+    # branch yet — assert the admin approval succeeds here.
+    approve_share(m, pending[0]["id"], approver="admin", date="2026-07-23")
+    rules = load_spaces(m / "_meta/spaces.yaml")
+    r = next(r for r in rules if r.path == "Clients/Danziger Family")
+    assert "everyone" in r.read and "everyone" not in r.write
+
+
+def test_everyone_write_refused_at_sweep(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    # hand-write the request file to bypass request_share's client-side check
+    req = m / "People/joe/ShareRequests/x.md"
+    req.parent.mkdir(parents=True, exist_ok=True)
+    req.write_text("---\nspace: Clients/Danziger Family\nshare-with: everyone\n"
+                   "access: write\naction: share\nowner: joe\n"
+                   "created: 2026-07-23\n---\n")
+    _git_init(m)
+    outcomes = sweep_shares(m, _ORG, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["rejected"]
+    assert outcomes[0].reason == "company-wide shares are read-only"
+    assert not list_pending_shares(m)
+
+
+def test_owner_can_revoke_everyone(tmp_path: Path):
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "everyone", "read")
+    request_share(m, "joe", "Clients/Danziger Family", "everyone", "read",
+                  "2026-07-23", action="revoke")
+    _git_init(m)
+    outcomes = sweep_shares(m, _ORG, today="2026-07-23")
+    assert [o.status for o in outcomes] == ["revoked"]
+    rules = load_spaces(m / "_meta/spaces.yaml")
+    r = next(r for r in rules if r.path == "Clients/Danziger Family")
+    assert "everyone" not in r.read
+
+
+def test_approve_share_everyone_write_refused(tmp_path: Path):
+    """Defense at decision time: even if a pending file somehow has
+    access: write for everyone, approval refuses to apply it."""
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML)
+    _git_init(m)
+    pending = m / "_meta/shares/pending/joe-x.md"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text(
+        "---\nshare-id: joe-x\nfrom: joe\nspace: Clients/Danziger Family\n"
+        "share-with: everyone\naccess: write\ncreated: 2026-07-23\n---\n")
+    with pytest.raises(ShareError):
+        approve_share(m, "joe-x", approver="admin", date="2026-07-23")

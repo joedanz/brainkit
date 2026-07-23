@@ -40,9 +40,13 @@ _SLUG = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def validate_subject(subject: str) -> tuple[str, str]:
+    if subject == "everyone":
+        return "everyone", ""
     kind, sep, name = subject.partition(":")
     if not sep or kind not in ("person", "team") or not _SLUG.fullmatch(name or ""):
-        raise ShareError(f"invalid subject {subject!r} — expected person:<id> or team:<name>")
+        raise ShareError(
+            f"invalid subject {subject!r} — expected person:<id>, team:<name>, "
+            "or everyone")
     return kind, name
 
 
@@ -173,6 +177,8 @@ def request_share(
         raise ShareError(f"unknown access {access!r} — expected read or write")
     if action not in ACTIONS:
         raise ShareError(f"unknown action {action!r} — expected share or revoke")
+    if share_with == "everyone" and action == "share" and access != "read":
+        raise ShareError("company-wide shares are read-only — use access: read")
     for field, value in (("space", space), ("share-with", share_with),
                          ("owner", person_id), ("created", created)):
         if "\n" in value or "\r" in value:
@@ -261,6 +267,8 @@ def list_pending_shares(master: Path) -> list[dict]:
 
 
 def _subject_known(subject: str, org: Org) -> bool:
+    if subject == "everyone":
+        return True
     kind, name = validate_subject(subject)
     if kind == "person":
         return name in org.people
@@ -333,6 +341,13 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
                 continue
 
             if action == "share":
+                if subject == "everyone" and access != "read":
+                    note = _share_inbox_note(
+                        master, person_id, slug,
+                        f"Cannot share {space} with everyone as write — "
+                        "company-wide shares are read-only.", today)
+                    consume("rejected", "company-wide shares are read-only", [note])
+                    continue
                 if not _subject_known(subject, org):
                     note = _share_inbox_note(
                         master, person_id, slug,
@@ -445,6 +460,8 @@ def approve_share(master: Path, share_id: str, approver: str, date: str) -> str:
     validate_subject(subject)
     if access not in ACCESS_LEVELS:
         raise ShareError(f"pending share {share_id!r} has invalid access {access!r}")
+    if subject == "everyone" and access != "read":
+        raise ShareError("company-wide shares are read-only")
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     owner_person = org.people.get(owner)
