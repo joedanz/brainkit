@@ -46,4 +46,6 @@ export const api = {
   approvePromotion: (id, body) => postJSON(`/api/promotions/${encodeURIComponent(id)}/approve`, body),
   rejectPromotion: (id, body) => postJSON(`/api/promotions/${encodeURIComponent(id)}/reject`, body),
   sweepPromotions: () => postJSON("/api/promotions/sweep", {}),
+  approveShare: (id, body) => postJSON(`/api/shares/${encodeURIComponent(id)}/approve`, body),
+  rejectShare: (id, body) => postJSON(`/api/shares/${encodeURIComponent(id)}/reject`, body),
 };
