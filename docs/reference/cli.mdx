@@ -24,8 +24,26 @@ brain init <dir> --company "Acme Co"
 |---|---|---|
 | `dir` | yes | Destination directory; must be empty or nonexistent. |
 | `--company` | yes | Company name, woven into the seeded `Company/` notes. |
+| `--entities` | no | Top-level folder name for the restricted third-party tree (default `Clients`). |
+| `--entity` | no | Singular form for the entity type, used in guidance and folder names (default derived from `--entities` by stripping trailing "s"). |
 
 Creates the space layout — including the seeded `Company/Intel/` reference wiki (`Destinations/`, `Providers/`, `Events/`, `Trends/`, mapped in `Intel/Home.md`) — `_meta/org.yaml` and `_meta/spaces.yaml`, the `_meta/promotions/{pending,approved,rejected}/` queue, the master-root `AGENTS.md` (assistant protocol), and an initial git commit.
+
+## `brain rename-entities`
+
+```bash
+brain rename-entities --master <master> --entities Vendors [--entity vendor]
+```
+
+Renames the third-party tree of an existing vault: moves the folder (via
+`git mv`), rewrites the affected `spaces.yaml` rules, moves each person's
+request folder (`ClientRequests/` -> `VendorRequests/`, rewriting the
+frontmatter key in pending requests), rewrites `space:`/`target-path:` values
+in *pending* share and promotion queues (decided history is never touched),
+writes `_meta/config.yaml`, and commits. Run it immediately after `brain
+cycle`, then run a cycle again: slices recompile under the new name. Edits
+still sitting in a stale slice under the old name are rejected fail-closed by
+that next cycle and reported.
 
 ## `brain ingest`
 
