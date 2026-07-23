@@ -56,7 +56,9 @@ writable spaces; the write-back service rejects changes to read-only paths.
   created): write `People/{pid}/ShareRequests/<name>.md` with frontmatter
   `space: <the space>`, `share-with: person:<id>` or `team:<name>`,
   `access: read|write`, `action: share` — the body is an optional note to the
-  approver. An admin approves shares; status shows in `People/{pid}/Shares.md`,
+  approver. The share's decider approves it — the recipient for `person:`, a
+  team lead for `team:`, an admin for `everyone`; status shows in
+  `People/{pid}/Shares.md`,
   and your own access never blocks — keep writing while it's pending. To
   remove someone, use `action: revoke` (applies automatically; you cannot
   revoke your own access).

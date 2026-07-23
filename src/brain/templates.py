@@ -101,8 +101,10 @@ When a transcript appears in any `People/<person>/Inbox/`:
      `Company/Intel/Events/<Name>.md` page — cross-linked.
      Owners share or revoke access to their spaces via
      `People/<person>/ShareRequests/` (`space`/`share-with`/`access`/`action`
-     frontmatter); shares wait for admin approval (`brain shares`), revokes
-     apply automatically, and status lands in that person's `Shares.md`. Your
+     frontmatter); shares wait for their decider's approval — the recipient
+     for a person-share, a team lead for a team-share, an admin for
+     company-wide — revokes apply automatically, and status lands in that
+     person's `Shares.md`. Your
      own access is never blocked by pending shares — keep writing. You cannot
      revoke your own access; ask an admin.
      Recipients and team leads see an "Awaiting your decision" section in
