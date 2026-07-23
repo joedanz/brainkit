@@ -182,3 +182,32 @@ def test_brain_protocol_skill_is_noun_neutral():
              "templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
     for literal in ("Clients/", "ClientRequests", "client-name"):
         assert literal not in skill, literal
+
+
+def test_root_protocol_custom_noun():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+    person = Person(id="joe", name="Joe")
+    text = render_root_protocol(person, [("People/joe", True)], config=FAM)
+    assert "FamilyRequests" in text
+    assert "family-name: <full" in text
+    assert "`Families/<name>/` space" in text
+    assert "ClientRequests" not in text and "Clients/" not in text
+
+
+def test_root_protocol_default_matches_current_text():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+    person = Person(id="joe", name="Joe")
+    text = render_root_protocol(person, [("People/joe", True)])
+    assert "ClientRequests" in text and "client-name: <full" in text
+
+
+def test_space_notes_generated_for_custom_tree(tmp_path):
+    from brain.contextgen import generate_context_files
+    from brain.schemas import Person, SpaceRule
+    person = Person(id="joe", name="Joe")
+    rules = (SpaceRule(path="Families/Danziger", read=("person:joe",), write=("person:joe",)),)
+    written = generate_context_files(
+        tmp_path, person, ["Families/Danziger"], rules, config=FAM)
+    assert "Families/Danziger/AGENTS.md" in written
