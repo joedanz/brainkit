@@ -338,6 +338,22 @@ def test_approve_validates_approver_and_id(tmp_path: Path):
         approve_share(m, "no-such-id", approver="admin", date="2026-07-23")
 
 
+def test_approve_and_reject_reject_traversal_ids(tmp_path: Path):
+    # A path/traversal-shaped id must fail the same not-found way as an
+    # unknown one, and never touch anything outside _meta/shares/pending/.
+    m = _queued(tmp_path)
+    planted = m / "_meta/evil.md"
+    planted.write_text("secret\n")
+
+    with pytest.raises(ShareError):
+        approve_share(m, "../../evil", approver="admin", date="2026-07-23")
+    assert planted.read_text() == "secret\n"
+
+    with pytest.raises(ShareError):
+        reject_share(m, "../../evil", reason="n/a", date="2026-07-23")
+    assert planted.read_text() == "secret\n"
+
+
 def test_reject_archives_with_reason(tmp_path: Path):
     m = _queued(tmp_path)
     sid = list_pending_shares(m)[0]["id"]

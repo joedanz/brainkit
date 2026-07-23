@@ -372,6 +372,22 @@ def test_approve_and_reject_unknown_id_raise(master: Path):
         reject(master, "does-not-exist", reason="n/a", date="2026-07-20")
 
 
+def test_approve_and_reject_reject_traversal_ids(master: Path):
+    # A path/traversal-shaped id must fail the same not-found way as an
+    # unknown one, and never touch anything outside _meta/promotions/pending/.
+    _seed_org(master)
+    planted = master / "_meta/evil.md"
+    planted.write_text("secret\n")
+
+    with pytest.raises(PromotionError, match="no pending promotion"):
+        approve(master, "../../evil", approver="alice", date="2026-07-08")
+    assert planted.read_text() == "secret\n"
+
+    with pytest.raises(PromotionError, match="no pending promotion"):
+        reject(master, "../../evil", reason="n/a", date="2026-07-20")
+    assert planted.read_text() == "secret\n"
+
+
 def _draft_p1(master: Path) -> None:
     draft_promotion(
         master, person_id="bob",

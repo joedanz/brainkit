@@ -368,6 +368,26 @@ async def test_vault_lens_cannot_act_on_shares(aiohttp_client, master, tmp_path)
     assert (await client.post("/api/shares/x/approve", json={}, headers=_LOCAL)).status == 403
 
 
+async def test_share_action_rejects_traversal_id(aiohttp_client, master, tmp_path):
+    # A percent-encoded ../.. id must not escape _meta/shares/pending/ — it
+    # should 4xx without touching anything outside the pending queue.
+    app, _ = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+
+    planted = master / "_meta/evil.md"
+    planted.write_text("secret\n")
+
+    resp = await client.post("/api/shares/..%2F..%2Fevil/approve",
+                             json={"approver": "alice"}, headers=_LOCAL)
+    assert 400 <= resp.status < 500
+    assert planted.read_text() == "secret\n"
+
+    resp = await client.post("/api/shares/..%2F..%2Fevil/reject",
+                             json={"reason": "n/a"}, headers=_LOCAL)
+    assert 400 <= resp.status < 500
+    assert planted.read_text() == "secret\n"
+
+
 # ---- note backlinks, inbox, actions ------------------------------------------
 
 async def test_note_payload_has_backlinks(aiohttp_client, master, tmp_path):

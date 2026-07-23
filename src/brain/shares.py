@@ -371,6 +371,11 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
 
 
 def _find_pending_share(master: Path, share_id: str) -> Path:
+    # A path/traversal-shaped id (e.g. "../../evil") must fail exactly like an
+    # unknown one — the charset check happens before any filesystem lookup,
+    # and the error message never reveals which reason applied.
+    if not _SLUG.fullmatch(share_id):
+        raise ShareError(f"no pending share {share_id!r}")
     p = _pending_dir(master) / f"{share_id}.md"
     if not p.exists():
         raise ShareError(f"no pending share {share_id!r}")

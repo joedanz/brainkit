@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -15,6 +16,9 @@ from brain.schemas import load_org
 
 class PromotionError(ValueError):
     """Invalid promotion target or unknown promotion id."""
+
+
+_ID = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
@@ -263,6 +267,11 @@ def patch_diff(master: Path, promo: Promotion) -> str | None:
 
 
 def _find_pending(master: Path, promo_id: str) -> Path:
+    # A path/traversal-shaped id (e.g. "../../evil") must fail exactly like an
+    # unknown one — the charset check happens before any filesystem lookup,
+    # and the error message never reveals which reason applied.
+    if not _ID.fullmatch(promo_id):
+        raise PromotionError(f"no pending promotion {promo_id!r}")
     p = _pending_dir(master) / f"{promo_id}.md"
     if not p.exists():
         raise PromotionError(f"no pending promotion {promo_id!r}")
