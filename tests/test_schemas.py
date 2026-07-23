@@ -2,7 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from brain.schemas import Org, Person, SchemaError, SpaceRule, load_org, load_spaces
+from brain.schemas import (Org, Person, SchemaError, SpaceRule, VaultConfig,
+                           derive_entity, load_config, load_org, load_spaces,
+                           make_config)
 
 ORG_YAML = """\
 people:
@@ -92,3 +94,76 @@ def test_person_by_email(tmp_path: Path):
     assert org.person_by_email("nobody@evil.com") is None
     assert org.person_by_email("") is None  # never matches bob's empty email
     assert org.person_by_email("   ") is None
+
+
+# VaultConfig tests
+def test_load_config_defaults_when_missing(tmp_path):
+    (tmp_path / "_meta").mkdir()
+    cfg = load_config(tmp_path)
+    assert cfg == VaultConfig()
+    assert cfg.entities == "Clients" and cfg.entity == "client"
+    assert cfg.requests_folder == "ClientRequests"
+    assert cfg.name_key == "client-name"
+
+
+def test_load_config_reads_custom_pair(tmp_path):
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text("entities: Families\nentity: family\n")
+    cfg = load_config(tmp_path)
+    assert cfg.entities == "Families" and cfg.entity == "family"
+    assert cfg.requests_folder == "FamilyRequests"
+    assert cfg.name_key == "family-name"
+
+
+def test_load_config_missing_entity_derives_from_entities(tmp_path):
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text("entities: Customers\n")
+    cfg = load_config(tmp_path)
+    assert cfg.entity == "customer"
+    assert cfg.requests_folder == "CustomerRequests"
+
+
+def test_load_config_empty_file_defaults(tmp_path):
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text("")
+    assert load_config(tmp_path) == VaultConfig()
+
+
+@pytest.mark.parametrize("content", [
+    "entities: [a, b]\n",              # not a string
+    "entities: 'has space'\n",         # fails charset
+    "entities: .hidden\n",             # dot-prefixed
+    "entities: people\n",              # reserved (case-insensitive)
+    "entities: _meta\n",               # reserved
+    "entities: \"Bad\\nName\"\n",      # newline
+    "- just\n- a\n- list\n",           # not a mapping
+    "entities: Ok\nentity: yes\n",     # YAML bool, not a string
+])
+def test_load_config_invalid_raises(tmp_path, content):
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text(content)
+    with pytest.raises(SchemaError):
+        load_config(tmp_path)
+
+
+def test_load_config_unparseable_yaml_raises(tmp_path):
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text("entities: [unclosed\n")
+    with pytest.raises(SchemaError):
+        load_config(tmp_path)
+
+
+def test_derive_entity():
+    assert derive_entity("Clients") == "client"
+    assert derive_entity("Customers") == "customer"
+    assert derive_entity("Prey") == "prey"      # no trailing s: unchanged
+    assert derive_entity("S") == "s"            # never strips to empty
+
+
+def test_make_config_derives_and_validates():
+    assert make_config("Vendors") == VaultConfig("Vendors", "vendor")
+    assert make_config("Families", "family").entity == "family"
+    with pytest.raises(SchemaError):
+        make_config("People")
+    with pytest.raises(SchemaError):
+        make_config("Vendors", "bad entity")
