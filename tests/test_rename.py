@@ -10,7 +10,8 @@ from brain.schemas import SchemaError, load_config, load_spaces
 def _master(tmp_path: Path) -> Path:
     m = tmp_path / "master"
     (m / "_meta").mkdir(parents=True)
-    (m / "_meta/org.yaml").write_text("people:\n  joe: {name: Joe}\n")
+    (m / "_meta/org.yaml").write_text(
+        "people:\n  joe: {name: Joe}\n  mary: {name: Mary}\n")
     (m / "_meta/spaces.yaml").write_text(
         "spaces:\n"
         '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
@@ -106,3 +107,23 @@ def test_rename_is_rerunnable_after_partial_completion(tmp_path):
     assert load_config(m).entities == "Vendors"
     assert "vendor-name: Smith" in \
         (m / "People/joe/VendorRequests/2026-07-23-smith.md").read_text()
+
+
+def test_rename_then_cycle_processes_all_pending_state(tmp_path):
+    from brain.cycle import run_cycle
+    m = _master(tmp_path)
+    rename_entities(m, "Vendors", "vendor")
+    out = tmp_path / "out"
+    report = run_cycle(m, out, "2026-07-24")
+    assert report.ok
+    # the pending entity request provisioned under the NEW tree
+    assert report.clients_created == 1
+    assert (m / "Vendors/Smith/Smith.md").is_file()
+    # the rewritten pending share is still valid: approving it grants mary
+    from brain.shares import approve_share, list_pending_shares
+    pending = list_pending_shares(m)
+    assert len(pending) == 1 and pending[0]["space"] == "Vendors/Acme"
+    approve_share(m, pending[0]["id"], approver="joe", date="2026-07-24")
+    rules = load_spaces(m / "_meta/spaces.yaml")
+    acme = next(r for r in rules if r.path == "Vendors/Acme")
+    assert "person:mary" in acme.read

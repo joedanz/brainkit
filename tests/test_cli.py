@@ -364,6 +364,24 @@ def test_init_rejects_reserved_entities_before_writing(tmp_path: Path):
     assert not dest.exists()
 
 
+def test_rename_entities_cli(tmp_path):
+    # scaffold a real vault via init, then rename it
+    dest = tmp_path / "vault"
+    assert main(["init", str(dest), "--company", "Acme"]) == 0
+    rc = main(["rename-entities", "--master", str(dest),
+               "--entities", "Vendors"])
+    assert rc == 0
+    assert (dest / "Vendors").is_dir() and not (dest / "Clients").exists()
+    assert "Vendors" in (dest / "_meta/config.yaml").read_text()
+
+
+def test_rename_entities_cli_rejects_reserved(tmp_path):
+    dest = tmp_path / "vault"
+    assert main(["init", str(dest), "--company", "Acme"]) == 0
+    assert main(["rename-entities", "--master", str(dest),
+                 "--entities", "People"]) == 1
+
+
 def test_cli_shares_list_approve(master: Path, tmp_path: Path, capsys):
     from brain.shares import amend_space_rule  # noqa: F401 (import check)
     seed_meta(master)
