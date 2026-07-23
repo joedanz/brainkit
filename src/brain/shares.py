@@ -26,7 +26,7 @@ from brain.clients import _validate_owner_id
 from brain.frontmatter import split_frontmatter
 from brain.promotions import _commit, _slug
 from brain.resolver import can_write_path, space_of_path
-from brain.schemas import Org, Person, load_org, load_spaces
+from brain.schemas import Org, Person, SchemaError, load_org, load_spaces
 
 
 class ShareError(ValueError):
@@ -713,4 +713,47 @@ def generate_space_shares_section(master: Path, person_id: str, today: str) -> s
                   for m in pending]
     if decided:
         lines += ["", "### Recently decided", ""] + [line for _, line in decided]
+    return "\n".join(lines) + "\n"
+
+
+def generate_decider_section(master: Path, person_id: str, today: str) -> str | None:
+    """Markdown section for Shares.md: pending shares this person may decide
+    from their own vault. Admin eligibility is deliberately excluded — admins
+    decide master-side and duplicating the whole queue into every admin slice
+    would be noise, not signal. None when there is nothing to decide."""
+    try:
+        org = load_org(master / "_meta/org.yaml")
+    except (SchemaError, OSError, yaml.YAMLError):
+        # A missing/malformed org.yaml means nothing is decidable, not a
+        # crashed compile — same fail-quiet posture as the rest of this
+        # module's per-entry handling (sweep_shares, sweep_approvals).
+        return None
+    person = org.people.get(person_id)
+    if person is None:
+        return None
+    delegated_view = Person(
+        id=person.id, name=person.name,
+        roles=tuple(r for r in person.roles if r != "admin"),
+        teams=person.teams)
+    mine = [s for s in list_pending_shares(master)
+            if may_decide(delegated_view, str(s.get("share-with", "")))]
+    if not mine:
+        return None
+    lines = [
+        "## Awaiting your decision", "",
+        "These share requests name you (or a team you lead) as recipient.",
+        "Record only a decision your human has explicitly made.", "",
+    ]
+    for s in mine:
+        lines.append(
+            f"- `{s['id']}`: `{s.get('space', '?')}` from {s.get('from', '?')} "
+            f"→ {s.get('share-with', '?')} ({s.get('access', '?')}), "
+            f"requested {s.get('created', '?')}")
+    lines += [
+        "",
+        f"To decide, write `People/{person_id}/Approvals/<share-id>.md`:", "",
+        "```", "---", "decision: approve   # or: reject",
+        "reason: required when rejecting", f"owner: {person_id}",
+        f"created: {today}", "---", "```",
+    ]
     return "\n".join(lines) + "\n"

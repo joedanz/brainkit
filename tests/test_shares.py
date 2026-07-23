@@ -9,7 +9,8 @@ from brain.resolver import space_of_path as _sop
 from brain.schemas import Org, Person
 from brain.shares import (
     ShareError, ShareOutcome, admin_revoke, amend_space_rule,
-    approve_share, generate_space_shares_section, list_pending_shares, may_decide,
+    approve_share, generate_decider_section, generate_space_shares_section,
+    list_pending_shares, may_decide,
     reject_share, remove_subject_from_rule, request_share, sweep_approvals, sweep_shares,
     validate_space, validate_subject,
 )
@@ -494,6 +495,51 @@ def test_space_shares_section_shows_revoked_entries(tmp_path: Path):
     # Mary's section should NOT show joe's revoke (privacy filter)
     sec_mary = generate_space_shares_section(m, "mary", today="2026-07-22")
     assert sec_mary is None
+
+
+_ORG_YAML_DECIDER = """\
+people:
+  admin:    {name: Admin, roles: [admin]}
+  joe:      {name: Joe Danziger}
+  mary:     {name: Mary Ops}
+  lead_ops: {name: Lead Ops, roles: [lead], teams: [ops]}
+  carol:    {name: Carol Support}
+"""
+
+_ORG_DECIDER = Org(people={
+    "admin": Person(id="admin", name="Admin", roles=("admin",)),
+    "joe": Person(id="joe", name="Joe Danziger"),
+    "mary": Person(id="mary", name="Mary Ops"),
+    "lead_ops": Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",)),
+    "carol": Person(id="carol", name="Carol Support"),
+})
+
+
+def _decider_fixture(tmp_path: Path) -> Path:
+    """Two pending shares: joe -> person:mary, joe -> team:ops."""
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_DECIDER)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22")
+    request_share(m, "joe", "Clients/Danziger Family", "team:ops", "read",
+                  "2026-07-22")
+    _git_init(m)
+    sweep_shares(m, _ORG_DECIDER, today="2026-07-22")
+    return m
+
+
+def test_decider_section_lists_only_eligible_shares(tmp_path: Path):
+    master = _decider_fixture(tmp_path)
+    sec = generate_decider_section(master, "mary", "2026-07-23")
+    assert "Awaiting your decision" in sec
+    assert "person:mary" in sec and "team:ops" not in sec
+    assert "People/mary/Approvals/" in sec       # the how-to names their path
+    assert "explicitly made" in sec              # only-human-decisions rule
+    lead = generate_decider_section(master, "lead_ops", "2026-07-23")
+    assert "team:ops" in lead and "person:mary" not in lead
+    assert generate_decider_section(master, "carol", "2026-07-23") is None
+    # admins decide master-side; no queue duplication into their slice
+    assert generate_decider_section(master, "admin", "2026-07-23") is None
 
 
 def test_may_decide_matrix():
