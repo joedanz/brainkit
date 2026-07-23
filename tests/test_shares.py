@@ -248,3 +248,51 @@ def test_sweep_decided_ids_never_requeue(tmp_path: Path):
 def _slug_for_test(stem: str) -> str:
     from brain.promotions import _slug
     return _slug(stem)
+
+
+def test_sweep_revoke_auto_applies_and_archives(tmp_path: Path):
+    m = _master(tmp_path)
+    amend_space_rule(m / "_meta/spaces.yaml", "Clients/Danziger Family",
+                     "person:mary", "write")
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22", action="revoke")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["revoked"]
+    r = {r.path: r for r in load_spaces(m / "_meta/spaces.yaml")}["Clients/Danziger Family"]
+    assert "person:mary" not in r.read and "person:mary" not in r.write
+    archived = list((m / "_meta/shares/revoked").glob("*.md"))
+    assert len(archived) == 1 and "revoked-on: 2026-07-22" in archived[0].read_text()
+    assert not list((m / "People/joe/ShareRequests").glob("*.md"))
+
+
+def test_sweep_revoke_guards(tmp_path: Path):
+    m = _master(tmp_path)
+    # self-revocation refused; absent subject -> "wasn't shared"
+    request_share(m, "joe", "Clients/Danziger Family", "person:joe", "read",
+                  "2026-07-22", action="revoke")
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22", action="revoke")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert sorted(o.status for o in out) == ["rejected", "rejected"]
+    texts = " ".join(f.read_text() for f in (m / "People/joe/Inbox").glob("*.md"))
+    assert "your own access" in texts and "not shared" in texts.lower()
+    # joe's own grant untouched
+    r = {r.path: r for r in load_spaces(m / "_meta/spaces.yaml")}["Clients/Danziger Family"]
+    assert "person:joe" in r.read and "person:joe" in r.write
+
+
+def test_sweep_revoke_unknown_subject_wording(tmp_path: Path):
+    """Verify revoke requests with unknown subjects get 'not shared' wording, not 'Cannot share'."""
+    m = _master(tmp_path)
+    # person:ghost is not in org, but should be treated as "not shared" for revoke
+    request_share(m, "joe", "Clients/Danziger Family", "person:ghost", "read",
+                  "2026-07-22", action="revoke")
+    _git_init(m)
+    out = sweep_shares(m, _ORG, today="2026-07-22")
+    assert [o.status for o in out] == ["rejected"]
+    texts = " ".join(f.read_text() for f in (m / "People/joe/Inbox").glob("*.md"))
+    # Should say "not shared", not "Cannot share"
+    assert "not shared" in texts.lower()
+    assert "Cannot share" not in texts

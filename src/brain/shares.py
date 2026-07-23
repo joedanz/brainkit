@@ -311,14 +311,13 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
                     name_id, f"{person_id}@brain.local")
             continue
 
-        if not _subject_known(subject, org):
-            note = _share_inbox_note(
-                master, person_id, slug,
-                f"Cannot share {space}: {subject} is not in the org.", today)
-            consume("rejected", "unknown recipient", [note])
-            continue
-
         if action == "share":
+            if not _subject_known(subject, org):
+                note = _share_inbox_note(
+                    master, person_id, slug,
+                    f"Cannot share {space}: {subject} is not in the org.", today)
+                consume("rejected", "unknown recipient", [note])
+                continue
             if subject in exact.read and (access == "read" or subject in exact.write):
                 note = _share_inbox_note(
                     master, person_id, slug,
@@ -344,6 +343,28 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
                     message=f"shares: queue {share_id}")
             continue
 
-        # action == "revoke" — implemented in Task 5
+        # action == "revoke" — auto-applied: removing access is risk-decreasing
+        if subject == f"person:{person_id}":
+            note = _share_inbox_note(
+                master, person_id, slug,
+                "Cannot revoke your own access — ask an admin.", today)
+            consume("rejected", "self-revocation", [note])
+            continue
+        removed = remove_subject_from_rule(
+            master / "_meta/spaces.yaml", space, subject)
+        if not removed:
+            note = _share_inbox_note(
+                master, person_id, slug,
+                f"{subject} is not shared on {space} — nothing to revoke.", today)
+            consume("rejected", "not shared", [note])
+            continue
+        archived = master / "_meta/shares/revoked" / f"{share_id}.md"
+        archived.parent.mkdir(parents=True, exist_ok=True)
+        _, fm, req_body = req.read_text().split("---\n", 2)
+        archived.write_text(f"---\n{fm}revoked-on: {today}\n---\n{req_body}")
+        consume("revoked",
+                extra=["_meta/spaces.yaml",
+                       archived.relative_to(master).as_posix()],
+                message=f"shares: revoke {subject} from {space}")
         continue
     return results
