@@ -97,6 +97,10 @@ When a transcript appears in any `People/<person>/Inbox/`:
      A single mention can split into two homes — a client note in
      `Clients/<client>/` and, for a dated occurrence, a
      `Company/Intel/Events/<Name>.md` page — cross-linked.
+     Owners share or revoke access to their spaces via
+     `People/<person>/ShareRequests/` (`space`/`share-with`/`access`/`action`
+     frontmatter); shares wait for admin approval (`brain shares`), revokes
+     apply automatically, and status lands in that person's `Shares.md`.
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `Company/Decisions/`
    - Standing processes and standards -> a new file in `Company/Playbook/`

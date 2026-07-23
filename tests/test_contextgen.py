@@ -93,3 +93,26 @@ def test_generated_files_listed_in_manifest(master: Path, tmp_path: Path):
     assert "CLAUDE.md" in manifest["generated"]
     assert "People/bob/AGENTS.md" in manifest["generated"]
     assert "AGENTS.md" not in manifest["compiled"]
+
+
+def test_root_protocol_carries_share_mechanic():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+
+    joe = Person(id="joe", name="Joe Danziger", roles=(), teams=())
+    text = render_root_protocol(joe, [("People/joe", True), ("Company", False)])
+    low = text.lower()
+    assert "sharerequests" in low
+    assert "share-with" in low and "access" in low and "action" in low
+    assert "revoke" in low
+    assert "keep writing" in low or "never blocks" in low
+
+
+def test_assistant_protocol_and_skill_carry_share_mechanic():
+    from pathlib import Path
+
+    from brain.templates import ASSISTANT_PROTOCOL
+    low = ASSISTANT_PROTOCOL.lower()
+    assert "sharerequests" in low and "share-with" in low and "revoke" in low
+    skill = Path("templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text().lower()
+    assert "sharerequests" in skill and "share-with" in skill and "revoke" in skill

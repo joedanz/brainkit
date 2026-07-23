@@ -55,6 +55,13 @@ your spaces and permissions — read it before acting.
 4. One utterance can split into two homes: e.g. a family attending an event
    becomes a client note AND a `Company/Intel/Events/` promotion, cross-linked
    so each references the other.
+5. To share or revoke access to a space you own (e.g. a client space), write
+   `People/<you>/ShareRequests/<name>.md` with frontmatter: `space: <the space>`,
+   `share-with: person:<id>` or `team:<name>`, `access: read|write`,
+   `action: share` or `action: revoke`. The body is an optional note for the
+   approver. Shares await admin approval; revokes apply automatically. Your own
+   access is never blocked by pending shares — keep writing. Status appears in
+   `People/<you>/Shares.md`. You cannot revoke your own access.
 
 ## Intel (articles, posts, links, PDFs, screenshots)
 

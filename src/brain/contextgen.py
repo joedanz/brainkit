@@ -52,6 +52,14 @@ writable spaces; the write-back service rejects changes to read-only paths.
   cross-linked.
 - Client facts about a client you already own -> write them into that
   `Clients/<name>/` space directly
+- To give a colleague or team access to a space you own (e.g. a client you
+  created): write `People/{pid}/ShareRequests/<name>.md` with frontmatter
+  `space: <the space>`, `share-with: person:<id>` or `team:<name>`,
+  `access: read|write`, `action: share` — the body is an optional note to the
+  approver. An admin approves shares; status shows in `People/{pid}/Shares.md`,
+  and your own access never blocks — keep writing while it's pending. To
+  remove someone, use `action: revoke` (applies automatically; you cannot
+  revoke your own access).
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
   promotion targeting a new file in `Company/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion
