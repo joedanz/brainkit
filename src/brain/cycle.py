@@ -40,6 +40,8 @@ class CycleReport:
     shares_queued: int = 0
     shares_revoked: int = 0
     shares_tampering: int = 0  # non-owner share/revoke requests — a tamper signal
+    share_decisions_applied: int = 0
+    share_decisions_refused: int = 0
     indexed: int = 0
     index_warnings: list[str] = field(default_factory=list)
 
@@ -109,12 +111,14 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             )
 
     from brain.clients import materialize_clients
-    from brain.shares import sweep_shares
+    from brain.shares import sweep_approvals, sweep_shares
 
     provisioned = materialize_clients(master, org, today=today, config=config)
     share_outcomes = sweep_shares(master, org, today=today)
-    # sweep_shares may have modified spaces.yaml (revokes); materialize_clients
-    # appended grants too. The compile below must see both, so reload.
+    decision_outcomes = sweep_approvals(master, org, today=today)
+    # sweep_shares/sweep_approvals may have modified spaces.yaml (revokes,
+    # delegated approvals); materialize_clients appended grants too. The
+    # compile below must see all of it, so reload.
     rules = load_spaces(master / "_meta/spaces.yaml")
 
     swept = len(sweep(master, today=today))
@@ -136,6 +140,9 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         ),
         shares_queued=sum(1 for o in share_outcomes if o.status == "queued"),
         shares_revoked=sum(1 for o in share_outcomes if o.status == "revoked"),
-        shares_tampering=sum(1 for o in share_outcomes if o.status == "tampering"),
+        shares_tampering=sum(1 for o in share_outcomes if o.status == "tampering")
+        + sum(1 for o in decision_outcomes if o.status == "tampering"),
+        share_decisions_applied=sum(1 for o in decision_outcomes if o.status == "applied"),
+        share_decisions_refused=sum(1 for o in decision_outcomes if o.status == "refused"),
         indexed=indexed, index_warnings=index_warnings,
     )

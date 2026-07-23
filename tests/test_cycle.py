@@ -457,3 +457,65 @@ def test_cycle_provisions_and_compiles_custom_entity_tree(tmp_path):
     assert "ClientRequests" not in agents
     # deny-by-default: mary sees nothing under Families/
     assert not (out / "mary/Families").exists()
+
+
+# ---- sweep_approvals (Task 4: in-vault delegated decisions) ---------------- #
+
+def _acme_master(tmp_path):
+    import subprocess
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n"
+        "  admin: {name: Admin, roles: [admin]}\n"
+        "  joe: {name: Joe}\n"
+        "  mary: {name: Mary}\n")
+    (master / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,      read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "People/*",   read: ["person:{name}"], write: ["person:{name}"]}\n'
+        '  - {path: "Clients/*",  read: ["role:admin"],    write: ["role:admin"]}\n')
+    (master / "Company").mkdir()
+    (master / "Company/Home.md").write_text("# Home\n")
+    (master / "People/joe").mkdir(parents=True)
+    (master / "People/joe/Memory.md").write_text("# Joe\n")
+    (master / "People/mary").mkdir(parents=True)
+    (master / "People/mary/Memory.md").write_text("# Mary\n")
+    (master / "Clients").mkdir()
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "add", "-A"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t",
+                    "-c", "user.email=t@t", "commit", "-m", "seed"],
+                   check=True, capture_output=True)
+    return master, tmp_path / "out"
+
+
+def test_cycle_runs_sweep_approvals_and_reports(tmp_path):
+    from brain.clients import request_client
+    from brain.shares import list_pending_shares, request_share
+
+    master, _ = _acme_master(tmp_path)
+    out = _first_compile(master, tmp_path)  # creates joe's + mary's vaults
+
+    # cycle 1: joe creates the Acme client (auto-provisioned, owner-bound)
+    request_client(out / "joe", "joe", "Acme", "notes\n", "2026-07-22")
+    run_cycle(master, out, "2026-07-22")
+
+    # cycle 2: joe queues a share of Clients/Acme with mary
+    request_share(out / "joe", "joe", "Clients/Acme", "person:mary", "read",
+                  "2026-07-23")
+    run_cycle(master, out, "2026-07-23")
+    pid = list_pending_shares(master)[0]["id"]
+
+    # mary drops a delegated decision note directly in master (as writeback would)
+    (master / "People/mary/Approvals").mkdir(parents=True)
+    (master / f"People/mary/Approvals/{pid}.md").write_text(
+        "---\ndecision: approve\nowner: mary\ncreated: 2026-07-24\n---\n")
+
+    report = run_cycle(master, out, "2026-07-24")
+    assert report.ok
+    assert report.share_decisions_applied == 1
+    # same-cycle property: the decision's grant is visible to this cycle's compile
+    assert (out / "mary/Clients/Acme").is_dir()

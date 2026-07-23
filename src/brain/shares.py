@@ -430,6 +430,112 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
     return results
 
 
+APPROVALS_REL = "People/{person_id}/Approvals"
+
+
+@dataclass(frozen=True)
+class DecisionOutcome:
+    share_id: str
+    decider: str
+    decision: str
+    status: str  # "applied" | "refused" | "tampering"
+    reason: str = ""
+
+
+def sweep_approvals(master: Path, org: Org, today: str) -> list[DecisionOutcome]:
+    """Apply delegated decisions from People/*/Approvals/*.md to the pending
+    share queue. The <pid> path segment is the authoritative decider (writeback
+    already gated the write); the filename stem is the share id. Eligibility is
+    re-checked at decision time with may_decide. Company-wide (everyone) shares
+    are never decidable here — master-side admins only. Only a forged owner:
+    is tampering; every other failure is a routine refusal with an inbox note."""
+    results: list[DecisionOutcome] = []
+    for note in sorted(master.glob("People/*/Approvals/*.md")):
+        if note.is_symlink():
+            continue
+        rel = note.relative_to(master)
+        decider_id = rel.parts[1]
+        try:
+            _validate_owner_id(decider_id)
+        except Exception:
+            continue  # malformed pid folder: leave in place, touch nothing
+        try:
+            share_id = note.stem
+            if not _SLUG.fullmatch(share_id):
+                continue  # malformed id: leave in place for inspection
+            meta, _ = split_frontmatter(note.read_text())
+            if not meta:
+                continue
+            decider = org.people.get(decider_id)
+            name_id = decider.name if decider else decider_id
+            decision = str(meta.get("decision", ""))
+            reason = str(meta.get("reason", ""))
+
+            def consume(status: str, why: str = "",
+                        extra: list[str] | None = None) -> None:
+                note.unlink()
+                _commit(master, [rel.as_posix(), *(extra or [])],
+                        f"shares: decision {share_id} {status}",
+                        name_id, f"{decider_id}@brain.local")
+                results.append(DecisionOutcome(share_id, decider_id, decision,
+                                               status, why))
+
+            if meta.get("owner", decider_id) != decider_id:
+                consume("tampering", "owner mismatch")
+                continue
+
+            try:
+                pending = _find_pending_share(master, share_id)
+            except ShareError:
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Share {share_id} is already decided or unknown.", today)
+                consume("refused", "already decided or unknown", [inbox])
+                continue
+
+            pmeta, _ = split_frontmatter(pending.read_text())
+            share_with = str(pmeta.get("share-with", ""))
+            if share_with == "everyone" or not may_decide(decider, share_with):
+                msg = ("Company-wide shares are decided by an admin with "
+                       "brain shares approve." if share_with == "everyone" else
+                       f"You are not an eligible approver for {share_id}.")
+                inbox = _share_inbox_note(master, decider_id, _slug(share_id),
+                                          msg, today)
+                consume("refused", "not eligible", [inbox])
+                continue
+
+            if decision not in ("approve", "reject"):
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Decision for {share_id} must be approve or reject.", today)
+                consume("refused", "bad decision", [inbox])
+                continue
+            if decision == "reject" and not reason.strip():
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Rejecting {share_id} needs a reason: line.", today)
+                consume("refused", "missing reason", [inbox])
+                continue
+
+            try:
+                if decision == "approve":
+                    approve_share(master, share_id, approver=decider_id,
+                                  date=today, via="delegated")
+                else:
+                    reject_share(master, share_id, reason=reason, date=today,
+                                 approver=decider_id, via="delegated")
+            except ShareError as e:
+                inbox = _share_inbox_note(
+                    master, decider_id, _slug(share_id),
+                    f"Could not apply your decision on {share_id}: {e}", today)
+                consume("refused", str(e), [inbox])
+                continue
+            consume("applied", decision)
+        except Exception:
+            continue  # unexpected per-note error: leave file in place, touch nothing
+    return results
+
+
 def _find_pending_share(master: Path, share_id: str) -> Path:
     # A path/traversal-shaped id (e.g. "../../evil") must fail exactly like an
     # unknown one — the charset check happens before any filesystem lookup,
