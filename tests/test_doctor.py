@@ -509,3 +509,30 @@ def test_malformed_config_is_an_error_finding(tmp_path):
     findings = run_doctor(master)
     assert any(f.severity == "error" and "config.yaml" in f.message
                for f in findings)
+
+
+def test_delegated_decisions_surface_as_info(tmp_path):
+    m = tmp_path / "master"
+    m.mkdir()
+    seed_meta(m)
+    d = m / "_meta/shares/approved"
+    d.mkdir(parents=True)
+    today = _date.today()
+    (d / "joe-x.md").write_text(
+        f"---\nshare-id: joe-x\nfrom: joe\nspace: Clients/Acme\n"
+        f"share-with: person:mary\naccess: read\ncreated: 2026-07-20\n"
+        f"approved-on: {today.isoformat()}\napproved-by: mary\nvia: delegated\n---\n")
+    old = m / "_meta/shares/rejected"
+    old.mkdir(parents=True)
+    (old / "joe-y.md").write_text(   # stale: outside the 30-day window
+        "---\nspace: Clients/Old\nshare-with: person:bob\n"
+        "rejected-on: 2020-01-01\nrejected-by: bob\nvia: delegated\n---\n")
+    admin_side = d / "joe-z.md"      # not delegated: no finding
+    admin_side.write_text(
+        "---\nspace: Clients/B\nshare-with: person:bob\n"
+        "approved-on: 2026-07-23\napproved-by: admin\n---\n")
+    findings = run_doctor(m)
+    msgs = [f.message for f in findings if f.check == "shares"]
+    assert any("approved by mary" in x and "delegated" in x for x in msgs)
+    assert not any("Clients/Old" in x for x in msgs)
+    assert not any("Clients/B" in x and "delegated" in x for x in msgs)
