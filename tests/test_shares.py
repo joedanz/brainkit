@@ -542,6 +542,26 @@ def test_decider_section_lists_only_eligible_shares(tmp_path: Path):
     assert generate_decider_section(master, "admin", "2026-07-23") is None
 
 
+def test_decider_section_never_renders_requester_body(tmp_path: Path):
+    # Untrusted requester free text rendered into another person's vault is
+    # an injection surface — generate_decider_section must never echo it.
+    m = _master(tmp_path)
+    (m / "_meta/org.yaml").write_text(_ORG_YAML_DECIDER)
+    request_share(m, "joe", "Clients/Danziger Family", "person:mary", "read",
+                  "2026-07-22", body="INJECTION-MARKER-XYZ\n")
+    _git_init(m)
+    sweep_shares(m, _ORG_DECIDER, today="2026-07-22")
+
+    pending = list_pending_shares(m)
+    assert len(pending) == 1
+    # Sanity: the marker really is in the pending file's body, so the
+    # assertion below can't pass vacuously.
+    assert "INJECTION-MARKER-XYZ" in pending[0]["body"]
+
+    sec = generate_decider_section(m, "mary", "2026-07-23")
+    assert sec is not None and "INJECTION-MARKER-XYZ" not in sec
+
+
 def test_may_decide_matrix():
     admin = Person(id="root", name="Root", roles=("admin",))
     bob = Person(id="bob", name="Bob", teams=("ops",))
