@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME
+from brain.errors import BrainError
 from brain.resolver import can_write_path
 from brain.schemas import Person, SpaceRule
 
@@ -35,7 +36,7 @@ class WritebackResult:
     violations: list[str] = field(default_factory=list)
 
 
-class ManifestError(ValueError):
+class ManifestError(BrainError, ValueError):
     """The compiled vault's manifest is missing, unreadable, or the wrong shape.
 
     Write-back diffs against the manifest baseline; without a usable one there

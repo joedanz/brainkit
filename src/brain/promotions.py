@@ -9,12 +9,13 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
 from brain.schemas import load_org
 
 
-class PromotionError(ValueError):
+class PromotionError(BrainError, ValueError):
     """Invalid promotion target or unknown promotion id."""
 
 

@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
 
+from brain.errors import HANDLED, BrainError, describe
 from brain.resolver import readable_spaces
 from brain.schemas import Org, Person, SpaceRule, VaultConfig, load_config
 
@@ -61,6 +62,30 @@ def stub_links(text: str, included_stems: set[str], master_stems: set[str]) -> s
 class CompileResult:
     person_id: str
     files: list[str]  # rel paths of copied source files
+
+
+class CompileError(BrainError):
+    """A fleet compile stopped part-way through.
+
+    Reported with a count rather than a warning, because the two-phase swap
+    already answers the operator's real question. A vault is renamed into
+    place only once it is fully built, so the vaults ahead of the failure hold
+    a complete new compile, the ones behind it hold a complete previous one,
+    and none is half-written. Saying which person failed and how far the run
+    got is therefore the whole story — there is no cleanup to describe.
+    """
+
+    def __init__(self, person_id: str, cause: BaseException,
+                 completed: list[CompileResult], total: int) -> None:
+        self.person_id = person_id
+        self.completed = tuple(completed)
+        self.total = total
+        super().__init__(
+            f"compiling {person_id}: {describe(cause)}\n"
+            f"  {len(completed)} of {total} vault(s) refreshed before this; the "
+            f"rest still hold their previous compile (vaults swap atomically, "
+            f"so none is half-written)"
+        )
 
 
 def _iter_space_files(master: Path, space: str):
@@ -252,20 +277,24 @@ def compile_all(
 ) -> list[CompileResult]:
     today = today or date.today().isoformat()
     config = config or load_config(master)
-    results = []
+    results: list[CompileResult] = []
+    total = len(org.people)
     for person in org.people.values():
         out = out_root / person.id
-        result = compile_vault(master, person, rules, out, today, config=config)
-        if not (out / ".git").exists():
-            _git(out, "init", "-b", "main")
-        _git(out, "add", "-A")
-        status = _git(out, "status", "--porcelain").stdout
-        if status.strip():
-            _git(
-                out,
-                "-c", "user.name=Brain Compiler",
-                "-c", "user.email=compiler@brain.local",
-                "commit", "-m", f"compile: refresh vault for {person.id}",
-            )
+        try:
+            result = compile_vault(master, person, rules, out, today, config=config)
+            if not (out / ".git").exists():
+                _git(out, "init", "-b", "main")
+            _git(out, "add", "-A")
+            status = _git(out, "status", "--porcelain").stdout
+            if status.strip():
+                _git(
+                    out,
+                    "-c", "user.name=Brain Compiler",
+                    "-c", "user.email=compiler@brain.local",
+                    "commit", "-m", f"compile: refresh vault for {person.id}",
+                )
+        except HANDLED as e:
+            raise CompileError(person.id, e, results, total) from e
         results.append(result)
     return results

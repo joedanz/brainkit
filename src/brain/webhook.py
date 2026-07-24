@@ -40,6 +40,8 @@ from typing import Callable
 import yaml
 from aiohttp import web
 
+from brain.errors import BrainError
+
 CONFIG_NAME = "webhook.yaml"  # under _meta/
 VERIFY_MODES = ("standard-webhooks", "token")
 REPLAY_TOLERANCE = 300.0  # seconds; Standard Webhooks / Composio SDK default
@@ -51,7 +53,7 @@ _ENV_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _FIELD_RE = re.compile(r"[A-Za-z0-9_.-]+")
 
 
-class WebhookConfigError(ValueError):
+class WebhookConfigError(BrainError, ValueError):
     """Invalid webhook.yaml content or an unset secret variable.
 
     Raised at load/startup so a misconfigured source can never serve; callers
@@ -59,7 +61,7 @@ class WebhookConfigError(ValueError):
     """
 
 
-class VerifyError(ValueError):
+class VerifyError(BrainError, ValueError):
     """A request that failed authentication. Reason strings are safe to
     return to the caller — they never echo secrets or payload content."""
 

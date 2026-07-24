@@ -10,7 +10,15 @@ The `brain` command drives the whole lifecycle: scaffold a master, compile slice
 brain {init,rename-entities,ingest,webhook,compile,writeback,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor,triage} …
 ```
 
-Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
+Every subcommand exits `0` on success and `1` on a handled error, with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
+
+"Handled" covers both the errors brain raises itself (unknown person, rejected write-back, invalid promotion, integrity error) and the environmental ones it doesn't author: a missing or unparseable `_meta` file, a path that can't be read or written, a full disk, a `git` that refuses. Those last ones name the path or the git command that failed, because that is what you act on.
+
+<Callout type="info">
+  An unexpected exception still prints a traceback and is **not** flattened into a one-line error. That is deliberate: a traceback means you have found a bug, and dressing it up as a handled failure would hide it. If a traceback reaches your logs, it belongs in [an issue](https://github.com/joedanz/brainkit/issues).
+</Callout>
+
+Two other exit codes: `2` for a usage error (argparse, or a missing flag a subcommand needs), and `130` if you interrupt with Ctrl-C.
 
 ## `brain init`
 

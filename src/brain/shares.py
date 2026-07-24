@@ -23,13 +23,14 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 from brain.clients import _validate_owner_id
+from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.promotions import _commit, _slug
 from brain.resolver import can_write_path, space_of_path
 from brain.schemas import Org, Person, SchemaError, load_org, load_spaces
 
 
-class ShareError(ValueError):
+class ShareError(BrainError, ValueError):
     """Invalid share request, subject, space, or unknown share id."""
 
 

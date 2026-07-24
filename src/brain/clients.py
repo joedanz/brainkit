@@ -19,13 +19,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.promotions import _commit, _slug
 from brain.resolver import can_write_path, space_of_path
 from brain.schemas import Org, VaultConfig, load_config, load_spaces
 
 
-class ClientError(ValueError):
+class ClientError(BrainError, ValueError):
     """Invalid client name or malformed client request."""
 
 
