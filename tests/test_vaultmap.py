@@ -1,13 +1,18 @@
+from pathlib import Path
+
 from brain.schemas import VaultConfig
 from brain.vaultmap import (
     UNTYPED,
     EntityGroup,
     NoteFacts,
+    Pending,
+    collect_pending,
     group_entities,
     link_degree,
     rank_hubs,
     scan_note,
 )
+from tests.conftest import BOB
 
 
 def test_scan_note_plain_body():
@@ -133,3 +138,32 @@ def test_group_entities_ignores_non_entity_spaces():
     notes = {"People/bob/Memory.md": NoteFacts("", ())}
     assert group_entities(notes, [("People/bob", True)],
                           link_degree(notes), VaultConfig()) == []
+
+
+def test_collect_pending_counts_inbox_and_routing(tmp_path: Path):
+    base = tmp_path / "People/bob"
+    (base / "Inbox").mkdir(parents=True)
+    (base / "Inbox/a.md").write_text("one\n")
+    (base / "Inbox/b.md").write_text("two\n")
+    (base / "Needs-Routing.md").write_text(
+        "---\ntitle: Needs Routing\n---\n- thing one\n\n- thing two\n")
+    assert collect_pending(tmp_path, BOB) == Pending(inbox=2, needs_routing=2)
+
+
+def test_collect_pending_absent_files(tmp_path: Path):
+    assert collect_pending(tmp_path, BOB) == Pending(inbox=0, needs_routing=None)
+
+
+def test_collect_pending_counts_nested_inbox_files(tmp_path: Path):
+    nested = tmp_path / "People/bob/Inbox/sub"
+    nested.mkdir(parents=True)
+    (nested / "c.md").write_text("three\n")
+    assert collect_pending(tmp_path, BOB).inbox == 1
+
+
+def test_collect_pending_survives_undecodable_needs_routing(tmp_path: Path):
+    base = tmp_path / "People/bob"
+    base.mkdir(parents=True)
+    (base / "Needs-Routing.md").write_bytes(b"\xff\xfe not utf-8\n")
+    # Must not raise — a compile can never fail on a note's bytes.
+    assert collect_pending(tmp_path, BOB).needs_routing == 1

@@ -19,6 +19,7 @@ the person cannot see. No subprocess, no master handle, no filtering.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from brain.compiler import extract_wikilinks
 from brain.frontmatter import split_frontmatter
@@ -138,3 +139,33 @@ def group_entities(
         ))
     groups.sort(key=lambda g: (-g.count, g.etype))
     return groups
+
+
+@dataclass(frozen=True)
+class Pending:
+    inbox: int
+    needs_routing: int | None  # None => the note does not exist
+
+
+def collect_pending(building: Path, person) -> Pending:
+    """Inbox depth and Needs-Routing size, from this vault's own tree."""
+    base = building / "People" / person.id
+
+    inbox_dir = base / "Inbox"
+    inbox = 0
+    if inbox_dir.is_dir():
+        # Mirrors stats._count_files: symlinks are never counted (the
+        # compiler never materializes them, so one here is not our content).
+        inbox = sum(
+            1 for f in inbox_dir.rglob("*")
+            if f.is_file() and not f.is_symlink()
+        )
+
+    needs: int | None = None
+    routing = base / "Needs-Routing.md"
+    if routing.is_file() and not routing.is_symlink():
+        _meta, body = split_frontmatter(
+            routing.read_text(encoding="utf-8", errors="replace"))
+        needs = sum(1 for line in body.splitlines() if line.strip())
+
+    return Pending(inbox=inbox, needs_routing=needs)
