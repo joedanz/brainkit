@@ -362,3 +362,10 @@ def test_terse_copula_conflict_is_a_known_recall_trade():
     a = _entry("a.md", 3, "Acme is Enterprise", {"Clients/Acme.md"})
     b = _entry("b.md", 8, "Acme is Growth", {"Clients/Acme.md"})
     assert find_fact_conflicts([a, b]) == []
+
+
+def test_equals_marker_needs_only_one_preceding_token():
+    # "=" is an unambiguous slot marker — the predication guard is for copulas.
+    a = _entry("a.md", 3, "renewal = 2026-03", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "renewal = 2027-03", {"Clients/Acme.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]

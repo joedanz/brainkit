@@ -148,7 +148,6 @@ def lint_facts(text: str) -> list[tuple[int, str]]:
 # "<Entity> is …" predications, which accumulate; trailing ":" and "=" use one.
 # Additive verbs (hired, met, shipped) are deliberately absent: those facts
 # can all be true together, and a warn tier that cries wolf gets ignored.
-_ATTR_MARKERS = {"is", "are", "="}
 
 
 def _diverges(stmt_a: str, stmt_b: str) -> bool:
@@ -160,11 +159,11 @@ def _diverges(stmt_a: str, stmt_b: str) -> bool:
         # marker needs a preceding token; an empty tail is prefix-of, not conflict
         return False
     last = a[i - 1]
-    if last in _ATTR_MARKERS:
+    if last in ("is", "are"):
         # a bare copula right after the subject ("Acme is …") is predication,
         # not an attribute slot — require two tokens before it ("…'s plan is")
         return i >= 3
-    return last.endswith(":")
+    return last == "=" or last.endswith(":")
 
 
 def find_fact_conflicts(
