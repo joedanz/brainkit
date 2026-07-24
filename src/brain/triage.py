@@ -83,3 +83,128 @@ def route_findings(
         elif f.severity == "error":
             assign(f, admins)
     return routed, unrouted
+
+
+@dataclass
+class TriageReport:
+    routed: int            # distinct findings delivered to >=1 recipient
+    digests_written: int   # digest notes created or rewritten this run
+    digests_removed: int   # digest notes deleted because nothing remains
+    unrouted: int          # findings with no eligible recipient (no admins)
+    warnings: list[str] = field(default_factory=list)
+
+
+def _fingerprint(findings: list[Finding]) -> str:
+    key = "\n".join(sorted(f"{f.check}\t{f.message}" for f in findings))
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def render_digest(findings: list[Finding], today: str, fingerprint: str) -> str:
+    lines = [
+        "---",
+        "title: Doctor digest",
+        "source: doctor",
+        f"created: {today}",
+        f"fingerprint: {fingerprint}",
+        "---",
+        "",
+        "Integrity findings from `brain doctor`, routed to you. Fix what you",
+        "can in writable spaces; fixes to shared pages go as `mode: patch`",
+        "promotions; items only a human can decide get a one-line reason in",
+        "`Needs-Routing.md`. Do not edit or archive this note — it rewrites",
+        "itself as findings change and disappears when everything is fixed.",
+    ]
+    by_check: dict[str, list[Finding]] = {}
+    for f in findings:
+        by_check.setdefault(f.check, []).append(f)
+    for check in sorted(by_check):
+        lines += ["", f"## {check}", ""]
+        lines += [f"- {f.message}"
+                  for f in sorted(by_check[check], key=lambda f: f.message)]
+    return "\n".join(lines) + "\n"
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True
+    )
+
+
+def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> TriageReport:
+    """Run doctor, route findings, and reconcile every recipient's digest.
+
+    Write posture mirrors ingest: the digest path is constructed, symlinked
+    ancestors are refused, and the person's own write grant is re-checked
+    (fail closed). Unlike ingest the filename is STABLE — the note is a
+    rolling reconciliation target, not an append-only intake — so identical
+    finding sets (same fingerprint) skip the write entirely and an emptied
+    set deletes the file. One commit covers the whole run.
+    """
+    findings = run_doctor(master, out_root)
+    try:
+        org = load_org(master / "_meta/org.yaml")
+        rules = load_spaces(master / "_meta/spaces.yaml")
+    except (SchemaError, OSError, yaml.YAMLError) as e:
+        return TriageReport(0, 0, 0, len(findings),
+                            [f"meta unreadable — nothing routed: {e}"])
+
+    routed, unrouted = route_findings(findings, org)
+    delivered = len({f for fs in routed.values() for f in fs})
+    written = removed = 0
+    changed: list[str] = []
+    warnings: list[str] = []
+
+    for person in org.people.values():
+        rel = f"People/{person.id}/Inbox/{DIGEST_NAME}"
+        # Refuse symlinked ancestors before touching anything (ingest posture).
+        ancestor = master
+        symlinked = False
+        for part in Path(rel).parent.parts:
+            ancestor = ancestor / part
+            if ancestor.is_symlink():
+                warnings.append(f"{rel}: ancestor is a symlink — refusing to write")
+                symlinked = True
+                break
+        if symlinked:
+            continue
+        target = master / rel
+        person_findings = routed.get(person.id, [])
+        if not person_findings:
+            if target.is_file() and not target.is_symlink():
+                target.unlink()
+                removed += 1
+                changed.append(rel)
+            continue
+        if space_of_path(rel) != f"People/{person.id}":
+            warnings.append(f"{rel}: resolves outside People/{person.id} — skipped")
+            continue
+        if not can_write_path(rel, person, rules):
+            warnings.append(
+                f"{person.id} has no write grant on their own space — skipped")
+            continue
+        fp = _fingerprint(person_findings)
+        if target.is_file() and not target.is_symlink():
+            try:
+                meta, _body = split_frontmatter(target.read_text())
+            except (KeyError, ValueError, UnicodeDecodeError):
+                meta = {}
+            if meta and meta.get("fingerprint") == fp:
+                continue  # same findings — leave the note (and `created`) alone
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(render_digest(person_findings, today, fp))
+        written += 1
+        changed.append(rel)
+
+    if changed:
+        try:
+            _git(master, "add", "--", *changed)  # stages edits AND deletions
+            if _git(master, "status", "--porcelain", "--", *changed).stdout.strip():
+                _git(master,
+                     "-c", "user.name=Brain Triage",
+                     "-c", "user.email=triage@brain.local",
+                     "commit", "-m",
+                     f"triage: {written} digest(s) written, {removed} removed")
+        except subprocess.CalledProcessError as e:
+            warnings.append(f"git commit failed: {e.stderr.strip()}")
+
+    return TriageReport(delivered, written, removed, unrouted, warnings)
