@@ -26,6 +26,37 @@ packages = ["src/brain"]
 # explicitly so they land in the wheel even though they are not .py modules.
 artifacts = ["src/brain/assets/**"]
 
+# An allowlist, not a deny list. Hatchling reads only the ROOT .gitignore, so
+# docs/.gitignore's entries do not reach it — without this the sdist was 133 MB
+# and 24,990 files (a whole npm tree, a built docs site, and the local .claude/
+# worktrees). /docs is enumerated by source path rather than wholesale for the
+# same reason: the docs site is a Node app, and its toolchain drops build trees
+# there under names we don't get to predict (node_modules/, dist/, .vercel/,
+# .vite/). Naming what belongs fails closed on all of them, present and future.
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/docs/*.mdx",
+  "/docs/concepts",
+  "/docs/guides",
+  "/docs/reference",
+  "/docs/explainers",
+  "/docs/docs.json",
+  "/docs/package.json",
+  "/docs/package-lock.json",
+  "/docs/vite.config.ts",
+  "/docs/README.md",
+  "/deploy",
+  "/templates",
+  "/scripts/demo/seed.sh",
+  "/README.md",
+  "/SECURITY.md",
+  "/LICENSE",
+  "/pyproject.toml",
+  "/uv.lock",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

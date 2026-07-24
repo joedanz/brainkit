@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .vite/
+# Vercel Build Output API tree, written by the spiceflow adapter whenever the
+# build runs with VERCEL=1 (Vercel's own CI sets it; set it locally to test).
+.vercel/

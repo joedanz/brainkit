@@ -45,7 +45,8 @@ The mechanical half of that server-side loop is a single command on a schedule:
 
 ```bash
 # refresh everyone: write back edits, sweep drafts, recompile, triage doctor findings (+ reindex)
-*/10 * * * * brain cycle --master /srv/brain/master --out /srv/brain/compiled --index --json >> /var/log/brain-cycle.log 2>&1
+# flock -n: one cycle at a time — an overlapping tick skips rather than racing the run in flight
+*/10 * * * * flock -n /var/lock/brain-cycle brain cycle --master /srv/brain/master --out /srv/brain/compiled --index --json >> /var/log/brain-cycle.log 2>&1
 
 # integrity check — nonzero exit on any error finding
 0 * * * * brain doctor --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-doctor.log 2>&1
