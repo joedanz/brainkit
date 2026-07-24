@@ -24,6 +24,11 @@ from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mod
 from brain.resolver import RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
 from brain.schemas import Org, SchemaError, SpaceRule, VaultConfig, load_config, load_org, load_spaces
 
+# Canonical filename for triage's rolling per-person digest note
+# (People/<id>/Inbox/doctor-digest.md). Lives here, not in brain.triage,
+# because doctor needs it too: see _content_files' exclusion below.
+DIGEST_NAME = "doctor-digest.md"
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -412,6 +417,19 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     return findings
 
 
+def _is_own_digest(rel: str, parts: tuple[str, ...]) -> bool:
+    """True for a person's own doctor-digest note (People/<id>/Inbox/
+    doctor-digest.md). Doctor never reads its own output: the digest quotes
+    finding messages verbatim — a fact-dup/fact-conflict message's literal
+    "[until::]" advice would trip the facts lint's "until without from"
+    check, and a stem-collision message's quoted [[wikilink]] would mark
+    that stem "connected" and mask a genuinely unlinked note — either way
+    triage would degrade the very signal it routes. So this one exclusion
+    primitive keeps the digest out of every content scan below."""
+    return (len(parts) == 4 and parts[0] == "People" and parts[2] == "Inbox"
+            and parts[3] == DIGEST_NAME)
+
+
 def _content_files(master: Path) -> list[str]:
     """All rel paths of .md files that live in a resolvable space."""
     rels: list[str] = []
@@ -420,6 +438,8 @@ def _content_files(master: Path) -> list[str]:
         if parts[0] in RESERVED or parts[0].startswith("."):
             continue
         rel = f.relative_to(master).as_posix()
+        if _is_own_digest(rel, parts):
+            continue
         if space_of_path(rel) is not None:
             rels.append(rel)
     return rels

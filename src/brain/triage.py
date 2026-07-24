@@ -20,12 +20,16 @@ from pathlib import Path
 
 import yaml
 
-from brain.doctor import Finding, run_doctor
+from brain.doctor import DIGEST_NAME, Finding, run_doctor
 from brain.frontmatter import split_frontmatter
 from brain.resolver import can_write_path, space_of_path
 from brain.schemas import Org, SchemaError, load_org, load_spaces
 
-DIGEST_NAME = "doctor-digest.md"
+# DIGEST_NAME is canonically owned by brain.doctor — doctor's own-digest
+# exclusion needs it too (see doctor._is_own_digest: doctor must never read
+# the notes triage writes, or the digest's quoted fact markers and
+# wikilinks would corrupt doctor's own findings). Importing it here keeps
+# it available as brain.triage.DIGEST_NAME for existing callers/tests.
 
 # Content findings an agent can act on. Everything else is either infra
 # (routed to admins at error severity only) or has its own queue already

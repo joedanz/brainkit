@@ -185,6 +185,48 @@ def test_unreadable_digest_warns_instead_of_crashing(master, tmp_path, monkeypat
     assert any(DIGEST_NAME in w for w in report.warnings)
 
 
+def test_doctor_never_reads_its_own_digest(master, tmp_path):
+    """Fixed-point invariant: running triage must never change the next
+    doctor run's finding set. Two digest-quoting mechanisms are exercised:
+    a fact-dup finding whose advice text contains a literal `[until::]`
+    marker (would trip the facts lint's "until without from" check if the
+    digest were scanned), and a stem-collision finding whose message
+    quotes a `[[wikilink]]` (would mark that stem "connected" and mask a
+    genuinely unlinked note if the digest were scanned)."""
+    from brain.doctor import run_doctor
+
+    seed_meta(master)
+
+    # (a) duplicate open fact across two files in bob's space -> fact-dup,
+    # routed to bob; message text contains "[until::]" verbatim.
+    fact1 = master / "People/bob/Notes/Fact1.md"
+    fact2 = master / "People/bob/Notes/Fact2.md"
+    fact1.parent.mkdir(parents=True, exist_ok=True)
+    fact1.write_text("- [[Widget]] costs $10 [from:: 2026-01]\n")
+    fact2.write_text("- [[Widget]] costs $10 [from:: 2026-01]\n")
+
+    # (b) two stem-colliding files in Company (a space alice and bob both
+    # read) -> stem-collision, routed to admins; message quotes [[Widget]].
+    widget_a = master / "Company/Notes/Widget.md"
+    widget_b = master / "Company/Archive/Widget.md"
+    widget_a.parent.mkdir(parents=True, exist_ok=True)
+    widget_b.parent.mkdir(parents=True, exist_ok=True)
+    widget_a.write_text("Widget details A. Some content here that differs.\n")
+    widget_b.write_text("Widget details B, totally different phrasing altogether.\n")
+
+    before = run_doctor(master)
+    assert any(f.check == "fact-dup" for f in before)
+    assert any(f.check == "stem-collision" for f in before)
+
+    run_triage(master, today="2026-07-24")
+
+    after = run_doctor(master)
+    assert after == before
+
+    again = run_triage(master, today="2026-07-25")
+    assert again.digests_written == 0
+
+
 def test_cli_triage_json(master, capsys):
     seed_meta(master)
     (master / "People/stray.md").write_text("orphan\n")
