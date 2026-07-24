@@ -7,7 +7,7 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,rename-entities,ingest,webhook,compile,writeback,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor} …
+brain {init,rename-entities,ingest,webhook,compile,writeback,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor,triage} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error (unknown person, rejected write-back, invalid promotion, or an integrity error), with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
@@ -202,9 +202,13 @@ brain cycle --master <master> --out <out> [--json] [--index]
 | `shares_tampering` | Share/revoke requests from someone who doesn't own the space at cycle time, plus delegated decision notes with a forged `owner` — a tamper signal. |
 | `indexed` | Vaults reindexed (only meaningful with `--index`). |
 | `index_warnings` | Per-vault indexing warnings (only meaningful with `--index`). |
+| `triage_findings` | Doctor findings routed to people's digests this cycle. |
+| `triage_digests` | Digest notes written or removed this cycle. |
+| `triage_unrouted` | Findings with no eligible recipient (no admin configured). |
+| `triage_warnings` | Warnings from the triage step (skipped digests, git failures) — surfaced on stderr in text mode, never flips `ok`. |
 | `ok` | `false` if any write-back was rejected or a tampering signal fired — see below. |
 
-The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, share, and decision requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes — and `sweep_approvals` applies any delegated decisions sitting in `People/*/Approvals/`, re-checking eligibility against the live rule before touching anything. All of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, and the recompile runs *last* so every vault reflects the fully updated master. A rejected write-back never halts the cycle — the rest of the pipeline still runs, and the fresh compile reverts the rejected edits server-side (fail closed).
+The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, share, and decision requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes — and `sweep_approvals` applies any delegated decisions sitting in `People/*/Approvals/`, re-checking eligibility against the live rule before touching anything. All of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, and the recompile runs *last* so every vault reflects the fully updated master. A rejected write-back never halts the cycle — the rest of the pipeline still runs, and the fresh compile reverts the rejected edits server-side (fail closed). After the compile, triage runs doctor and reconciles each person's `People/<id>/Inbox/doctor-digest.md` — the digests land in master this cycle and compile into vaults on the next. Triage warnings never flip `ok`.
 
 `ok` is `false` when any write-back is rejected, or when a client or share request is flagged as **tampering** — an owner-mismatch client request, a share/revoke request from someone who turns out not to own the space when the cycle runs, or a delegated decision note (`Approvals/`) with a forged `owner`. Routine outcomes don't flip it: a client request that loses a name collision (`clients_rejected`), a share request rejected for an ordinary reason (unknown recipient, already shared, nothing to revoke), or a delegated decision refused for an ordinary reason (an ineligible decider, an already-decided share) is a normal user outcome, surfaced via the requester's or decider's own inbox note — not a security event. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns and never flips `ok`.
 
@@ -342,6 +346,36 @@ Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into C
   baseline — is the *normal* "edits awaiting write-back" state, so it is
   reported as `info`, never an error.
 </Callout>
+
+## `brain triage`
+
+Route `doctor` findings to the people who can fix them, as one rolling digest
+note per person (`People/<id>/Inbox/doctor-digest.md`). Warn-level content
+findings (unlinked notes, orphans, stale or unfolded intel, duplicates, and
+duplicate or conflicting facts) go to the owner of the space they're about;
+findings about shared spaces, unresolvable paths, or departed people — and
+error-level infrastructure findings — go to the admins. Paths and fact
+statements from spaces a recipient cannot read are redacted from their
+digest; admins receive the full detail. The digest is machine-owned:
+identical findings skip the write (a fingerprint in the frontmatter), changed
+findings rewrite it, and an emptied set deletes it, so re-runs never multiply
+notes. Fixes flow back through the normal gates — write-back for a person's
+own spaces, `mode: patch` promotions for shared pages. `brain cycle` runs
+this automatically after each compile; the standalone verb exists for manual
+runs.
+
+```bash
+brain triage --master <master> [--out <out>] [--json]
+```
+
+| Flag | Required | Meaning |
+| --- | --- | --- |
+| `--master` | yes | The master vault. |
+| `--out` | no | Compiled output root — enables the compiled-vault checks, same as `doctor --out`. |
+| `--json` | no | Structured report: `routed`, `digests_written`, `digests_removed`, `unrouted`, `warnings`, `ok`. |
+
+Exit is always `0`; problems surface as `warnings` (and `doctor` remains the
+failing check for CI).
 
 ## `brain status`
 

@@ -229,10 +229,16 @@ def test_cycle_index_reuses_cache_on_second_run(master, tmp_path, monkeypatch):
     monkeypatch.setattr("brain.embeddings.provider_from_config", lambda: spy)
 
     run_cycle(master, out, today="2026-07-07", index=True)
+    # Task 5: this cycle's triage run lands a fresh doctor-digest note in
+    # master (the seeded fixture has real doctor findings to route). That
+    # note only reaches the compiled vaults — and gets indexed — on the
+    # NEXT cycle, so warm up once here before taking the "nothing changed"
+    # baseline the rest of this test relies on.
+    run_cycle(master, out, today="2026-07-08", index=True)
     after_first = spy.embed_texts
     assert after_first > 0
-    # nothing changed in master → the second cycle re-embeds nothing
-    run_cycle(master, out, today="2026-07-08", index=True)
+    # nothing changed in master → the next cycle re-embeds nothing
+    run_cycle(master, out, today="2026-07-09", index=True)
     assert spy.embed_texts == after_first
 
 
@@ -652,3 +658,48 @@ def test_everyone_share_admin_only_end_to_end(tmp_path):
     r = run_cycle(master, out, "2026-07-25")
     carol_wb = next(w for w in r.writebacks if w.person_id == "carol")
     assert carol_wb.status == "rejected"
+
+
+# ---- Task 5: cycle runs triage after compile ------------------------------- #
+
+def test_cycle_runs_triage_after_compile(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (master / "People/stray.md").write_text("orphan\n")  # routes to admin alice
+
+    report = run_cycle(master, out, today="2026-07-24")
+
+    assert report.ok  # triage never flips ok
+    assert report.triage_findings >= 1
+    assert report.triage_unrouted == 0
+    digest = master / "People/alice/Inbox/doctor-digest.md"
+    assert "People/stray.md" in digest.read_text()
+    # rolling note is idempotent across cycles
+    again = run_cycle(master, out, today="2026-07-25")
+    assert again.triage_digests == 0
+
+
+def test_cycle_survives_triage_crash(master, tmp_path, monkeypatch):
+    """A triage crash must never abort the cycle — mirrors the indexing
+    posture (_refresh_indexes' own try/except): the rest of the pipeline
+    already ran (writeback, sweeps, compile), so a broken triage run should
+    warn, not throw away that work."""
+    import brain.triage
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("triage exploded")
+
+    monkeypatch.setattr(brain.triage, "run_triage", boom)
+
+    report = run_cycle(master, out, today="2026-07-24")
+
+    assert report.ok
+    assert any("triage failed" in w for w in report.triage_warnings)
+    assert report.triage_findings == 0
+    assert report.triage_digests == 0
+    assert report.triage_unrouted == 0
+    # everything before the triage call still ran normally
+    assert report.compiled == 2

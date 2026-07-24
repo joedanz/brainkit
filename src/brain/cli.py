@@ -285,6 +285,10 @@ def cmd_cycle(args) -> int:
             print(f"indexed {report.indexed} vault(s)")
         for w in report.index_warnings:
             print(f"  index warning: {w}", file=sys.stderr)
+        print(f"triaged {report.triage_findings} finding(s) into "
+              f"{report.triage_digests} digest update(s)")
+        for w in report.triage_warnings:
+            print(f"  triage warning: {w}", file=sys.stderr)
     return 0 if report.ok else 1
 
 
@@ -304,6 +308,26 @@ def cmd_doctor(args) -> int:
         print(f"{len(errors)} error(s), {warns} warning(s), "
               f"{len(findings)} finding(s) total")
     return 1 if errors else 0
+
+
+def cmd_triage(args) -> int:
+    from brain.triage import run_triage
+
+    report = run_triage(Path(args.master),
+                        Path(args.out) if args.out else None,
+                        today=date.today().isoformat())
+    if args.json:
+        payload = asdict(report)
+        payload["ok"] = True
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"routed {report.routed} finding(s); "
+              f"{report.digests_written} digest(s) written, "
+              f"{report.digests_removed} removed; "
+              f"{report.unrouted} unrouted")
+        for w in report.warnings:
+            print(f"  warning: {w}", file=sys.stderr)
+    return 0
 
 
 def cmd_index(args) -> int:
@@ -700,6 +724,14 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--out")
     d.add_argument("--json", action="store_true")
     d.set_defaults(func=cmd_doctor)
+
+    tr = sub.add_parser(
+        "triage",
+        help="route doctor findings to responsible people as Inbox digests")
+    tr.add_argument("--master", required=True)
+    tr.add_argument("--out", help="compiled root (enables the compiled-vault checks)")
+    tr.add_argument("--json", action="store_true")
+    tr.set_defaults(func=cmd_triage)
 
     return parser
 

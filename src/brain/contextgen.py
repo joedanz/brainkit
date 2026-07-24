@@ -32,6 +32,11 @@ writable spaces; the write-back service rejects changes to read-only paths.
 - Action items (owner + deadline) -> `People/{pid}/Actions/Tracker.md`
 - Session/meeting summaries -> `People/{pid}/Sessions/`
 - Raw transcripts land in `People/{pid}/Inbox/` and are processed, then archived to `People/{pid}/Sessions/`
+- `People/{pid}/Inbox/doctor-digest.md` (`source: doctor`) is a generated
+  integrity report, not a capture: fix what you can in writable spaces,
+  submit shared-page fixes as `mode: patch` promotions, and record a one-line
+  reason in `People/{pid}/Needs-Routing.md` for items only a human can
+  decide. Never edit or archive the digest — it maintains itself.
 - Personal durable facts, preferences, lessons -> `People/{pid}/Memory.md`.
   Keep it a lean overview, not a running log: small facts live under its
   headings; when a topic outgrows a few lines, move the detail to

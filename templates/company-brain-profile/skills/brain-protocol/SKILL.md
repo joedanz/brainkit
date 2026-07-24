@@ -114,3 +114,10 @@ edge.
   detail to People/<you>/Notes/<Topic>.md and leave a one-line link under
   the heading. Give notes searchable titles — retrieval is keyword-based.
 - Surface stale actions and unprocessed Inbox items when asked for status.
+- A doctor digest (`People/<you>/Inbox/doctor-digest.md`, `source: doctor`)
+  lists integrity findings routed to you. Fix what you can in writable
+  spaces: link unlinked notes, fold addenda, close superseded facts with
+  `[until::]`, merge duplicates. Fixes to shared pages go as `mode: patch`
+  promotions. Items only a human can decide get a one-line reason in
+  `Needs-Routing.md`. Never edit or archive the digest itself — it rewrites
+  itself as findings change and disappears when everything is fixed.

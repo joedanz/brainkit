@@ -835,3 +835,25 @@ def test_fresh_scaffold_has_no_dup_findings(tmp_path):
     dup = [f for f in findings
            if f.check in ("dup-exact", "dup-near", "stem-collision")]
     assert dup == []
+
+
+def test_findings_carry_structured_paths(master):
+    seed_meta(master)
+    (master / "People/stray.md").write_text("orphan\n")
+    intel = master / "Company/Intel/Destinations/Lisbon.md"
+    intel.parent.mkdir(parents=True)
+    intel.write_text("Lisbon is nice.\n")  # no dated citation -> intel warn
+    body = ("word " * 25).strip() + "\n"  # >= DUP_MIN_WORDS (20)
+    (master / "Company/CopyA.md").write_text(body)
+    (master / "Company/CopyB.md").write_text(body)
+
+    findings = run_doctor(master)
+
+    orphan = next(f for f in findings if f.check == "orphan-files")
+    assert orphan.paths == ("People/stray.md",)
+    it = next(f for f in findings if f.check == "intel" and "Lisbon" in f.message)
+    assert it.paths == ("Company/Intel/Destinations/Lisbon.md",)
+    dup = next(f for f in findings if f.check == "dup-exact")
+    assert sorted(dup.paths) == ["Company/CopyA.md", "Company/CopyB.md"]
+    # non-routed checks keep the default
+    assert all(f.paths == () for f in findings if f.check == "meta")

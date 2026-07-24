@@ -24,12 +24,18 @@ from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mod
 from brain.resolver import RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
 from brain.schemas import Org, SchemaError, SpaceRule, VaultConfig, load_config, load_org, load_spaces
 
+# Canonical filename for triage's rolling per-person digest note
+# (People/<id>/Inbox/doctor-digest.md). Lives here, not in brain.triage,
+# because doctor needs it too: see _content_files' exclusion below.
+DIGEST_NAME = "doctor-digest.md"
+
 
 @dataclass(frozen=True)
 class Finding:
     severity: str  # "error" | "warn" | "info"
     check: str
     message: str
+    paths: tuple[str, ...] = ()  # rel path(s) this finding is about; () = infra-level
 
 
 def _check_meta(master: Path) -> tuple[list[Finding], Org | None, tuple[SpaceRule, ...] | None]:
@@ -129,10 +135,12 @@ def _check_orphan_files(master: Path) -> list[Finding]:
             continue
         for f in sorted(d.glob("*.md")):
             if f.is_file():
+                rel = f.relative_to(master).as_posix()
                 findings.append(Finding(
                     "warn", "orphan-files",
-                    f"{f.relative_to(master)} sits directly under {top}/ — not in "
-                    f"any space, so it compiles into no vault; move it into a subfolder"))
+                    f"{rel} sits directly under {top}/ — not in "
+                    f"any space, so it compiles into no vault; move it into a subfolder",
+                    paths=(rel,)))
     return findings
 
 
@@ -190,7 +198,8 @@ def _check_unlinked_notes(master: Path) -> list[Finding]:
         findings.append(Finding(
             "warn", "unlinked-notes",
             f"{rel}: no links, relations, or facts connect this note — "
-            "graph search can never reach it"))
+            "graph search can never reach it",
+            paths=(rel,)))
     return findings
 
 
@@ -293,9 +302,9 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
             return
         flagged.add(pair)
         if space_readers(a) & space_readers(b):
-            findings.append(Finding("warn", check, warn_msg))
+            findings.append(Finding("warn", check, warn_msg, paths=(a, b)))
         else:
-            findings.append(Finding("info", check, info_msg))
+            findings.append(Finding("info", check, info_msg, paths=(a, b)))
 
     # Tier 1: identical bytes. Chained pairs (a,b),(b,c) — one finding per
     # adjacent pair in a group is signal enough without O(n^2) noise.
@@ -348,7 +357,8 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
                     "warn", "stem-collision",
                     f"{a} and {b} share the title stem {stem!r} — a bare "
                     f"[[{display_stem}]] resolves to whichever sorts first; "
-                    "rename one or link by full path"))
+                    "rename one or link by full path",
+                    paths=(a, b)))
 
     # Tier 3a: lexical near-duplicates. LSH banding keeps the candidate set
     # near-linear; the signature estimate is the accept test.
@@ -407,6 +417,19 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     return findings
 
 
+def _is_own_digest(rel: str, parts: tuple[str, ...]) -> bool:
+    """True for a person's own doctor-digest note (People/<id>/Inbox/
+    doctor-digest.md). Doctor never reads its own output: the digest quotes
+    finding messages verbatim — a fact-dup/fact-conflict message's literal
+    "[until::]" advice would trip the facts lint's "until without from"
+    check, and a stem-collision message's quoted [[wikilink]] would mark
+    that stem "connected" and mask a genuinely unlinked note — either way
+    triage would degrade the very signal it routes. So this one exclusion
+    primitive keeps the digest out of every content scan below."""
+    return (len(parts) == 4 and parts[0] == "People" and parts[2] == "Inbox"
+            and parts[3] == DIGEST_NAME)
+
+
 def _content_files(master: Path) -> list[str]:
     """All rel paths of .md files that live in a resolvable space."""
     rels: list[str] = []
@@ -415,6 +438,8 @@ def _content_files(master: Path) -> list[str]:
         if parts[0] in RESERVED or parts[0].startswith("."):
             continue
         rel = f.relative_to(master).as_posix()
+        if _is_own_digest(rel, parts):
+            continue
         if space_of_path(rel) is not None:
             rels.append(rel)
     return rels
@@ -606,7 +631,8 @@ def _check_fact_conflicts(master: Path) -> list[Finding]:
                 "warn", "fact-dup",
                 f'{rel_a}:{fa.line} ↔ {rel_b}:{fb.line}: duplicate open fact '
                 f'"{fa.statement}" — delete one via write-back, or close the '
-                f'older with [until::]'))
+                f'older with [until::]',
+                paths=(rel_a, rel_b)))
         else:
             about = sorted(keys_a & keys_b)[0]
             findings.append(Finding(
@@ -614,7 +640,8 @@ def _check_fact_conflicts(master: Path) -> list[Finding]:
                 f'{rel_a}:{fa.line} ↔ {rel_b}:{fb.line}: conflicting open '
                 f'facts about [[{about}]]: "{fa.statement}" (from '
                 f'{fa.from_date}) vs "{fb.statement}" (from {fb.from_date}) '
-                f'— close the superseded fact with [until::]'))
+                f'— close the superseded fact with [until::]',
+                paths=(rel_a, rel_b)))
     return findings
 
 
@@ -784,7 +811,8 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
             findings.append(Finding(
                 "warn", "intel",
                 f"{rel}: unfolded addendum — fold it into its page and delete "
-                "it, or have the agent resubmit as a mode: patch promotion"))
+                "it, or have the agent resubmit as a mode: patch promotion",
+                paths=(rel,)))
             continue
         if f.name == "Home.md":
             continue
@@ -794,14 +822,16 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
             findings.append(Finding(
                 "warn", "intel",
                 f"{rel}: no dated citations — every Intel claim needs "
-                "`[source](URL), as of YYYY-MM` or `captured YYYY-MM`"))
+                "`[source](URL), as of YYYY-MM` or `captured YYYY-MM`",
+                paths=(rel,)))
         elif now_m - max(months) > STALE_MONTHS:
             newest = max(months)
             findings.append(Finding(
                 "warn", "intel",
                 f"{rel}: stale — newest citation "
                 f"{newest // 12:04d}-{newest % 12 + 1:02d} is over "
-                f"{STALE_MONTHS} months old"))
+                f"{STALE_MONTHS} months old",
+                paths=(rel,)))
     return findings
 
 
