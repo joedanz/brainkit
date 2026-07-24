@@ -1,6 +1,6 @@
 {
   "$schema": "https://holocron.so/docs.json",
-  "name": "Company Brain",
+  "name": "brainkit",
   "colors": {
     "primary": "#6366f1"
   },
