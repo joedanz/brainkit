@@ -205,6 +205,7 @@ brain cycle --master <master> --out <out> [--json] [--index]
 | `triage_findings` | Doctor findings routed to people's digests this cycle. |
 | `triage_digests` | Digest notes written or removed this cycle. |
 | `triage_unrouted` | Findings with no eligible recipient (no admin configured). |
+| `triage_warnings` | Warnings from the triage step (skipped digests, git failures) — surfaced on stderr in text mode, never flips `ok`. |
 | `ok` | `false` if any write-back was rejected or a tampering signal fired — see below. |
 
 The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, share, and decision requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes — and `sweep_approvals` applies any delegated decisions sitting in `People/*/Approvals/`, re-checking eligibility against the live rule before touching anything. All of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, and the recompile runs *last* so every vault reflects the fully updated master. A rejected write-back never halts the cycle — the rest of the pipeline still runs, and the fresh compile reverts the rejected edits server-side (fail closed). After the compile, triage runs doctor and reconciles each person's `People/<id>/Inbox/doctor-digest.md` — the digests land in master this cycle and compile into vaults on the next. Triage warnings never flip `ok`.
@@ -350,9 +351,8 @@ Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into C
 
 Route `doctor` findings to the people who can fix them, as one rolling digest
 note per person (`People/<id>/Inbox/doctor-digest.md`). Warn-level content
-findings (unlinked notes, orphans, stale or unfolded intel, duplicates, fact
-conflicts) go to the owner of the space they're about; findings about shared
-spaces — and error-level infrastructure findings — go to the admins. The
+findings (unlinked notes, orphans, stale or unfolded intel, duplicates, duplicate and conflicting facts) go to the owner of the space they're about; findings about shared
+spaces or unresolvable paths — and error-level infrastructure findings — go to the admins. The
 digest is machine-owned: identical findings skip the write (a fingerprint in
 the frontmatter), changed findings rewrite it, and an emptied set deletes it,
 so re-runs never multiply notes. Fixes flow back through the normal gates —
@@ -368,7 +368,7 @@ brain triage --master <master> [--out <out>] [--json]
 | --- | --- | --- |
 | `--master` | yes | The master vault. |
 | `--out` | no | Compiled output root — enables the compiled-vault checks, same as `doctor --out`. |
-| `--json` | no | Structured report: `routed`, `digests_written`, `digests_removed`, `unrouted`, `warnings`. |
+| `--json` | no | Structured report: `routed`, `digests_written`, `digests_removed`, `unrouted`, `warnings`, `ok`. |
 
 Exit is always `0`; problems surface as `warnings` (and `doctor` remains the
 failing check for CI).
