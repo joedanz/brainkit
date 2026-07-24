@@ -27,12 +27,14 @@ from typing import Protocol, runtime_checkable
 
 import yaml
 
+from brain.errors import BrainError
+
 DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_DIM = 512
 _RETRYABLE = (429, 500, 502, 503, 504)
 
 
-class EmbeddingError(RuntimeError):
+class EmbeddingError(BrainError, RuntimeError):
     """An embedding provider request failed and could not be retried."""
 
 

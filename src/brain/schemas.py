@@ -8,8 +8,10 @@ from pathlib import Path
 
 import yaml
 
+from brain.errors import BrainError
 
-class SchemaError(ValueError):
+
+class SchemaError(BrainError, ValueError):
     """Invalid org.yaml or spaces.yaml content."""
 
 
@@ -142,8 +144,23 @@ def _string_list(value: object, owner: str, field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _read_yaml(path: Path) -> dict:
+    """Read a _meta file, turning "not there" and "does not parse" into the
+    same handled error the content checks raise. Both are things an operator
+    causes and can fix — pointing `--master` at the wrong directory is the
+    single most common one — so neither belongs in a traceback."""
+    try:
+        text = path.read_text()
+    except OSError as e:
+        raise SchemaError(f"cannot read {path.name}: {e.strerror} ({path})") from e
+    try:
+        return yaml.safe_load(text) or {}
+    except yaml.YAMLError as e:
+        raise SchemaError(f"{path.name} does not parse: {e}") from e
+
+
 def load_org(path: Path) -> Org:
-    data = yaml.safe_load(path.read_text()) or {}
+    data = _read_yaml(path)
     people_raw = data.get("people")
     if not isinstance(people_raw, dict) or not people_raw:
         raise SchemaError("org.yaml must define a non-empty 'people' mapping")
@@ -179,7 +196,7 @@ def load_org(path: Path) -> Org:
 
 
 def load_spaces(path: Path) -> tuple[SpaceRule, ...]:
-    data = yaml.safe_load(path.read_text()) or {}
+    data = _read_yaml(path)
     entries = data.get("spaces")
     if not isinstance(entries, list) or not entries:
         raise SchemaError("spaces.yaml must define a non-empty 'spaces' list")

@@ -23,6 +23,7 @@ from typing import Protocol
 import sqlite_vec
 
 from brain.chunker import Chunk
+from brain.errors import BrainError
 
 SCHEMA_VERSION = 4
 
@@ -83,7 +84,7 @@ CREATE INDEX IF NOT EXISTS edges_by_src ON edges(src_rel_path);
 """
 
 
-class StoreError(RuntimeError):
+class StoreError(BrainError, RuntimeError):
     """The index is unusable (e.g. built by a newer brainkit schema)."""
 
 

@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from brain.errors import BrainError
 from brain.resolver import space_of_path
 
 
-class NoteAccessError(Exception):
+class NoteAccessError(BrainError):
     """A path is not a readable file inside this vault (refused, not missing)."""
 
 

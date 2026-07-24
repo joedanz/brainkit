@@ -18,10 +18,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from brain.errors import BrainError
 from brain.schemas import VaultConfig, load_config, make_config
 
 
-class RenameError(ValueError):
+class RenameError(BrainError, ValueError):
     """Invalid or impossible rename request."""
 
 

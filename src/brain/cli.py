@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from datetime import date
@@ -12,6 +13,7 @@ from pathlib import Path
 from brain.compiler import compile_all, compile_vault
 from brain.cycle import run_cycle
 from brain.doctor import run_doctor
+from brain.errors import HANDLED, describe
 from brain.ingest import IngestError, ingest_note
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
@@ -741,8 +743,34 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run a subcommand, holding the contract the reference promises: exit 0
+    on success, 1 on a handled error, with a human-readable message on stderr.
+
+    Commands that can say something better about their own failure still
+    catch it themselves and return 1 — this is the floor beneath them, not a
+    replacement. It exists because the floor is what a cron line lands on:
+    `brain cycle` at 3am meets a full disk or a git that refuses long before
+    it meets a case anyone wrote a message for, and a traceback in
+    /var/log is a worse answer than one line naming the path.
+
+    Only `errors.HANDLED` is caught. Anything else is a bug we did not
+    anticipate, and its traceback is the honest output.
+    """
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("interrupted", file=sys.stderr)
+        return 130
+    except BrokenPipeError:
+        # `brain search ... | head` closes the pipe early; that is the pipe
+        # working, not a failure. Devnull the fd so the interpreter's own
+        # flush at exit cannot re-raise it after we have returned.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
+    except HANDLED as e:
+        print(f"brain {args.command}: {describe(e)}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

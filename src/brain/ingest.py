@@ -26,13 +26,14 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from brain.errors import BrainError
 from brain.resolver import can_write_path, space_of_path
 from brain.schemas import Person, SpaceRule
 
 _MAX_SLUG = 60
 
 
-class IngestError(ValueError):
+class IngestError(BrainError, ValueError):
     """Invalid metadata, an unwritable target, or a failed commit.
 
     Callers surface this as a handled error (a message on stderr and a non-zero
