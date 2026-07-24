@@ -252,7 +252,8 @@ def _post_process(
                     "regenerated on every compile — edits here are discarded.\n")
         note = note.rstrip("\n") + "\n\n" + decider
     if note is not None:
-        # People/<pid>/Shares.md is a reserved generated filename — regenerated from queue truth each compile.
+        # People/<pid>/Shares.md is a reserved generated filename —
+        # regenerated from queue truth each compile.
         rel = SHARES_NOTE_REL.format(person_id=person.id)
         dest = building / rel
         dest.parent.mkdir(parents=True, exist_ok=True)

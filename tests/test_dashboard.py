@@ -2,8 +2,6 @@ import json
 import re
 from pathlib import Path
 
-import pytest
-
 from brain.cli import main
 from brain.compiler import compile_vault
 from brain.dashboard import render_dashboard
@@ -179,9 +177,7 @@ def test_static_as_of_filter_agrees_with_query_facts(master, tmp_path):
     def keep(f, on):  # mirrors dashboard.py renderFacts (endedBox unchecked)
         if f["from_date"] > on:
             return False
-        if f["until_date"] is not None and f["until_date"] < on:
-            return False
-        return True
+        return not (f["until_date"] is not None and f["until_date"] < on)
 
     for on in ["2024-01-01", "2024-06-15", "2026-01-15", "2026-02-01", "2027-01-01"]:
         hits, _ = query_facts(vault, as_of=on)

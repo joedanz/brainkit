@@ -1,6 +1,6 @@
+import hashlib
 from pathlib import Path
 
-import hashlib
 import pytest
 
 from brain.promotions import (
@@ -364,8 +364,8 @@ def test_draft_into_space_stays_in_owner_space(master: Path):
 ], ids=["target-path", "source"])
 def test_draft_into_space_rejects_multiline_fields(master: Path, overrides):
     # A newline in a header field would smuggle extra frontmatter into the draft.
-    kwargs = dict(target_path="Company/Playbook/SOP.md", source="src",
-                  body="b", created="2026-07-07")
+    kwargs = {"target_path": "Company/Playbook/SOP.md", "source": "src",
+                  "body": "b", "created": "2026-07-07"}
     kwargs.update(overrides)
     with pytest.raises(PromotionError, match="single line"):
         draft_into_space(master, "bob", **kwargs)

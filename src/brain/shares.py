@@ -660,7 +660,8 @@ _DECIDED_CAP = 20
 def generate_space_shares_section(master: Path, person_id: str, today: str) -> str | None:
     """Markdown section for the person's Shares.md: their pending share
     requests plus decisions from the last 30 days. None when empty."""
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
 
     base = master / "_meta/shares"
 

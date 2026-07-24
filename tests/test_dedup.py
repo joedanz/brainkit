@@ -22,7 +22,7 @@ def test_shingles_below_k_words_is_empty():
 
 def test_minhash_is_deterministic_and_none_on_empty():
     s = shingles([f"w{i}" for i in range(20)])
-    assert minhash_signature(s) == minhash_signature(set(list(s)))
+    assert minhash_signature(s) == minhash_signature(set(s))
     assert minhash_signature(set()) is None
 
 

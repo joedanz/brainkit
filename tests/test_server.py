@@ -1,7 +1,6 @@
 import sqlite3
 
 import pytest
-
 from aiohttp import WSServerHandshakeError
 
 from brain.cli import main
@@ -280,6 +279,7 @@ async def test_reject_requires_reason(aiohttp_client, master, tmp_path):
 
 async def test_promotion_api_carries_mode_and_diff(aiohttp_client, master, tmp_path):
     import hashlib
+
     from brain.promotions import draft_promotion
 
     app, _ = _master_app(master, tmp_path)

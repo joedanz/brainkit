@@ -1,0 +1,84 @@
+# Lint config for brainkit.
+#
+# Two things here are load-bearing and easy to undo by accident:
+#
+# 1. `select` is an explicit list, never ruff's defaults. Ruff's default rule
+#    set grows with releases — 0.16 added DTZ, BLE, S, PLW, ASYNC and FURB
+#    rules to it — so a repo linting on defaults starts failing CI on somebody
+#    else's unrelated PR the week a new ruff ships. Adding a family here is a
+#    decision someone makes; it should never arrive on its own.
+#
+# 2. CI pins the ruff version (see .github/workflows/tests.yml) for the same
+#    reason. `uvx ruff` locally may be newer than CI and report more; that is
+#    fine and worth looking at, but CI is the gate.
+#
+# Every entry under `ignore` records why. A rule turned off without a reason is
+# indistinguishable from one nobody got around to fixing.
+
+line-length = 100  # p99 of this codebase is 89; 88 would fight it for nothing
+target-version = "py312"
+
+exclude = [".ruff_cache", "docs", "dist", "build"]
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes — unused imports/variables, undefined names
+    "I",    # isort — import order
+    "B",    # flake8-bugbear — real footguns
+    "UP",   # pyupgrade — keep up with the language floor
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "PIE",  # flake8-pie
+    "ISC",  # implicit string concatenation
+    "RUF",  # ruff-specific
+]
+
+ignore = [
+    # `config: VaultConfig = VaultConfig()` — the argument that would make this
+    # a bug (a shared mutable default) does not apply: VaultConfig is a frozen
+    # dataclass, so every caller sees the same immutable value on purpose.
+    "B008",
+
+    # Every hit is a closure defined and *called* inside the same iteration
+    # (the share/approval sweeps in shares.py), never stored for later. The
+    # rule cannot see the call site, so all 17 are false positives. Re-check
+    # if one of those closures is ever handed to a scheduler or a callback.
+    "B023",
+
+    # zip() without strict=. Adding strict=True would change behavior at every
+    # site — several deliberately zip a sequence with its own tail
+    # (`zip(chain, chain[1:])`) where unequal length is the point.
+    "B905",
+
+    # "Comment contains ambiguous `α`, did you mean `a`?" — no. The three hits
+    # are the damping factor in the PageRank identities that test_graphrank
+    # checks its implementation against. α is the symbol the literature uses,
+    # and the whole value of writing the closed form in a comment is that it
+    # matches the source you would compare it to.
+    "RUF003",
+]
+
+[lint.per-file-ignores]
+# These two files' long lines are *payload*, not code: templates.py:35 is a
+# line of the spaces.yaml every `brain init` writes, and contextgen.py:43 is a
+# routing rule in the AGENTS.md compiled into every vault. Wrapping them would
+# change generated file content. They can't carry a `# noqa` either — the line
+# lives inside a triple-quoted string, so the marker would ship as vault text.
+"src/brain/templates.py" = ["E501"]
+"src/brain/contextgen.py" = ["E501"]
+
+# Tests are mostly fixtures built inline, and read far better for it:
+#   B008/B023 — helpers defined and called inside the same loop iteration
+#   E402      — an import placed next to the one test that needs it, rather
+#               than at the top a hundred lines away from its only use
+#   E731      — `pr = lambda g: ...` as a one-line probe in a numeric test;
+#               a def would be three lines of ceremony around an expression
+#   E501      — markdown bodies, frontmatter, and strings compared verbatim.
+#               Rewrapping a fixture to hit a column limit is how you change
+#               what a test tests without noticing.
+"tests/*" = ["B008", "B023", "E402", "E731", "E501"]
+
+[lint.isort]
+known-first-party = ["brain", "tests"]

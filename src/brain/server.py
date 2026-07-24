@@ -149,7 +149,7 @@ async def handle_stats(request: web.Request) -> web.Response:
     try:
         data = await _stats_json(request.app)
     except Exception as e:  # a bad master meta / uncompiled vault is a 500, with reason
-        raise web.HTTPInternalServerError(reason=str(e))
+        raise web.HTTPInternalServerError(reason=str(e)) from e
     return web.json_response(data)
 
 
@@ -207,7 +207,7 @@ async def handle_search(request: web.Request) -> web.Response:
     try:
         return web.json_response(await asyncio.to_thread(_search))
     except Exception as e:  # newer on-disk schema, a locked index, etc.
-        raise web.HTTPInternalServerError(reason=str(e))
+        raise web.HTTPInternalServerError(reason=str(e)) from e
 
 
 async def handle_facts(request: web.Request) -> web.Response:
@@ -232,7 +232,7 @@ async def handle_facts(request: web.Request) -> web.Response:
     try:
         return web.json_response(await asyncio.to_thread(_facts))
     except Exception as e:  # a corrupt index file, etc.
-        raise web.HTTPInternalServerError(reason=str(e))
+        raise web.HTTPInternalServerError(reason=str(e)) from e
 
 
 async def handle_notes(request: web.Request) -> web.Response:
@@ -283,11 +283,11 @@ async def handle_note(request: web.Request) -> web.Response:
     try:
         text = await asyncio.to_thread(read_note, vault, rel_path)
     except NoteAccessError as e:
-        raise web.HTTPForbidden(reason=str(e))
+        raise web.HTTPForbidden(reason=str(e)) from e
     except OSError:
         # Deleted between read_note's is_file() check and read_text (e.g. a
         # concurrent brain cycle rewrote the slice). Not a server fault.
-        raise web.HTTPNotFound(reason="note not found")
+        raise web.HTTPNotFound(reason="note not found") from None
     links = await asyncio.to_thread(note_links, vault, rel_path)
     return web.json_response({"path": rel_path, "text": text, "links": asdict(links)})
 
@@ -322,7 +322,7 @@ async def _json_body(request: web.Request) -> dict:
     try:
         data = await request.json()
     except (json.JSONDecodeError, ValueError):
-        raise web.HTTPBadRequest(reason="expected a JSON object body")
+        raise web.HTTPBadRequest(reason="expected a JSON object body") from None
     if not isinstance(data, dict):
         raise web.HTTPBadRequest(reason="expected a JSON object body")
     return data
@@ -369,9 +369,10 @@ async def handle_capture(request: web.Request) -> web.Response:
         try:
             rel = await asyncio.to_thread(_write)
         except IngestError as e:
-            raise web.HTTPBadRequest(reason=str(e))
+            raise web.HTTPBadRequest(reason=str(e)) from e
         return web.json_response({"rel_path": rel, "committed": False,
-                                  "note": "captured to your Inbox — it appears after the next sync"})
+                                  "note": ("captured to your Inbox — it appears "
+                                           "after the next sync")})
 
     # master lens: direct ingest into a named, validated person
     person_id = data.get("person") or request.query.get("person")
@@ -391,7 +392,7 @@ async def handle_capture(request: web.Request) -> web.Response:
     try:
         rel, committed = await asyncio.to_thread(_ingest)
     except IngestError as e:
-        raise web.HTTPBadRequest(reason=str(e))
+        raise web.HTTPBadRequest(reason=str(e)) from e
     return web.json_response({"rel_path": rel, "committed": committed})
 
 
@@ -428,7 +429,7 @@ async def handle_promote(request: web.Request) -> web.Response:
     try:
         rel = await asyncio.to_thread(_draft)
     except PromotionError as e:
-        raise web.HTTPBadRequest(reason=str(e))
+        raise web.HTTPBadRequest(reason=str(e)) from e
     return web.json_response({"rel_path": rel,
                               "note": "drafted — an admin approves it from the Promotions tab"})
 
@@ -487,7 +488,7 @@ async def handle_promotion_action(request: web.Request) -> web.Response:
     try:
         await asyncio.to_thread(_do)
     except PromotionError as e:
-        raise web.HTTPNotFound(reason=str(e))
+        raise web.HTTPNotFound(reason=str(e)) from e
     return web.json_response({"ok": True, "id": promo_id, "action": action})
 
 
@@ -519,7 +520,7 @@ async def handle_share_action(request: web.Request) -> web.Response:
     try:
         await asyncio.to_thread(_do)
     except ShareError as e:
-        raise web.HTTPNotFound(reason=str(e))
+        raise web.HTTPNotFound(reason=str(e)) from e
     return web.json_response({"ok": True, "id": share_id, "action": action})
 
 
@@ -603,7 +604,7 @@ async def _safe_send(app: web.Application, ws: web.WebSocketResponse, payload: d
     single slow consumer can't wedge the poll loop for every other client."""
     try:
         await asyncio.wait_for(ws.send_json(payload), timeout=_SEND_TIMEOUT)
-    except (ConnectionError, RuntimeError, asyncio.TimeoutError):
+    except (TimeoutError, ConnectionError, RuntimeError):
         app["websockets"].discard(ws)
         with suppress(Exception):
             await ws.close(code=1011, message=b"send timeout")
@@ -779,8 +780,6 @@ def run_server(lens: Lens, *, host: str = "127.0.0.1", port: int = 8765,
         finally:
             await runner.cleanup()
 
-    try:
+    with suppress(KeyboardInterrupt):
         asyncio.run(_serve())
-    except KeyboardInterrupt:
-        pass
     return 0

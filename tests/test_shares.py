@@ -2,19 +2,27 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path as _sop
-from brain.schemas import Org, Person
+from brain.schemas import Org, Person, load_spaces
 from brain.shares import (
-    ShareError, ShareOutcome, admin_revoke, amend_space_rule,
-    approve_share, generate_decider_section, generate_space_shares_section,
-    list_pending_shares, may_decide,
-    reject_share, remove_subject_from_rule, request_share, sweep_approvals, sweep_shares,
-    validate_space, validate_subject,
+    ShareError,
+    admin_revoke,
+    amend_space_rule,
+    approve_share,
+    generate_decider_section,
+    generate_space_shares_section,
+    list_pending_shares,
+    may_decide,
+    reject_share,
+    remove_subject_from_rule,
+    request_share,
+    sweep_approvals,
+    sweep_shares,
+    validate_space,
+    validate_subject,
 )
-from brain.schemas import load_spaces
 
 
 @pytest.mark.parametrize("subject,expected", [
@@ -72,7 +80,7 @@ def _write(tmp_path: Path) -> Path:
 
 
 def _other_lines(text: str) -> list[str]:
-    return [l for l in text.splitlines() if "Danziger" not in l]
+    return [line for line in text.splitlines() if "Danziger" not in line]
 
 
 def test_amend_read_adds_reader_only(tmp_path: Path):
@@ -145,10 +153,10 @@ def test_request_share_revoke_and_validation(tmp_path: Path):
     meta, _ = split_frontmatter((tmp_path / rel).read_text())
     assert meta["action"] == "revoke"
     for kwargs in (
-        dict(space="People/joe", share_with="person:mary", access="read"),
-        dict(space="Clients/X", share_with="mary", access="read"),
-        dict(space="Clients/X", share_with="person:mary", access="admin"),
-        dict(space="Clients/X", share_with="person:mary", access="read", action="delete"),
+        {"space": "People/joe", "share_with": "person:mary", "access": "read"},
+        {"space": "Clients/X", "share_with": "mary", "access": "read"},
+        {"space": "Clients/X", "share_with": "person:mary", "access": "admin"},
+        {"space": "Clients/X", "share_with": "person:mary", "access": "read", "action": "delete"},
     ):
         with pytest.raises(ShareError):
             request_share(tmp_path, "joe", kwargs["space"], kwargs["share_with"],

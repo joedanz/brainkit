@@ -27,15 +27,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import hmac
 import json
 import math
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import yaml
 from aiohttp import web
@@ -96,7 +97,7 @@ def load_webhook_config(path: Path) -> tuple[WebhookSource, ...]:
     try:
         data = yaml.safe_load(path.read_text()) or {}
     except yaml.YAMLError as e:
-        raise WebhookConfigError(f"{CONFIG_NAME}: {e}")
+        raise WebhookConfigError(f"{CONFIG_NAME}: {e}") from e
     entries = data.get("sources")
     if not isinstance(entries, list) or not entries:
         raise WebhookConfigError(f"{CONFIG_NAME} must define a non-empty 'sources' list")
@@ -164,7 +165,8 @@ def _secret_key(secret: str) -> bytes:
         try:
             return base64.b64decode(secret[len("whsec_"):], validate=True)
         except (ValueError, TypeError):
-            raise VerifyError("malformed whsec_ secret")  # operator error, but fail closed
+            # operator error, but fail closed
+            raise VerifyError("malformed whsec_ secret") from None
     return secret.encode()
 
 
@@ -180,7 +182,7 @@ def verify_standard_webhooks(headers, raw: bytes, secret: str, *, now: float,
     try:
         ts = int(ts_raw)
     except ValueError:
-        raise VerifyError("malformed webhook-timestamp")
+        raise VerifyError("malformed webhook-timestamp") from None
     if abs(now - ts) > tolerance:
         raise VerifyError("webhook-timestamp outside tolerance")
 
@@ -286,7 +288,7 @@ async def handle_hook(request: web.Request) -> web.Response:
             verify_token(request.headers, secret)
             msg_id = ""
     except VerifyError as e:
-        raise web.HTTPUnauthorized(reason=str(e))
+        raise web.HTTPUnauthorized(reason=str(e)) from e
 
     replay_key = (source.id, msg_id)
     if msg_id and _replay_check(app, replay_key, now):
@@ -310,7 +312,7 @@ async def handle_hook(request: web.Request) -> web.Response:
     try:
         payload = json.loads(raw)
     except ValueError:
-        raise web.HTTPBadRequest(reason="expected a JSON object body")
+        raise web.HTTPBadRequest(reason="expected a JSON object body") from None
     if not isinstance(payload, dict):
         raise web.HTTPBadRequest(reason="expected a JSON object body")
 
@@ -336,7 +338,7 @@ async def handle_hook(request: web.Request) -> web.Response:
     try:
         result = await asyncio.to_thread(_ingest)
     except IngestError as e:
-        raise web.HTTPBadRequest(reason=str(e))
+        raise web.HTTPBadRequest(reason=str(e)) from e
 
     if msg_id:
         app["seen"][replay_key] = now + 2 * REPLAY_TOLERANCE
@@ -431,8 +433,6 @@ def run_webhook_server(master: Path, *, host: str = "127.0.0.1",
         finally:
             await runner.cleanup()
 
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_serve())
-    except KeyboardInterrupt:
-        pass
     return 0

@@ -2,8 +2,6 @@ import json
 import shutil
 from pathlib import Path
 
-import pytest
-
 from brain.cli import main
 from brain.compiler import compile_vault
 from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider

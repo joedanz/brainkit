@@ -4,8 +4,16 @@ from pathlib import Path
 
 from brain.compiler import compile_vault
 from brain.edges import (
-    INVERSE, RELATION_KEYS, W_EXPLICIT, W_MINED, date_edges, entity_edges,
-    explicit_edges, folder_edges, note_date, with_inverses,
+    INVERSE,
+    RELATION_KEYS,
+    W_EXPLICIT,
+    W_MINED,
+    date_edges,
+    entity_edges,
+    explicit_edges,
+    folder_edges,
+    note_date,
+    with_inverses,
 )
 from brain.indexer import build_index
 from brain.store import IndexStore
@@ -86,10 +94,7 @@ def test_entity_edges_pairwise_canonical():
 def test_with_inverses_mirrors_every_edge():
     edges = [("a.md", "b.md", "up", "explicit", 2.0),
              ("c.md", "d.md", "next", "date", 0.5)]
-    assert with_inverses(edges) == edges + [
-        ("b.md", "a.md", "down", "inverse", 2.0),
-        ("d.md", "c.md", "prev", "inverse", 0.5),
-    ]
+    assert with_inverses(edges) == [*edges, ("b.md", "a.md", "down", "inverse", 2.0), ("d.md", "c.md", "prev", "inverse", 0.5)]
 
 
 def test_with_inverses_dedupes_colliding_mirrors_keeping_max_weight():
@@ -97,9 +102,7 @@ def test_with_inverses_dedupes_colliding_mirrors_keeping_max_weight():
     # one inverse row survives, with the higher weight.
     edges = [("a.md", "b.md", "up", "explicit", 2.0),
              ("a.md", "b.md", "up", "folder", 0.5)]
-    assert with_inverses(edges) == edges + [
-        ("b.md", "a.md", "down", "inverse", 2.0),
-    ]
+    assert with_inverses(edges) == [*edges, ("b.md", "a.md", "down", "inverse", 2.0)]
 
 
 def _projects_vault(master: Path) -> None:
@@ -175,7 +178,7 @@ def test_traverse_direction_in_follows_only_mirrors(tmp_path):
 
 def test_traverse_node_cap_truncates(tmp_path):
     store = _traversal_store(tmp_path)
-    hops, truncated = traverse(store, "kickoff.md", depth=2, node_cap=2)
+    _hops, truncated = traverse(store, "kickoff.md", depth=2, node_cap=2)
     assert truncated  # kickoff + acme fill the cap; sibling/clients cut
     store.close()
 

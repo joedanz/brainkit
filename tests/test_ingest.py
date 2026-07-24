@@ -90,7 +90,7 @@ def test_ingest_title_traversal_neutralized(master: Path):
 ])
 def test_ingest_rejects_newline_metadata(master: Path, field, kwargs):
     git_init(master)
-    base = dict(title="T", source="chat", sender="bob", created="2026-07-08")
+    base = {"title": "T", "source": "chat", "sender": "bob", "created": "2026-07-08"}
     base.update(kwargs)
     with pytest.raises(IngestError, match=field):
         ingest_note(master, BOB, RULES, "body\n", **base)

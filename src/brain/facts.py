@@ -11,10 +11,12 @@ time in git).
 from __future__ import annotations
 
 import calendar
+import json as _json
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
+from pathlib import Path
 
 from brain.compiler import extract_wikilinks
 
@@ -211,10 +213,6 @@ def parse_entity(meta: dict[str, str]) -> tuple[str, list[str]] | None:
     return etype, aliases
 
 
-import json as _json
-from datetime import datetime, timezone
-from pathlib import Path
-
 
 @dataclass
 class FactHit:
@@ -228,7 +226,7 @@ class FactHit:
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def query_facts(
@@ -284,9 +282,9 @@ def query_facts(
                     continue
                 if etype_paths is not None and not (etype_paths & set(ents)):
                     continue
-                if not include_ended:
-                    if fdate > on or (udate is not None and udate < on):
-                        continue
+                if not include_ended and (
+                        fdate > on or (udate is not None and udate < on)):
+                    continue
                 hits.append(FactHit(rel, line, stmt, fdate, udate,
                                     _json.loads(sources), ents))
             return hits, warnings
@@ -371,9 +369,9 @@ def query_facts_at(
             continue
         if etype_paths is not None and not (etype_paths & keyset):
             continue
-        if not include_ended:
-            if f.from_date > on or (f.until_date is not None and f.until_date < on):
-                continue
+        if not include_ended and (
+                f.from_date > on or (f.until_date is not None and f.until_date < on)):
+            continue
         hits.append(FactHit(rel, f.line, f.statement, f.from_date,
                             f.until_date, f.sources, ents))
     return hits, []

@@ -10,11 +10,12 @@ to keyword-only.
 
 from __future__ import annotations
 
-import sqlite3
+import contextlib
 import json
+import sqlite3
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -112,7 +113,7 @@ class VaultStats:
 
 
 def _utcnow() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def ro_connect(db: Path) -> sqlite3.Connection:
@@ -197,10 +198,7 @@ def _build_graph(conn: sqlite3.Connection, cap: int) -> GraphData:
         degree[tgt] = degree.get(tgt, 0) + 1
 
     truncated = len(rows) > cap
-    if truncated:
-        keep = sorted(rows, key=lambda r: (-degree[r[0]], r[0]))[:cap]
-    else:
-        keep = rows
+    keep = sorted(rows, key=lambda r: (-degree[r[0]], r[0]))[:cap] if truncated else rows
     ids = {rel: i for i, (rel, _) in enumerate(keep)}
 
     nodes = [
@@ -548,10 +546,8 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
     if webhook_cfg.is_file():
         from brain.webhook import WebhookConfigError, load_webhook_config
 
-        try:
+        with contextlib.suppress(WebhookConfigError, OSError):
             webhook_sources = len(load_webhook_config(webhook_cfg))
-        except (WebhookConfigError, OSError):
-            pass
 
     return MasterStats(
         kind="master",

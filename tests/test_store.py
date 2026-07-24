@@ -6,7 +6,7 @@ import pytest
 from brain import store
 from brain.chunker import Chunk
 from brain.embeddings import FakeEmbeddingProvider, pack_vector
-from brain.store import IndexStore, SCHEMA_VERSION, StoreError
+from brain.store import SCHEMA_VERSION, IndexStore, StoreError
 from tests.conftest import requires_vectors
 
 

@@ -96,7 +96,7 @@ def link_degree(notes: dict[str, NoteFacts]) -> dict[str, int]:
     for rel in sorted(notes):
         by_stem.setdefault(stem(rel), rel)
 
-    degree: dict[str, int] = {rel: 0 for rel in notes}
+    degree: dict[str, int] = dict.fromkeys(notes, 0)
     for src, facts in notes.items():
         for raw in facts.targets:
             target = by_stem.get(stem(raw))
@@ -258,8 +258,8 @@ def render_map(
         "---\ngenerated: true\n---\n",
         f"# Map — vault of {_trunc(person.name)} ({_trunc(person.id)})\n\n",
         _INTRO,
-        f"**{_count(notes_total, 'note')} · {_count(len(plain), 'space')} · "
-        f"{_count(entities_total, 'entity', 'entities')}**\n\n",
+        (f"**{_count(notes_total, 'note')} · {_count(len(plain), 'space')} · "
+        f"{_count(entities_total, 'entity', 'entities')}**\n\n"),
     ]
 
     if plain:

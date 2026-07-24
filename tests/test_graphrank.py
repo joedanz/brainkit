@@ -43,7 +43,7 @@ def test_ppr_deterministic_under_insertion_order():
         # Also shuffle the seeds dict insertion order
         seed_shuffled = seed_items[:]
         rng.shuffle(seed_shuffled)
-        seeds = {n: w for n, w in seed_shuffled}
+        seeds = dict(seed_shuffled)
         results.append(ppr(adj, seeds))
     assert results[0] == results[1] == results[2]  # bit-identical
 

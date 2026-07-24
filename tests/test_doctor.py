@@ -1,13 +1,12 @@
 import os
 from datetime import date as _date
-from pathlib import Path
 
 import pytest
 
-from brain.doctor import run_doctor, _check_citations, _check_intel, _citation_urls
 from brain.cli import main
+from brain.doctor import _check_citations, _check_intel, _citation_urls, run_doctor
 
-from .test_cli import ORG_YAML, SPACES_YAML, seed_meta
+from .test_cli import SPACES_YAML, seed_meta
 
 
 def _compile(master, tmp_path):
@@ -855,7 +854,7 @@ def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch
 
     findings = run_doctor(master)
     assert "warn" in _severities(findings, "dup-near")
-    hit = [f for f in findings if f.check == "dup-near" and f.severity == "warn"][0]
+    hit = next(f for f in findings if f.check == "dup-near" and f.severity == "warn")
     assert "Shuffle A" in hit.message and "Shuffle B" in hit.message
 
 

@@ -102,7 +102,7 @@ def test_rename_is_rerunnable_after_partial_completion(tmp_path):
     m = _master(tmp_path)
     # simulate a crash after the tree move but before anything else
     (m / "Clients").rename(m / "Vendors")
-    rep = rename_entities(m, "Vendors", "vendor")
+    rename_entities(m, "Vendors", "vendor")
     assert (m / "Vendors/Acme").is_dir()
     assert load_config(m).entities == "Vendors"
     assert "vendor-name: Smith" in \

@@ -97,9 +97,7 @@ def test_self_named_expansion_ignores_rules_not_bound_to_the_reader(tmp_path: Pa
     """The shipped {entities}/* rule reads `role:admin` — its members are named
     by the world, so expanding it by an admin's own bindings would invent a
     Clients/<admin-id> nobody meant."""
-    rules = RULES[:3] + (
-        SpaceRule("Clients/*", read=("role:admin",), write=("role:admin",)),
-    )
+    rules = (*RULES[:3], SpaceRule("Clients/*", read=("role:admin",), write=("role:admin",)))
     (tmp_path / "Company").mkdir(parents=True)
 
     assert "Clients/alice" not in readable_spaces(tmp_path, ALICE, rules)

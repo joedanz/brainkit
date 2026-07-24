@@ -85,7 +85,8 @@ def cmd_promotions(args) -> int:
                     if p.mode == "patch" and diff is None:
                         print("(target missing — cannot diff; approval will fail closed)\n")
                     if diff is not None:
-                        print(diff or "(no changes — proposed page is identical to the current one)")
+                        print(diff or "(no changes — proposed page is identical "
+                                      "to the current one)")
                     else:
                         print(p.body)
                     break
@@ -114,8 +115,13 @@ def cmd_promotions(args) -> int:
 
 def cmd_shares(args) -> int:
     from brain.schemas import SchemaError
-    from brain.shares import (ShareError, admin_revoke, approve_share,
-                              list_pending_shares, reject_share)
+    from brain.shares import (
+        ShareError,
+        admin_revoke,
+        approve_share,
+        list_pending_shares,
+        reject_share,
+    )
 
     master = Path(args.master)
     try:
@@ -445,7 +451,8 @@ def cmd_facts(args) -> int:
             print(f"    {h.rel_path}:{h.line}")
         for w in warnings:
             print(f"  warning: {w}", file=sys.stderr)
-    return 0 if not any(w.startswith(("no index", "no git history", "index predates")) for w in warnings) else 1
+    stale = ("no index", "no git history", "index predates")
+    return 0 if not any(w.startswith(stale) for w in warnings) else 1
 
 
 def cmd_mcp(args) -> int:
@@ -692,7 +699,8 @@ def build_parser() -> argparse.ArgumentParser:
     mc.add_argument("--vault", required=True)
     mc.set_defaults(func=cmd_mcp)
 
-    st = sub.add_parser("status", help="counts, freshness and health for a vault or the whole company")
+    st = sub.add_parser("status",
+                        help="counts, freshness and health for a vault or the whole company")
     lens = st.add_mutually_exclusive_group(required=True)
     lens.add_argument("--vault", help="a compiled per-person vault (user lens)")
     lens.add_argument("--master", help="the master vault (admin lens)")

@@ -7,21 +7,17 @@ is a scan of what is actually stored (no query can return what isn't there);
 then live query probes; then the MCP read tool's path scoping.
 """
 
-import json
 import random
 import subprocess
 from pathlib import Path
 
-import pytest
-
-from brain.compiler import MANIFEST_NAME, compile_all
+from brain.compiler import compile_all
 from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.mcp import _tool_read
 from brain.resolver import readable_spaces, space_of_path
 from brain.search import search_index
 from brain.store import IndexStore
-
 from tests.test_leak_property import RULES, random_world
 
 
@@ -66,7 +62,7 @@ def test_query_probes_stay_in_readable_spaces(tmp_path):
 
 
 def test_cross_person_private_content_is_unreachable(tmp_path):
-    master, org, out_root = _build_world(tmp_path, 3)
+    _master, org, out_root = _build_world(tmp_path, 3)
     people = list(org.people.values())
     if len(people) >= 2:
         a, b = people[0], people[1]

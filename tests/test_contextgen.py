@@ -3,7 +3,7 @@ from pathlib import Path
 from brain.compiler import MANIFEST_NAME, compile_vault
 from brain.contextgen import ROOT_LIMIT, SPACE_LIMIT, render_root_protocol
 from brain.schemas import Person, VaultConfig
-from tests.conftest import ALICE, BOB, RULES
+from tests.conftest import BOB, RULES
 
 FAM = VaultConfig(entities="Families", entity="family")
 
@@ -99,6 +99,7 @@ def test_generated_files_listed_in_manifest(master: Path, tmp_path: Path):
 
 def test_root_protocol_carries_share_mechanic():
     import re
+
     from brain.contextgen import render_root_protocol
     from brain.schemas import Person
 
@@ -119,6 +120,7 @@ def test_root_protocol_carries_share_mechanic():
 
 def test_assistant_protocol_carries_share_mechanic():
     import re
+
     from brain.templates import ASSISTANT_PROTOCOL
 
     low = ASSISTANT_PROTOCOL.lower()
@@ -168,6 +170,7 @@ def test_assistant_protocol_custom_noun_has_no_client_literals():
 
 def test_spaces_yaml_custom_noun_parses_with_custom_wildcard():
     import yaml
+
     from brain.templates import spaces_yaml
     text = spaces_yaml(FAM)
     data = yaml.safe_load(text)

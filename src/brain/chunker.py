@@ -192,7 +192,8 @@ def chunk_markdown(
 
     space = space_of_path(rel_path) or ""
     return [
-        Chunk(rel_path=rel_path, space=space, heading_path=" > ".join(hp), pos=i, text=t.strip("\n"))
+        Chunk(rel_path=rel_path, space=space, heading_path=" > ".join(hp),
+              pos=i, text=t.strip("\n"))
         for i, (hp, t) in enumerate(folded)
         if t.strip()
     ]

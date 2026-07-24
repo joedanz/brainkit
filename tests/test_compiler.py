@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from brain.compiler import MANIFEST_NAME, compile_vault
-from tests.conftest import ALICE, BOB, RULES
+from tests.conftest import BOB, RULES
 
 
 def test_compiles_only_readable_spaces(master: Path, tmp_path: Path):
@@ -218,6 +218,7 @@ def test_gitignore_generated_and_in_manifest(master: Path, tmp_path: Path):
 
 def test_compile_all_never_tracks_brain_index(master: Path, tmp_path: Path):
     import subprocess
+
     from brain.compiler import compile_all
     from tests.conftest import ORG
     out_root = tmp_path / "compiled"
@@ -261,7 +262,7 @@ def test_compile_omits_shares_note_when_no_activity(master: Path, tmp_path: Path
 def test_shares_note_includes_space_shares_section(master, tmp_path):
     from brain.compiler import compile_vault
     from brain.shares import request_share, sweep_shares
-    from tests.conftest import BOB, ORG, RULES
+    from tests.conftest import BOB
 
     with (master / "_meta/spaces.yaml").open("w") as fh:
         fh.write(
