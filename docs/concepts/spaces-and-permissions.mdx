@@ -186,6 +186,31 @@ Keep the `admin` role on a dedicated identity — one with no personal agent —
 
 Editing `org.yaml` (and `spaces.yaml` if a new space needs a rule) and re-running `brain compile` is the *entire* operation. There is no schema migration, no per-note reclassification — capacity grows, architecture doesn't. See the [configuration reference](/reference/configuration) for the full schema and validation rules.
 
+## Two people, one file
+
+A write scope says *who may write a space*, not *who may write it right now*. Where a space has one writer that distinction never comes up. Where it has several — `Teams/*` by default — it decides what happens when two of them edit the same note.
+
+**Last write wins, and nothing warns you.**
+
+Write-back works by diffing a vault against the manifest the compiler shipped *to that vault*: every file whose hash moved is a change. So if two members of `sales` both edit `Teams/sales/Runbook.md` between cycles, each vault honestly reports "this file changed", both changes are in scope, and both apply to master in sequence. The second overwrites the first. There is no merge, no conflict marker, and no rejection — the first edit is simply gone from the working tree.
+
+It stays recoverable: master is a git repo and both writes are commits, so the overwritten version is one `git log -p` away. But nobody is told to go looking.
+
+Two things bound how often this matters:
+
+- **Personal spaces cannot collide.** `People/<id>` has exactly one writer by construction, and that is where the vast majority of writing happens — captures, memory, notes, drafts.
+- **Shared spaces mostly aren't written directly.** `Company/*` is admin-write, and the intended path into it is a [promotion](/concepts/promotions), which is reviewed by a human who sees the target.
+
+The exposure is real but narrow: several people writing the same file in the same team space within one cycle window. If a team works that way, either give each member a file of their own, or shorten the cycle interval so the window is smaller.
+
+<Callout type="info">
+  This is a deliberate simplicity, not an oversight. Detecting the conflict
+  would mean write-back comparing against master's *current* state rather than
+  the manifest baseline, and then deciding what to do — reject the batch,
+  attempt a merge, or write a conflict file. Each of those is a worse failure
+  for the overwhelmingly common case of one writer per file.
+</Callout>
+
 ## Cross-space links
 
 Wikilinks between spaces are allowed. When the compiler builds a slice, a link that points at a note the person *can't* see is [stubbed](/concepts/the-compiler#link-stubbing) — rendered as plain text or a marker — never resolved to content they shouldn't have.

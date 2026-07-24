@@ -19,10 +19,15 @@ to `from './three.module.min.js'` so it resolves without an import map.
 
 **Fonts:** only the **latin** subset of each weight is vendored (`fonts/*.woff2`, ~213 KB
 total), and `fonts/fonts.css` declares the `@font-face` rules pointing at
-`/assets/vendor/fonts/…` — self-hosted, no CDN, consistent with the CSP. The full
-OFL 1.1 text ships with each family upstream; the standard permission grant applies
-(use/study/modify/redistribute, including bundled in software, with the reserved
-font names).
+`/assets/vendor/fonts/…` — self-hosted, no CDN, consistent with the CSP.
+
+The OFL 1.1 text and all three copyright notices are in
+[`fonts/OFL.txt`](fonts/OFL.txt), beside the binaries they cover. That placement is
+the requirement, not a courtesy: OFL section 2 permits redistribution "provided
+that each copy contains the above copyright notice and this license", so pointing
+at the upstream copy would not satisfy it — the copy shipped here has to carry its
+own. None of the three families reserve a font name, so the Reserved Font Name
+clause constrains nothing about how they are used here.
 
 ## Licenses
 

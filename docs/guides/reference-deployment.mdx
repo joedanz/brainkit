@@ -101,6 +101,47 @@ These mix freely within one deployment: containers that share a private network 
 
 The driver is one idle hermes gateway process per person (≈300–400 MB, near-zero idle CPU). Containers themselves add roughly nothing — they share the base image and have no per-container VM. If headcount outgrows one box, split the compose file across two; nothing about the architecture changes.
 
+### Disk
+
+Disk does not scale with the master vault. It scales with **readers × shared content**, and that surprises people.
+
+Every person gets a real copy of every space they can read, and every vault is its own git repo. A shared note that 20 people can read exists 20 times, each inside a separate object store.
+
+Measured, on a master holding 1 MB of content — 60 shared notes plus 20 private notes each for 10 people:
+
+| | size | vs. master content |
+|---|---|---|
+| master content | 1.05 MB | 1× |
+| all 10 compiled vaults | 9.2 MB | **8.8×** |
+| …after `--index` | 13.8 MB | **13×** |
+
+Per vault that is 876 KB, and the split is the part worth knowing:
+
+| | per vault |
+|---|---|
+| shared content (`Company/`) | 252 KB |
+| own private content | 88 KB |
+| `.git` | **500 KB — 57%** |
+| `.brain/` index (with `--index`) | +432 KB |
+
+**Git history dominates, not the notes.** Each vault accumulates one commit per compile that changes anything, forever, in its own repo. The content is small and compresses well; the history behind it is what grows.
+
+Three consequences for provisioning:
+
+- Estimate from **readers per space**, not from master size. Moving a large space from one team to `everyone` multiplies its cost by headcount.
+- Budget roughly **10–15× master content** for a fleet of ten, and scale that with headcount. Vaults are independent, so it is linear.
+- Only `.brain/` is disposable. It is rebuilt from the vault by the next `brain index`, is never backed up, and costs nothing to delete.
+
+<Callout type="warning">
+  **Do not `rm -rf` a compiled vault to reclaim space.** It is not a derived
+  artifact you can regenerate — it is the git remote that person's clone
+  pushes to. Deleting it throws away any commits pushed since the last cycle
+  (write-back reads them from there), and the recompiled replacement is a new
+  repo with unrelated history, so every existing clone breaks and has to be
+  re-cloned. If a vault genuinely must be rebuilt, run a cycle first so
+  pending edits reach master, then re-clone on the person's side.
+</Callout>
+
 ## Visual surfaces (optional, phased)
 
 Chat stays the primary product, but each container can expose visual surfaces. Sessions live in the container's shared `state.db`, so a conversation started on WhatsApp continues in the browser or desktop app — same brain, different doors.
