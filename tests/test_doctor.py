@@ -536,3 +536,204 @@ def test_delegated_decisions_surface_as_info(tmp_path):
     assert any("approved by mary" in x and "delegated" in x for x in msgs)
     assert not any("Clients/Old" in x for x in msgs)
     assert not any("Clients/B" in x and "delegated" in x for x in msgs)
+
+
+BODY_A = (
+    "# Field Notes\n\n"
+    "alpha beta gamma delta epsilon zeta eta theta iota kappa "
+    "lamda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega\n"
+)
+
+
+def test_exact_duplicate_visible_to_common_reader_warns(master):
+    seed_meta(master)
+    (master / "Company/Kickoff Notes.md").write_text(BODY_A)
+    (master / "Company/Kickoff Recap.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "dup-exact")
+
+
+def test_exact_duplicate_across_private_spaces_is_info(master):
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Notes/Article.md").write_text(BODY_A)
+    (master / "People/bob/Notes/Saved.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert set(_severities(findings, "dup-exact")) == {"info"}
+    hit = next(
+        f for f in findings
+        if f.check == "dup-exact" and "Article" in f.message)
+    assert "promotion candidate" in hit.message
+
+
+def test_personal_skeleton_files_never_flagged(master):
+    # The fixture scaffolds every person with the same skeleton
+    # (People/<id>/Memory.md etc.) — identical templates must not flag.
+    seed_meta(master)
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check.startswith("dup") and "Memory.md" in f.message]
+
+
+def test_stub_files_below_min_words_not_flagged(master):
+    seed_meta(master)
+    (master / "Company/Stub One.md").write_text("# Stub\n\nshort note\n")
+    (master / "Company/Stub Two.md").write_text("# Stub\n\nshort note\n")
+    findings = run_doctor(master)
+    assert not _severities(findings, "dup-exact")
+
+
+def test_stem_collision_with_common_reader_warns(master):
+    seed_meta(master)
+    (master / "Clients/acme").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Acme.md").write_text("# Acme\n\ncompany-side view\n")
+    (master / "Clients/acme/Acme.md").write_text("# Acme\n\nclient-side view\n")
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "stem-collision")
+    hit = next(
+        f for f in findings
+        if f.check == "stem-collision" and "[[Acme]]" in f.message)
+    assert hit.severity == "warn"
+
+
+def test_stem_collision_disjoint_readers_is_silent(master):
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Notes/Acme.md").write_text("# Acme\n\nalice take\n")
+    (master / "People/bob/Notes/Acme.md").write_text("# Acme\n\nbob take\n")
+    findings = run_doctor(master)
+    assert not _severities(findings, "stem-collision")
+
+
+def test_inbox_and_sessions_exempt_from_dup_checks(master):
+    seed_meta(master)
+    (master / "People/alice/Inbox").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Sessions").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Inbox/Capture.md").write_text(BODY_A)
+    (master / "People/alice/Sessions/Old.md").write_text(BODY_A)
+    (master / "Company/Kickoff Notes.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check.startswith("dup") and (
+            "Inbox" in f.message or "Sessions" in f.message)]
+
+
+def test_skeleton_pair_suppresses_identical_personal_scaffolds(master):
+    # Byte-identical substantive files at the SAME subpath inside two
+    # personal spaces are scaffold structure — suppressed entirely, not
+    # even info. The same content at a DIFFERENT subpath is a real
+    # cross-private duplicate and keeps its info promotion hint.
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Notes/Reading List.md").write_text(BODY_A)
+    (master / "People/bob/Notes/Reading List.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check.startswith("dup") and "Reading List" in f.message]
+    (master / "People/bob/Notes/Other Name.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert any(
+        f.check == "dup-exact" and f.severity == "info"
+        and "Other Name" in f.message for f in findings)
+
+
+def _shuffled_pair(master):
+    """Two Company notes with the same word bag in different order: shingle
+    overlap ~0 (MinHash misses) but bag-of-words embeddings match."""
+    ws = [f"word{i}" for i in range(40)]
+    (master / "Company/Shuffle A.md").write_text(
+        "# Shuffle A\n\n" + " ".join(ws) + "\n")
+    (master / "Company/Shuffle B.md").write_text(
+        "# Shuffle B\n\n" + " ".join(reversed(ws)) + "\n")
+    return ["Company/Shuffle A.md", "Company/Shuffle B.md"]
+
+
+def test_minhash_near_duplicate_warns(master):
+    seed_meta(master)
+    ws = [f"tok{i}" for i in range(60)]
+    (master / "Company/Draft.md").write_text("# Draft\n\n" + " ".join(ws) + "\n")
+    ws[30] = "changed"
+    (master / "Company/Final.md").write_text("# Final\n\n" + " ".join(ws) + "\n")
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "dup-near")
+
+
+def test_no_provider_means_no_embedding_signal(master):
+    # conftest's _no_ambient_provider guarantees no provider here: the
+    # shuffled pair is invisible to MinHash and must NOT be flagged.
+    seed_meta(master)
+    _shuffled_pair(master)
+    findings = run_doctor(master)
+    assert not _severities(findings, "dup-near")
+
+
+def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch):
+    import hashlib as _hashlib
+
+    from brain.chunker import chunk_markdown, embedding_input
+    from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider, pack_vector
+
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+
+    cache_path = tmp_path / "emb-cache.db"
+    monkeypatch.setenv("BRAIN_EMBED_CACHE", str(cache_path))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "http://unused.invalid")
+    monkeypatch.setenv("BRAIN_EMBED_MODEL", "fake-32")
+
+    provider = FakeEmbeddingProvider()  # model == "fake-32", never networked
+    cache = EmbeddingCache(cache_path)
+    for rel in rels:
+        text = (master / rel).read_text()
+        inputs = [embedding_input(c) for c in chunk_markdown(rel, text)]
+        shas = [_hashlib.sha256(i.encode("utf-8")).hexdigest() for i in inputs]
+        vecs = [pack_vector(v) for v in provider.embed(inputs)]
+        cache.put_many(list(zip(shas, vecs)), "fake-32")
+    cache.close()
+
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "dup-near")
+    hit = [f for f in findings if f.check == "dup-near" and f.severity == "warn"][0]
+    assert "Shuffle A" in hit.message and "Shuffle B" in hit.message
+
+
+def test_warn_dup_findings_never_pair_disjoint_readers(master):
+    """The spec invariant, in the spirit of test_leak_property: content
+    duplicated across spaces with no common reader must never produce a
+    warn — only info (promotion hint) or silence."""
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    private_a = "People/alice/Notes/Research.md"
+    private_b = "People/bob/Notes/Research Copy.md"
+    (master / private_a).write_text(BODY_A)
+    (master / private_b).write_text(BODY_A)
+    (master / "Company/Shared One.md").write_text(BODY_A)
+    (master / "Company/Shared Two.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    dup_checks = {"dup-exact", "dup-near", "stem-collision"}
+    for f in findings:
+        if f.check in dup_checks and f.severity == "warn":
+            assert not (private_a in f.message and private_b in f.message), (
+                f"warn finding pairs two disjoint-reader files: {f.message}")
+    # The layout still produces both classes:
+    assert "warn" in _severities(findings, "dup-exact")   # the Company pair
+    assert "info" in _severities(findings, "dup-exact")   # a cross-boundary pair
+    assert not _severities(findings, "dup-near")
+
+
+def test_identical_group_of_three_emits_no_dup_near(master):
+    # Tier 1 chains adjacent pairs of an identical group; every other
+    # intra-group pair must be suppressed, not resurface as dup-near.
+    seed_meta(master)
+    for name in ("Copy One", "Copy Two", "Copy Three"):
+        (master / f"Company/{name}.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert len(_severities(findings, "dup-exact")) == 2
+    assert not _severities(findings, "dup-near")
