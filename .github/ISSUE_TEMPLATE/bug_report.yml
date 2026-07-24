@@ -1,0 +1,81 @@
+name: Bug report
+description: Something behaves differently than documented, or than you expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If this is a security issue — a way one person's notes could reach
+        another's vault, a write scope bypass, or spoofed intake — stop here and
+        [report it privately](https://github.com/joedanz/brainkit/security/advisories/new).**
+
+        Please don't paste real vault contents. Redact, or reproduce against a
+        throwaway vault made with `brain init`.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the exact command and its output.
+      placeholder: |
+        $ brain compile --master /srv/brain/master --out /srv/brain/compiled
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        Ideally starting from `brain init`, so it runs on a clean machine. If
+        you can't reproduce it from scratch, say what's different about the
+        vault where it happens.
+      placeholder: |
+        1. brain init /tmp/master --company "Test Co"
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: brain doctor output
+      description: >-
+        `brain doctor --master <path>` — usually the fastest route to a
+        diagnosis for anything vault-shaped. Skip if not applicable.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: brainkit version
+      description: A release tag, or the output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: OS and Python
+      description: e.g. Ubuntu 24.04, Python 3.12.7
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: traceback
+    attributes:
+      label: Did you get a traceback?
+      description: >-
+        brainkit exits 1 with a plain message for handled errors. A raw
+        traceback always means a bug — please paste the whole thing above.
+      options:
+        - label: Yes, and I included it
+        - label: No traceback

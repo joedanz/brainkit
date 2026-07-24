@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a capability brainkit doesn't have yet.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >-
+        The situation, not the solution. What you were doing when you wanted
+        this, and what you did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like brainkit to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried or considered?
+      description: >-
+        Including workarounds that nearly work — knowing where they fall short
+        is often the most useful part.
+
+  - type: dropdown
+    id: boundary
+    attributes:
+      label: Does this involve who can see what?
+      description: >-
+        brainkit's one hard guarantee is that a compiled vault contains only
+        notes its owner may read. Anything that widens what lands in a vault
+        needs to be designed against that, so it helps to flag it early.
+      options:
+        - "No — it doesn't change what's in anyone's vault"
+        - "Yes — it changes what a vault contains or who can read it"
+        - "Not sure"
+    validations:
+      required: true
