@@ -243,3 +243,108 @@ def test_believed_on_without_git_warns(master, tmp_path):
     vault = _facts_vault(master, tmp_path)
     hits, warnings = query_facts_at(vault, "2026-01-01")
     assert hits == [] and any("no git history" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# find_fact_conflicts — duplicate and contradicting open facts (issue #79)
+
+from brain.facts import find_fact_conflicts
+
+
+def _entry(rel, line, stmt, keys, from_date="2026-01-01", until=None):
+    return (rel, Fact(line=line, statement=stmt, from_date=from_date,
+                      until_date=until, sources=[], targets=[]),
+            frozenset(keys))
+
+
+def test_dup_same_statement_same_keys_both_open():
+    a = _entry("a.md", 3, "Acme is on the Enterprise plan", {"Clients/Acme.md"},
+               from_date="2025-03-01")
+    b = _entry("b.md", 8, "Acme is on the Enterprise plan", {"Clients/Acme.md"},
+               from_date="2026-01-01")
+    assert find_fact_conflicts([b, a]) == [("dup", a, b)]
+
+
+def test_dup_fires_on_identical_from_dates_too():
+    a = _entry("a.md", 3, "Acme is on the Enterprise plan", {"Clients/Acme.md"})
+    b = _entry("a.md", 9, "Acme is on the Enterprise plan", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == [("dup", a, b)]
+
+
+def test_dup_is_casefolded():
+    a = _entry("a.md", 3, "ACME is on the Enterprise Plan", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme is on the enterprise plan", {"Clients/Acme.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["dup"]
+
+
+def test_dup_requires_equal_key_sets():
+    # Same statement but different key sets: not a dup, and identical
+    # statements have an empty divergence so not a conflict either.
+    a = _entry("a.md", 3, "Acme is on the Enterprise plan", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme is on the Enterprise plan",
+               {"Clients/Acme.md", "Company/Plans.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_conflict_copula_is():
+    a = _entry("a.md", 3, "Acme's plan is Enterprise", {"Clients/Acme.md"},
+               from_date="2025-03-01")
+    b = _entry("b.md", 8, "Acme's plan is Growth", {"Clients/Acme.md"},
+               from_date="2026-01-01")
+    assert find_fact_conflicts([a, b]) == [("conflict", a, b)]
+
+
+def test_conflict_shared_key_is_enough():
+    # Key sets need only intersect — diverging tails may carry different links.
+    a = _entry("a.md", 3, "Acme's plan is [[Enterprise]]",
+               {"Clients/Acme.md", "Plans/Enterprise.md"})
+    b = _entry("b.md", 8, "Acme's plan is [[Growth]]",
+               {"Clients/Acme.md", "Plans/Growth.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+
+
+def test_conflict_colon_marker():
+    a = _entry("a.md", 3, "Acme plan: Enterprise", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme plan: Growth", {"Clients/Acme.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+
+
+def test_additive_verbs_stay_silent():
+    # Both can be true at once — "hired" is not a single-valued attribute.
+    a = _entry("a.md", 3, "Acme hired [[Bob]]", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme hired [[Carol]]", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_closed_facts_never_participate():
+    a = _entry("a.md", 3, "Acme's plan is Enterprise", {"Clients/Acme.md"},
+               until="2026-01-31")
+    b = _entry("b.md", 8, "Acme's plan is Growth", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_prefix_of_pair_is_skipped():
+    # One tail empty — a prefix-of relationship, not a conflict.
+    a = _entry("a.md", 3, "Acme's plan is", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme's plan is Growth", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_bare_marker_needs_a_preceding_token():
+    a = _entry("a.md", 3, "is Enterprise", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "is Growth", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_disjoint_keys_stay_silent():
+    a = _entry("a.md", 3, "the plan is Enterprise", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "the plan is Growth", {"Clients/Initech.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_pairs_are_deterministic_and_ordered():
+    a = _entry("a.md", 3, "Acme's plan is Enterprise", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme's plan is Growth", {"Clients/Acme.md"})
+    c = _entry("c.md", 2, "Acme's plan is Starter", {"Clients/Acme.md"})
+    out = find_fact_conflicts([c, b, a])
+    assert out == [("conflict", a, b), ("conflict", a, c), ("conflict", b, c)]
