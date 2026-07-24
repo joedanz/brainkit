@@ -870,9 +870,79 @@ def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
 
 
 STALE_MONTHS = 12
+# The citation grammar, both halves together: when a claim was true, and what
+# it points at. Keeping them adjacent is the point — broaden the convention and
+# there is one place to edit.
 _CITATION_RE = re.compile(r"(?:as of|captured)\s+(\d{4})-(0[1-9]|1[0-2])")
+_CITATION_URL_RE = re.compile(r"\]\((https?://[^\s)]+)\)")
 _ADDENDUM_RE = re.compile(r".+ [—-] updates \d{4}-(?:0[1-9]|1[0-2])\.md$")
 _INTEL_DIR = "Company/Intel"
+# Frontmatter key marking a page as distilled from an external source. Intel
+# needs no marker — the path is the convention — but everywhere else a page
+# distilled from an article and a page of original thinking look identical,
+# and guessing between them would make the citation lint noise. Deliberately
+# not `source:`, which already means the ingest channel on Inbox notes and the
+# originating note on promotion drafts.
+_DISTILLED_KEY = "distilled"
+
+# scope -> (check name, message when uncited, message when stale). One row per
+# citation rule, so a third scope is a table entry rather than another loop.
+# Messages are formatted with rel/source/month/months; each uses what it needs.
+_CITATION_RULES = {
+    "intel": (
+        "intel",
+        "{rel}: no dated citations — every Intel claim needs "
+        "`[source](URL), as of YYYY-MM` or `captured YYYY-MM`",
+        "{rel}: stale — newest citation {month} is over {months} months old",
+    ),
+    "distilled": (
+        "citations",
+        "{rel}: distilled from {source} but has no dated citations — the full "
+        "source never enters the vault, so every claim needs "
+        "`[source](URL), as of YYYY-MM` or `captured YYYY-MM` to stay "
+        "recoverable",
+        "{rel}: distilled from {source}, stale — newest citation {month} is "
+        "over {months} months old",
+    ),
+}
+
+
+def _month_index(today: date) -> int:
+    return today.year * 12 + today.month - 1
+
+
+def _fmt_month(m: int) -> str:
+    return f"{m // 12:04d}-{m % 12 + 1:02d}"
+
+
+def _newest_citation(text: str) -> int | None:
+    """Month index of the newest `as of`/`captured` date, or None when the page
+    carries no dated citation at all. The one place citation dating is read, so
+    Intel and the pages marked `distilled:` can never drift into two different
+    definitions of "cited"."""
+    months = [int(y) * 12 + int(m) - 1 for y, m in _CITATION_RE.findall(text)]
+    return max(months) if months else None
+
+
+def _citation_urls(text: str) -> list[str]:
+    """Every distinct http(s) markdown-link target — what a citation points at.
+    Bare URLs in prose are not citations under the convention, and the closing
+    paren bounds the target the same way the renderer does."""
+    return list(dict.fromkeys(_CITATION_URL_RE.findall(text)))
+
+
+def _citation_scope(rel: str, meta: dict[str, str]) -> str | None:
+    """Which citation rule covers this page: "intel", "distilled", or None.
+
+    Intel's own exemptions live here so every consumer inherits them: Home.md
+    is the link map (no claims of its own), and an addendum is already flagged
+    by its own rule — dating it too would just double the noise."""
+    name = Path(rel).name
+    if rel.startswith(_INTEL_DIR + "/"):
+        if name == "Home.md" or _ADDENDUM_RE.match(name):
+            return None
+        return "intel"
+    return "distilled" if meta.get(_DISTILLED_KEY, "").strip() else None
 
 
 def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
@@ -884,41 +954,125 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
     intel = master / _INTEL_DIR
     if not intel.is_dir():
         return []
-    today = today or date.today()
-    now_m = today.year * 12 + today.month - 1
     findings: list[Finding] = []
     for f in sorted(intel.rglob("*.md")):
-        if f.is_symlink():
+        if f.is_symlink() or not _ADDENDUM_RE.match(f.name):
             continue
         rel = f.relative_to(master).as_posix()
-        if _ADDENDUM_RE.match(f.name):
-            findings.append(Finding(
-                "warn", "intel",
-                f"{rel}: unfolded addendum — fold it into its page and delete "
-                "it, or have the agent resubmit as a mode: patch promotion",
-                paths=(rel,)))
+        findings.append(Finding(
+            "warn", "intel",
+            f"{rel}: unfolded addendum — fold it into its page and delete "
+            "it, or have the agent resubmit as a mode: patch promotion",
+            paths=(rel,)))
+    return findings + _citation_findings(master, "intel", today)
+
+
+def _cited_pages(master: Path, scope: str | None = None) -> list[tuple[str, str, str]]:
+    """(rel, text, source) for every page the citation rule covers — Intel
+    pages (source "") and `distilled:` pages alike. The one traversal behind
+    all three consumers, so `_citation_scope`'s "single source of truth" holds
+    for *which pages get walked*, not just how they're judged. `scope` narrows
+    it, so a caller that wants one rule doesn't pay to read the other's pages.
+
+    Intel is walked from disk rather than through `_content_files` because its
+    rule predates spaces and must hold even where one can't be resolved;
+    symlinks are skipped there because `_check_symlinks` already owns them."""
+    out: list[tuple[str, str, str]] = []
+    intel = master / _INTEL_DIR
+    if scope in (None, "intel") and intel.is_dir():
+        for f in sorted(intel.rglob("*.md")):
+            rel = f.relative_to(master).as_posix()
+            if f.is_symlink() or _citation_scope(rel, {}) != "intel":
+                continue
+            text = _read_text(f)
+            if text is not None:
+                out.append((rel, text, ""))
+    if scope in (None, "distilled"):
+        for rel in _content_files(master):
+            if rel.startswith(_INTEL_DIR + "/"):
+                continue  # walked above, on Intel's own terms
+            text = _read_text(master / rel)
+            if text is None:
+                continue
+            meta, _body = split_frontmatter(text)
+            if _citation_scope(rel, meta) == "distilled":
+                out.append((rel, text, meta[_DISTILLED_KEY].strip()))
+    return out
+
+
+def _citation_findings(
+    master: Path, scope: str, today: date | None = None,
+) -> list[Finding]:
+    """Apply one scope's citation rule. Intel and `distilled:` differ only in
+    which pages they cover and how they word the complaint, so they share this
+    loop and part ways in `_CITATION_RULES` — the alternative is two mirrored
+    copies that drift the first time a third rule appears."""
+    now_m = _month_index(today or date.today())
+    check, uncited_msg, stale_msg = _CITATION_RULES[scope]
+    findings: list[Finding] = []
+    for rel, text, source in _cited_pages(master, scope):
+        newest = _newest_citation(text)
+        if newest is None:
+            message = uncited_msg
+        elif now_m - newest > STALE_MONTHS:
+            message = stale_msg
+        else:
             continue
-        if f.name == "Home.md":
+        findings.append(Finding(
+            "warn", check,
+            message.format(
+                rel=rel, source=source, months=STALE_MONTHS,
+                month="" if newest is None else _fmt_month(newest)),
+            paths=(rel,)))
+    return findings
+
+
+def _check_citations(master: Path, today: date | None = None) -> list[Finding]:
+    """The citation rule outside `Company/Intel/`. Distilled content routed to
+    an entity page or `People/<pid>/Notes/` carries the same recovery risk as
+    an Intel page — the full source deliberately never entered the vault, so a
+    dropped detail is only recoverable by re-reading the original — but no path
+    convention marks it. `distilled:` frontmatter does, and this check holds
+    those pages to Intel's two rules: cite your claims, and stay fresh."""
+    return _citation_findings(master, "distilled", today)
+
+
+def _check_liveness(master: Path, today: date | None = None) -> list[Finding]:
+    """Opt-in (`brain doctor --net`): do the sources behind stale pages still
+    resolve? `stale AND dead` is the compound signal worth acting on — it means
+    re-research this now, while someone still remembers the context. Neither
+    half alone is: a stale page with a live source is a scheduling problem, and
+    a dead link under a fresh citation is usually just a moved URL.
+
+    Only stale pages go on the wire, so a healthy vault makes zero requests.
+    Merely-uncited pages are skipped too: there is no URL to probe, and
+    `_check_intel`/`_check_citations` already said so."""
+    from brain.liveness import DEAD, probe_all, wayback
+
+    now_m = _month_index(today or date.today())
+    stale: list[tuple[str, int, list[str]]] = []
+    for rel, text, _source in _cited_pages(master):
+        newest = _newest_citation(text)
+        if newest is None or now_m - newest <= STALE_MONTHS:
             continue
-        text = _read_text(f)
-        if text is None:
+        urls = _citation_urls(text)
+        if urls:
+            stale.append((rel, newest, urls))
+    if not stale:
+        return []
+    states = probe_all(url for _rel, _m, urls in stale for url in urls)
+    findings: list[Finding] = []
+    for rel, newest, urls in stale:
+        gone = [u for u in urls if states.get(u) == DEAD]
+        if not gone:
             continue
-        months = [int(y) * 12 + int(m) - 1
-                  for y, m in _CITATION_RE.findall(text)]
-        if not months:
-            findings.append(Finding(
-                "warn", "intel",
-                f"{rel}: no dated citations — every Intel claim needs "
-                "`[source](URL), as of YYYY-MM` or `captured YYYY-MM`",
-                paths=(rel,)))
-        elif now_m - max(months) > STALE_MONTHS:
-            newest = max(months)
-            findings.append(Finding(
-                "warn", "intel",
-                f"{rel}: stale — newest citation "
-                f"{newest // 12:04d}-{newest % 12 + 1:02d} is over "
-                f"{STALE_MONTHS} months old",
-                paths=(rel,)))
+        findings.append(Finding(
+            "warn", "link-rot",
+            f"{rel}: stale since {_fmt_month(newest)} and its source is gone "
+            f"({', '.join(gone)}) — re-research it now, while someone still "
+            f"remembers the context; the old page may be recoverable at "
+            f"{wayback(gone[0])}",
+            paths=(rel,)))
     return findings
 
 
@@ -1004,7 +1158,13 @@ def _check_delegated_decisions(master: Path) -> list[Finding]:
     return findings
 
 
-def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
+def run_doctor(
+    master: Path, out_root: Path | None = None, *, net: bool = False,
+) -> list[Finding]:
+    """Every check, in order. `net` is opt-in and off by default: doctor's
+    contract is read-only AND offline, so scheduled callers (cycle's triage,
+    the dashboard) stay deterministic and CI-friendly without knowing this
+    parameter exists."""
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
         return findings  # dependent checks are meaningless on broken meta
@@ -1033,7 +1193,10 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_pending_shares(master)
     findings += _check_delegated_decisions(master)
     findings += _check_intel(master)
+    findings += _check_citations(master)
     findings += _check_webhook(master, org)
     if out_root is not None:
         findings += _check_compiled(master, org, out_root)
+    if net:
+        findings += _check_liveness(master)
     return findings

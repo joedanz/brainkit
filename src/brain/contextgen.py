@@ -90,7 +90,11 @@ writable spaces; the write-back service rejects changes to read-only paths.
   read the source (fetch a URL, extract PDF text, read an image) and route
   destination, provider, event, or trend intel to `Company/Intel/` via a
   promotion (see below). The full text or file never enters the vault; your
-  personal take stays in `People/{pid}/Notes/`
+  personal take stays in `People/{pid}/Notes/`. Because the original is gone,
+  the citation is the only way back to it: on any distilled page **outside**
+  `Company/Intel/`, add frontmatter `distilled: <URL or title>` and cite the
+  claims `[source](URL), as of YYYY-MM` — inside Intel the folder already
+  says it, so no marker is needed
 - If unsure where something belongs, add it to `People/{pid}/Needs-Routing.md`
 
 ## Company Intel (the shared travel wiki)

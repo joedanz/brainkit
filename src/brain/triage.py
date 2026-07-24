@@ -43,8 +43,11 @@ from brain.schemas import Org, Person, SchemaError, SpaceRule, load_org, load_sp
 TRIAGE_CHECKS = frozenset({
     "unlinked-notes", "orphan-files", "intel",
     "dup-exact", "dup-near", "stem-collision",
-    "fact-dup", "fact-conflict",
+    "fact-dup", "fact-conflict", "citations",
 })
+# Deliberately absent: link-rot. Triage always runs doctor offline, so it can
+# never see one — `brain doctor --net` is a human-invoked diagnostic that
+# reports to the terminal.
 
 
 def route_findings(
