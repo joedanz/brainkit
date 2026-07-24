@@ -197,6 +197,10 @@ def _trunc(value: str, limit: int = FIELD_LEN) -> str:
     return value if len(value) <= limit else value[: limit - 1] + "…"
 
 
+def _count(n: int, singular: str, plural: str | None = None) -> str:
+    return f"{n} {singular if n == 1 else (plural or singular + 's')}"
+
+
 def render_map(
     person,
     spaces_rw: list[tuple[str, bool]],
@@ -215,8 +219,8 @@ def render_map(
         "---\ngenerated: true\n---\n",
         f"# Map — vault of {_trunc(person.name)} ({_trunc(person.id)})\n\n",
         _INTRO,
-        f"**{notes_total} notes · {len(plain)} spaces · "
-        f"{entities_total} entities**\n\n",
+        f"**{_count(notes_total, 'note')} · {_count(len(plain), 'space')} · "
+        f"{_count(entities_total, 'entity', 'entities')}**\n\n",
     ]
 
     if plain:
@@ -252,14 +256,18 @@ def render_map(
                        f"(`{_trunc(rel)}`)\n")
         out.append("\n")
 
-    out.append("## Pending\n\n")
-    out.append(f"- Inbox: {pending.inbox} item(s) — "
-               f"`People/{person.id}/Inbox/`\n")
-    if pending.needs_routing is not None:
-        out.append(f"- `People/{person.id}/Needs-Routing.md`: "
-                   f"{pending.needs_routing} line(s)\n")
-    out.append(f"- Promotion and share status: "
-               f"`People/{person.id}/Shares.md`\n")
+    # Every line here points into People/<pid>. A vault without that space —
+    # the default single-admin setup, for one — would otherwise advertise
+    # paths it does not contain.
+    if any(space == f"People/{person.id}" for space, _w in spaces_rw):
+        out.append("## Pending\n\n")
+        out.append(f"- Inbox: {pending.inbox} item(s) — "
+                   f"`People/{person.id}/Inbox/`\n")
+        if pending.needs_routing is not None:
+            out.append(f"- `People/{person.id}/Needs-Routing.md`: "
+                       f"{pending.needs_routing} line(s)\n")
+        out.append(f"- Promotion and share status: "
+                   f"`People/{person.id}/Shares.md`\n")
     return "".join(out)
 
 

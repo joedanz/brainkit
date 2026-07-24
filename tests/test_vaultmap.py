@@ -303,7 +303,10 @@ def test_render_map_realistic_vault_is_small():
 
 def test_render_map_never_raises_on_empty_vault():
     text = render_map(BOB, [], 0, {}, [], [], Pending(0, None), _CFG)
-    assert "## Pending" in text
+    # Every section is empty and Pending is suppressed (no People/bob space),
+    # so what survives is the header — rendered, not raised.
+    assert text.startswith("---\ngenerated: true\n---\n")
+    assert "**0 notes · 0 spaces · 0 entities**" in text
 
 
 def _seed(root: Path, files: dict[str, str]) -> list[str]:
@@ -350,7 +353,7 @@ def test_generate_map_end_to_end(tmp_path: Path):
     spaces_rw = [("Company", False), ("Teams/ops", True),
                  ("Clients/Acme", True), ("People/bob", True)]
     text = generate_map(tmp_path, BOB, spaces_rw, rels, VaultConfig())
-    assert "**5 notes · 3 spaces · 1 entities**" in text
+    assert "**5 notes · 3 spaces · 1 entity**" in text
     assert "| `Company` | 1 | read-only |" in text
     assert "**client** (1)" in text
     assert "[[Home]] — 2 link(s)" in text
@@ -381,3 +384,27 @@ def test_vaultmap_reads_nothing_outside_the_building_tree():
     assert "subprocess" not in imported
     assert "os" not in imported
     assert "master" not in inspect.signature(vm.generate_map).parameters
+
+
+def test_render_map_header_pluralizes():
+    """The header is the most-read line in the file; "1 spaces" is sloppy."""
+    one = _render(spaces_rw=[("Company", False)], space_notes={"Company": 1},
+                  notes=1, groups=[EntityGroup("client", 1, ("Acme",))])
+    assert "**1 note · 1 space · 1 entity**" in one
+    many = _render(groups=[EntityGroup("client", 3, ("Acme",))], notes=4)
+    assert "**4 notes · 2 spaces · 3 entities**" in many
+
+
+def test_render_map_omits_pending_when_person_has_no_own_space():
+    """A vault without People/<pid> (e.g. the default admin) must not point
+    at People/<pid>/Inbox/ or Shares.md — those paths do not exist in it."""
+    text = _render(spaces_rw=[("Company", False)], space_notes={"Company": 3},
+                   pending=Pending(inbox=0, needs_routing=None))
+    assert "## Pending" not in text
+    assert "People/bob" not in text
+
+
+def test_render_map_keeps_pending_when_person_has_their_own_space():
+    text = _render(pending=Pending(inbox=2, needs_routing=None))
+    assert "## Pending" in text
+    assert "Inbox: 2 item(s) — `People/bob/Inbox/`" in text
