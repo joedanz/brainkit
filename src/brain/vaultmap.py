@@ -169,3 +169,95 @@ def collect_pending(building: Path, person) -> Pending:
         needs = sum(1 for line in body.splitlines() if line.strip())
 
     return Pending(inbox=inbox, needs_routing=needs)
+
+
+MAP_NAME = "Map.md"
+
+# Budget matches contextgen.SPACE_LIMIT. Unlike contextgen this is NEVER
+# enforced by raising — a data-driven file must not fail a compile. The caps
+# and truncation below bound the document by construction; MAP_LIMIT is a
+# test assertion over them, not a runtime behavior.
+MAP_LIMIT = 8_000
+SPACE_CAP = 20
+TYPE_CAP = 12
+EXEMPLARS = 3
+HUB_CAP = 10
+FIELD_LEN = 48
+
+_INTRO = (
+    "Generated state, refreshed on every compile — edits here are discarded.\n"
+    "Protocol and routing rules are in `AGENTS.md`.\n\n"
+    "This is an orientation summary, not an index: it says what kinds of\n"
+    "things are here and how much. To find a specific note or entity, search\n"
+    "(`brain_search`) — it resolves aliases and has no size limit.\n\n"
+)
+
+
+def _trunc(value: str, limit: int = FIELD_LEN) -> str:
+    return value if len(value) <= limit else value[: limit - 1] + "…"
+
+
+def render_map(
+    person,
+    spaces_rw: list[tuple[str, bool]],
+    notes_total: int,
+    space_notes: dict[str, int],
+    groups: list[EntityGroup],
+    hubs: list[tuple[str, int]],
+    pending: Pending,
+    config,
+) -> str:
+    prefix = f"{config.entities}/"
+    plain = [(s, w) for s, w in spaces_rw if not s.startswith(prefix)]
+    entities_total = sum(g.count for g in groups)
+
+    out: list[str] = [
+        "---\ngenerated: true\n---\n",
+        f"# Map — vault of {_trunc(person.name)} ({_trunc(person.id)})\n\n",
+        _INTRO,
+        f"**{notes_total} notes · {len(plain)} spaces · "
+        f"{entities_total} entities**\n\n",
+    ]
+
+    if plain:
+        out.append("## Spaces\n\n| space | notes | access |\n| --- | --- | --- |\n")
+        for space, writable in plain[:SPACE_CAP]:
+            access = "writable" if writable else "read-only"
+            out.append(
+                f"| `{_trunc(space)}` | {space_notes.get(space, 0)} | {access} |\n")
+        if len(plain) > SPACE_CAP:
+            out.append(f"\n…and {len(plain) - SPACE_CAP} more spaces\n")
+        out.append("\n")
+
+    if groups:
+        out.append("## Entities\n\n")
+        for group in groups[:TYPE_CAP]:
+            line = f"- **{_trunc(group.etype)}** ({group.count}) — `{prefix}`"
+            if group.exemplars:
+                names = ", ".join(f"[[{_trunc(n)}]]" for n in group.exemplars)
+                line += f", most linked: {names}"
+            out.append(line + "\n")
+        if len(groups) > TYPE_CAP:
+            # Degrade at the TYPE level: "3 more types" tells the agent a whole
+            # category exists that it cannot see, which it can act on. A count
+            # of hidden names would not.
+            out.append(f"…and {len(groups) - TYPE_CAP} more types\n")
+        out.append("\n")
+
+    if hubs:
+        out.append("## Hubs\n\nMost-connected notes in this vault:\n\n")
+        for i, (rel, count) in enumerate(hubs[:HUB_CAP], 1):
+            stem = rel.rsplit("/", 1)[-1].removesuffix(".md")
+            out.append(f"{i}. [[{_trunc(stem)}]] — {count} link(s) "
+                       f"(`{_trunc(rel)}`)\n")
+        out.append("\n")
+
+    out.append("## Pending\n\n")
+    out.append(f"- Inbox: {pending.inbox} item(s) — "
+               f"`People/{person.id}/Inbox/`\n")
+    if pending.needs_routing is not None:
+        out.append(f"- `People/{person.id}/Needs-Routing.md`: "
+                   f"{pending.needs_routing} line(s)\n")
+    out.append(f"- Promotion and share status: "
+               f"`People/{person.id}/Shares.md`\n")
+    return "".join(out)
