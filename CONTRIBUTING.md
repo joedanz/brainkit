@@ -83,16 +83,23 @@ more than it protects.
 
 ## Style
 
-`ruff` runs in CI:
+`ruff` runs in CI. Use the same version it does, or you'll chase findings CI
+doesn't have — and miss ones it does:
 
 ```bash
-uvx ruff check .
-uvx ruff check . --fix
+uvx ruff@0.16.0 check .
+uvx ruff@0.16.0 check . --fix
 ```
 
-The config in `ruff.toml` pins both the rule set and the reasons rules are off,
-so lint stays a signal rather than a chore. If a rule fights the codebase for a
-deliberate reason, add it there with the reason rather than sprinkling `noqa`.
+Both pins are deliberate. `ruff.toml` pins the *rules* with an explicit
+`select`, and `.github/workflows/tests.yml` pins the *linter*, because ruff's
+default rule set grows with releases — a floating version means a new ruff can
+turn someone's unrelated PR red. Bump the two together.
+
+Every entry under `ignore` records why it's there. A rule turned off without a
+reason is indistinguishable from one nobody got around to fixing, so if a rule
+fights the codebase deliberately, add it there with the reason rather than
+sprinkling `noqa`.
 
 Beyond that: match the file you're editing. Comments here explain *why*, not
 what — the code already says what.
