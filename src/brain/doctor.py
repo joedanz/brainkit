@@ -311,6 +311,12 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
                 "other via a mode: patch promotion",
                 f"{a} and {b} hold identical content in unshared spaces — "
                 "promotion candidate")
+        # Only adjacent pairs are emitted above, but every pair within an
+        # identical group is still identical content — flag them all so
+        # later tiers don't re-surface a non-adjacent pair as "near".
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                flagged.add(frozenset((a, b)))
 
     # Tier 2: stem collisions. Only pairs a common reader sees are amb-
     # iguous (both files land in that person's vault, where a bare

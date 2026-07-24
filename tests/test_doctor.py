@@ -725,3 +725,15 @@ def test_warn_dup_findings_never_pair_disjoint_readers(master):
     # The layout still produces both classes:
     assert "warn" in _severities(findings, "dup-exact")   # the Company pair
     assert "info" in _severities(findings, "dup-exact")   # a cross-boundary pair
+    assert not _severities(findings, "dup-near")
+
+
+def test_identical_group_of_three_emits_no_dup_near(master):
+    # Tier 1 chains adjacent pairs of an identical group; every other
+    # intra-group pair must be suppressed, not resurface as dup-near.
+    seed_meta(master)
+    for name in ("Copy One", "Copy Two", "Copy Three"):
+        (master / f"Company/{name}.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert len(_severities(findings, "dup-exact")) == 2
+    assert not _severities(findings, "dup-near")
