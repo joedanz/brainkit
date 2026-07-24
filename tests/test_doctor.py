@@ -965,3 +965,24 @@ def test_unreadable_compiled_file_counts_as_drift(master, tmp_path):
     drift = [f for f in findings if f.check == "compiled" and "bob" in f.message
              and "awaiting writeback" in f.message]
     assert len(drift) == 1
+
+
+@requires_nonroot
+def test_unreadable_clients_log_is_reported(tmp_path):
+    """The self-service client log lives under _meta/, so the content-file
+    check never sees it — it reports its own read failure."""
+    from brain.doctor import _check_created_clients
+
+    master = tmp_path / "master"
+    log = master / "_meta/clients/created.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("2026-07-22\tjoe\tDanziger Family\t2026-07-22-danziger-family\n")
+    log.chmod(0o000)
+    try:
+        findings = _check_created_clients(master)
+    finally:
+        log.chmod(0o644)
+
+    assert len(findings) == 1
+    assert findings[0].severity == "error" and findings[0].check == "clients"
+    assert "Danziger Family" not in findings[0].message

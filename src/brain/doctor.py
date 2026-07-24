@@ -478,7 +478,8 @@ def _check_unreadable_files(master: Path) -> list[Finding]:
             findings.append(Finding(
                 "error", "unreadable-files",
                 f"{rel}: cannot be read ({reason}) — doctor cannot check it "
-                "and compile will fail on it; fix the permissions",
+                "and compile will fail on it; fix the file before the next "
+                "cycle",
                 paths=(rel,)))
     return findings
 
@@ -500,8 +501,8 @@ def _walk_content(master: Path) -> list[str]:
 
 def _content_files(master: Path) -> list[str]:
     """All rel paths of .md files that live in a resolvable space AND can be
-    read. Unreadable files drop out here, once, so no scan below has to think
-    about them — `_check_unreadable_files` is what reports them."""
+    read. Unreadable files drop out here so no scan below has to think about
+    them — `_check_unreadable_files` is what reports them."""
     return [rel for rel in _walk_content(master)
             if _unreadable(master / rel) is None]
 
@@ -935,9 +936,10 @@ def _check_created_clients(master: Path, config: VaultConfig = None) -> list[Fin
     findings: list[Finding] = []
     text = _read_text(log)
     if text is None:
-        return [Finding("error", "clients",
-                        "the self-service client log cannot be read — "
-                        "new client spaces will not be surfaced for review")]
+        return [Finding(
+            "error", "clients",
+            "the self-service client log cannot be read — new client spaces "
+            "will not be surfaced for review")]
     for line in text.splitlines():
         parts = line.split("\t")
         if len(parts) < 3:
