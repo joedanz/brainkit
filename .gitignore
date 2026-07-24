@@ -3,6 +3,7 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.ruff_cache/
 
 # deploy secrets
 deploy/agents-box/.env
@@ -10,6 +11,7 @@ deploy/agents-box/.env
 # internal working notes — kept local, not part of the public repo
 tasks/
 docs/superpowers/
+.impeccable.md
 
 # Coverage
 .coverage
