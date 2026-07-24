@@ -76,3 +76,36 @@ def band_keys(sig: tuple[int, ...]) -> list[tuple[int, tuple[int, ...]]]:
 
 def jaccard_estimate(a: tuple[int, ...], b: tuple[int, ...]) -> float:
     return sum(1 for x, y in zip(a, b) if x == y) / len(a)
+
+
+def unpack_vector(blob: bytes) -> list[float]:
+    """Inverse of embeddings.pack_vector: little-endian float32 blob."""
+    return list(struct.unpack(f"<{len(blob) // 4}f", blob))
+
+
+def mean_pool(vectors: list[list[float]]) -> list[float]:
+    n = len(vectors)
+    return [sum(col) / n for col in zip(*vectors)]
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def sign_bits(vec: list[float]) -> int:
+    """One sign bit per dimension, packed into an int. Hamming distance over
+    these approximates angular distance, so the O(n^2) cosine pass can cheaply
+    skip pairs that cannot clear DUP_COSINE (verified exactly afterwards)."""
+    bits = 0
+    for x in vec:
+        bits = (bits << 1) | (1 if x > 0 else 0)
+    return bits
+
+
+def hamming(a: int, b: int) -> int:
+    return (a ^ b).bit_count()
