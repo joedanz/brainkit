@@ -641,3 +641,63 @@ def test_skeleton_pair_suppresses_identical_personal_scaffolds(master):
     assert any(
         f.check == "dup-exact" and f.severity == "info"
         and "Other Name" in f.message for f in findings)
+
+
+def _shuffled_pair(master):
+    """Two Company notes with the same word bag in different order: shingle
+    overlap ~0 (MinHash misses) but bag-of-words embeddings match."""
+    ws = [f"word{i}" for i in range(40)]
+    (master / "Company/Shuffle A.md").write_text(
+        "# Shuffle A\n\n" + " ".join(ws) + "\n")
+    (master / "Company/Shuffle B.md").write_text(
+        "# Shuffle B\n\n" + " ".join(reversed(ws)) + "\n")
+    return ["Company/Shuffle A.md", "Company/Shuffle B.md"]
+
+
+def test_minhash_near_duplicate_warns(master):
+    seed_meta(master)
+    ws = [f"tok{i}" for i in range(60)]
+    (master / "Company/Draft.md").write_text("# Draft\n\n" + " ".join(ws) + "\n")
+    ws[30] = "changed"
+    (master / "Company/Final.md").write_text("# Final\n\n" + " ".join(ws) + "\n")
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "dup-near")
+
+
+def test_no_provider_means_no_embedding_signal(master):
+    # conftest's _no_ambient_provider guarantees no provider here: the
+    # shuffled pair is invisible to MinHash and must NOT be flagged.
+    seed_meta(master)
+    _shuffled_pair(master)
+    findings = run_doctor(master)
+    assert not _severities(findings, "dup-near")
+
+
+def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch):
+    import hashlib as _hashlib
+
+    from brain.chunker import chunk_markdown, embedding_input
+    from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider, pack_vector
+
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+
+    cache_path = tmp_path / "emb-cache.db"
+    monkeypatch.setenv("BRAIN_EMBED_CACHE", str(cache_path))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "http://unused.invalid")
+    monkeypatch.setenv("BRAIN_EMBED_MODEL", "fake-32")
+
+    provider = FakeEmbeddingProvider()  # model == "fake-32", never networked
+    cache = EmbeddingCache(cache_path)
+    for rel in rels:
+        text = (master / rel).read_text()
+        inputs = [embedding_input(c) for c in chunk_markdown(rel, text)]
+        shas = [_hashlib.sha256(i.encode("utf-8")).hexdigest() for i in inputs]
+        vecs = [pack_vector(v) for v in provider.embed(inputs)]
+        cache.put_many(list(zip(shas, vecs)), "fake-32")
+    cache.close()
+
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "dup-near")
+    hit = [f for f in findings if f.check == "dup-near" and f.severity == "warn"][0]
+    assert "Shuffle A" in hit.message and "Shuffle B" in hit.message

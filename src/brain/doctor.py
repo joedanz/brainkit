@@ -216,6 +216,51 @@ def _skeleton_pair(a: str, b: str) -> bool:
     return a[len(sa):] == b[len(sb):]
 
 
+def _cached_file_vectors(
+    rels: list[str], texts: dict[str, str],
+) -> dict[str, list[float]]:
+    """File-level mean-pooled vectors, resolved from the shared embedding
+    cache ONLY — the provider is never called (its constructor does no I/O
+    and is used purely to learn the configured model name). A file with any
+    chunk missing from the cache is dropped from this signal; any cache
+    failure degrades to no signal at all. brain cycle's indexing keeps the
+    cache warm, so in a live deployment coverage is near-total."""
+    from brain.chunker import chunk_markdown, embedding_input
+    from brain.dedup import mean_pool, unpack_vector
+    from brain.embeddings import (
+        EmbeddingCache, default_cache_path, provider_from_config)
+
+    provider = provider_from_config()
+    if provider is None:
+        return {}
+    cache_path = default_cache_path()
+    if not cache_path.exists():
+        return {}
+    out: dict[str, list[float]] = {}
+    try:
+        cache = EmbeddingCache(cache_path)
+    except Exception:
+        return {}
+    try:
+        for rel in rels:
+            chunks = chunk_markdown(rel, texts[rel])
+            if not chunks:
+                continue
+            shas = [
+                hashlib.sha256(
+                    embedding_input(c).encode("utf-8")).hexdigest()
+                for c in chunks]
+            found = cache.get_many(shas, provider.model)
+            if any(s not in found for s in shas):
+                continue
+            out[rel] = mean_pool([unpack_vector(found[s]) for s in shas])
+    except Exception:
+        return {}
+    finally:
+        cache.close()
+    return out
+
+
 def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
     """Duplicate and near-duplicate notes, in three tiers: identical bytes
     (dup-exact), colliding title stems (stem-collision — bare wikilinks
@@ -292,6 +337,60 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
                     f"{a} and {b} share the title stem {stem!r} — a bare "
                     f"[[{display_stem}]] resolves to whichever sorts first; "
                     "rename one or link by full path"))
+
+    # Tier 3a: lexical near-duplicates. LSH banding keeps the candidate set
+    # near-linear; the signature estimate is the accept test.
+    from brain.dedup import (
+        DUP_COSINE, DUP_HAMMING_FRAC, DUP_JACCARD, band_keys, cosine,
+        hamming, jaccard_estimate, minhash_signature, shingles, sign_bits)
+
+    sigs: dict[str, tuple[int, ...]] = {}
+    buckets: dict[tuple[int, tuple[int, ...]], list[str]] = {}
+    for rel in substantive:
+        sig = minhash_signature(shingles(words[rel]))
+        if sig is None:
+            continue
+        sigs[rel] = sig
+        for key in band_keys(sig):
+            buckets.setdefault(key, []).append(rel)
+    candidates: set[frozenset[str]] = set()
+    for _key, group in sorted(buckets.items()):
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                candidates.add(frozenset((a, b)))
+    for pair in sorted(candidates, key=sorted):
+        a, b = sorted(pair)
+        if pair in flagged:
+            continue
+        if jaccard_estimate(sigs[a], sigs[b]) >= DUP_JACCARD:
+            emit(
+                a, b, "dup-near",
+                f"{a} and {b} are near-duplicates (text overlap) — fold one "
+                "into the other via a mode: patch promotion",
+                f"{a} and {b} cover similar content in unshared spaces — "
+                "promotion candidate")
+
+    # Tier 3b: semantic near-duplicates from cached embeddings. Sign-bit
+    # hamming prefilters the O(n^2) pair loop; exact cosine confirms.
+    vecs = _cached_file_vectors(substantive, texts)
+    bits = {rel: sign_bits(v) for rel, v in vecs.items()}
+    dim = len(next(iter(vecs.values()))) if vecs else 0
+    max_ham = int(dim * DUP_HAMMING_FRAC)
+    ordered = sorted(vecs)
+    for i, a in enumerate(ordered):
+        for b in ordered[i + 1:]:
+            pair = frozenset((a, b))
+            if pair in flagged:
+                continue
+            if hamming(bits[a], bits[b]) > max_ham:
+                continue
+            if cosine(vecs[a], vecs[b]) >= DUP_COSINE:
+                emit(
+                    a, b, "dup-near",
+                    f"{a} and {b} are near-duplicates (semantic similarity) "
+                    "— fold one into the other via a mode: patch promotion",
+                    f"{a} and {b} cover similar content in unshared spaces — "
+                    "promotion candidate")
 
     return findings
 
