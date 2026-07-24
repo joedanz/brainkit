@@ -294,7 +294,7 @@ def cmd_cycle(args) -> int:
 
 def cmd_doctor(args) -> int:
     out_root = Path(args.out) if args.out else None
-    findings = run_doctor(Path(args.master), out_root)
+    findings = run_doctor(Path(args.master), out_root, net=args.net)
     errors = [f for f in findings if f.severity == "error"]
     if args.json:
         print(json.dumps({
@@ -723,6 +723,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--master", required=True)
     d.add_argument("--out")
     d.add_argument("--json", action="store_true")
+    d.add_argument(
+        "--net", action="store_true",
+        help="also check whether the sources cited by stale pages still "
+             "resolve (makes network requests; off by default)")
     d.set_defaults(func=cmd_doctor)
 
     tr = sub.add_parser(

@@ -123,7 +123,10 @@ When a transcript appears in any `People/<person>/Inbox/`:
      `[source](URL), as of YYYY-MM`: source is the URL or the
      publication/title (or uploaded filename); use the source's date, or
      `captured YYYY-MM` (today) when it shows none. Keep `Intel/Home.md`
-     linking to every page
+     linking to every page. When distilled content lands outside
+     `Company/Intel/` instead — an entity page, a personal note — mark it
+     `distilled: <URL or title>` in frontmatter and cite it the same way; the
+     original never enters the vault, so the citation is the only route back
    - Session summary -> `People/<person>/Sessions/`
    - General insights worth keeping -> fold into `Company/Memory.md`, which
      stays a lean overview linking out to detail notes — not a running log

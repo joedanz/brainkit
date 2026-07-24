@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from brain.doctor import run_doctor, _check_intel
+from brain.doctor import run_doctor, _check_citations, _check_intel
 from brain.cli import main
 
 from .test_cli import ORG_YAML, SPACES_YAML, seed_meta
@@ -438,6 +438,71 @@ def test_run_doctor_includes_intel_check(master):
     seed_meta(master)
     _intel(master, "Old — updates 2025-01.md", "x\n")
     assert any(f.check == "intel" for f in run_doctor(master))
+
+
+TODAY = _date(2026, 7, 21)
+
+
+def _distilled(master, rel, source, body):
+    f = master / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(f"---\ndistilled: {source}\n---\n\n{body}")
+
+
+def test_citations_ignores_pages_without_the_marker(master):
+    # The whole point of the marker: original thinking and distilled content
+    # are indistinguishable outside Intel, so an unmarked page is never judged.
+    (master / "People/bob/Notes").mkdir(parents=True)
+    (master / "People/bob/Notes/Thoughts.md").write_text("My own take.\n")
+    assert _check_citations(master, today=TODAY) == []
+
+
+def test_citations_flags_uncited_distilled_page(master):
+    _distilled(master, "People/bob/Notes/Ferries.md",
+               "https://example.com/ferries", "Ferries run hourly.\n")
+    findings = _check_citations(master, today=TODAY)
+    assert [(f.severity, f.check) for f in findings] == [("warn", "citations")]
+    assert "no dated citations" in findings[0].message
+    assert "https://example.com/ferries" in findings[0].message
+    assert findings[0].paths == ("People/bob/Notes/Ferries.md",)
+
+
+def test_citations_accepts_a_dated_citation(master):
+    _distilled(master, "Clients/acme/Ferries.md", "https://example.com/f",
+               "Ferries run hourly. [source](https://example.com/f), as of 2026-06\n")
+    assert _check_citations(master, today=TODAY) == []
+
+
+def test_citations_flags_stale_distilled_page(master):
+    _distilled(master, "Clients/acme/Ferries.md", "Ferry Times 2025",
+               "Ferries run hourly. [s](https://example.com/f), captured 2025-06\n")
+    findings = _check_citations(master, today=TODAY)
+    assert len(findings) == 1
+    assert "stale" in findings[0].message and "2025-06" in findings[0].message
+
+
+def test_citations_empty_marker_is_not_a_distilled_page(master):
+    # A key with no value marks nothing; treating it as distilled would turn a
+    # typo into a permanent warning nobody can satisfy.
+    f = master / "People/bob/Notes/Ferries.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("---\ndistilled:\n---\n\nFerries run hourly.\n")
+    assert _check_citations(master, today=TODAY) == []
+
+
+def test_citations_leaves_intel_to_the_intel_check(master):
+    # An Intel page marked distilled: must produce exactly one finding, not two.
+    _intel(master, "Destinations/Lisbon.md",
+           "---\ndistilled: https://example.com/lisbon\n---\n\nLisbon is nice.\n")
+    assert _check_citations(master, today=TODAY) == []
+    assert len(_check_intel(master, today=TODAY)) == 1
+
+
+def test_run_doctor_includes_citations_check(master):
+    seed_meta(master)
+    _distilled(master, "Clients/acme/Ferries.md", "https://example.com/f",
+               "Ferries run hourly.\n")
+    assert any(f.check == "citations" for f in run_doctor(master))
 
 
 def test_doctor_flags_unknown_mode_draft(master):

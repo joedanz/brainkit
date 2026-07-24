@@ -44,6 +44,9 @@ TRIAGE_CHECKS = frozenset({
     "unlinked-notes", "orphan-files", "intel",
     "dup-exact", "dup-near", "stem-collision",
     "fact-dup", "fact-conflict",
+    # link-rot only ever appears when a human runs `brain doctor --net`
+    # (triage never sets it) — but if it does, it is content work with an owner.
+    "citations", "link-rot",
 })
 
 
