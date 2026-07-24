@@ -677,3 +677,29 @@ def test_cycle_runs_triage_after_compile(master, tmp_path):
     # rolling note is idempotent across cycles
     again = run_cycle(master, out, today="2026-07-25")
     assert again.triage_digests == 0
+
+
+def test_cycle_survives_triage_crash(master, tmp_path, monkeypatch):
+    """A triage crash must never abort the cycle — mirrors the indexing
+    posture (_refresh_indexes' own try/except): the rest of the pipeline
+    already ran (writeback, sweeps, compile), so a broken triage run should
+    warn, not throw away that work."""
+    import brain.triage
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("triage exploded")
+
+    monkeypatch.setattr(brain.triage, "run_triage", boom)
+
+    report = run_cycle(master, out, today="2026-07-24")
+
+    assert report.ok
+    assert any("triage failed" in w for w in report.triage_warnings)
+    assert report.triage_findings == 0
+    assert report.triage_digests == 0
+    assert report.triage_unrouted == 0
+    # everything before the triage call still ran normally
+    assert report.compiled == 2

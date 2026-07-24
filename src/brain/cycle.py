@@ -137,9 +137,15 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     if index:
         indexed, index_warnings = _refresh_indexes(master, out_root, org)
 
-    from brain.triage import run_triage
+    from brain.triage import TriageReport, run_triage
 
-    triage = run_triage(master, out_root, today=today)
+    try:
+        triage = run_triage(master, out_root, today=today)
+    except Exception as e:  # never let triage abort the cycle — mirrors
+        # the indexing posture (_refresh_indexes above): everything before
+        # this point (writeback, sweeps, compile) already succeeded, so a
+        # broken triage run should warn, not throw that work away.
+        triage = TriageReport(0, 0, 0, 0, [f"triage failed: {e}"])
 
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,

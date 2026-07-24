@@ -351,14 +351,18 @@ Exit is `1` if any `error` finding exists, else `0` — so `doctor` slots into C
 
 Route `doctor` findings to the people who can fix them, as one rolling digest
 note per person (`People/<id>/Inbox/doctor-digest.md`). Warn-level content
-findings (unlinked notes, orphans, stale or unfolded intel, duplicates, duplicate and conflicting facts) go to the owner of the space they're about; findings about shared
-spaces or unresolvable paths — and error-level infrastructure findings — go to the admins. The
-digest is machine-owned: identical findings skip the write (a fingerprint in
-the frontmatter), changed findings rewrite it, and an emptied set deletes it,
-so re-runs never multiply notes. Fixes flow back through the normal gates —
-write-back for a person's own spaces, `mode: patch` promotions for shared
-pages. `brain cycle` runs this automatically after each compile; the
-standalone verb exists for manual runs.
+findings (unlinked notes, orphans, stale or unfolded intel, duplicates, and
+duplicate or conflicting facts) go to the owner of the space they're about;
+findings about shared spaces, unresolvable paths, or departed people — and
+error-level infrastructure findings — go to the admins. Paths and fact
+statements from spaces a recipient cannot read are redacted from their
+digest; admins receive the full detail. The digest is machine-owned:
+identical findings skip the write (a fingerprint in the frontmatter), changed
+findings rewrite it, and an emptied set deletes it, so re-runs never multiply
+notes. Fixes flow back through the normal gates — write-back for a person's
+own spaces, `mode: patch` promotions for shared pages. `brain cycle` runs
+this automatically after each compile; the standalone verb exists for manual
+runs.
 
 ```bash
 brain triage --master <master> [--out <out>] [--json]

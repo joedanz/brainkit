@@ -170,6 +170,50 @@ def test_digest_never_writes_through_symlinked_leaf(master, tmp_path):
     assert any("symlink" in w for w in report.warnings)
 
 
+def _bare_master(tmp_path: Path) -> Path:
+    """Minimal seeded master with no content that would route a finding to
+    bob — isolates the delete branch (empty findings) from the write branch
+    that the other symlink tests exercise."""
+    master = tmp_path / "bare-master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n"
+        "  alice: {name: Alice, roles: [admin]}\n"
+        "  bob: {name: Bob}\n")
+    (master / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n')
+    (master / "Company").mkdir()
+    (master / "Company/Home.md").write_text("# Home\n")
+    (master / "People/alice").mkdir(parents=True)
+    (master / "People/alice/Memory.md").write_text("# Alice\n")
+    (master / "People/bob").mkdir(parents=True)
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(master), "add", "-A"],
+                   capture_output=True, check=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t",
+                    "-c", "user.email=t@t", "commit", "-m", "seed"],
+                   capture_output=True, check=True)
+    return master
+
+
+def test_delete_branch_never_follows_symlinked_digest(tmp_path):
+    master = _bare_master(tmp_path)
+    victim = tmp_path / "victim.md"
+    victim.write_text("do not touch\n")
+    inbox = master / "People/bob/Inbox"
+    inbox.mkdir(parents=True)
+    digest_path = inbox / DIGEST_NAME
+    digest_path.symlink_to(victim)
+
+    report = run_triage(master, today="2026-07-24")  # bob has no findings
+    assert victim.read_text() == "do not touch\n"
+    assert digest_path.is_symlink()  # never unlinked
+    assert any("refusing to remove" in w for w in report.warnings)
+
+
 def test_unreadable_digest_warns_instead_of_crashing(master, tmp_path, monkeypatch):
     seed_meta(master)
     solo = master / "People/bob/Notes/Solo.md"

@@ -234,7 +234,11 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
             continue
         person_findings = routed.get(person.id, [])
         if not person_findings:
-            if target.is_file() and not target.is_symlink():
+            if target.is_symlink():
+                # Mirrors the write branch's refusal below — a symlinked
+                # leaf is never touched, deletion included.
+                warnings.append(f"{rel}: digest is a symlink — refusing to remove")
+            elif target.is_file():
                 try:
                     target.unlink()
                 except OSError as e:
