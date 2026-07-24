@@ -37,7 +37,7 @@ The next [`brain cycle`](/reference/cli#brain-cycle) compiles that note into bob
 
 ### It fails closed
 
-- **Unknown senders are refused.** With `--from <email>`, the address must match a person's `email` in [`org.yaml`](/reference/configuration#org-yaml); an unrecognized sender is rejected, never guessed onto someone.
+- **Unknown senders are refused.** With `--from <email>`, the address must match a person's `email` in [`org.yaml`](/reference/configuration#orgyaml); an unrecognized sender is rejected, never guessed onto someone.
 - **The note can only land in that person's Inbox.** The target path is constructed, not taken from input, and is re-checked against write permissions — a crafted title can't escape into a shared space.
 - **Untrusted content can't forge metadata.** A newline or stray `---` in the title, sender, or source is rejected, so channel input can't inject frontmatter keys.
 - **Every intake is auditable.** Each note is its own git commit under the `Brain Ingest <ingest@brain.local>` identity, distinct from authenticated write-backs.
