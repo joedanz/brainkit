@@ -75,3 +75,66 @@ def rank_hubs(degree: dict[str, int], cap: int) -> list[tuple[str, int]]:
     """Most-connected notes first. Zero-degree notes are not hubs."""
     ranked = sorted(degree.items(), key=lambda kv: (-kv[1], kv[0]))
     return [(rel, n) for rel, n in ranked if n > 0][:cap]
+
+
+UNTYPED = "(untyped)"
+
+
+@dataclass(frozen=True)
+class EntityGroup:
+    etype: str  # the `entity:` frontmatter value, or UNTYPED
+    count: int  # entity spaces of this type
+    exemplars: tuple[str, ...]  # entity names, most-linked first
+
+
+def group_entities(
+    notes: dict[str, NoteFacts],
+    spaces_rw: list[tuple[str, bool]],
+    degree: dict[str, int],
+    config,
+    *,
+    exemplars: int = 3,
+) -> list[EntityGroup]:
+    """Entity spaces grouped by their `entity:` type, biggest group first.
+
+    One bucket per type, carrying a count and a few most-linked names as a
+    foothold. Individual lookups belong to `brain_search`, which resolves
+    aliases; this is orientation only, so the output size depends on the
+    number of TYPES, never the number of entities.
+    """
+    from brain.resolver import space_of_path
+
+    prefix = f"{config.entities}/"
+
+    # Bucket notes by space once — the alternative (rescanning every note per
+    # entity space) is O(spaces x notes), and a mature vault has hundreds of
+    # each.
+    by_space: dict[str, list[str]] = {}
+    for rel in notes:
+        space = space_of_path(rel)
+        if space is not None:
+            by_space.setdefault(space, []).append(rel)
+
+    buckets: dict[str, list[tuple[int, str]]] = {}
+    for space, _writable in spaces_rw:
+        if not space.startswith(prefix):
+            continue
+        name = space[len(prefix):]
+        etype = ""
+        best = 0
+        for rel in by_space.get(space, ()):
+            if not etype and notes[rel].entity:
+                etype = notes[rel].entity
+            best = max(best, degree.get(rel, 0))
+        buckets.setdefault(etype or UNTYPED, []).append((best, name))
+
+    groups = []
+    for etype, items in buckets.items():
+        items.sort(key=lambda pair: (-pair[0], pair[1]))
+        groups.append(EntityGroup(
+            etype=etype,
+            count=len(items),
+            exemplars=tuple(name for _degree, name in items[:exemplars]),
+        ))
+    groups.sort(key=lambda g: (-g.count, g.etype))
+    return groups

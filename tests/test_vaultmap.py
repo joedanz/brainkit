@@ -1,4 +1,13 @@
-from brain.vaultmap import NoteFacts, link_degree, rank_hubs, scan_note
+from brain.schemas import VaultConfig
+from brain.vaultmap import (
+    UNTYPED,
+    EntityGroup,
+    NoteFacts,
+    group_entities,
+    link_degree,
+    rank_hubs,
+    scan_note,
+)
 
 
 def test_scan_note_plain_body():
@@ -64,3 +73,63 @@ def test_rank_hubs_orders_by_degree_then_path():
 def test_rank_hubs_applies_cap():
     degree = {f"{i}.md": 10 - i for i in range(10)}
     assert len(rank_hubs(degree, cap=3)) == 3
+
+
+def test_group_entities_buckets_by_frontmatter_type():
+    notes = {
+        "Clients/Acme/Acme.md": NoteFacts("client", ()),
+        "Clients/Globex/Globex.md": NoteFacts("client", ()),
+        "Clients/Sarah Kim/Sarah Kim.md": NoteFacts("person", ()),
+        "People/bob/Memory.md": NoteFacts("", ()),
+    }
+    spaces_rw = [
+        ("Clients/Acme", True), ("Clients/Globex", True),
+        ("Clients/Sarah Kim", True), ("People/bob", True),
+    ]
+    groups = group_entities(notes, spaces_rw, link_degree(notes), VaultConfig())
+    assert [(g.etype, g.count) for g in groups] == [("client", 2), ("person", 1)]
+
+
+def test_group_entities_exemplars_ordered_by_degree():
+    notes = {
+        "Clients/Acme/Acme.md": NoteFacts("client", ()),
+        "Clients/Globex/Globex.md": NoteFacts("client", ("Acme",)),
+        "Clients/Initech/Initech.md": NoteFacts("client", ("Acme",)),
+    }
+    spaces_rw = [("Clients/Acme", True), ("Clients/Globex", True),
+                 ("Clients/Initech", True)]
+    groups = group_entities(notes, spaces_rw, link_degree(notes), VaultConfig())
+    # Acme has degree 2 (linked from both), the others 1 each.
+    assert groups[0].exemplars[0] == "Acme"
+
+
+def test_group_entities_respects_exemplar_cap():
+    notes = {f"Clients/C{i}/C{i}.md": NoteFacts("client", ()) for i in range(10)}
+    spaces_rw = [(f"Clients/C{i}", True) for i in range(10)]
+    groups = group_entities(notes, spaces_rw, link_degree(notes), VaultConfig(),
+                            exemplars=3)
+    assert groups[0].count == 10
+    assert len(groups[0].exemplars) == 3
+
+
+def test_group_entities_space_with_no_typed_note_is_untyped():
+    # A provisioned-but-unwritten entity space still exists; dropping it would
+    # be the worst failure for an orientation file.
+    notes = {"Clients/Empty/README.md": NoteFacts("", ())}
+    groups = group_entities(notes, [("Clients/Empty", True)],
+                            link_degree(notes), VaultConfig())
+    assert groups == [EntityGroup(etype=UNTYPED, count=1, exemplars=("Empty",))]
+
+
+def test_group_entities_honors_configured_entity_tree():
+    notes = {"Families/Rivera/Rivera.md": NoteFacts("family", ())}
+    config = VaultConfig(entities="Families", entity="family")
+    groups = group_entities(notes, [("Families/Rivera", True)],
+                            link_degree(notes), config)
+    assert [(g.etype, g.count) for g in groups] == [("family", 1)]
+
+
+def test_group_entities_ignores_non_entity_spaces():
+    notes = {"People/bob/Memory.md": NoteFacts("", ())}
+    assert group_entities(notes, [("People/bob", True)],
+                          link_degree(notes), VaultConfig()) == []
