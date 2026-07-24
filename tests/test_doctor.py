@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from brain.doctor import run_doctor, _check_citations, _check_intel
+from brain.doctor import run_doctor, _check_citations, _check_intel, _citation_urls
 from brain.cli import main
 
 from .test_cli import ORG_YAML, SPACES_YAML, seed_meta
@@ -496,6 +496,23 @@ def test_citations_leaves_intel_to_the_intel_check(master):
            "---\ndistilled: https://example.com/lisbon\n---\n\nLisbon is nice.\n")
     assert _check_citations(master, today=TODAY) == []
     assert len(_check_intel(master, today=TODAY)) == 1
+
+
+def test_citation_urls_extracts_markdown_link_targets():
+    text = "A [source](https://a.example/x), as of 2026-01 and [b](http://b.example)."
+    assert _citation_urls(text) == ["https://a.example/x", "http://b.example"]
+
+
+def test_citation_urls_ignores_non_http_and_bare_urls():
+    # A bare URL in prose is not a citation under the convention, and a
+    # relative/file target has nothing to probe.
+    text = "See https://bare.example and [pdf](report.pdf) and [m](mailto:a@b.c)."
+    assert _citation_urls(text) == []
+
+
+def test_citation_urls_dedupes_preserving_order():
+    text = "[a](https://x.example) and [b](https://y.example) and [c](https://x.example)"
+    assert _citation_urls(text) == ["https://x.example", "https://y.example"]
 
 
 def test_run_doctor_includes_citations_check(master):

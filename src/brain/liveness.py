@@ -1,9 +1,11 @@
-"""Do cited URLs still resolve? The network half of provenance resilience.
+"""Do these URLs still resolve? The network half of provenance resilience.
 
-Pure of vault concepts on purpose: this module knows about text and URLs, not
-spaces, findings, or master. `brain.doctor` imports it lazily so the network
-code never loads on doctor's default offline path — the module docstring there
-promises read-only *and* offline, and that promise stays greppable.
+Strictly "given URLs, are they alive?" — finding the URLs is parsing the
+citation grammar, which lives with the rest of that grammar in `brain.doctor`.
+So this module knows nothing about markdown, spaces, findings, or master, and
+`brain.doctor` imports it lazily: the network code never loads on doctor's
+default offline path, and the module docstring there promises read-only *and*
+offline, a promise that stays greppable.
 
 Classification is deliberately asymmetric. "Dead" means 404, 410, or a domain
 that no longer resolves; everything else that fails — 403 bot-blocks, 429
@@ -14,7 +16,6 @@ about, so under-reporting is the correct failure direction.
 
 from __future__ import annotations
 
-import re
 import socket
 import urllib.error
 import urllib.request
@@ -26,11 +27,6 @@ ALIVE, DEAD, UNKNOWN = "alive", "dead", "unknown"
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_WORKERS = 8
 
-# Citation URLs are the http(s) targets of markdown links — `[source](URL)`.
-# Bare URLs in prose are not citations under the Intel convention, and the
-# closing paren bounds the target the same way the renderer does.
-_MD_LINK = re.compile(r"\]\((https?://[^\s)]+)\)")
-
 # A polite, honest identity: some hosts 403 an absent or default UA, which
 # would otherwise be indistinguishable from a real block.
 _USER_AGENT = "brainkit-doctor/1.0 (+link liveness check)"
@@ -38,14 +34,6 @@ _USER_AGENT = "brainkit-doctor/1.0 (+link liveness check)"
 # HTTP statuses that mean the resource is genuinely gone, as opposed to
 # temporarily withheld from us.
 _GONE = frozenset({404, 410})
-
-
-def citation_urls(text: str) -> list[str]:
-    """Every distinct http(s) markdown-link target in `text`, first-seen order."""
-    seen: dict[str, None] = {}
-    for url in _MD_LINK.findall(text):
-        seen.setdefault(url, None)
-    return list(seen)
 
 
 def _request(url: str, method: str) -> urllib.request.Request:

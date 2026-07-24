@@ -11,33 +11,13 @@ import pytest
 
 from brain import liveness
 from brain.doctor import run_doctor, _check_liveness
-from brain.liveness import ALIVE, DEAD, UNKNOWN, citation_urls, probe, probe_all
+from brain.liveness import ALIVE, DEAD, UNKNOWN, probe, probe_all
 
 from .test_cli import seed_meta
 
 TODAY = _date(2026, 7, 21)
 STALE = "Ferries run hourly. [source](https://example.com/f), as of 2024-01\n"
 FRESH = "Ferries run hourly. [source](https://example.com/f), as of 2026-06\n"
-
-
-# --- URL extraction ---------------------------------------------------------
-
-
-def test_citation_urls_extracts_markdown_link_targets():
-    text = "A [source](https://a.example/x), as of 2026-01 and [b](http://b.example)."
-    assert citation_urls(text) == ["https://a.example/x", "http://b.example"]
-
-
-def test_citation_urls_ignores_non_http_and_bare_urls():
-    # A bare URL in prose is not a citation under the Intel convention, and a
-    # relative/file target has nothing to probe.
-    text = "See https://bare.example and [pdf](report.pdf) and [m](mailto:a@b.c)."
-    assert citation_urls(text) == []
-
-
-def test_citation_urls_dedupes_preserving_order():
-    text = "[a](https://x.example) and [b](https://y.example) and [c](https://x.example)"
-    assert citation_urls(text) == ["https://x.example", "https://y.example"]
 
 
 # --- probe classification ---------------------------------------------------
