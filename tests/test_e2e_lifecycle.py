@@ -62,6 +62,11 @@ def _content_files(vault: Path) -> set[str]:
 
 def _populate(master: Path) -> None:
     (master / "_meta/org.yaml").write_text(ORG_YAML)
+    # Honeypot: a REAL AGENTS.md living inside a space, not a generated one.
+    # The isolation check exempts only files the manifest declares generated,
+    # so this is space-checked like any other note — which is what keeps a
+    # name-based skip from being reintroduced.
+    _write(master, "Teams/sales/AGENTS.md", "LEAKED server protocol\n")
     # Explicit spaces so this lifecycle test owns its permission model rather than
     # inheriting the scaffold default (which is deny-by-default for Clients). Here
     # Clients are everyone-readable — the isolation asserts below depend on it.
@@ -105,18 +110,29 @@ def test_full_multiuser_lifecycle(tmp_path: Path, capsys):
 
     # 2. compile all + isolation ------------------------------------------ #
     assert main(["compile", "--master", str(master), "--out", str(compiled)]) == 0
-    exempt = {"AGENTS.md", "CLAUDE.md", ".brain-manifest.json", ".gitignore"}
     for pid in PEOPLE:
         vault = compiled / pid
         expected = set(readable_spaces(master, org.people[pid], rules))
+        # Exempt only what the compiler DECLARES as generated, the way
+        # test_leak_property.py does. The previous name-based list plus a
+        # blanket `endswith("/AGENTS.md")` skip had a hole: a real AGENTS.md
+        # copied out of an unreadable space is not in `generated`, but the
+        # name rule waved it through unchecked. The honeypot planted in
+        # _populate proves this path is armed.
+        manifest = json.loads((vault / ".brain-manifest.json").read_text())
+        exempt = set(manifest["generated"]) | {".brain-manifest.json"}
         for rel in _content_files(vault):
-            if rel in exempt or rel.endswith(("/AGENTS.md", "/CLAUDE.md")):
+            if rel in exempt:
                 continue
             top = rel.split("/")[0]
             space = "Company" if top == "Company" else "/".join(rel.split("/")[:2])
             assert space in expected, f"LEAK {pid}: {rel} (space {space})"
             assert not rel.startswith("_meta"), f"{pid} leaked _meta: {rel}"
         assert (vault / "AGENTS.md").exists() and (vault / "CLAUDE.md").exists()
+        # Generated orientation summary: present, and it only ever names
+        # spaces this person can read (the manifest-based leak property test
+        # asserts that over random worlds).
+        assert (vault / "Map.md").exists()
         assert (vault / ".brain-manifest.json").exists()
         assert (vault / ".git").is_dir()
 

@@ -236,3 +236,11 @@ def test_skill_carries_decider_guidance_noun_neutral():
         assert needle in skill, needle
     for literal in ("Clients/", "ClientRequests", "client-name"):
         assert literal not in skill, literal   # noun-neutral pin still holds
+
+
+def test_root_protocol_points_at_the_map():
+    text = render_root_protocol(
+        BOB, [("Company", False), ("People/bob", True)])
+    assert "Map.md" in text
+    assert "brain_search" in text  # map orients, search looks up
+    assert len(text) <= ROOT_LIMIT

@@ -195,6 +195,15 @@ def _post_process(
 
     generated = generate_context_files(building, person, spaces, rules, config=config)
 
+    from brain.vaultmap import MAP_NAME, generate_map
+
+    # Additive: scan_vault does its own read pass over the built tree, after
+    # stubbing has run, so it sees exactly what shipped.
+    spaces_rw = [(s, can_write_path(f"{s}/x.md", person, rules)) for s in spaces]
+    (building / MAP_NAME).write_text(
+        generate_map(building, person, spaces_rw, compiled, config))
+    generated.append(MAP_NAME)
+
     from brain.promotions import SHARES_NOTE_REL, generate_shares_note
 
     note = generate_shares_note(master, person.id, today)

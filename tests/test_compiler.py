@@ -317,3 +317,88 @@ def test_decider_section_compiles_into_shares_md(master, tmp_path):
                   today="2026-07-22")
     text = (dest / "People/mary/Shares.md").read_text()
     assert "Awaiting your decision" in text
+
+
+def test_map_note_generated_and_in_manifest(master: Path, tmp_path: Path):
+    from brain.vaultmap import MAP_NAME
+
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    text = (out / MAP_NAME).read_text()
+    assert text.startswith("---\ngenerated: true\n---\n")
+    assert "## Spaces" in text
+    manifest = json.loads((out / MANIFEST_NAME).read_text())
+    # Generated => excluded from the write-back baseline, so a regenerated
+    # Map.md never shows up as a phantom user edit.
+    assert MAP_NAME in manifest["generated"]
+    assert MAP_NAME not in manifest["compiled"]
+
+
+def test_map_degree_never_counts_a_target_outside_this_vault(
+    master: Path, tmp_path: Path
+):
+    """The conftest master's Company/Home.md links to [[Big Deal Decision]]
+    (Company — bob can read it) and [[Q3 Pipeline]] (Teams/sales — bob is in
+    ops, so he cannot). Home's degree must be 1, not 2: a hub's number never
+    reflects notes the person cannot open.
+
+    NOTE: this holds whether the text is scanned pre- or post-stub, because
+    link_degree resolves only against this vault's own notes. Do not rewrite
+    this as a test of stub_links — measured, stubbing does not change the
+    count."""
+    from brain.vaultmap import MAP_NAME
+
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    text = (out / MAP_NAME).read_text()
+    assert "[[Home]] — 1 link(s)" in text
+    # The unreadable target is not a note in this vault, so it is never a hub.
+    assert "[[Q3 Pipeline]]" not in text
+
+
+def test_map_survives_a_vault_with_no_entities(master: Path, tmp_path: Path):
+    import shutil
+
+    from brain.vaultmap import MAP_LIMIT, MAP_NAME
+
+    shutil.rmtree(master / "Clients")
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    text = (out / MAP_NAME).read_text()
+    assert "## Entities" not in text
+    assert len(text) <= MAP_LIMIT
+
+
+def test_map_edit_is_discarded_by_the_next_compile(master: Path, tmp_path: Path):
+    from brain.vaultmap import MAP_NAME
+
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)
+    (out / MAP_NAME).write_text("hand-edited nonsense\n")
+    compile_vault(master, BOB, RULES, out)
+    assert (out / MAP_NAME).read_text() != "hand-edited nonsense\n"
+
+
+def test_undecodable_writable_note_degrades_instead_of_failing(
+    master: Path, tmp_path: Path
+):
+    """scan_vault reads EVERY .md, including writable ones the stub loop
+    never touched, so a stray byte must not fail a compile. It is read with
+    errors="replace" and never written back — the file ships byte-for-byte."""
+    raw = b"# Memory\n\xff\xfe not utf-8\nSee [[Runbook]].\n"
+    (master / "People/bob/Memory.md").write_bytes(raw)
+    out = tmp_path / "bob-vault"
+    compile_vault(master, BOB, RULES, out)  # must not raise
+    assert (out / "People/bob/Memory.md").read_bytes() == raw
+
+
+def test_undecodable_read_only_note_still_fails_closed(
+    master: Path, tmp_path: Path
+):
+    """Unchanged from before this feature: a note that cannot be decoded
+    cannot be link-stubbed, and shipping it unstubbed could leak a live
+    cross-boundary link. Company is read-only for bob, so it gets stubbed."""
+    (master / "Company/Home.md").write_bytes(b"# Home\n\xff\xfe\n")
+    out = tmp_path / "bob-vault"
+    with pytest.raises(UnicodeDecodeError):
+        compile_vault(master, BOB, RULES, out)
