@@ -95,9 +95,17 @@ uv tool install git+https://github.com/joedanz/brainkit
 
 ```bash
 # ongoing loop (cron): refresh everyone, then health-check
-*/10 * * * * brain cycle  --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-cycle.log  2>&1
+*/10 * * * * flock -n /var/lock/brain-cycle brain cycle --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-cycle.log  2>&1
 0    * * * * brain doctor --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-doctor.log 2>&1
 ```
+
+<Callout type="warning">
+  Keep the `flock -n`. A cycle that runs longer than its interval — a big vault,
+  a slow reindex — would otherwise have the next tick start on top of it, and two
+  compilers rebuilding the same vault race over the same swap directories. With
+  the lock, an overlapping tick simply skips and the next one picks up. `doctor`
+  is read-only and needs no lock.
+</Callout>
 
 <Callout type="info">
   Add `--index` to the `cycle` line to also refresh each vault's

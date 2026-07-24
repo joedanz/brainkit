@@ -223,9 +223,20 @@ The ordering is load-bearing: write-back lands each person's edits (including fr
 </Callout>
 
 ```bash
-# every 10 minutes
-*/10 * * * * brain cycle --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-cycle.log 2>&1
+# every 10 minutes, one at a time
+*/10 * * * * flock -n /var/lock/brain-cycle brain cycle --master /srv/brain/master --out /srv/brain/compiled --json >> /var/log/brain-cycle.log 2>&1
 ```
+
+<Callout type="warning">
+  `brain cycle` takes no lock of its own — run one at a time with `flock -n`
+  (or your scheduler's equivalent). A cycle that outlasts its interval would
+  otherwise overlap the next one, and two concurrent runs both write master and
+  both rebuild the same vaults through the same `.building`/`.old` swap
+  directories. `-n` makes an overlapping tick exit immediately rather than
+  queue, so a slow cycle costs you one skipped refresh instead of a pile-up.
+  Size the interval to your slowest cycle: `--index` and a large vault are the
+  usual reasons it grows.
+</Callout>
 
 ## `brain index`
 

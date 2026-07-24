@@ -135,9 +135,11 @@ brain doctor --master /srv/brain/master --out /srv/brain/compiled
 Keep it fresh with two cron lines:
 
 ```bash
-*/10 * * * * brain cycle  --master /srv/brain/master --out /srv/brain/compiled --index --json
+*/10 * * * * flock -n /var/lock/brain-cycle brain cycle --master /srv/brain/master --out /srv/brain/compiled --index --json
 0    * * * * brain doctor --master /srv/brain/master --out /srv/brain/compiled --json
 ```
+
+`flock -n` (util-linux; `brew install flock` on macOS) is what keeps a busy brain honest: a cycle that outruns its interval would otherwise have the next one start on top of it, and two compilers rebuilding the same vault race each other. If a cycle is still running, the next tick skips instead. `doctor` is read-only, so it needs no lock.
 
 Each person then clones their own copy and, if they want, plugs in a tool:
 

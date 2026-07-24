@@ -192,10 +192,13 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
 
     ```bash
     # crontab — $CYCLE_HC / $DOCTOR_HC are healthchecks.io-style check URLs
-    */5 * * * * brain cycle --master /srv/brain/master \
-      --out /srv/brain/compiled --index --json \
-      >> /var/log/brain/cycle.jsonl 2>&1 \
-      && curl -fsS -m 10 $CYCLE_HC >/dev/null || curl -fsS -m 10 $CYCLE_HC/fail >/dev/null
+    # flock -n -E 75: one cycle at a time; a tick that finds the lock held exits
+    # 75 and pings neither endpoint (see below)
+    */5 * * * * flock -n -E 75 /var/lock/brain-cycle brain cycle \
+      --master /srv/brain/master --out /srv/brain/compiled --index --json \
+      >> /var/log/brain/cycle.jsonl 2>&1; rc=$?; [ $rc = 75 ] || \
+      { [ $rc = 0 ] && curl -fsS -m 10 $CYCLE_HC >/dev/null \
+        || curl -fsS -m 10 $CYCLE_HC/fail >/dev/null; }
     17 3 * * *  brain doctor --master /srv/brain/master \
       --out /srv/brain/compiled >> /var/log/brain/doctor.jsonl 2>&1 \
       && curl -fsS -m 10 $DOCTOR_HC >/dev/null || curl -fsS -m 10 $DOCTOR_HC/fail >/dev/null
@@ -210,8 +213,20 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     but a missed success ping still alerts. Give each job its own check, with
     the period matched to that job's cadence (cycle: 5 minutes; doctor: 1 day;
     hourly backup: 1 hour) plus a small grace. The 5-minute cycle check
-    doubles as box-liveness monitoring. Two companion scripts extend the
-    pattern to things without their own cron:
+    doubles as box-liveness monitoring.
+
+    `brain cycle` takes no lock of its own, so `flock` supplies one: two runs
+    at once would both write master and rebuild the same vaults through the
+    same swap directories. `-E 75` is what keeps the lock from lying to your
+    monitoring. Without it a tick that finds the lock held exits 1, which the
+    dead-man's switch reads as a failed cycle — so a merely-busy box pages
+    someone. With it, a skipped tick is distinguishable and pings *neither*
+    endpoint: an occasional skip stays silent, while a cycle that wedges for
+    good stops producing success pings and trips the check on its own. If
+    skips become routine, the cycle has outgrown its interval — lengthen it,
+    or find out what got slow.
+
+    Two companion scripts extend the pattern to things without their own cron:
     [`brain-liveness.sh`](https://github.com/joedanz/brainkit/blob/main/deploy/brain-box/brain-liveness.sh)
     watches this box's long-running services (every enabled `brain-*` systemd
     unit — dashboards, webhook receiver — plus `$EXTRA_UNITS` such as a
@@ -235,8 +250,9 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
     BRAIN_EMBED_MODEL=voyage/voyage-4
     BRAIN_EMBED_DIM=1024
 
-    # crontab: source it before the cycle line
-    */5 * * * * set -a; . $HOME/.config/brain/embed.env; set +a; brain cycle ...
+    # crontab: source it before the cycle line (inside the flock, as above)
+    */5 * * * * set -a; . $HOME/.config/brain/embed.env; set +a; \
+      flock -n -E 75 /var/lock/brain-cycle brain cycle ...
     ```
 
     Verify the dimension with one curl before committing to `BRAIN_EMBED_DIM`:
