@@ -355,3 +355,29 @@ def test_generate_map_end_to_end(tmp_path: Path):
     assert "**client** (1)" in text
     assert "[[Home]] — 2 link(s)" in text
     assert "Inbox: 1 item(s)" in text
+
+
+def test_vaultmap_reads_nothing_outside_the_building_tree():
+    """The map's per-vault safety is structural, not a filter. Re-adding a
+    master-sourced section (e.g. Recent) must be a deliberate change, not a
+    quiet one.
+
+    Asserted over the import graph, not the source text: the module docstring
+    legitimately mentions `subprocess` while explaining why it has none, and
+    a substring scan would flag that."""
+    import ast
+    import inspect
+
+    import brain.vaultmap as vm
+
+    tree = ast.parse(inspect.getsource(vm))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+
+    assert "subprocess" not in imported
+    assert "os" not in imported
+    assert "master" not in inspect.signature(vm.generate_map).parameters

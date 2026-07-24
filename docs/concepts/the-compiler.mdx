@@ -16,6 +16,11 @@ Everything else in the system — sync, agents, devices — is downstream of it 
 
 - Only the spaces the person may **read**, resolved from `spaces.yaml`.
 - Generated agent context files (`AGENTS.md`, `CLAUDE.md`) scoped to that person.
+- A generated `Map.md`: what that vault holds right now — spaces with note
+  counts, entity types, the most-connected notes, and what is pending. It is
+  computed from the built tree, so it structurally cannot name anything the
+  person cannot read, and it is listed in the manifest's `generated` set, so
+  write-back never mistakes a refresh for a user edit.
 - Nothing from `_meta/`, and never the master-root `AGENTS.md` (the server
   assistant protocol, which grants full access).
 

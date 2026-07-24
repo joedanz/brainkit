@@ -20,6 +20,15 @@ _ROOT_TEMPLATE = """\
 This vault is {name}'s slice of the company brain. It is compiled: it contains
 only the spaces {name} may read. Anything not present here is not accessible.
 
+## Start here
+
+`Map.md` in this folder is generated state: spaces with note counts, entity
+types with their most-linked pages, the most-connected notes, and what is
+pending. Read it first to learn what kinds of things this vault holds. It is
+an orientation summary, not an index — to find a specific note or entity, use
+`brain_search`, which resolves aliases. It is rewritten on every compile;
+edits to it are discarded.
+
 ## Spaces in this vault
 
 {space_lines}

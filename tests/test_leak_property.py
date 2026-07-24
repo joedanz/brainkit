@@ -128,3 +128,25 @@ def test_compile_all_creates_git_repos(tmp_path: Path):
         capture_output=True, text=True, check=True,
     ).stdout
     assert log.count("\n") == log2.count("\n")
+
+
+def test_map_never_names_a_path_outside_readable_spaces(tmp_path: Path):
+    """Map.md is generated, so the manifest skip-list exempts it from the
+    file-level check. Its CONTENT still must not name anything unreadable."""
+    from brain.vaultmap import MAP_NAME
+
+    rng = random.Random(1981)
+    master = tmp_path / "master"
+    org = random_world(rng, master)
+    out_root = tmp_path / "out"
+    for person in org.people.values():
+        vault = out_root / person.id
+        compile_vault(master, person, RULES, vault)
+        readable = set(readable_spaces(master, person, RULES))
+        text = (vault / MAP_NAME).read_text()
+        for space in sorted({space_of_path(str(p.relative_to(master)))
+                             for p in master.rglob("*.md")
+                             if "_meta" not in p.parts}):
+            if space and space not in readable:
+                assert space not in text, (
+                    f"{person.id}'s Map.md names unreadable space {space}")
