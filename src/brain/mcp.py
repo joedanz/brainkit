@@ -28,7 +28,7 @@ PROTOCOL_VERSION = "2025-06-18"
 # would have to behave differently for does not belong on this list.
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
-SERVER_INFO = {"name": "brainkit", "version": "0.1.0"}
+SERVER_INFO = {"name": "brainkit", "version": "0.1.1"}
 
 
 def negotiate_protocol(requested: object) -> str:
