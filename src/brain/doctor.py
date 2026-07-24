@@ -168,7 +168,9 @@ def _check_unlinked_notes(master: Path) -> list[Finding]:
     dated: dict[str, str] = {}
     entities: list[tuple[str, str]] = []
     for rel in rels:
-        text = (master / rel).read_text(encoding="utf-8", errors="replace")
+        text = _read_text(master / rel)
+        if text is None:
+            continue
         if parse_facts(text):
             connected.add(rel)
         for raw in extract_wikilinks(text):
@@ -281,10 +283,14 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     an invariant tested like the leak properties."""
     from brain.dedup import DUP_MIN_WORDS, normalize_text
 
-    rels = [r for r in _content_files(master) if not _dup_exempt(r)]
-    texts = {
-        r: (master / r).read_text(encoding="utf-8", errors="replace")
-        for r in rels}
+    texts: dict[str, str] = {}
+    for r in _content_files(master):
+        if _dup_exempt(r):
+            continue
+        text = _read_text(master / r)
+        if text is not None:
+            texts[r] = text
+    rels = list(texts)
     words = {r: normalize_text(texts[r]) for r in rels}
     substantive = [r for r in rels if len(words[r]) >= DUP_MIN_WORDS]
     readers_of = _reader_index(org, rules)
@@ -430,8 +436,55 @@ def _is_own_digest(rel: str, parts: tuple[str, ...]) -> bool:
             and parts[3] == DIGEST_NAME)
 
 
-def _content_files(master: Path) -> list[str]:
-    """All rel paths of .md files that live in a resolvable space."""
+def _unreadable(path: Path) -> str | None:
+    """Why ``path`` can't be read, or None if it can.
+
+    Doctor is the thing that reports a broken vault, so it must never be the
+    thing that dies on one. Opening (not reading) is enough to learn this and
+    costs a fraction of the full read every content check would otherwise
+    attempt.
+    """
+    try:
+        with path.open("rb"):
+            return None
+    except OSError as e:
+        return e.strerror or str(e)
+
+
+def _read_text(path: Path) -> str | None:
+    """Read a file, or None if the OS refuses. Callers skip what they can't
+    read: `_check_unreadable_files` already reports it, and a scan that
+    guessed at empty content would emit findings about a file it never saw."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _check_unreadable_files(master: Path) -> list[Finding]:
+    """A note the OS won't hand over is worse than a lint problem: the
+    compiler copies with shutil.copy2 and dies on the same file, so nobody's
+    vault rebuilds until it's fixed. Error severity — doctor also cannot
+    vouch for the file's contents, so every finding below is silent about it.
+    Symlinks are skipped: `_check_symlinks` already owns them, and a dangling
+    link would otherwise be reported twice."""
+    findings: list[Finding] = []
+    for rel in _walk_content(master):
+        f = master / rel
+        if f.is_symlink():
+            continue
+        reason = _unreadable(f)
+        if reason is not None:
+            findings.append(Finding(
+                "error", "unreadable-files",
+                f"{rel}: cannot be read ({reason}) — doctor cannot check it "
+                "and compile will fail on it; fix the permissions",
+                paths=(rel,)))
+    return findings
+
+
+def _walk_content(master: Path) -> list[str]:
+    """Every .md rel path in a resolvable space, readable or not."""
     rels: list[str] = []
     for f in sorted(master.rglob("*.md")):
         parts = f.relative_to(master).parts
@@ -443,6 +496,14 @@ def _content_files(master: Path) -> list[str]:
         if space_of_path(rel) is not None:
             rels.append(rel)
     return rels
+
+
+def _content_files(master: Path) -> list[str]:
+    """All rel paths of .md files that live in a resolvable space AND can be
+    read. Unreadable files drop out here, once, so no scan below has to think
+    about them — `_check_unreadable_files` is what reports them."""
+    return [rel for rel in _walk_content(master)
+            if _unreadable(master / rel) is None]
 
 
 def _resolve_target(target: str, paths: set[str], by_stem: dict[str, str]) -> str | None:
@@ -495,8 +556,11 @@ def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]
         src_readers = readers_of(src_space)
         if not src_readers:
             continue
+        text = _read_text(master / rel)
+        if text is None:
+            continue
         flagged: set[str] = set()  # target spaces already reported for this file
-        for target in extract_wikilinks((master / rel).read_text()):
+        for target in extract_wikilinks(text):
             hit = _resolve_target(target, paths, by_stem)
             if hit is None:
                 continue
@@ -559,7 +623,10 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
         src_readers = readers_of(src_space)
         if not src_readers:
             continue
-        text = _WIKILINK_STRIP.sub(" ", (master / rel).read_text())
+        raw = _read_text(master / rel)
+        if raw is None:
+            continue
+        text = _WIKILINK_STRIP.sub(" ", raw)
         flagged: set[str] = set()
         for name, home_space in sensitive.items():
             if home_space == src_space or home_space in flagged:
@@ -584,7 +651,9 @@ def _check_facts(master: Path) -> list[Finding]:
 
     findings: list[Finding] = []
     for rel in _content_files(master):
-        text = (master / rel).read_text(encoding="utf-8", errors="replace")
+        text = _read_text(master / rel)
+        if text is None:
+            continue
         meta, _body = split_frontmatter(text)
         ent = parse_entity(meta)
         if ent is not None and not ent[0]:
@@ -613,7 +682,9 @@ def _check_fact_conflicts(master: Path) -> list[Finding]:
 
     entries = []
     for rel in rels:
-        text = (master / rel).read_text(encoding="utf-8", errors="replace")
+        text = _read_text(master / rel)
+        if text is None:
+            continue
         meta, _body = split_frontmatter(text)
         is_entity = parse_entity(meta) is not None
         for fact in parse_facts(text):
@@ -668,7 +739,7 @@ def _check_promotions(master: Path) -> list[Finding]:
                 promo = _parse(f)
                 _validate_target(promo.target_path)
                 valid_pending += 1
-            except (KeyError, ValueError, PromotionError) as e:
+            except (KeyError, ValueError, PromotionError, OSError) as e:
                 findings.append(Finding(
                     "warn", "promotions",
                     f"pending/{f.name}: malformed, will never be approvable ({e})"))
@@ -682,7 +753,10 @@ def _check_promotions(master: Path) -> list[Finding]:
         if f.is_symlink():
             continue
         rel = f.relative_to(master)
-        meta, _ = split_frontmatter(f.read_text())
+        text = _read_text(f)
+        if text is None:
+            continue
+        meta, _ = split_frontmatter(text)
         if not meta:
             findings.append(Finding(
                 "warn", "promotions", f"{rel}: draft has no frontmatter, sweep skips it"))
@@ -766,18 +840,27 @@ def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
                 "SECURITY: server-only data leaked to a person"))
         manifest_path = vault / MANIFEST_NAME
         try:
-            manifest = json.loads(manifest_path.read_text())
-            drifted = 0
-            for rel, sha in manifest["compiled"].items():
-                f = vault / rel
-                if not f.is_file():
-                    drifted += 1
-                elif hashlib.sha256(f.read_bytes()).hexdigest() != sha:
-                    drifted += 1
-        except (FileNotFoundError, ValueError, KeyError) as e:
+            compiled = json.loads(manifest_path.read_text())["compiled"]
+        except (OSError, ValueError, KeyError) as e:
             findings.append(Finding(
                 "error", "compiled", f"{person.id}: unreadable manifest ({e})"))
             continue
+        drifted = 0
+        for rel, sha in compiled.items():
+            f = vault / rel
+            if not f.is_file():
+                drifted += 1
+                continue
+            try:
+                current = hashlib.sha256(f.read_bytes()).hexdigest()
+            except OSError:
+                # A file we can't read is one we can't vouch for. Count it
+                # like a missing one — the health check reports drift, it
+                # doesn't die on the vault it's inspecting.
+                drifted += 1
+                continue
+            if current != sha:
+                drifted += 1
         if drifted:
             findings.append(Finding(
                 "info", "compiled",
@@ -816,8 +899,11 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
             continue
         if f.name == "Home.md":
             continue
+        text = _read_text(f)
+        if text is None:
+            continue
         months = [int(y) * 12 + int(m) - 1
-                  for y, m in _CITATION_RE.findall(f.read_text())]
+                  for y, m in _CITATION_RE.findall(text)]
         if not months:
             findings.append(Finding(
                 "warn", "intel",
@@ -847,7 +933,12 @@ def _check_created_clients(master: Path, config: VaultConfig = None) -> list[Fin
     if not log.is_file():
         return []
     findings: list[Finding] = []
-    for line in log.read_text().splitlines():
+    text = _read_text(log)
+    if text is None:
+        return [Finding("error", "clients",
+                        "the self-service client log cannot be read — "
+                        "new client spaces will not be surfaced for review")]
+    for line in text.splitlines():
         parts = line.split("\t")
         if len(parts) < 3:
             continue
@@ -893,7 +984,7 @@ def _check_delegated_decisions(master: Path) -> list[Finding]:
         for f in sorted(d.glob("*.md")):
             try:
                 meta, _ = split_frontmatter(f.read_text())
-            except (KeyError, ValueError, UnicodeDecodeError):
+            except (KeyError, ValueError, UnicodeDecodeError, OSError):
                 continue
             if not meta or meta.get("via") != "delegated":
                 continue
@@ -924,6 +1015,9 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_rule_paths(master, rules)
     findings += _check_space_coverage(master, rules)
     findings += _check_unreadable_spaces(master, org, rules)
+    # Before the content scans: they all skip what they can't read, so this is
+    # what explains a suspiciously quiet report.
+    findings += _check_unreadable_files(master)
     findings += _check_orphan_files(master)
     findings += _check_unlinked_notes(master)
     findings += _check_duplicates(master, org, rules)
