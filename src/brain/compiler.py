@@ -191,15 +191,17 @@ def _post_process(
             f = building / rel
             f.write_text(stub_links(f.read_text(), included_stems, master_stems))
 
-    from brain.contextgen import generate_context_files
+    from brain.contextgen import generate_context_files, writable_spaces
 
-    generated = generate_context_files(building, person, spaces, rules, config=config)
+    # Derived once and shared: both generators need it, and two derivations
+    # would be two sources of truth for one permission fact.
+    spaces_rw = writable_spaces(spaces, person, rules)
+    generated = generate_context_files(building, person, spaces_rw, config=config)
 
     from brain.vaultmap import MAP_NAME, generate_map
 
     # Additive: scan_vault does its own read pass over the built tree, after
     # stubbing has run, so it sees exactly what shipped.
-    spaces_rw = [(s, can_write_path(f"{s}/x.md", person, rules)) for s in spaces]
     (building / MAP_NAME).write_text(
         generate_map(building, person, spaces_rw, compiled, config))
     generated.append(MAP_NAME)

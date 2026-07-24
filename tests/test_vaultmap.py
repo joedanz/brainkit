@@ -14,6 +14,7 @@ from brain.vaultmap import (
     collect_pending,
     generate_map,
     group_entities,
+    notes_by_space,
     link_degree,
     rank_hubs,
     render_map,
@@ -88,6 +89,18 @@ def test_rank_hubs_applies_cap():
     assert len(rank_hubs(degree, cap=3)) == 3
 
 
+_CFG = VaultConfig()
+
+BOB_SPACE = [("People/bob", True)]
+
+
+def _groups(notes, spaces_rw, config=None):
+    """group_entities with the derived args it always needs."""
+    cfg = config or _CFG
+    return group_entities(notes, spaces_rw, link_degree(notes),
+                          cfg, notes_by_space(notes))
+
+
 def test_group_entities_buckets_by_frontmatter_type():
     notes = {
         "Clients/Acme/Acme.md": NoteFacts("client", ()),
@@ -99,7 +112,7 @@ def test_group_entities_buckets_by_frontmatter_type():
         ("Clients/Acme", True), ("Clients/Globex", True),
         ("Clients/Sarah Kim", True), ("People/bob", True),
     ]
-    groups = group_entities(notes, spaces_rw, link_degree(notes), VaultConfig())
+    groups = _groups(notes, spaces_rw)
     assert [(g.etype, g.count) for g in groups] == [("client", 2), ("person", 1)]
 
 
@@ -111,7 +124,7 @@ def test_group_entities_exemplars_ordered_by_degree():
     }
     spaces_rw = [("Clients/Acme", True), ("Clients/Globex", True),
                  ("Clients/Initech", True)]
-    groups = group_entities(notes, spaces_rw, link_degree(notes), VaultConfig())
+    groups = _groups(notes, spaces_rw)
     # Acme has degree 2 (linked from both), the others 1 each.
     assert groups[0].exemplars[0] == "Acme"
 
@@ -119,8 +132,7 @@ def test_group_entities_exemplars_ordered_by_degree():
 def test_group_entities_respects_exemplar_cap():
     notes = {f"Clients/C{i}/C{i}.md": NoteFacts("client", ()) for i in range(10)}
     spaces_rw = [(f"Clients/C{i}", True) for i in range(10)]
-    groups = group_entities(notes, spaces_rw, link_degree(notes), VaultConfig(),
-                            exemplars=3)
+    groups = _groups(notes, spaces_rw)
     assert groups[0].count == 10
     assert len(groups[0].exemplars) == 3
 
@@ -129,23 +141,20 @@ def test_group_entities_space_with_no_typed_note_is_untyped():
     # A provisioned-but-unwritten entity space still exists; dropping it would
     # be the worst failure for an orientation file.
     notes = {"Clients/Empty/README.md": NoteFacts("", ())}
-    groups = group_entities(notes, [("Clients/Empty", True)],
-                            link_degree(notes), VaultConfig())
+    groups = _groups(notes, [("Clients/Empty", True)])
     assert groups == [EntityGroup(etype=UNTYPED, count=1, exemplars=("Empty",))]
 
 
 def test_group_entities_honors_configured_entity_tree():
     notes = {"Families/Rivera/Rivera.md": NoteFacts("family", ())}
     config = VaultConfig(entities="Families", entity="family")
-    groups = group_entities(notes, [("Families/Rivera", True)],
-                            link_degree(notes), config)
+    groups = _groups(notes, [("Families/Rivera", True)], config)
     assert [(g.etype, g.count) for g in groups] == [("family", 1)]
 
 
 def test_group_entities_ignores_non_entity_spaces():
     notes = {"People/bob/Memory.md": NoteFacts("", ())}
-    assert group_entities(notes, [("People/bob", True)],
-                          link_degree(notes), VaultConfig()) == []
+    assert _groups(notes, [("People/bob", True)]) == []
 
 
 def test_collect_pending_counts_inbox_and_routing(tmp_path: Path):
@@ -155,18 +164,18 @@ def test_collect_pending_counts_inbox_and_routing(tmp_path: Path):
     (base / "Inbox/b.md").write_text("two\n")
     (base / "Needs-Routing.md").write_text(
         "---\ntitle: Needs Routing\n---\n- thing one\n\n- thing two\n")
-    assert collect_pending(tmp_path, BOB) == Pending(inbox=2, needs_routing=2)
+    assert collect_pending(tmp_path, BOB, BOB_SPACE) == Pending(inbox=2, needs_routing=2)
 
 
 def test_collect_pending_absent_files(tmp_path: Path):
-    assert collect_pending(tmp_path, BOB) == Pending(inbox=0, needs_routing=None)
+    assert collect_pending(tmp_path, BOB, BOB_SPACE) == Pending(inbox=0, needs_routing=None)
 
 
 def test_collect_pending_counts_nested_inbox_files(tmp_path: Path):
     nested = tmp_path / "People/bob/Inbox/sub"
     nested.mkdir(parents=True)
     (nested / "c.md").write_text("three\n")
-    assert collect_pending(tmp_path, BOB).inbox == 1
+    assert collect_pending(tmp_path, BOB, BOB_SPACE).inbox == 1
 
 
 def test_collect_pending_survives_undecodable_needs_routing(tmp_path: Path):
@@ -174,13 +183,13 @@ def test_collect_pending_survives_undecodable_needs_routing(tmp_path: Path):
     base.mkdir(parents=True)
     (base / "Needs-Routing.md").write_bytes(b"\xff\xfe not utf-8\n")
     # Must not raise — a compile can never fail on a note's bytes.
-    assert collect_pending(tmp_path, BOB).needs_routing == 1
+    assert collect_pending(tmp_path, BOB, BOB_SPACE).needs_routing == 1
 
 
-_CFG = VaultConfig()
+_UNSET = object()
 
 
-def _render(*, spaces_rw=None, groups=(), hubs=(), pending=None, notes=3,
+def _render(*, spaces_rw=None, groups=(), hubs=(), pending=_UNSET, notes=3,
             space_notes=None, person=BOB):
     return render_map(
         person,
@@ -191,7 +200,7 @@ def _render(*, spaces_rw=None, groups=(), hubs=(), pending=None, notes=3,
                                                      "People/bob": 1},
         list(groups),
         list(hubs),
-        pending or Pending(inbox=0, needs_routing=None),
+        Pending(inbox=0, needs_routing=None) if pending is _UNSET else pending,
         _CFG,
     )
 
@@ -395,11 +404,16 @@ def test_render_map_header_pluralizes():
     assert "**4 notes · 2 spaces · 3 entities**" in many
 
 
-def test_render_map_omits_pending_when_person_has_no_own_space():
-    """A vault without People/<pid> (e.g. the default admin) must not point
-    at People/<pid>/Inbox/ or Shares.md — those paths do not exist in it."""
+def test_collect_pending_returns_none_without_the_owner_space(tmp_path: Path):
+    """A vault without People/<pid> (e.g. the default single-admin setup) has
+    no Inbox, Needs-Routing or Shares to point at. Absence is decided here,
+    once — not collected and then discarded by the renderer."""
+    assert collect_pending(tmp_path, BOB, [("Company", False)]) is None
+
+
+def test_render_map_omits_pending_section_when_pending_is_none():
     text = _render(spaces_rw=[("Company", False)], space_notes={"Company": 3},
-                   pending=Pending(inbox=0, needs_routing=None))
+                   pending=None)
     assert "## Pending" not in text
     assert "People/bob" not in text
 

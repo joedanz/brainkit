@@ -23,6 +23,7 @@ from pathlib import Path
 
 from brain.compiler import extract_wikilinks
 from brain.frontmatter import split_frontmatter
+from brain.schemas import Person, VaultConfig
 
 MAP_NAME = "Map.md"
 
@@ -64,21 +65,41 @@ def scan_note(text: str) -> NoteFacts:
 def link_degree(notes: dict[str, NoteFacts]) -> dict[str, int]:
     """In+out resolved wikilink degree per note.
 
-    Resolution mirrors indexer._resolve_links: lowercased stem, and on a
-    duplicate stem the lexicographically first path wins (sorted iteration +
-    setdefault). Unresolvable targets and self-links contribute nothing —
-    the latter matches stats._build_graph's `src != target` filter.
+    Resolution is the STEM HALF of indexer._resolve_links: lowercased stem,
+    and on a duplicate stem the lexicographically first path wins (sorted
+    iteration + setdefault). Unresolvable targets and self-links contribute
+    nothing — the latter matches stats._build_graph's `src != target` filter.
+
+    It is deliberately NOT the whole of `_resolve_links`, and the difference
+    is visible: that function also falls back to an alias index, so a link
+    written to an entity's alias counts there and not here. Aliases live in
+    the search index, which does not exist yet when the compiler runs — so
+    hub degree here can read lower than `brain status` reports for the same
+    vault. Orientation ranking, not an authoritative graph.
     """
     from brain.compiler import _stem
 
+    # Memoize: targets repeat heavily (a hub is linked from many notes) and
+    # _stem builds a PurePosixPath every call. Measured at 5k notes / 50k
+    # targets this halves the step, ~32 ms per person. Deliberately a LOCAL
+    # cache — _stem is shared with stub_links in the security-relevant
+    # stubbing loop and must not grow state.
+    stems: dict[str, str] = {}
+
+    def stem(value: str) -> str:
+        hit = stems.get(value)
+        if hit is None:
+            hit = stems[value] = _stem(value)
+        return hit
+
     by_stem: dict[str, str] = {}
     for rel in sorted(notes):
-        by_stem.setdefault(_stem(rel), rel)
+        by_stem.setdefault(stem(rel), rel)
 
     degree: dict[str, int] = {rel: 0 for rel in notes}
     for src, facts in notes.items():
         for raw in facts.targets:
-            target = by_stem.get(_stem(raw))
+            target = by_stem.get(stem(raw))
             if target is None or target == src:
                 continue
             degree[src] += 1
@@ -117,10 +138,8 @@ def group_entities(
     notes: dict[str, NoteFacts],
     spaces_rw: list[tuple[str, bool]],
     degree: dict[str, int],
-    config,
-    by_space: dict[str, list[str]] | None = None,
-    *,
-    exemplars: int = EXEMPLARS,
+    config: VaultConfig,
+    by_space: dict[str, list[str]],
 ) -> list[EntityGroup]:
     """Entity spaces grouped by their `entity:` type, biggest group first.
 
@@ -129,15 +148,12 @@ def group_entities(
     aliases; this is orientation only, so the output size depends on the
     number of TYPES, never the number of entities.
 
-    `by_space` is `notes_by_space(notes)`; callers that already have it pass
-    it in rather than paying for a second pass. Looking spaces up in it (as
-    opposed to rescanning notes per space) is what keeps this O(notes) rather
-    than O(spaces x notes) — a mature vault has hundreds of both.
+    `by_space` is `notes_by_space(notes)`, required so it is computed once per
+    vault. Looking spaces up in it (rather than rescanning notes per space) is
+    what keeps this O(notes) instead of O(spaces x notes) — a mature vault has
+    hundreds of both.
     """
     prefix = f"{config.entities}/"
-    if by_space is None:
-        by_space = notes_by_space(notes)
-
     buckets: dict[str, list[tuple[int, str]]] = {}
     for space, _writable in spaces_rw:
         if not space.startswith(prefix):
@@ -157,7 +173,7 @@ def group_entities(
         groups.append(EntityGroup(
             etype=etype,
             count=len(items),
-            exemplars=tuple(name for _degree, name in items[:exemplars]),
+            exemplars=tuple(name for _degree, name in items[:EXEMPLARS]),
         ))
     groups.sort(key=lambda g: (-g.count, g.etype))
     return groups
@@ -169,8 +185,22 @@ class Pending:
     needs_routing: int | None  # None => the note does not exist
 
 
-def collect_pending(building: Path, person) -> Pending:
-    """Inbox depth and Needs-Routing size, from this vault's own tree."""
+def collect_pending(
+    building: Path, person: Person, spaces_rw: list[tuple[str, bool]]
+) -> Pending | None:
+    """Inbox depth and Needs-Routing size, from this vault's own tree.
+
+    None when the vault has no `People/<pid>` space — the default
+    single-admin setup, for one. Every line of the Pending section points
+    into that space, so a vault without it would advertise paths it does not
+    contain. Absence is decided here, once, rather than collected and then
+    discarded by the renderer: `generate_map` skips an rglob it would throw
+    away, and "Pending exists ⟺ owner space present" stays one invariant in
+    one place.
+    """
+    if not any(space == f"People/{person.id}" for space, _w in spaces_rw):
+        return None
+
     base = building / "People" / person.id
 
     inbox_dir = base / "Inbox"
@@ -202,8 +232,8 @@ _INTRO = (
 )
 
 
-def _trunc(value: str, limit: int = FIELD_LEN) -> str:
-    return value if len(value) <= limit else value[: limit - 1] + "…"
+def _trunc(value: str) -> str:
+    return value if len(value) <= FIELD_LEN else value[: FIELD_LEN - 1] + "…"
 
 
 def _count(n: int, singular: str, plural: str | None = None) -> str:
@@ -211,14 +241,14 @@ def _count(n: int, singular: str, plural: str | None = None) -> str:
 
 
 def render_map(
-    person,
+    person: Person,
     spaces_rw: list[tuple[str, bool]],
     notes_total: int,
     space_notes: dict[str, int],
     groups: list[EntityGroup],
     hubs: list[tuple[str, int]],
-    pending: Pending,
-    config,
+    pending: Pending | None,
+    config: VaultConfig,
 ) -> str:
     prefix = f"{config.entities}/"
     plain = [(s, w) for s, w in spaces_rw if not s.startswith(prefix)]
@@ -265,10 +295,7 @@ def render_map(
                        f"(`{_trunc(rel)}`)\n")
         out.append("\n")
 
-    # Every line here points into People/<pid>. A vault without that space —
-    # the default single-admin setup, for one — would otherwise advertise
-    # paths it does not contain.
-    if any(space == f"People/{person.id}" for space, _w in spaces_rw):
+    if pending is not None:
         out.append("## Pending\n\n")
         out.append(f"- Inbox: {pending.inbox} item(s) — "
                    f"`People/{person.id}/Inbox/`\n")
@@ -312,10 +339,10 @@ def scan_vault(building: Path, rels: list[str]) -> dict[str, NoteFacts]:
 
 def generate_map(
     building: Path,
-    person,
+    person: Person,
     spaces_rw: list[tuple[str, bool]],
     compiled: list[str],
-    config,
+    config: VaultConfig,
 ) -> str:
     """The one call the compiler makes. Reads only the building tree."""
     notes = scan_vault(building, compiled)
@@ -328,6 +355,6 @@ def generate_map(
         {space: len(rels) for space, rels in by_space.items()},
         group_entities(notes, spaces_rw, degree, config, by_space),
         rank_hubs(degree, HUB_CAP),
-        collect_pending(building, person),
+        collect_pending(building, person, spaces_rw),
         config,
     )

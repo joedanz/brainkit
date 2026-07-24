@@ -204,12 +204,12 @@ def test_root_protocol_default_matches_current_text():
 
 
 def test_space_notes_generated_for_custom_tree(tmp_path):
-    from brain.contextgen import generate_context_files
+    from brain.contextgen import generate_context_files, writable_spaces
     from brain.schemas import Person, SpaceRule
     person = Person(id="joe", name="Joe")
     rules = (SpaceRule(path="Families/Danziger", read=("person:joe",), write=("person:joe",)),)
-    written = generate_context_files(
-        tmp_path, person, ["Families/Danziger"], rules, config=FAM)
+    spaces_rw = writable_spaces(["Families/Danziger"], person, rules)
+    written = generate_context_files(tmp_path, person, spaces_rw, config=FAM)
     assert "Families/Danziger/AGENTS.md" in written
 
 
@@ -241,6 +241,9 @@ def test_skill_carries_decider_guidance_noun_neutral():
 def test_root_protocol_points_at_the_map():
     text = render_root_protocol(
         BOB, [("Company", False), ("People/bob", True)])
-    assert "Map.md" in text
+    from brain.vaultmap import MAP_NAME
+    # Assert the constant, not the literal: renaming MAP_NAME must fail here
+    # rather than leave the protocol prose silently pointing at a dead file.
+    assert MAP_NAME in text
     assert "brain_search" in text  # map orients, search looks up
     assert len(text) <= ROOT_LIMIT

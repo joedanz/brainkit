@@ -195,21 +195,24 @@ def render_space_note(space: str, writable: bool, owner: bool) -> str:
     return text
 
 
-def _writable(space: str, person: Person, rules: tuple[SpaceRule, ...]) -> bool:
+def writable_spaces(
+    spaces: list[str], person: Person, rules: tuple[SpaceRule, ...]
+) -> list[tuple[str, bool]]:
+    """Pair each space with whether this person may write it. The caller owns
+    the result: the compiler needs the same list for the vault map, and
+    deriving it twice would mean two sources of truth for one fact."""
     from brain.resolver import can_write_path
 
-    return can_write_path(f"{space}/x.md", person, rules)
+    return [(s, can_write_path(f"{s}/x.md", person, rules)) for s in spaces]
 
 
 def generate_context_files(
     vault: Path,
     person: Person,
-    spaces: list[str],
-    rules: tuple[SpaceRule, ...],
+    spaces_rw: list[tuple[str, bool]],
     config: VaultConfig = VaultConfig(),
 ) -> list[str]:
     written: list[str] = []
-    spaces_rw = [(s, _writable(s, person, rules)) for s in spaces]
 
     root_text = render_root_protocol(person, spaces_rw, config)
     for fname in ("AGENTS.md", "CLAUDE.md"):
