@@ -1,3 +1,4 @@
+import inspect
 import subprocess
 from pathlib import Path
 
@@ -126,3 +127,57 @@ def test_digest_never_follows_symlinked_inbox(master, tmp_path):
     report = run_triage(master, today="2026-07-24")
     assert not (outside / DIGEST_NAME).exists()
     assert any("symlink" in w for w in report.warnings)
+
+
+def test_digest_never_writes_through_symlinked_leaf(master, tmp_path):
+    seed_meta(master)
+    solo = master / "People/bob/Notes/Solo.md"
+    solo.parent.mkdir(parents=True)
+    solo.write_text("Completely alone.\n")  # unlinked -> bob
+
+    victim = tmp_path / "victim.md"
+    victim.write_text("do not touch\n")
+    inbox = master / "People/bob/Inbox"
+    inbox.mkdir(parents=True)
+    digest_path = inbox / DIGEST_NAME
+    digest_path.symlink_to(victim)
+
+    report = run_triage(master, today="2026-07-24")
+    assert victim.read_text() == "do not touch\n"
+    assert digest_path.is_symlink()  # never replaced by a regular-file write
+    assert any("symlink" in w for w in report.warnings)
+
+
+def test_unreadable_digest_warns_instead_of_crashing(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    solo = master / "People/bob/Notes/Solo.md"
+    solo.parent.mkdir(parents=True)
+    solo.write_text("Completely alone.\n")  # unlinked -> bob
+    run_triage(master, today="2026-07-24")
+    bob_d = _digest(master, "bob")
+    assert bob_d.exists()
+
+    # Fault-inject only the read triage itself performs when reconciling an
+    # existing digest (the fingerprint compare) — not every read of a file
+    # named doctor-digest.md, which would also hit doctor's own unrelated
+    # content scan (it reads every file under a resolvable space, Inbox
+    # included, for graph-connectivity purposes) and mask what this test
+    # is isolating.
+    original_read_text = Path.read_text
+
+    def flaky_read_text(self, *args, **kwargs):
+        if self.name == DIGEST_NAME:
+            caller = inspect.currentframe().f_back.f_globals.get("__name__", "")
+            if caller == "brain.triage":
+                raise PermissionError("simulated unreadable digest")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    # The fixture vault has baseline unlinked notes routed to admins too, so
+    # more than one person may already have a digest at this point — whoever
+    # triage reaches first hits the simulated fault. Assert on the general
+    # contract (no crash, a warning naming the unreadable digest), not a
+    # specific recipient.
+    report = run_triage(master, today="2026-07-25")  # must not raise
+    assert any(DIGEST_NAME in w for w in report.warnings)

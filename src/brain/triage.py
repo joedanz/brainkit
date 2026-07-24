@@ -168,13 +168,8 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
         if symlinked:
             continue
         target = master / rel
-        person_findings = routed.get(person.id, [])
-        if not person_findings:
-            if target.is_file() and not target.is_symlink():
-                target.unlink()
-                removed += 1
-                changed.append(rel)
-            continue
+        # Both branches below touch the same path — protect delete and write
+        # with the same posture check, not just write.
         if space_of_path(rel) != f"People/{person.id}":
             warnings.append(f"{rel}: resolves outside People/{person.id} — skipped")
             continue
@@ -182,16 +177,41 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
             warnings.append(
                 f"{person.id} has no write grant on their own space — skipped")
             continue
+        person_findings = routed.get(person.id, [])
+        if not person_findings:
+            if target.is_file() and not target.is_symlink():
+                try:
+                    target.unlink()
+                except OSError as e:
+                    warnings.append(f"{rel}: {e}")
+                    continue
+                removed += 1
+                changed.append(rel)
+            continue
         fp = _fingerprint(person_findings)
         if target.is_file() and not target.is_symlink():
             try:
                 meta, _body = split_frontmatter(target.read_text())
             except (KeyError, ValueError, UnicodeDecodeError):
+                # Malformed existing digest — not our concern, treat as no
+                # match and fall through to self-heal via rewrite below.
                 meta = {}
+            except OSError as e:
+                # Can't even read it (permissions, I/O error) — don't guess
+                # whether a rewrite would fare any better; warn and move on.
+                warnings.append(f"{rel}: {e}")
+                continue
             if meta and meta.get("fingerprint") == fp:
                 continue  # same findings — leave the note (and `created`) alone
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(render_digest(person_findings, today, fp))
+        if target.is_symlink():
+            warnings.append(f"{rel}: digest is a symlink — refusing to write")
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(render_digest(person_findings, today, fp))
+        except OSError as e:
+            warnings.append(f"{rel}: {e}")
+            continue
         written += 1
         changed.append(rel)
 
