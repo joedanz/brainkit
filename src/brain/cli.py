@@ -285,6 +285,10 @@ def cmd_cycle(args) -> int:
             print(f"indexed {report.indexed} vault(s)")
         for w in report.index_warnings:
             print(f"  index warning: {w}", file=sys.stderr)
+        print(f"triaged {report.triage_findings} finding(s) into "
+              f"{report.triage_digests} digest update(s)")
+        for w in report.triage_warnings:
+            print(f"  triage warning: {w}", file=sys.stderr)
     return 0 if report.ok else 1
 
 

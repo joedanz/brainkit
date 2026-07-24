@@ -1,8 +1,11 @@
-"""One-shot server cycle: writeback -> materialize clients -> sweep shares -> sweep promotions -> compile-all.
+"""One-shot server cycle: writeback -> materialize clients -> sweep shares -> sweep promotions -> compile-all -> triage.
 
 Ordering is load-bearing: writebacks land person edits (including freshly
 synced promotion drafts) in master BEFORE the sweep reads People/*/Promotions,
 and compile runs last so every vault reflects the post-writeback master.
+Triage runs last, after the compile, so doctor's compiled-vault check sees
+fresh vaults; the digests it lands in master compile into vaults on the next
+cycle.
 
 A rejected writeback never halts the cycle. Rejected edits are reverted
 server-side by the fresh compile commit (fail closed); the rejection is
@@ -44,6 +47,10 @@ class CycleReport:
     share_decisions_refused: int = 0
     indexed: int = 0
     index_warnings: list[str] = field(default_factory=list)
+    triage_findings: int = 0
+    triage_digests: int = 0     # digest notes written or removed
+    triage_unrouted: int = 0
+    triage_warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -130,6 +137,10 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     if index:
         indexed, index_warnings = _refresh_indexes(master, out_root, org)
 
+    from brain.triage import run_triage
+
+    triage = run_triage(master, out_root, today=today)
+
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),
@@ -145,4 +156,8 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         share_decisions_applied=sum(1 for o in decision_outcomes if o.status == "applied"),
         share_decisions_refused=sum(1 for o in decision_outcomes if o.status == "refused"),
         indexed=indexed, index_warnings=index_warnings,
+        triage_findings=triage.routed,
+        triage_digests=triage.digests_written + triage.digests_removed,
+        triage_unrouted=triage.unrouted,
+        triage_warnings=triage.warnings,
     )
