@@ -120,6 +120,35 @@ the same footing as `.git`:
 - **Preserved across recompiles.** A recompile swaps the vault contents but
   carries `.brain/` across, exactly like `.git`.
 
+### Upgrading across a schema change
+
+The index carries a schema version in SQLite's `PRAGMA user_version`. Upgrading
+brainkit needs no migration step from you — but the two directions behave
+differently, and the asymmetry is the point:
+
+- **Index older than the code** → rebuilt automatically. `brain index` notices
+  the older version and forces a *full* rebuild rather than an incremental one.
+  It has to: a migration adds empty tables, and the incremental path skips
+  unchanged files, so those tables would stay empty for every file that hadn't
+  moved — a silently half-populated index that answers queries with less than
+  it should.
+- **Index newer than the code** → refuses to open, naming the fix:
+
+  ```
+  index at <path> was built by a newer brainkit
+  (schema 5 > 4); rebuild with: brain index --full
+  ```
+
+  This is the fail-closed direction. A newer schema may hold columns this code
+  does not know to read, and answering a query from a file it half-understands
+  is worse than not answering. It matters in the real deployment shape, where
+  the brain box and someone's laptop can sit on different versions for a while.
+
+Because the index is derived state that is never backed up, both paths cost
+only the rebuild. Nothing is lost, so the safe move after any upgrade is simply
+`brain index` — or nothing at all, since `brain cycle --index` gets there on its
+own schedule.
+
 ## Incremental by design
 
 The compiler does a full rebuild every run, so the indexer diffs the manifest's

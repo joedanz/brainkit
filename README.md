@@ -163,13 +163,16 @@ Full walkthrough: [Getting started](https://brainkit-docs.vercel.app/getting-sta
 | `brain promotions` | List, approve, or reject drafts waiting to be shared |
 | `brain shares` | List, approve, reject, or revoke access someone requested to share on a space they own |
 | `brain cycle` | The cron loop: write-back → materialize clients → sweep shares → sweep share decisions → sweep promotions → recompile |
+| `brain triage` | Route `doctor` findings into the inbox of whoever can act on them |
 | `brain index` | Build or refresh a vault's local search index |
 | `brain search` | Query a vault — keyword, semantic, or both |
+| `brain graph` | Walk a note's typed relations (`up`/`down`, `same`, `prev`/`next`) |
 | `brain facts` | Query time-stamped facts (now, as-of, or believed-on a date) |
 | `brain mcp` | Serve search, reading, links, recent changes, and facts to MCP clients |
 | `brain status` | Counts, freshness, and health at a glance |
 | `brain dashboard` | Live local dashboard (or a static HTML snapshot) |
 | `brain doctor` | Read-only integrity audit, CI-friendly exit codes |
+| `brain rename-entities` | Rename the third-party tree (`Clients/` → whatever fits you) across rules, requests, and the queue |
 
 Flags and exit codes: [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
@@ -178,6 +181,18 @@ Flags and exit codes: [CLI reference](https://brainkit-docs.vercel.app/reference
 - **Python 3.12+** and **git**. Runtime dependencies are just `pyyaml`, `sqlite-vec`, and `aiohttp`.
 - **Semantic search (optional):** set `BRAIN_EMBED_BASE_URL` to any OpenAI-compatible embedding endpoint. Without it, search runs keyword-only. Note: configuring a provider sends note text to that endpoint — point it at something you host if that matters to you.
 - `sqlite-vec` needs a Python whose `sqlite3` was built with **loadable-extension support**. Homebrew, pyenv, uv-managed, and most Linux distro Pythons have it; the common exception is the **python.org macOS installer**, which ships it disabled. Check yours with `python -c "import sqlite3; print(hasattr(sqlite3.Connection, 'enable_load_extension'))"`. If it's unavailable, search degrades gracefully to keyword-only — nothing breaks, you just lose the semantic leg.
+
+## Limitations
+
+Known and measured, so you find out here rather than in production.
+
+- **Disk multiplies with headcount.** Every person gets a full copy of every space they can read, and each vault is its own git repo. A measured example — 1 MB of master content, 60 shared notes, 10 people — compiles to **8.8 MB**, and **13 MB** once each vault is indexed. `.git` is 57% of a vault, not the notes. Budget on readers-per-space, not on vault size. [Sizing →](https://brainkit-docs.vercel.app/guides/reference-deployment#sizing)
+- **Concurrent edits to one file are last-write-wins.** Within a shared writable space (`Teams/*` by default), two people editing the same note both apply cleanly and the later cycle wins — no merge, no conflict flag. Per-person spaces are immune by construction: only one person can write `People/<id>/`. [Details →](https://brainkit-docs.vercel.app/concepts/spaces-and-permissions#two-people-one-file)
+- **The dashboard has no authentication.** It binds `127.0.0.1`, rejects non-local `Host` headers, and enforces a strict CSP — but those defend the loopback assumption rather than replace a login. Pass a non-loopback `--host` and you have published the vault; the CLI warns, and that warning is the whole protection. The [reference deployment](https://brainkit-docs.vercel.app/guides/reference-deployment) reaches it through a tunnel, not an open port.
+- **Semantic search sends note text to your embedding provider.** Keyword-only is the default and leaks nothing. If that tradeoff matters, point `BRAIN_EMBED_BASE_URL` at something you host.
+- **Not packaged yet.** No PyPI release — install from source. There is a tagged release with a built wheel and sdist attached.
+- **Pre-1.0.** Minor versions may break vault layouts or `_meta` schemas. Breaking changes are called out in [CHANGELOG.md](CHANGELOG.md) with what to do about them.
+- **Scale is tested in the tens.** The design target is a 5–25 person pilot growing to 150+, where growth adds capacity rather than changing the architecture. Above that, nothing is known to break — and nothing has been measured either.
 
 ## Learn more
 
