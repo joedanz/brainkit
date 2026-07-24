@@ -219,7 +219,14 @@ def _home_md(company: str) -> str:
     return (
         f"# {company} — Home\n\n"
         "The company's live priority dashboard, kept current by the assistant.\n"
-        "See [[Memory]] for the company overview and where knowledge lives.\n\n"
+        "See [[Memory]] for the company overview and where knowledge lives, and\n"
+        # Path form, not [[Home]]: this vault has two landing pages named Home
+        # (the per-space convention doctor exempts from stem-collision), so a
+        # bare stem would resolve to whichever sorts first. The link is also
+        # what makes Intel reachable — the protocol connects Intel by links
+        # rather than folder structure, and until something points at it the
+        # wiki's own index is an island no graph walk can enter.
+        "[[Company/Intel/Home|Intel]] for the shared reference wiki.\n\n"
         "## Priorities\n\n_What needs attention now._\n\n"
         "## Open actions by owner\n\n_Outstanding action items, grouped by owner._\n\n"
         "## Pending promotions\n\n_Drafts awaiting approval._\n\n"

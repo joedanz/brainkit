@@ -19,7 +19,35 @@ import sys
 from pathlib import Path
 
 PROTOCOL_VERSION = "2025-06-18"
+
+# Revisions this server will speak, newest first. The list is short because the
+# surface is: across these three revisions the wire format of the five methods
+# implemented here (initialize, initialized, ping, tools/list, tools/call) is
+# unchanged. Later revisions added optional fields — structuredContent,
+# outputSchema, _meta — that a server is free not to emit. Anything this server
+# would have to behave differently for does not belong on this list.
+SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+
 SERVER_INFO = {"name": "brainkit", "version": "0.1.0"}
+
+
+def negotiate_protocol(requested: object) -> str:
+    """Pick the version to answer `initialize` with.
+
+    The spec is explicit: respond with the *same* version when the client asks
+    for one we support, and otherwise with our own latest so the client can
+    decide whether to continue. Answering "2025-06-18" no matter what was
+    asked — as this did — is the one thing that is not allowed, because a
+    client pinned to an older revision reads it as "this server ignores the
+    handshake" and a strict one disconnects.
+
+    A missing or non-string version means a client that skipped the field;
+    answer with our latest rather than rejecting, since every method it can
+    call behaves the same either way.
+    """
+    if isinstance(requested, str) and requested in SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return PROTOCOL_VERSION
 
 _TOOLS = [
     {
@@ -277,8 +305,9 @@ def _handle(vault: Path, provider, msg: dict):
     is_notification = "id" not in msg
 
     if method == "initialize":
+        requested = (msg.get("params") or {}).get("protocolVersion")
         return _result(mid, {
-            "protocolVersion": PROTOCOL_VERSION,
+            "protocolVersion": negotiate_protocol(requested),
             "capabilities": {"tools": {}},
             "serverInfo": SERVER_INFO,
         })
