@@ -85,3 +85,34 @@ itself is agent-native:
 ## Requirements
 
 Node 20+ and Vite 8 (pinned in `package.json`; Holocron 0.23+ requires Vite 8).
+
+## Vulnerability posture
+
+`npm audit` here does not report zero, on purpose.
+
+Everything fixable without a downgrade is fixed — the tree carries no high or
+critical advisories. What remains is three **moderate** advisories, all one
+transitive chain:
+
+```
+@holocron.so/vite → @modelcontextprotocol/sdk → @hono/node-server
+```
+
+`npm audit fix --force` "resolves" them by installing `@holocron.so/vite@0.18.2`
+— ten minor versions backwards, past the release that made the site deployable
+at all. That is not a fix; it trades a working docs site for a lower number.
+
+Taking it is also unnecessary, for two independent reasons:
+
+- **The advisory is Windows-only.** `serve-static` mis-resolves an encoded
+  backslash (`%5C`) because the *Windows* path resolver treats `\` as a
+  separator. Production runs `nodejs22.x` on Linux, where `%5C` is an ordinary
+  character in a filename. Directory escape via `..` was never affected.
+- **The package isn't in the deployed function.** spiceflow traces the function's
+  dependencies with `@vercel/nft`; `@hono/node-server` is not among them and is
+  not bundled — nothing in `dist/` requires it. It is reached only by the SDK's
+  own server, which this site never starts.
+
+Re-check when Holocron picks up a patched `@modelcontextprotocol/sdk`; the right
+resolution is upstream moving forward, not this repo moving back. Until then,
+run `npm audit` and expect exactly these three.
