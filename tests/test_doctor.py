@@ -737,3 +737,30 @@ def test_identical_group_of_three_emits_no_dup_near(master):
     findings = run_doctor(master)
     assert len(_severities(findings, "dup-exact")) == 2
     assert not _severities(findings, "dup-near")
+
+
+def test_home_landing_pages_exempt_from_stem_collision(master):
+    # Home.md is the per-space landing-page convention (the link map;
+    # _check_intel already exempts it from the citation rule) — two spaces
+    # each owning a Home.md is structure, not ambiguity worth warning about.
+    seed_meta(master)
+    (master / "Company/Intel").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Home.md").write_text("# Home\n\npriority dashboard\n")
+    (master / "Company/Intel/Home.md").write_text("# Intel\n\nintel link map\n")
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check == "stem-collision" and "Home" in f.message]
+
+
+def test_fresh_scaffold_has_no_dup_findings(tmp_path):
+    # A brand-new brain must not start life with doctor warnings from its
+    # own scaffold (the Company/Home.md vs Company/Intel/Home.md pair).
+    from brain.cli import main
+
+    root = tmp_path / "fresh"
+    assert main(["init", str(root), "--company", "TestCo"]) == 0
+    findings = run_doctor(root)
+    dup = [f for f in findings
+           if f.check in ("dup-exact", "dup-near", "stem-collision")]
+    assert dup == []

@@ -331,6 +331,12 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
                 pair = frozenset((a, b))
                 if pair in flagged or _skeleton_pair(a, b):
                     continue
+                if Path(a).name == "Home.md" and Path(b).name == "Home.md":
+                    # Home.md is the per-space landing-page convention (the
+                    # link map; _check_intel exempts it from the citation
+                    # rule too) — two spaces each owning one is structure,
+                    # like the personal skeletons, not link ambiguity.
+                    continue
                 if not (space_readers(a) & space_readers(b)):
                     continue
                 flagged.add(pair)
