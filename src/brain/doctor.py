@@ -194,6 +194,108 @@ def _check_unlinked_notes(master: Path) -> list[Finding]:
     return findings
 
 
+def _dup_exempt(rel: str) -> bool:
+    """Transient and archival paths never count as duplicates: Inbox is
+    pre-processing, Sessions is the processed archive, and Intel addenda are
+    already flagged by _check_intel."""
+    parts = Path(rel).parts
+    if "Inbox" in parts or "Sessions" in parts:
+        return True
+    return bool(_ADDENDUM_RE.match(parts[-1]))
+
+
+def _skeleton_pair(a: str, b: str) -> bool:
+    """Same subpath inside two different personal spaces — every person owns
+    the same scaffold (Memory.md, Notes/...), so identical templates across
+    People/ spaces are structure, not duplication."""
+    sa, sb = space_of_path(a), space_of_path(b)
+    if not sa or not sb or sa == sb:
+        return False
+    if not (sa.startswith("People/") and sb.startswith("People/")):
+        return False
+    return a[len(sa):] == b[len(sb):]
+
+
+def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+    """Duplicate and near-duplicate notes, in three tiers: identical bytes
+    (dup-exact), colliding title stems (stem-collision — bare wikilinks
+    resolve by stem, first match wins), and near-duplicate content
+    (dup-near). Severity follows readership: a pair some person sees both
+    sides of is real rot (warn — double retrieval votes, ambiguous links);
+    a pair with no common reader never meets in any vault, so it is only a
+    duplicated-effort hint (info: promotion candidate). Warn-on-disjoint is
+    an invariant tested like the leak properties."""
+    from brain.dedup import DUP_MIN_WORDS, normalize_text
+
+    rels = [r for r in _content_files(master) if not _dup_exempt(r)]
+    texts = {
+        r: (master / r).read_text(encoding="utf-8", errors="replace")
+        for r in rels}
+    words = {r: normalize_text(texts[r]) for r in rels}
+    substantive = [r for r in rels if len(words[r]) >= DUP_MIN_WORDS]
+    readers_of = _reader_index(org, rules)
+
+    def space_readers(rel: str) -> frozenset[str]:
+        space = space_of_path(rel)
+        return readers_of(space) if space else frozenset()
+
+    findings: list[Finding] = []
+    flagged: set[frozenset[str]] = set()
+
+    def emit(a: str, b: str, check: str, warn_msg: str, info_msg: str) -> None:
+        pair = frozenset((a, b))
+        if pair in flagged or _skeleton_pair(a, b):
+            return
+        flagged.add(pair)
+        if space_readers(a) & space_readers(b):
+            findings.append(Finding("warn", check, warn_msg))
+        else:
+            findings.append(Finding("info", check, info_msg))
+
+    # Tier 1: identical bytes. Chained pairs (a,b),(b,c) — one finding per
+    # adjacent pair in a group is signal enough without O(n^2) noise.
+    by_sha: dict[str, list[str]] = {}
+    for rel in substantive:
+        digest = hashlib.sha256(texts[rel].encode("utf-8")).hexdigest()
+        by_sha.setdefault(digest, []).append(rel)
+    for _digest, group in sorted(by_sha.items()):
+        for a, b in zip(group, group[1:]):
+            emit(
+                a, b, "dup-exact",
+                f"{a} and {b} have identical content — fold one into the "
+                "other via a mode: patch promotion",
+                f"{a} and {b} hold identical content in unshared spaces — "
+                "promotion candidate")
+
+    # Tier 2: stem collisions. Only pairs a common reader sees are amb-
+    # iguous (both files land in that person's vault, where a bare
+    # [[stem]] resolves first-match-wins); disjoint pairs are silent —
+    # a stem match says nothing about content.
+    by_stem: dict[str, list[str]] = {}
+    for rel in rels:
+        by_stem.setdefault(_stem(rel), []).append(rel)
+    for stem, group in sorted(by_stem.items()):
+        for i, a in enumerate(group):
+            for b in group[i + 1:]:
+                pair = frozenset((a, b))
+                if pair in flagged or _skeleton_pair(a, b):
+                    continue
+                if not (space_readers(a) & space_readers(b)):
+                    continue
+                flagged.add(pair)
+                # _stem() lowercases for matching; the bracketed example in
+                # the message should show a wikilink someone would actually
+                # type, so it borrows the first file's on-disk casing.
+                display_stem = Path(a).stem
+                findings.append(Finding(
+                    "warn", "stem-collision",
+                    f"{a} and {b} share the title stem {stem!r} — a bare "
+                    f"[[{display_stem}]] resolves to whichever sorts first; "
+                    "rename one or link by full path"))
+
+    return findings
+
+
 def _content_files(master: Path) -> list[str]:
     """All rel paths of .md files that live in a resolvable space."""
     rels: list[str] = []
@@ -634,6 +736,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_unreadable_spaces(master, org, rules)
     findings += _check_orphan_files(master)
     findings += _check_unlinked_notes(master)
+    findings += _check_duplicates(master, org, rules)
     findings += _check_cross_space_refs(master, org, rules)
     findings += _check_plain_refs(master, org, rules)
     findings += _check_facts(master)

@@ -536,3 +536,87 @@ def test_delegated_decisions_surface_as_info(tmp_path):
     assert any("approved by mary" in x and "delegated" in x for x in msgs)
     assert not any("Clients/Old" in x for x in msgs)
     assert not any("Clients/B" in x and "delegated" in x for x in msgs)
+
+
+BODY_A = (
+    "# Field Notes\n\n"
+    "alpha beta gamma delta epsilon zeta eta theta iota kappa "
+    "lamda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega\n"
+)
+
+
+def test_exact_duplicate_visible_to_common_reader_warns(master):
+    seed_meta(master)
+    (master / "Company/Kickoff Notes.md").write_text(BODY_A)
+    (master / "Company/Kickoff Recap.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "dup-exact")
+
+
+def test_exact_duplicate_across_private_spaces_is_info(master):
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Notes/Article.md").write_text(BODY_A)
+    (master / "People/bob/Notes/Saved.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert set(_severities(findings, "dup-exact")) == {"info"}
+    hit = next(
+        f for f in findings
+        if f.check == "dup-exact" and "Article" in f.message)
+    assert "promotion candidate" in hit.message
+
+
+def test_personal_skeleton_files_never_flagged(master):
+    # The fixture scaffolds every person with the same skeleton
+    # (People/<id>/Memory.md etc.) — identical templates must not flag.
+    seed_meta(master)
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check.startswith("dup") and "Memory.md" in f.message]
+
+
+def test_stub_files_below_min_words_not_flagged(master):
+    seed_meta(master)
+    (master / "Company/Stub One.md").write_text("# Stub\n\nshort note\n")
+    (master / "Company/Stub Two.md").write_text("# Stub\n\nshort note\n")
+    findings = run_doctor(master)
+    assert not _severities(findings, "dup-exact")
+
+
+def test_stem_collision_with_common_reader_warns(master):
+    seed_meta(master)
+    (master / "Clients/acme").mkdir(parents=True, exist_ok=True)
+    (master / "Company/Acme.md").write_text("# Acme\n\ncompany-side view\n")
+    (master / "Clients/acme/Acme.md").write_text("# Acme\n\nclient-side view\n")
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "stem-collision")
+    hit = next(
+        f for f in findings
+        if f.check == "stem-collision" and "[[Acme]]" in f.message)
+    assert hit.severity == "warn"
+
+
+def test_stem_collision_disjoint_readers_is_silent(master):
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Notes/Acme.md").write_text("# Acme\n\nalice take\n")
+    (master / "People/bob/Notes/Acme.md").write_text("# Acme\n\nbob take\n")
+    findings = run_doctor(master)
+    assert not _severities(findings, "stem-collision")
+
+
+def test_inbox_and_sessions_exempt_from_dup_checks(master):
+    seed_meta(master)
+    (master / "People/alice/Inbox").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Sessions").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Inbox/Capture.md").write_text(BODY_A)
+    (master / "People/alice/Sessions/Old.md").write_text(BODY_A)
+    (master / "Company/Kickoff Notes.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check.startswith("dup") and (
+            "Inbox" in f.message or "Sessions" in f.message)]
