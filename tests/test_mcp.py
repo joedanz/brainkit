@@ -9,7 +9,12 @@ import pytest
 from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.indexer import build_index
-from brain.mcp import serve
+from brain.mcp import (
+    PROTOCOL_VERSION,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    negotiate_protocol,
+    serve,
+)
 from tests.conftest import ALICE, RULES
 
 
@@ -34,6 +39,37 @@ def test_initialize_handshake(vault):
     assert resp["result"]["protocolVersion"]
     assert "tools" in resp["result"]["capabilities"]
     assert resp["result"]["serverInfo"]["name"] == "brainkit"
+
+
+def test_initialize_echoes_a_supported_client_version(vault):
+    """The spec requires the same version back when we support it. Answering
+    with our own latest regardless reads to a pinned client as a server that
+    ignores the handshake, and a strict one disconnects on it."""
+    for asked in SUPPORTED_PROTOCOL_VERSIONS:
+        (resp,) = _exchange(vault, [{
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": asked,
+                       "clientInfo": {"name": "probe", "version": "1"},
+                       "capabilities": {}},
+        }])
+        assert resp["result"]["protocolVersion"] == asked, asked
+
+
+def test_initialize_offers_our_latest_when_the_ask_is_unsupported(vault):
+    for asked in ("2099-01-01", "", None, 5, {"nope": True}):
+        (resp,) = _exchange(vault, [{
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": asked},
+        }])
+        assert resp["result"]["protocolVersion"] == PROTOCOL_VERSION, asked
+
+
+def test_negotiate_never_invents_a_version():
+    """Whatever comes back must be one we actually declared — a typo in the
+    supported list should fail here, not on a client's wire."""
+    for asked in (*SUPPORTED_PROTOCOL_VERSIONS, "2099-01-01", None, object()):
+        assert negotiate_protocol(asked) in SUPPORTED_PROTOCOL_VERSIONS
+    assert PROTOCOL_VERSION in SUPPORTED_PROTOCOL_VERSIONS
 
 
 def test_tools_list_schema(vault):
