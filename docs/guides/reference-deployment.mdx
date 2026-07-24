@@ -60,7 +60,7 @@ An agent never addresses the master. It addresses *its own vault's git remote*, 
 
 1. The agent edits its own spaces in its local clone and commits — captures go to its `Inbox/`, share drafts to `People/<me>/Promotions/`. This works even when the brain box is down.
 2. `git push` — the entire client interaction. Pushes are **accepted as-is**; validation is asynchronous.
-3. [`brain cycle`](/reference/cli#brain-cycle) (cron, every few minutes) validates every pushed path server-side, applies what's legal, reverts the rest on the next compile (fail closed); provisions any self-service client requests and routes share requests (queuing shares, auto-applying revokes); sweeps promotion drafts into the [pending queue](/concepts/promotions); and recompiles every vault.
+3. [`brain cycle`](/reference/cli#brain-cycle) (cron, every few minutes) validates every pushed path server-side, applies what's legal, reverts the rest on the next compile (fail closed); provisions any self-service client requests and routes share requests (queuing shares, auto-applying revokes); sweeps promotion drafts into the [pending queue](/concepts/promotions); recompiles every vault; and finally routes actionable [`brain doctor`](/reference/cli#brain-doctor) findings to each responsible person as a rolling Inbox digest ([`brain triage`](/reference/cli#brain-triage)) their agent fixes through the same gated paths.
 4. `git pull` — the verdict returns: rejected edits vanish, approved shared knowledge arrives.
 
 <Callout type="info">
