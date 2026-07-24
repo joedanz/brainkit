@@ -24,6 +24,20 @@ from pathlib import Path
 from brain.compiler import extract_wikilinks
 from brain.frontmatter import split_frontmatter
 
+MAP_NAME = "Map.md"
+
+# Budget matches contextgen.SPACE_LIMIT. Unlike contextgen this is NEVER
+# enforced by raising — a data-driven file must not fail a compile. The caps
+# and truncation below bound the document by construction; MAP_LIMIT is a
+# test assertion over them, not a runtime behavior.
+MAP_LIMIT = 8_000
+SPACE_CAP = 20
+TYPE_CAP = 12
+EXEMPLARS = 3
+HUB_CAP = 10
+FIELD_LEN = 48
+UNTYPED = "(untyped)"
+
 
 @dataclass(frozen=True)
 class NoteFacts:
@@ -78,7 +92,18 @@ def rank_hubs(degree: dict[str, int], cap: int) -> list[tuple[str, int]]:
     return [(rel, n) for rel, n in ranked if n > 0][:cap]
 
 
-UNTYPED = "(untyped)"
+def notes_by_space(notes: dict[str, NoteFacts]) -> dict[str, list[str]]:
+    """Bucket note paths by their space. Computed once per vault and shared —
+    `space_of_path` parses every path, and at 5k notes x 50 people a second
+    pass is a quarter-million redundant parses per compile."""
+    from brain.resolver import space_of_path
+
+    buckets: dict[str, list[str]] = {}
+    for rel in notes:
+        space = space_of_path(rel)
+        if space is not None:
+            buckets.setdefault(space, []).append(rel)
+    return buckets
 
 
 @dataclass(frozen=True)
@@ -93,8 +118,9 @@ def group_entities(
     spaces_rw: list[tuple[str, bool]],
     degree: dict[str, int],
     config,
+    by_space: dict[str, list[str]] | None = None,
     *,
-    exemplars: int = 3,
+    exemplars: int = EXEMPLARS,
 ) -> list[EntityGroup]:
     """Entity spaces grouped by their `entity:` type, biggest group first.
 
@@ -102,19 +128,15 @@ def group_entities(
     foothold. Individual lookups belong to `brain_search`, which resolves
     aliases; this is orientation only, so the output size depends on the
     number of TYPES, never the number of entities.
+
+    `by_space` is `notes_by_space(notes)`; callers that already have it pass
+    it in rather than paying for a second pass. Looking spaces up in it (as
+    opposed to rescanning notes per space) is what keeps this O(notes) rather
+    than O(spaces x notes) — a mature vault has hundreds of both.
     """
-    from brain.resolver import space_of_path
-
     prefix = f"{config.entities}/"
-
-    # Bucket notes by space once — the alternative (rescanning every note per
-    # entity space) is O(spaces x notes), and a mature vault has hundreds of
-    # each.
-    by_space: dict[str, list[str]] = {}
-    for rel in notes:
-        space = space_of_path(rel)
-        if space is not None:
-            by_space.setdefault(space, []).append(rel)
+    if by_space is None:
+        by_space = notes_by_space(notes)
 
     buckets: dict[str, list[tuple[int, str]]] = {}
     for space, _writable in spaces_rw:
@@ -170,19 +192,6 @@ def collect_pending(building: Path, person) -> Pending:
 
     return Pending(inbox=inbox, needs_routing=needs)
 
-
-MAP_NAME = "Map.md"
-
-# Budget matches contextgen.SPACE_LIMIT. Unlike contextgen this is NEVER
-# enforced by raising — a data-driven file must not fail a compile. The caps
-# and truncation below bound the document by construction; MAP_LIMIT is a
-# test assertion over them, not a runtime behavior.
-MAP_LIMIT = 8_000
-SPACE_CAP = 20
-TYPE_CAP = 12
-EXEMPLARS = 3
-HUB_CAP = 10
-FIELD_LEN = 48
 
 _INTRO = (
     "Generated state, refreshed on every compile — edits here are discarded.\n"
@@ -309,22 +318,15 @@ def generate_map(
     config,
 ) -> str:
     """The one call the compiler makes. Reads only the building tree."""
-    from brain.resolver import space_of_path
-
     notes = scan_vault(building, compiled)
-    space_notes: dict[str, int] = {}
-    for rel in notes:
-        space = space_of_path(rel)
-        if space is not None:
-            space_notes[space] = space_notes.get(space, 0) + 1
-
+    by_space = notes_by_space(notes)
     degree = link_degree(notes)
     return render_map(
         person,
         spaces_rw,
         len(notes),
-        space_notes,
-        group_entities(notes, spaces_rw, degree, config, exemplars=EXEMPLARS),
+        {space: len(rels) for space, rels in by_space.items()},
+        group_entities(notes, spaces_rw, degree, config, by_space),
         rank_hubs(degree, HUB_CAP),
         collect_pending(building, person),
         config,
