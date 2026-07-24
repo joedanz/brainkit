@@ -141,6 +141,63 @@ def lint_facts(text: str) -> list[tuple[int, str]]:
     return problems
 
 
+# Single-valued-attribute markers: a word-level common prefix ending in one of
+# these (or in a token ending with ":") names one slot — "Acme's plan is" —
+# so two open facts diverging after it assign that slot two values at once.
+# Bare copulas (is/are) require two preceding tokens to guard against
+# "<Entity> is …" predications, which accumulate; trailing ":" and "=" use one.
+# Additive verbs (hired, met, shipped) are deliberately absent: those facts
+# can all be true together, and a warn tier that cries wolf gets ignored.
+
+
+def _diverges(stmt_a: str, stmt_b: str) -> bool:
+    a, b = stmt_a.casefold().split(), stmt_b.casefold().split()
+    i = 0
+    while i < len(a) and i < len(b) and a[i] == b[i]:
+        i += 1
+    if i < 2 or i == len(a) or i == len(b):
+        # marker needs a preceding token; an empty tail is prefix-of, not conflict
+        return False
+    last = a[i - 1]
+    if last in ("is", "are"):
+        # a bare copula right after the subject ("Acme is …") is predication,
+        # not an attribute slot — require two tokens before it ("…'s plan is")
+        return i >= 3
+    return last == "=" or last.endswith(":")
+
+
+def find_fact_conflicts(
+    entries: list[tuple[str, Fact, frozenset[str]]],
+) -> list[tuple[str, tuple, tuple]]:
+    """Duplicate and contradicting *open* facts, per issue #79. Each entry is
+    (rel_path, fact, entity_keys) with keys already resolved by the caller.
+    Pure over its input like the rest of this module: no files, no vault.
+
+    dup      — casefold-identical statements, equal key sets (double-landed
+               ingest; `brain facts` returns the same line twice).
+    conflict — statements sharing a key whose word-level common prefix ends in
+               a single-valued-attribute marker and then diverges ("…plan is
+               Enterprise" / "…plan is Growth" — a forgotten [until::]).
+
+    Closed facts never participate; identical statements have an empty
+    divergence, so no pair is ever both dup and conflict.
+    """
+    live = sorted((e for e in entries if e[1].until_date is None),
+                  key=lambda e: (e[0], e[1].line))
+    out: list[tuple[str, tuple, tuple]] = []
+    for x in range(len(live)):
+        for y in range(x + 1, len(live)):
+            a, b = live[x], live[y]
+            if not (a[2] & b[2]):
+                continue
+            if (a[1].statement.casefold() == b[1].statement.casefold()
+                    and a[2] == b[2]):
+                out.append(("dup", a, b))
+            elif _diverges(a[1].statement, b[1].statement):
+                out.append(("conflict", a, b))
+    return out
+
+
 def parse_entity(meta: dict[str, str]) -> tuple[str, list[str]] | None:
     """(type, aliases) from flat frontmatter, or None when not an entity page.
     aliases accepts the `[a, b]` inline-list form frontmatter.py leaves verbatim."""
