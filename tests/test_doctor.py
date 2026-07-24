@@ -620,3 +620,24 @@ def test_inbox_and_sessions_exempt_from_dup_checks(master):
         f for f in findings
         if f.check.startswith("dup") and (
             "Inbox" in f.message or "Sessions" in f.message)]
+
+
+def test_skeleton_pair_suppresses_identical_personal_scaffolds(master):
+    # Byte-identical substantive files at the SAME subpath inside two
+    # personal spaces are scaffold structure — suppressed entirely, not
+    # even info. The same content at a DIFFERENT subpath is a real
+    # cross-private duplicate and keeps its info promotion hint.
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/alice/Notes/Reading List.md").write_text(BODY_A)
+    (master / "People/bob/Notes/Reading List.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check.startswith("dup") and "Reading List" in f.message]
+    (master / "People/bob/Notes/Other Name.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    assert any(
+        f.check == "dup-exact" and f.severity == "info"
+        and "Other Name" in f.message for f in findings)
