@@ -1,5 +1,8 @@
+import os
 from datetime import date as _date
 from pathlib import Path
+
+import pytest
 
 from brain.doctor import run_doctor, _check_intel
 from brain.cli import main
@@ -857,3 +860,129 @@ def test_findings_carry_structured_paths(master):
     assert sorted(dup.paths) == ["Company/CopyA.md", "Company/CopyB.md"]
     # non-routed checks keep the default
     assert all(f.paths == () for f in findings if f.check == "meta")
+
+
+requires_nonroot = pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root bypasses file permissions, so an unreadable file can't be staged")
+
+
+@requires_nonroot
+def test_unreadable_file_is_reported_and_never_crashes(master):
+    """Doctor's whole job is to surface what fails silently — a file it cannot
+    read must become a finding, not a traceback. The compiler dies on the same
+    file (shutil.copy2), so this is an error: fix it before anyone syncs."""
+    seed_meta(master)
+    (master / "People/stray.md").write_text("orphan\n")  # an unrelated finding
+    locked = master / "People/bob/Notes/Locked.md"
+    locked.parent.mkdir(parents=True, exist_ok=True)
+    locked.write_text("secret\n")
+    locked.chmod(0o000)
+    try:
+        findings = run_doctor(master)
+    finally:
+        locked.chmod(0o644)
+
+    unreadable = [f for f in findings if f.check == "unreadable-files"]
+    assert len(unreadable) == 1
+    assert unreadable[0].severity == "error"
+    assert unreadable[0].paths == ("People/bob/Notes/Locked.md",)
+    assert "compile" in unreadable[0].message
+    # the run completed: checks after the unreadable file still reported
+    assert any(f.check == "orphan-files" for f in findings)
+
+
+@requires_nonroot
+def test_unreadable_file_is_excluded_from_content_checks(master):
+    """One file, one finding: the content scans skip what they cannot read
+    instead of each reporting it (or guessing at empty content)."""
+    seed_meta(master)
+    locked = master / "People/bob/Notes/Locked.md"
+    locked.parent.mkdir(parents=True, exist_ok=True)
+    locked.write_text("secret\n")
+    locked.chmod(0o000)
+    try:
+        findings = run_doctor(master)
+    finally:
+        locked.chmod(0o644)
+
+    other = [f for f in findings
+             if f.check != "unreadable-files" and "Locked.md" in f.message]
+    assert other == []
+
+
+@requires_nonroot
+def test_unreadable_intel_page_and_promotion_draft_do_not_crash(master):
+    """The Intel and promotion scans walk their own file sets rather than
+    _content_files, so they need the same posture."""
+    seed_meta(master)
+    intel = master / "Company/Intel/Destinations/Lisbon.md"
+    intel.parent.mkdir(parents=True, exist_ok=True)
+    intel.write_text("Lisbon, as of 2026-07.\n")
+    draft = master / "People/bob/Promotions/share.md"
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("---\ntarget-path: Company/Playbook/SOP.md\n---\nbody\n")
+    intel.chmod(0o000)
+    draft.chmod(0o000)
+    try:
+        findings = run_doctor(master)
+    finally:
+        intel.chmod(0o644)
+        draft.chmod(0o644)
+
+    unreadable = {f.paths[0] for f in findings if f.check == "unreadable-files"}
+    assert unreadable == {"Company/Intel/Destinations/Lisbon.md",
+                          "People/bob/Promotions/share.md"}
+    assert not [f for f in findings
+                if f.check in ("intel", "promotions") and "Lisbon" in f.message]
+
+
+def test_dangling_symlink_is_reported_only_as_a_symlink(master):
+    """A broken link is unreadable too, but it already has its own check —
+    findings stay one-per-problem."""
+    seed_meta(master)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes/Ghost.md").symlink_to(master / "nowhere.md")
+
+    findings = run_doctor(master)
+
+    assert [f.check for f in findings if "Ghost.md" in f.message] == ["symlinks"]
+
+
+@requires_nonroot
+def test_unreadable_compiled_file_counts_as_drift(master, tmp_path):
+    """_check_compiled hashes every compiled file against the manifest; one it
+    cannot read is one it cannot vouch for."""
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    compiled = out / "bob/People/bob/Memory.md"
+    compiled.chmod(0o000)
+    try:
+        findings = run_doctor(master, out)
+    finally:
+        compiled.chmod(0o644)
+
+    drift = [f for f in findings if f.check == "compiled" and "bob" in f.message
+             and "awaiting writeback" in f.message]
+    assert len(drift) == 1
+
+
+@requires_nonroot
+def test_unreadable_clients_log_is_reported(tmp_path):
+    """The self-service client log lives under _meta/, so the content-file
+    check never sees it — it reports its own read failure."""
+    from brain.doctor import _check_created_clients
+
+    master = tmp_path / "master"
+    log = master / "_meta/clients/created.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("2026-07-22\tjoe\tDanziger Family\t2026-07-22-danziger-family\n")
+    log.chmod(0o000)
+    try:
+        findings = _check_created_clients(master)
+    finally:
+        log.chmod(0o644)
+
+    assert len(findings) == 1
+    assert findings[0].severity == "error" and findings[0].check == "clients"
+    assert "Danziger Family" not in findings[0].message

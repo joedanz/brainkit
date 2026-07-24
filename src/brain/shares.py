@@ -258,7 +258,7 @@ def list_pending_shares(master: Path) -> list[dict]:
     for f in sorted(d.glob("*.md")):
         try:
             meta, body = split_frontmatter(f.read_text())
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, OSError):
             continue
         if not meta:
             continue
