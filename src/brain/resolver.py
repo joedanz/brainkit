@@ -96,5 +96,44 @@ def can_write_path(rel_path: str, person: Person, rules: tuple[SpaceRule, ...]) 
     return _allowed(space, person, rules, "write")
 
 
+def _self_named_spaces(person: Person, rules: tuple[SpaceRule, ...]) -> list[str]:
+    """Wildcard spaces this person's own identity names, whether or not they
+    exist on disk yet.
+
+    ``enumerate_spaces`` can only see directories that exist, but some spaces
+    exist *because* of a person: ``People/*`` read by ``person:{name}`` means
+    ``People/bob`` is bob's the moment bob is in org.yaml, before anything has
+    been written there. Without this, a newly added person compiled to a vault
+    whose context file listed ``Company/`` as their only space and then routed
+    every note they take into ``People/<id>/`` — a directory that same file
+    said they did not have.
+
+    Only wildcards whose *subjects* interpolate ``{name}`` expand, and only to
+    bindings this person actually carries. That distinction matters: the
+    default ``{entities}/*`` rule reads ``role:admin``, so its members are
+    named by the world, not by the reader — expanding it would invent a
+    ``Clients/<admin-id>`` that nobody meant. Candidates still round-trip
+    through ``space_of_path`` so a rule over a reserved top yields nothing,
+    matching what the write check would allow.
+    """
+    bindings = (person.id, *person.teams, *person.roles)
+    found: set[str] = set()
+    for rule in rules:
+        parts = rule.path.split("/")
+        if parts[-1] != "*" or len(parts) < 2:
+            continue
+        for subject in rule.read:
+            if "{name}" not in subject:
+                continue
+            for binding in bindings:
+                if not _subject_matches(subject, person, binding):
+                    continue
+                space = "/".join([*parts[:-1], binding])
+                if space_of_path(f"{space}/x.md") == space:
+                    found.add(space)
+    return sorted(found)
+
+
 def readable_spaces(master: Path, person: Person, rules: tuple[SpaceRule, ...]) -> list[str]:
-    return [s for s in enumerate_spaces(master) if can_read(s, person, rules)]
+    spaces = set(enumerate_spaces(master)) | set(_self_named_spaces(person, rules))
+    return sorted(s for s in spaces if can_read(s, person, rules))

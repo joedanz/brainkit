@@ -78,6 +78,43 @@ def test_readable_spaces(tmp_path: Path):
     assert spaces == {"Company", "Teams/ops", "People/bob", "Clients/acme"}
 
 
+def test_readable_spaces_includes_self_named_spaces_that_do_not_exist_yet(tmp_path: Path):
+    """A person added to org.yaml owns People/<id> before anything is written
+    there. Resolving that off disk alone produced a vault whose context file
+    listed Company/ as the only space while its routing rules sent every note
+    to People/<id>/."""
+    (tmp_path / "Company").mkdir(parents=True)
+    spaces = readable_spaces(tmp_path, BOB, RULES)
+
+    assert "People/bob" in spaces        # named by bob, not yet on disk
+    assert "Teams/ops" in spaces         # same, via team binding
+    assert "Clients/acme" not in spaces  # world-named: only disk can say
+    # Whatever is listed must actually be writable where the rules say so.
+    assert can_write_path("People/bob/Memory.md", BOB, RULES)
+
+
+def test_self_named_expansion_ignores_rules_not_bound_to_the_reader(tmp_path: Path):
+    """The shipped {entities}/* rule reads `role:admin` — its members are named
+    by the world, so expanding it by an admin's own bindings would invent a
+    Clients/<admin-id> nobody meant."""
+    rules = RULES[:3] + (
+        SpaceRule("Clients/*", read=("role:admin",), write=("role:admin",)),
+    )
+    (tmp_path / "Company").mkdir(parents=True)
+
+    assert "Clients/alice" not in readable_spaces(tmp_path, ALICE, rules)
+    assert "Clients/admin" not in readable_spaces(tmp_path, ALICE, rules)
+    assert "People/alice" in readable_spaces(tmp_path, ALICE, rules)
+
+
+def test_self_named_expansion_cannot_reach_a_reserved_top(tmp_path: Path):
+    rules = (SpaceRule("_meta/*", read=("person:{name}",), write=("person:{name}",)),)
+    (tmp_path / "Company").mkdir(parents=True)
+    # can_write_path already refuses _meta for everyone; enumeration must agree.
+    assert readable_spaces(tmp_path, BOB, rules) == []
+    assert not can_write_path("_meta/bob/x.md", BOB, rules)
+
+
 def test_any_top_level_dir_is_a_nested_top(tmp_path):
     (tmp_path / "Vendors/Acme").mkdir(parents=True)
     (tmp_path / "Company").mkdir()
