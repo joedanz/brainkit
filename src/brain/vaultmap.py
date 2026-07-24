@@ -261,3 +261,63 @@ def render_map(
     out.append(f"- Promotion and share status: "
                f"`People/{person.id}/Shares.md`\n")
     return "".join(out)
+
+
+def scan_vault(building: Path, rels: list[str]) -> dict[str, NoteFacts]:
+    """Read every shipped .md. The map's own pass — deliberately NOT fused
+    into the compiler's link-stubbing loop.
+
+    Fusing would save one re-read of the read-only files: measured at 2.3 ms
+    on a 1,200-note vault, 1.1% of the copy the compiler already does. Not
+    worth a diff to the security-relevant loop, which stays untouched.
+
+    Runs after stubbing, so it reads what actually shipped. Lenient decode
+    and no writes: these bytes are never written back, so an undecodable
+    file degrades one map entry instead of failing a compile.
+
+    `rels` MUST be the compiler's `compiled` list, never a glob of the built
+    tree. Generated files are already on disk by the time this runs, and
+    AGENTS.md contains the literal text `[[wikilinks]]` while Shares.md links
+    to promotion targets — globbing would feed both into the hub graph and
+    invent edges no author wrote.
+    """
+    notes: dict[str, NoteFacts] = {}
+    for rel in rels:
+        if not rel.endswith(".md"):
+            continue
+        try:
+            text = (building / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        notes[rel] = scan_note(text)
+    return notes
+
+
+def generate_map(
+    building: Path,
+    person,
+    spaces_rw: list[tuple[str, bool]],
+    compiled: list[str],
+    config,
+) -> str:
+    """The one call the compiler makes. Reads only the building tree."""
+    from brain.resolver import space_of_path
+
+    notes = scan_vault(building, compiled)
+    space_notes: dict[str, int] = {}
+    for rel in notes:
+        space = space_of_path(rel)
+        if space is not None:
+            space_notes[space] = space_notes.get(space, 0) + 1
+
+    degree = link_degree(notes)
+    return render_map(
+        person,
+        spaces_rw,
+        len(notes),
+        space_notes,
+        group_entities(notes, spaces_rw, degree, config, exemplars=EXEMPLARS),
+        rank_hubs(degree, HUB_CAP),
+        collect_pending(building, person),
+        config,
+    )

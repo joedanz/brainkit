@@ -105,7 +105,8 @@ def test_full_multiuser_lifecycle(tmp_path: Path, capsys):
 
     # 2. compile all + isolation ------------------------------------------ #
     assert main(["compile", "--master", str(master), "--out", str(compiled)]) == 0
-    exempt = {"AGENTS.md", "CLAUDE.md", ".brain-manifest.json", ".gitignore"}
+    exempt = {"AGENTS.md", "CLAUDE.md", "Map.md", ".brain-manifest.json",
+              ".gitignore"}
     for pid in PEOPLE:
         vault = compiled / pid
         expected = set(readable_spaces(master, org.people[pid], rules))
@@ -117,6 +118,10 @@ def test_full_multiuser_lifecycle(tmp_path: Path, capsys):
             assert space in expected, f"LEAK {pid}: {rel} (space {space})"
             assert not rel.startswith("_meta"), f"{pid} leaked _meta: {rel}"
         assert (vault / "AGENTS.md").exists() and (vault / "CLAUDE.md").exists()
+        # Generated orientation summary: present, and it only ever names
+        # spaces this person can read (the manifest-based leak property test
+        # asserts that over random worlds).
+        assert (vault / "Map.md").exists()
         assert (vault / ".brain-manifest.json").exists()
         assert (vault / ".git").is_dir()
 

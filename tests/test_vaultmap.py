@@ -12,11 +12,13 @@ from brain.vaultmap import (
     NoteFacts,
     Pending,
     collect_pending,
+    generate_map,
     group_entities,
     link_degree,
     rank_hubs,
     render_map,
     scan_note,
+    scan_vault,
 )
 from tests.conftest import BOB
 
@@ -302,3 +304,54 @@ def test_render_map_realistic_vault_is_small():
 def test_render_map_never_raises_on_empty_vault():
     text = render_map(BOB, [], 0, {}, [], [], Pending(0, None), _CFG)
     assert "## Pending" in text
+
+
+def _seed(root: Path, files: dict[str, str]) -> list[str]:
+    for rel, content in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+    return sorted(files)
+
+
+def test_scan_vault_reads_every_markdown_file(tmp_path: Path):
+    rels = _seed(tmp_path, {
+        "Company/Home.md": "See [[Runbook]].\n",
+        "Clients/Acme/Acme.md": "---\nentity: client\n---\n# Acme\n",
+        "Company/logo.png": "not markdown",
+    })
+    notes = scan_vault(tmp_path, rels)
+    assert set(notes) == {"Company/Home.md", "Clients/Acme/Acme.md"}
+    assert notes["Clients/Acme/Acme.md"].entity == "client"
+    assert notes["Company/Home.md"].targets == ("Runbook",)
+
+
+def test_scan_vault_is_lenient_about_bytes(tmp_path: Path):
+    """These files are read and never written, so a stray byte degrades one
+    map entry — it must never fail a compile."""
+    (tmp_path / "Company").mkdir(parents=True)
+    (tmp_path / "Company/Odd.md").write_bytes(b"# Odd\n\xff\xfe\n[[Runbook]]\n")
+    notes = scan_vault(tmp_path, ["Company/Odd.md"])
+    assert notes["Company/Odd.md"].targets == ("Runbook",)
+
+
+def test_scan_vault_skips_a_missing_file(tmp_path: Path):
+    assert scan_vault(tmp_path, ["Company/Gone.md"]) == {}
+
+
+def test_generate_map_end_to_end(tmp_path: Path):
+    rels = _seed(tmp_path, {
+        "Company/Home.md": "# Home\nSee [[Runbook]] and [[Acme]].\n",
+        "Teams/ops/Runbook.md": "# Runbook\n",
+        "Clients/Acme/Acme.md": "---\nentity: client\n---\n# Acme\n",
+        "People/bob/Memory.md": "# Memory\n",
+        "People/bob/Inbox/raw.md": "capture\n",
+    })
+    spaces_rw = [("Company", False), ("Teams/ops", True),
+                 ("Clients/Acme", True), ("People/bob", True)]
+    text = generate_map(tmp_path, BOB, spaces_rw, rels, VaultConfig())
+    assert "**5 notes · 3 spaces · 1 entities**" in text
+    assert "| `Company` | 1 | read-only |" in text
+    assert "**client** (1)" in text
+    assert "[[Home]] — 2 link(s)" in text
+    assert "Inbox: 1 item(s)" in text
