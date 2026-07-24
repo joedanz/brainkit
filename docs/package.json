@@ -10,9 +10,9 @@
   "dependencies": {
     "@holocron.so/vite": "^0.28.0",
     "motion": "^12.42.2",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "vite": "^8.0.10"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "vite": "^8.1.5"
   },
   "//overrides": "@holocron.so/vite pins spiceflow exactly, and its own dependency @holocron.so/cli pins an OLDER exact version. npm honors both and installs two copies, which spiceflow itself refuses to build with ('Duplicate spiceflow installation detected') because two copies break RSC contexts and routing. npm dedupe cannot reconcile two exact pins, so pin one winner here. Keep this in lockstep with the spiceflow version in @holocron.so/vite's dependencies when upgrading Holocron.",
   "overrides": {
