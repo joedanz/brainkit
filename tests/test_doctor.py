@@ -701,3 +701,27 @@ def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch
     assert "warn" in _severities(findings, "dup-near")
     hit = [f for f in findings if f.check == "dup-near" and f.severity == "warn"][0]
     assert "Shuffle A" in hit.message and "Shuffle B" in hit.message
+
+
+def test_warn_dup_findings_never_pair_disjoint_readers(master):
+    """The spec invariant, in the spirit of test_leak_property: content
+    duplicated across spaces with no common reader must never produce a
+    warn — only info (promotion hint) or silence."""
+    seed_meta(master)
+    (master / "People/alice/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    private_a = "People/alice/Notes/Research.md"
+    private_b = "People/bob/Notes/Research Copy.md"
+    (master / private_a).write_text(BODY_A)
+    (master / private_b).write_text(BODY_A)
+    (master / "Company/Shared One.md").write_text(BODY_A)
+    (master / "Company/Shared Two.md").write_text(BODY_A)
+    findings = run_doctor(master)
+    dup_checks = {"dup-exact", "dup-near", "stem-collision"}
+    for f in findings:
+        if f.check in dup_checks and f.severity == "warn":
+            assert not (private_a in f.message and private_b in f.message), (
+                f"warn finding pairs two disjoint-reader files: {f.message}")
+    # The layout still produces both classes:
+    assert "warn" in _severities(findings, "dup-exact")   # the Company pair
+    assert "info" in _severities(findings, "dup-exact")   # a cross-boundary pair
