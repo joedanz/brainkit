@@ -1,7 +1,9 @@
 import inspect
+import json
 import subprocess
 from pathlib import Path
 
+from brain.cli import main
 from brain.doctor import Finding
 from brain.schemas import Org, Person
 from brain.triage import route_findings
@@ -181,3 +183,13 @@ def test_unreadable_digest_warns_instead_of_crashing(master, tmp_path, monkeypat
     # specific recipient.
     report = run_triage(master, today="2026-07-25")  # must not raise
     assert any(DIGEST_NAME in w for w in report.warnings)
+
+
+def test_cli_triage_json(master, capsys):
+    seed_meta(master)
+    (master / "People/stray.md").write_text("orphan\n")
+    assert main(["triage", "--master", str(master), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["routed"] >= 1 and payload["unrouted"] == 0
+    assert _digest(master, "alice").exists()

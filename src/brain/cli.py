@@ -306,6 +306,26 @@ def cmd_doctor(args) -> int:
     return 1 if errors else 0
 
 
+def cmd_triage(args) -> int:
+    from brain.triage import run_triage
+
+    report = run_triage(Path(args.master),
+                        Path(args.out) if args.out else None,
+                        today=date.today().isoformat())
+    if args.json:
+        payload = asdict(report)
+        payload["ok"] = True
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"routed {report.routed} finding(s); "
+              f"{report.digests_written} digest(s) written, "
+              f"{report.digests_removed} removed; "
+              f"{report.unrouted} unrouted")
+        for w in report.warnings:
+            print(f"  warning: {w}", file=sys.stderr)
+    return 0
+
+
 def cmd_index(args) -> int:
     from brain.embeddings import EmbeddingCache, default_cache_path, provider_from_config
     from brain.indexer import build_index
@@ -700,6 +720,14 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--out")
     d.add_argument("--json", action="store_true")
     d.set_defaults(func=cmd_doctor)
+
+    tr = sub.add_parser(
+        "triage",
+        help="route doctor findings to responsible people as Inbox digests")
+    tr.add_argument("--master", required=True)
+    tr.add_argument("--out", help="compiled root (enables the compiled-vault checks)")
+    tr.add_argument("--json", action="store_true")
+    tr.set_defaults(func=cmd_triage)
 
     return parser
 
