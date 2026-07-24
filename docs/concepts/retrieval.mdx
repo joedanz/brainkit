@@ -96,6 +96,18 @@ edge simply never exists. `brain doctor` flags notes with no connections at
 all (`unlinked-notes`): they're invisible to the graph leg until someone links
 them.
 
+Duplicates distort retrieval from the other direction: two notes carrying the
+same content vote twice in the rank fusion, and their backlinks and facts
+split across two pages, so neither ranks as well as the one merged page
+would. `brain doctor` flags identical and near-duplicate pairs a common
+reader sees (`dup-exact`, `dup-near` — the near check combines text-shingle
+overlap with cosine over already-indexed embeddings, read from the cache
+only), plus title-stem collisions (`stem-collision`), since a bare
+`[[wikilink]]` resolves by stem and quietly picks whichever file sorts
+first. The fix is the normal editorial path: fold one page into the other
+with a `mode: patch` promotion. See the
+[CLI reference](/reference/cli#brain-doctor) for severities and exemptions.
+
 ## The `.brain/` contract
 
 The index lives at `<vault>/.brain/index.db`. It is **machine-local state**, on
