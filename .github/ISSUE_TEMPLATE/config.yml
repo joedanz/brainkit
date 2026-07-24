@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/joedanz/brainkit/security/advisories/new
+    about: >-
+      Anything that could leak one person's notes into another's vault, bypass a
+      write scope, or spoof intake. Report privately — never in a public issue.
+  - name: Documentation
+    url: https://brainkit-docs.vercel.app
+    about: Guides, concepts, and the full CLI reference with exit codes.
+  - name: Ask a question / propose an idea
+    url: https://github.com/joedanz/brainkit/discussions
+    about: For anything that isn't yet a specific bug or a concrete request.

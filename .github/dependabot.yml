@@ -1,0 +1,42 @@
+version: 2
+
+updates:
+  # Runtime deps are deliberately few (pyyaml, sqlite-vec, aiohttp), so these
+  # PRs should be rare and worth reading individually. The aiohttp floor in
+  # pyproject.toml is a security bound, not a preference — see the comment
+  # there before lowering it.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # The docs site toolchain. Build-time only — none of this ships in the Python
+  # package — but it is a large tree, so minor/patch are grouped into one PR to
+  # keep the noise down while majors stay individually reviewable.
+  #
+  # Heads-up for whoever reviews a @holocron.so/vite bump: docs/package.json
+  # pins `overrides.spiceflow` to the exact version that release depends on,
+  # because @holocron.so/cli pins an older one and two copies refuse to build.
+  # Move the override in the same PR or the docs deploy fails.
+  - package-ecosystem: "npm"
+    directory: "/docs"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      docs-toolchain:
+        update-types: ["minor", "patch"]
+
+  # Pinned action majors go stale silently and are a supply-chain surface;
+  # this is the only thing that notices.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        update-types: ["minor", "patch"]

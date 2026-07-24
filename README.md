@@ -202,6 +202,8 @@ uv run pytest
 
 The test suite is the contract — especially the no-leak property tests. If you're touching the compiler, ingest, or write-back, start there.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide, [CHANGELOG.md](CHANGELOG.md) for what's in each release, and [SECURITY.md](SECURITY.md) to report a vulnerability privately — never in a public issue.
+
 ## License
 
 MIT
