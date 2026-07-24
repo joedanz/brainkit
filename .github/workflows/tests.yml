@@ -9,7 +9,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       # Pinned on purpose. Ruff's default rule set grows with releases — 0.16
       # added DTZ, BLE, S, PLW, ASYNC and FURB rules to it — so a floating
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     name: test (py${{ matrix.python-version }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
@@ -47,7 +47,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
