@@ -348,3 +348,17 @@ def test_pairs_are_deterministic_and_ordered():
     c = _entry("c.md", 2, "Acme's plan is Starter", {"Clients/Acme.md"})
     out = find_fact_conflicts([c, b, a])
     assert out == [("conflict", a, b), ("conflict", a, c), ("conflict", b, c)]
+
+
+def test_subject_copula_pairs_stay_silent():
+    # "<Entity> is X" facts are predications that accumulate — both true.
+    a = _entry("a.md", 3, "Acme is a client", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme is headquartered in Boston", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_terse_copula_conflict_is_a_known_recall_trade():
+    # Cost of the predication guard: two-token "X is A"/"X is B" goes silent.
+    a = _entry("a.md", 3, "Acme is Enterprise", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme is Growth", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []

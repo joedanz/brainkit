@@ -144,6 +144,8 @@ def lint_facts(text: str) -> list[tuple[int, str]]:
 # Single-valued-attribute markers: a word-level common prefix ending in one of
 # these (or in a token ending with ":") names one slot — "Acme's plan is" —
 # so two open facts diverging after it assign that slot two values at once.
+# Bare copulas (is/are) require two preceding tokens to guard against
+# "<Entity> is …" predications, which accumulate; trailing ":" and "=" use one.
 # Additive verbs (hired, met, shipped) are deliberately absent: those facts
 # can all be true together, and a warn tier that cries wolf gets ignored.
 _ATTR_MARKERS = {"is", "are", "="}
@@ -158,7 +160,11 @@ def _diverges(stmt_a: str, stmt_b: str) -> bool:
         # marker needs a preceding token; an empty tail is prefix-of, not conflict
         return False
     last = a[i - 1]
-    return last in _ATTR_MARKERS or last.endswith(":")
+    if last in _ATTR_MARKERS:
+        # a bare copula right after the subject ("Acme is …") is predication,
+        # not an attribute slot — require two tokens before it ("…'s plan is")
+        return i >= 3
+    return last.endswith(":")
 
 
 def find_fact_conflicts(
