@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       # Pinned on purpose. Ruff's default rule set grows with releases — 0.16
       # added DTZ, BLE, S, PLW, ASYNC and FURB rules to it — so a floating
       # version turns "somebody published a ruff" into "your unrelated PR is
@@ -29,7 +29,7 @@ jobs:
     name: test (py${{ matrix.python-version }})
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
       # compiler and write-back tests commit to real git repos
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
       # Reproduce what a real working copy looks like, rather than trusting a
