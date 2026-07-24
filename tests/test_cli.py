@@ -279,8 +279,9 @@ def test_cli_graph_unknown_note_fails(master, tmp_path, capsys):
 
 def test_promotions_show_renders_patch_diff(master: Path, capsys):
     seed_meta(master)
-    from brain.promotions import draft_promotion
     import hashlib
+
+    from brain.promotions import draft_promotion
     page = master / "Company/Intel/Portugal.md"
     page.parent.mkdir(parents=True, exist_ok=True)
     page.write_text("# Portugal\nOld claim.\n")
@@ -315,8 +316,9 @@ def test_promotions_show_unknown_id_errors(master: Path, capsys):
 
 def test_promotions_show_noop_patch_prints_no_changes(master: Path, capsys):
     seed_meta(master)
-    from brain.promotions import draft_promotion
     import hashlib
+
+    from brain.promotions import draft_promotion
     page = master / "Company/Intel/Same.md"
     page.parent.mkdir(parents=True, exist_ok=True)
     page.write_text("identical\n")
@@ -389,8 +391,8 @@ def test_cli_shares_list_approve(master: Path, tmp_path: Path, capsys):
     # give bob an exact rule so he owns Clients/acme, then queue a share
     with (master / "_meta/spaces.yaml").open("a") as fh:
         fh.write('  - {path: "Clients/acme", read: ["role:admin", "person:bob"], write: ["role:admin", "person:bob"]}\n')
-    from brain.shares import request_share, sweep_shares
     from brain.schemas import load_org
+    from brain.shares import request_share, sweep_shares
     request_share(master, "bob", "Clients/acme", "person:alice", "read", "2026-07-22")
     sweep_shares(master, load_org(master / "_meta/org.yaml"), today="2026-07-22")
     assert main(["shares", "list", "--master", str(master)]) == 0

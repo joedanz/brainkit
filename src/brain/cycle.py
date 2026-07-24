@@ -1,4 +1,5 @@
-"""One-shot server cycle: writeback -> materialize clients -> sweep shares -> sweep promotions -> compile-all -> triage.
+"""One-shot server cycle: writeback -> materialize clients -> sweep shares ->
+sweep promotions -> compile-all -> triage.
 
 Ordering is load-bearing: writebacks land person edits (including freshly
 synced promotion drafts) in master BEFORE the sweep reads People/*/Promotions,
@@ -67,7 +68,7 @@ class CycleReport:
 
 
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
-    from brain.embeddings import EmbeddingCache, default_cache_path, provider_from_config
+    from brain.embeddings import EmbeddingCache, provider_from_config
     from brain.indexer import build_index
 
     provider = provider_from_config()

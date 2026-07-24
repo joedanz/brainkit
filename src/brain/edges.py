@@ -20,9 +20,10 @@ edge's target never resolves inside their vault.
 
 from __future__ import annotations
 
+import itertools
 import re
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, Iterable
 
 from brain.compiler import extract_wikilinks
 
@@ -91,7 +92,7 @@ def date_edges(dated: dict[str, str]) -> list[Edge]:
     edges: list[Edge] = []
     for folder in sorted(by_folder):
         chain = sorted(by_folder[folder])
-        for (_, a), (_, b) in zip(chain, chain[1:]):
+        for (_, a), (_, b) in itertools.pairwise(chain):
             edges.append((a, b, "next", "date", W_MINED))
     return edges
 

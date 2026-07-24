@@ -208,7 +208,8 @@ class IndexStore:
             status = "ok"
         else:
             vectors = NullVectorBackend()
-            status = "sqlite-vec unavailable — keyword-only search" if want_vectors else "vectors disabled"
+            status = ("sqlite-vec unavailable — keyword-only search"
+                      if want_vectors else "vectors disabled")
         return cls(conn, vectors, status, migrated_from)
 
     @classmethod
@@ -239,12 +240,13 @@ class IndexStore:
             status = "ok"
         else:
             vectors = NullVectorBackend()
-            status = "sqlite-vec unavailable — keyword-only search" if want_vectors else "vectors disabled"
+            status = ("sqlite-vec unavailable — keyword-only search"
+                      if want_vectors else "vectors disabled")
         return cls(conn, vectors, status, None)
 
     # ---- reads -------------------------------------------------------------
     def files(self) -> dict[str, str]:
-        return {rel: sha for rel, sha in self.conn.execute("SELECT rel_path, sha256 FROM files")}
+        return dict(self.conn.execute("SELECT rel_path, sha256 FROM files"))
 
     def get_meta(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM index_meta WHERE key = ?", (key,)).fetchone()

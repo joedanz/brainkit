@@ -10,7 +10,7 @@ from datetime import date as _date
 import pytest
 
 from brain import liveness
-from brain.doctor import run_doctor, _check_liveness
+from brain.doctor import _check_liveness, run_doctor
 from brain.liveness import ALIVE, DEAD, UNKNOWN, probe, probe_all
 
 from .test_cli import seed_meta

@@ -85,7 +85,7 @@ def load_config(master: Path) -> VaultConfig:
     try:
         data = yaml.safe_load(path.read_text())
     except yaml.YAMLError as e:
-        raise SchemaError(f"config.yaml does not parse: {e}")
+        raise SchemaError(f"config.yaml does not parse: {e}") from e
     if data is None:
         return VaultConfig()
     if not isinstance(data, dict):

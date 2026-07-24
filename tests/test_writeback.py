@@ -6,7 +6,7 @@ from brain.clients import request_client
 from brain.compiler import MANIFEST_NAME, compile_vault
 from brain.schemas import load_org, load_spaces
 from brain.writeback import Change, apply_writeback, diff_vault
-from tests.conftest import ALICE, BOB, RULES
+from tests.conftest import BOB, RULES
 from tests.test_cli import seed_meta
 
 
@@ -34,7 +34,7 @@ def test_diff_detects_add_modify_delete(master: Path, tmp_path: Path):
     assert ("modify", "People/bob/Memory.md") in changes
     assert ("delete", "People/bob/Sessions/Bob Private Note.md") in changes
     # Generated context files are not treated as user changes
-    assert not any(p.endswith("AGENTS.md") or p.endswith("CLAUDE.md") for _, p in changes)
+    assert not any(p.endswith(("AGENTS.md", "CLAUDE.md")) for _, p in changes)
 
 
 def test_out_of_scope_change_rejects_everything(master: Path, tmp_path: Path):
@@ -178,7 +178,7 @@ def test_local_dot_dirs_do_not_reject_writeback(master: Path, tmp_path: Path):
     (vault / "People/bob/Memory.md").write_text("Bob updated memory.\n")
     # Neither dot-dir appears in the diff at all.
     changes = {c.path for c in diff_vault(vault)}
-    assert not any(p.startswith(".brain") or p.startswith(".obsidian") for p in changes)
+    assert not any(p.startswith((".brain", ".obsidian")) for p in changes)
     result = apply_writeback(master, vault, BOB, RULES)
     assert result.violations == []
     assert any(c.path == "People/bob/Memory.md" for c in result.applied)

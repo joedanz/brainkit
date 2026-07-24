@@ -3,9 +3,9 @@ from pathlib import Path
 
 from brain.cli import main
 from brain.cycle import run_cycle
+from tests.conftest import requires_vectors
 
 from .test_cli import seed_meta  # ORG/SPACES yaml + git init helper
-from tests.conftest import requires_vectors
 
 
 def _first_compile(master: Path, tmp_path: Path) -> Path:

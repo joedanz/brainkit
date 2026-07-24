@@ -1,8 +1,6 @@
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.indexer import build_index

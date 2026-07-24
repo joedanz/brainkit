@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from brain.compiler import compile_vault
 from brain.filters import list_notes
 from brain.indexer import build_index

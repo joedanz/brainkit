@@ -1,7 +1,4 @@
-import json
-from pathlib import Path
 
-from brain.cli import main
 from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.facts import (

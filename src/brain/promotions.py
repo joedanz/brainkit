@@ -460,7 +460,8 @@ def generate_shares_note(master: Path, person_id: str, today: str) -> str | None
     first, max 20). Compiled into the slice as a *generated* file — the
     queue stays the single source of truth and edits are discarded.
     """
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
 
     base = master / "_meta/promotions"
 
@@ -493,15 +494,15 @@ def generate_shares_note(master: Path, person_id: str, today: str) -> str | None
         if d is None or d < cutoff:
             continue
         by = meta.get("approved-by", "")
-        decided.append((d, f"- ✅ `{meta.get('target-path', '?')}` — approved "
-                           f"{d.isoformat()}{f' by {by}' if by else ''}; now live"))
+        decided.append((d, (f"- ✅ `{meta.get('target-path', '?')}` — approved "
+                           f"{d.isoformat()}{f' by {by}' if by else ''}; now live")))
     for meta in _entries("rejected"):
         d = _when(meta, "rejected-on")
         if d is None or d < cutoff:
             continue
         reason = meta.get("rejected-reason", "no reason recorded")
-        decided.append((d, f"- ❌ `{meta.get('target-path', '?')}` — rejected "
-                           f"{d.isoformat()}: {reason}"))
+        decided.append((d, (f"- ❌ `{meta.get('target-path', '?')}` — rejected "
+                           f"{d.isoformat()}: {reason}")))
     decided.sort(key=lambda t: t[0], reverse=True)
     decided = decided[:_DECIDED_CAP]
 

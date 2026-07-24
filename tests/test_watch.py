@@ -1,8 +1,6 @@
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from brain.compiler import compile_vault
 from brain.indexer import build_index
 from brain.watch import Lens, fingerprint

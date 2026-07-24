@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from brain.resolver import space_of_path
@@ -76,7 +76,7 @@ def _mtime_date(vault: Path, rel_path: str) -> str:
         ts = (vault / rel_path).stat().st_mtime
     except OSError:
         return ""
-    return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+    return datetime.fromtimestamp(ts, tz=UTC).date().isoformat()
 
 
 def _like_pattern(contains: str) -> str:
@@ -128,9 +128,8 @@ def list_notes(
         if pending is not None and rel_path not in pending:
             continue
         mtime = _mtime_date(vault, rel_path)
-        if after is not None:
-            if not mtime or date.fromisoformat(mtime) < after:
-                continue
+        if after is not None and (not mtime or date.fromisoformat(mtime) < after):
+            continue
         rows.append(NoteRow(
             rel_path=rel_path,
             space=sp or (space_of_path(rel_path) or ""),
@@ -207,7 +206,7 @@ def list_inbox(vault: Path, person: str) -> list[InboxItem]:
         rel = f.relative_to(vault).as_posix()
         items.append((ts, InboxItem(
             rel_path=rel, title=f.stem,
-            mtime=datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat())))
+            mtime=datetime.fromtimestamp(ts, tz=UTC).date().isoformat())))
     items.sort(key=lambda t: t[0], reverse=True)
     return [it for _, it in items]
 

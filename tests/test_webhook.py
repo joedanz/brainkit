@@ -410,8 +410,8 @@ sources:
     ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice, route: sender-email}",
      "exactly one"),
     ("sources:\n  - {id: a, verify: token, secret_env: E, route: magic}", "sender-email"),
-    ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice}\n"
-     "  - {id: a, verify: token, secret_env: E, person: alice}", "duplicate"),
+    (("sources:\n  - {id: a, verify: token, secret_env: E, person: alice}\n"
+     "  - {id: a, verify: token, secret_env: E, person: alice}"), "duplicate"),
     ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice, rate_limit: 0}",
      "rate_limit"),
     ("sources:\n  - {id: a, verify: token, secret_env: E, person: alice, rate_limit: -5}",

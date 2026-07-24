@@ -6,16 +6,73 @@ on:
   pull_request:
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      # Pinned on purpose. Ruff's default rule set grows with releases — 0.16
+      # added DTZ, BLE, S, PLW, ASYNC and FURB rules to it — so a floating
+      # version turns "somebody published a ruff" into "your unrelated PR is
+      # red". ruff.toml pins the rules; this pins the linter. Bump both
+      # together, deliberately.
+      - run: uvx ruff@0.16.0 check .
+
+  test:
+    strategy:
+      # One version failing shouldn't hide the result on the others — the
+      # point of a matrix is knowing *which* ones broke.
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    runs-on: ubuntu-latest
+    name: test (py${{ matrix.python-version }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       # compiler and write-back tests commit to real git repos
       - run: |
           git config --global user.name "ci"
           git config --global user.email "ci@example.invalid"
       - run: uv sync --extra dev
       - run: uv run pytest -q
+
+  # A stated guarantee nobody checks is one that quietly stops being true.
+  # sdist packaging has broken twice: hatchling reads only the ROOT .gitignore,
+  # so docs/.gitignore's entries never reach it and any build tree left under
+  # docs/ gets swept into the tarball — once to 133 MB and 24,990 files. Both
+  # times a local build looked fine, because those trees weren't there.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      # Reproduce what a real working copy looks like, rather than trusting a
+      # clean checkout to stay clean.
+      - name: Litter the tree the way a working copy is littered
+        run: |
+          mkdir -p docs/node_modules/junk docs/dist docs/.vercel/output
+          head -c 20000000 /dev/urandom > docs/node_modules/junk/blob.bin
+          head -c 20000000 /dev/urandom > docs/dist/bundle.js
+          head -c 20000000 /dev/urandom > docs/.vercel/output/fn.js
+      - run: uv build
+      - name: The allowlist must have held
+        run: |
+          size=$(stat -c%s dist/*.tar.gz)
+          files=$(tar tzf dist/*.tar.gz | wc -l)
+          echo "sdist: $size bytes, $files files"
+          # Generous ceilings: the real numbers are ~1 MB and ~170 files, so
+          # this only trips on something structural leaking in.
+          test "$size" -lt 5000000 || { echo "::error::sdist ballooned to $size bytes"; exit 1; }
+          test "$files" -lt 500 || { echo "::error::sdist grew to $files files"; exit 1; }
+          if tar tzf dist/*.tar.gz | grep -E 'node_modules|/dist/|\.vercel'; then
+            echo "::error::build trees leaked into the sdist"; exit 1
+          fi
+      - name: The wheel must still build from the sdist
+        run: |
+          tar xzf dist/*.tar.gz -C /tmp
+          cd /tmp/brainkit-*/ && uv build --wheel

@@ -8,8 +8,8 @@ from brain.doctor import Finding
 from brain.schemas import Org, Person
 from brain.triage import route_findings
 
-from .test_cli import seed_meta  # noqa: F401  (used by later tasks' tests)
 from .conftest import RULES
+from .test_cli import seed_meta
 
 ALICE = Person(id="alice", name="Alice", roles=("admin",), teams=("sales",))
 BOB = Person(id="bob", name="Bob", teams=("ops",))

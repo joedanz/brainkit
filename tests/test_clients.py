@@ -1,18 +1,18 @@
 import subprocess
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 from brain.clients import (
     ClientError,
     ClientProvision,
-    normalize_client_name,
-    request_client,
     append_client_grant,
     materialize_clients,
+    normalize_client_name,
+    request_client,
 )
 from brain.frontmatter import split_frontmatter
-from brain.resolver import space_of_path, can_read, can_write_path
+from brain.resolver import can_read, can_write_path, space_of_path
 from brain.schemas import Org, Person, VaultConfig, load_spaces
 
 

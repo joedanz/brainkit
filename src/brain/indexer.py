@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.chunker import chunk_markdown, embedding_input
@@ -235,6 +235,6 @@ def build_index(
     if provider is not None:
         store.set_meta("model", provider.model)
         store.set_meta("dim", str(provider.dim or ""))
-    store.set_meta("built_at", datetime.now(timezone.utc).isoformat())
+    store.set_meta("built_at", datetime.now(UTC).isoformat())
     store.close()
     return report

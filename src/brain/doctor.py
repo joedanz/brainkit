@@ -9,6 +9,7 @@ seeing (e.g. edits awaiting writeback).
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import re
 from dataclasses import dataclass
@@ -22,7 +23,15 @@ from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
 from brain.resolver import RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
-from brain.schemas import Org, SchemaError, SpaceRule, VaultConfig, load_config, load_org, load_spaces
+from brain.schemas import (
+    Org,
+    SchemaError,
+    SpaceRule,
+    VaultConfig,
+    load_config,
+    load_org,
+    load_spaces,
+)
 
 # Canonical filename for triage's rolling per-person digest note
 # (People/<id>/Inbox/doctor-digest.md). Lives here, not in brain.triage,
@@ -238,8 +247,7 @@ def _cached_file_vectors(
     cache warm, so in a live deployment coverage is near-total."""
     from brain.chunker import chunk_markdown, embedding_input
     from brain.dedup import mean_pool, unpack_vector
-    from brain.embeddings import (
-        EmbeddingCache, default_cache_path, provider_from_config)
+    from brain.embeddings import EmbeddingCache, default_cache_path, provider_from_config
 
     provider = provider_from_config()
     if provider is None:
@@ -319,7 +327,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
         digest = hashlib.sha256(texts[rel].encode("utf-8")).hexdigest()
         by_sha.setdefault(digest, []).append(rel)
     for _digest, group in sorted(by_sha.items()):
-        for a, b in zip(group, group[1:]):
+        for a, b in itertools.pairwise(group):
             emit(
                 a, b, "dup-exact",
                 f"{a} and {b} have identical content — fold one into the "
@@ -369,8 +377,17 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     # Tier 3a: lexical near-duplicates. LSH banding keeps the candidate set
     # near-linear; the signature estimate is the accept test.
     from brain.dedup import (
-        DUP_COSINE, DUP_HAMMING_FRAC, DUP_JACCARD, band_keys, cosine,
-        hamming, jaccard_estimate, minhash_signature, shingles, sign_bits)
+        DUP_COSINE,
+        DUP_HAMMING_FRAC,
+        DUP_JACCARD,
+        band_keys,
+        cosine,
+        hamming,
+        jaccard_estimate,
+        minhash_signature,
+        shingles,
+        sign_bits,
+    )
 
     sigs: dict[str, tuple[int, ...]] = {}
     buckets: dict[tuple[int, tuple[int, ...]], list[str]] = {}
@@ -891,18 +908,18 @@ _DISTILLED_KEY = "distilled"
 _CITATION_RULES = {
     "intel": (
         "intel",
-        "{rel}: no dated citations — every Intel claim needs "
-        "`[source](URL), as of YYYY-MM` or `captured YYYY-MM`",
+        ("{rel}: no dated citations — every Intel claim needs "
+         "`[source](URL), as of YYYY-MM` or `captured YYYY-MM`"),
         "{rel}: stale — newest citation {month} is over {months} months old",
     ),
     "distilled": (
         "citations",
-        "{rel}: distilled from {source} but has no dated citations — the full "
-        "source never enters the vault, so every claim needs "
-        "`[source](URL), as of YYYY-MM` or `captured YYYY-MM` to stay "
-        "recoverable",
-        "{rel}: distilled from {source}, stale — newest citation {month} is "
-        "over {months} months old",
+        ("{rel}: distilled from {source} but has no dated citations — the full "
+         "source never enters the vault, so every claim needs "
+         "`[source](URL), as of YYYY-MM` or `captured YYYY-MM` to stay "
+         "recoverable"),
+        ("{rel}: distilled from {source}, stale — newest citation {month} is "
+         "over {months} months old"),
     ),
 }
 
@@ -1124,7 +1141,8 @@ def _check_delegated_decisions(master: Path) -> list[Finding]:
     """Share decisions made in-vault (via: delegated) in the last 30 days,
     surfaced for admin review — the audit counterweight to delegating the
     human gate into deciders' vaults."""
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
 
     from brain.frontmatter import split_frontmatter
 

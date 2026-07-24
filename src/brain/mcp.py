@@ -64,7 +64,8 @@ _TOOLS = [
                 "query": {"type": "string", "description": "natural-language query"},
                 "k": {"type": "integer", "description": "max results (default 8)"},
                 "center": {"type": "string",
-                           "description": "optional note rel path; added as a strong seed for graph-proximity ranking"},
+                           "description": ("optional note rel path; added as a "
+                                           "strong seed for graph-proximity ranking")},
             },
             "required": ["query"],
         },
@@ -220,8 +221,8 @@ def _tool_graph(vault: Path, args: dict) -> tuple[str, bool]:
         rels = args.get("rels") or None
         bad = sorted(set(rels or []) - set(RELATION_KEYS))
         if bad:
-            return (f"unknown relation(s): {', '.join(bad)} — "
-                    f"valid: {', '.join(RELATION_KEYS)}", True)
+            return ((f"unknown relation(s): {', '.join(bad)} — "
+                    f"valid: {', '.join(RELATION_KEYS)}"), True)
         direction = args.get("direction") or "both"
         if direction not in ("out", "in", "both"):
             return "direction must be out, in, or both", True
@@ -243,9 +244,9 @@ def _tool_graph(vault: Path, args: dict) -> tuple[str, bool]:
 def _tool_facts(vault: Path, args: dict) -> tuple[str, bool]:
     from brain.facts import query_facts, query_facts_at
 
-    kwargs = dict(entity=args.get("entity") or None,
-                  etype=args.get("type") or None,
-                  include_ended=bool(args.get("ended")))
+    kwargs = {"entity": args.get("entity") or None,
+                  "etype": args.get("type") or None,
+                  "include_ended": bool(args.get("ended"))}
     if args.get("believed_on"):
         hits, warnings = query_facts_at(vault, args["believed_on"], **kwargs)
     else:
