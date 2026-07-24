@@ -25,12 +25,23 @@ This is a server-rendered app, not a static site. `npm run build` prerenders
 **zero** routes by design, so a static host (GitHub Pages, plain S3) cannot
 serve it — deployment needs a Node runtime.
 
-Two paths work:
+Three paths work:
 
-1. **`holocron deploy`** — Holocron's own hosting, the path the framework
+1. **Vercel** — what this site runs on today
+   ([brainkit-docs.vercel.app](https://brainkit-docs.vercel.app)). Vercel sets
+   `VERCEL=1`, which auto-activates the spiceflow
+   [Build Output API](https://vercel.com/docs/build-output-api/v3) adapter; it
+   emits a `nodejs22.x` streaming function plus CDN assets. No `vercel.json` is
+   needed. Reproduce the artifact locally with:
+
+   ```bash
+   VERCEL=1 npm run build    # → .vercel/output/ (git-ignored)
+   ```
+
+2. **`holocron deploy`** — Holocron's own hosting, the path the framework
    vendor supports and tests. Authenticates with `HOLOCRON_KEY` in CI, and
    `holocron domain add` attaches a custom domain.
-2. **Any Node host** (Fly, Render, Railway, or a systemd unit next to
+3. **Any Node host** (Fly, Render, Railway, or a systemd unit next to
    `brain-webhook.service`) running the standalone server:
 
    ```bash
@@ -38,28 +49,33 @@ Two paths work:
    npm start          # node dist/rsc/index.js, honors $PORT
    ```
 
-### Vercel does not currently work
+### Two things keep Vercel working
 
-Vercel sets `VERCEL=1`, which auto-activates the spiceflow
-[Build Output API](https://vercel.com/docs/build-output-api/v3) adapter. The
-adapter runs and emits a valid-looking tree (`nodejs22.x` streaming function
-plus CDN assets), the build succeeds — and then **every HTML route returns
-500**. The SSR render itself completes: the 500 response body carries the full
-RSC flight payload with `__NO_HYDRATE=1` set, so something after render sets
-the status. The `.md` and `llms.txt` exports still serve 200, which is why a
-bot fetching the site can make it look healthy.
+Both are load-bearing, and both look like inert config until they're removed.
 
-The same SSR bundle serves every route 200 as a standalone server on both
-Node 22 and Node 24+, so this is the adapter, not the build, the content, or
-the Node version. It's upstream in `spiceflow@1.26.0-rsc.7` — a pre-release.
-Re-check when Holocron/spiceflow cut a stable RSC release; until then use one
-of the two paths above.
+**`ssr.noExternal: ['scheduler']` in `vite.config.ts`.** spiceflow traces the
+function's dependencies with `@vercel/nft` starting from the RSC entry, and that
+trace misses `scheduler`: it is reachable only from `dist/ssr/index.js`, so
+`react` and `react-dom` get copied into the function and their own dependency
+does not. On a Node host nothing breaks — the full `node_modules` is right
+there — but the Vercel function ships only the traced set, and every HTML route
+dies with `MODULE_NOT_FOUND: Cannot find module 'scheduler'`. Inlining sidesteps
+the trace entirely. Drop it once the tracer follows transitive deps into the SSR
+chunk.
 
-To reproduce the Vercel artifact locally:
+**`overrides.spiceflow` in `package.json`.** `@holocron.so/vite` pins spiceflow
+exactly, and its own dependency `@holocron.so/cli` pins an *older* exact
+version. npm honors both and installs two copies, which spiceflow itself refuses
+to build with (`Duplicate spiceflow installation detected`). Two exact pins
+cannot be reconciled by `npm dedupe`, so one winner is pinned here. **Keep it in
+lockstep with the spiceflow version in `@holocron.so/vite`'s dependencies on
+every Holocron upgrade** — `.github/dependabot.yml` carries the same warning for
+whoever reviews the bot's PR.
 
-```bash
-VERCEL=1 npm run build    # → .vercel/output/ (git-ignored)
-```
+A failure mode worth knowing when debugging this site: Holocron content-negotiates,
+serving `.md` and `llms.txt` to bots and agents. Those kept returning 200 while
+every HTML route was returning 500, so a plain `curl` or a link checker reported
+the site healthy when browsers saw nothing. Check with a browser User-Agent.
 
 ## Structure
 
@@ -85,3 +101,34 @@ itself is agent-native:
 ## Requirements
 
 Node 20+ and Vite 8 (pinned in `package.json`; Holocron 0.23+ requires Vite 8).
+
+## Vulnerability posture
+
+`npm audit` here does not report zero, on purpose.
+
+Everything fixable without a downgrade is fixed — the tree carries no high or
+critical advisories. What remains is three **moderate** advisories, all one
+transitive chain:
+
+```
+@holocron.so/vite → @modelcontextprotocol/sdk → @hono/node-server
+```
+
+`npm audit fix --force` "resolves" them by installing `@holocron.so/vite@0.18.2`
+— ten minor versions backwards, past the release that made the site deployable
+at all. That is not a fix; it trades a working docs site for a lower number.
+
+Taking it is also unnecessary, for two independent reasons:
+
+- **The advisory is Windows-only.** `serve-static` mis-resolves an encoded
+  backslash (`%5C`) because the *Windows* path resolver treats `\` as a
+  separator. Production runs `nodejs22.x` on Linux, where `%5C` is an ordinary
+  character in a filename. Directory escape via `..` was never affected.
+- **The package isn't in the deployed function.** spiceflow traces the function's
+  dependencies with `@vercel/nft`; `@hono/node-server` is not among them and is
+  not bundled — nothing in `dist/` requires it. It is reached only by the SDK's
+  own server, which this site never starts.
+
+Re-check when Holocron picks up a patched `@modelcontextprotocol/sdk`; the right
+resolution is upstream moving forward, not this repo moving back. Until then,
+run `npm audit` and expect exactly these three.
