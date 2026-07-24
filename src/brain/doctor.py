@@ -569,6 +569,55 @@ def _check_facts(master: Path) -> list[Finding]:
     return findings
 
 
+def _check_fact_conflicts(master: Path) -> list[Finding]:
+    """Two open facts about the same entity that duplicate or contradict each
+    other — a double-landed ingest or a forgotten [until::]. Either way
+    `brain facts` returns both lines and a reading agent gets a coin flip.
+    Keys mirror query_facts_at: statement wikilinks (stem-resolved, raw text
+    when unresolved) plus the host page when it carries entity frontmatter.
+    Warn regardless of readership — unlike duplicate *notes*, a contradiction
+    means one reader group holds a superseded fact even if no vault ever
+    contains both lines."""
+    from brain.facts import find_fact_conflicts, parse_entity
+
+    rels = _content_files(master)
+    paths = set(rels)
+    by_stem: dict[str, str] = {}
+    for rel in rels:
+        by_stem.setdefault(_stem(rel), rel)
+
+    entries = []
+    for rel in rels:
+        text = (master / rel).read_text(encoding="utf-8", errors="replace")
+        meta, _body = split_frontmatter(text)
+        is_entity = parse_entity(meta) is not None
+        for fact in parse_facts(text):
+            keys = {(_resolve_target(t, paths, by_stem) or t.casefold())
+                    for t in fact.targets}
+            if is_entity:
+                keys.add(rel)
+            if keys:
+                entries.append((rel, fact, frozenset(keys)))
+
+    findings: list[Finding] = []
+    for kind, (rel_a, fa, keys_a), (rel_b, fb, keys_b) in find_fact_conflicts(entries):
+        if kind == "dup":
+            findings.append(Finding(
+                "warn", "fact-dup",
+                f'{rel_a}:{fa.line} ↔ {rel_b}:{fb.line}: duplicate open fact '
+                f'"{fa.statement}" — delete one via write-back, or close the '
+                f'older with [until::]'))
+        else:
+            about = sorted(keys_a & keys_b)[0]
+            findings.append(Finding(
+                "warn", "fact-conflict",
+                f'{rel_a}:{fa.line} ↔ {rel_b}:{fb.line}: conflicting open '
+                f'facts about [[{about}]]: "{fa.statement}" (from '
+                f'{fa.from_date}) vs "{fb.statement}" (from {fb.from_date}) '
+                f'— close the superseded fact with [until::]'))
+    return findings
+
+
 def _check_symlinks(master: Path) -> list[Finding]:
     findings: list[Finding] = []
     for p in sorted(master.rglob("*")):
@@ -851,6 +900,7 @@ def run_doctor(master: Path, out_root: Path | None = None) -> list[Finding]:
     findings += _check_cross_space_refs(master, org, rules)
     findings += _check_plain_refs(master, org, rules)
     findings += _check_facts(master)
+    findings += _check_fact_conflicts(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master)
     findings += _check_created_clients(master, config)

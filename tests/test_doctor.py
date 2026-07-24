@@ -272,6 +272,77 @@ def test_doctor_quiet_on_wellformed_facts(master):
     assert [f for f in run_doctor(master) if f.check == "facts"] == []
 
 
+def test_doctor_flags_conflicting_open_facts_on_entity_page(master):
+    # The issue's exact case: the author forgot the [until::] on the first
+    # line, so both facts are "true now". Host page carries entity
+    # frontmatter, so facts with no wikilinks still key on the page itself.
+    seed_meta(master)
+    (master / "Clients/acme/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Acme's plan is Enterprise [from:: 2025-03]\n"
+        "- Acme's plan is Growth [from:: 2026-01]\n")
+    from brain.doctor import run_doctor
+    findings = [f for f in run_doctor(master) if f.check == "fact-conflict"]
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == "warn"
+    assert "Clients/acme/Acme.md:6" in f.message
+    assert "Clients/acme/Acme.md:7" in f.message
+    assert "Enterprise" in f.message and "Growth" in f.message
+    assert "[until::]" in f.message
+
+
+def test_doctor_flags_cross_page_dup_via_stem_resolution(master):
+    # Double-landed ingest: the same line landed on two pages. [[Acme]]
+    # resolves by stem to Clients/acme/Acme.md on both, so the facts group.
+    seed_meta(master)
+    (master / "Clients/acme/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\n")
+    (master / "Company/Notes.md").write_text(
+        "# Notes\n\n- [[Acme]] is on the Enterprise plan [from:: 2025-03]\n")
+    (master / "Teams/sales/Call.md").write_text(
+        "# Call\n\n- [[Acme]] is on the Enterprise plan [from:: 2026-01]\n")
+    from brain.doctor import run_doctor
+    findings = [f for f in run_doctor(master) if f.check == "fact-dup"]
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == "warn"
+    assert "Company/Notes.md:3" in f.message
+    assert "Teams/sales/Call.md:3" in f.message
+    assert "write-back" in f.message
+
+
+def test_doctor_groups_unresolved_targets_by_raw_text(master):
+    # Fresh ingests often reference entity pages that don't exist yet — two
+    # facts pointing at the same not-yet-created [[Ghost]] still conflict.
+    seed_meta(master)
+    (master / "Company/A.md").write_text(
+        "# A\n\n- [[Ghost]] status is active [from:: 2025-06]\n")
+    (master / "Company/B.md").write_text(
+        "# B\n\n- [[Ghost]] status is churned [from:: 2026-02]\n")
+    from brain.doctor import run_doctor
+    findings = [f for f in run_doctor(master) if f.check == "fact-conflict"]
+    assert len(findings) == 1
+
+
+def test_doctor_fact_conflicts_quiet_on_clean_history(master):
+    # A properly closed predecessor, an additive pair, and a keyless fact:
+    # none of it should fire either check.
+    seed_meta(master)
+    (master / "Clients/acme/Acme.md").write_text(
+        "---\nentity: client\n---\n# Acme\n\n"
+        "- Acme's plan is Enterprise [from:: 2025-03] [until:: 2026-01]\n"
+        "- Acme's plan is Growth [from:: 2026-01]\n"
+        "- Acme hired [[Bob]] [from:: 2026-02]\n"
+        "- Acme hired [[Carol]] [from:: 2026-03]\n")
+    (master / "Company/Loose.md").write_text(
+        "# Loose\n\n- the sky is blue [from:: 2020-01]\n"
+        "- the sky is grey [from:: 2021-01]\n")  # no keys: host not an entity
+    from brain.doctor import run_doctor
+    checks = {f.check for f in run_doctor(master)}
+    assert "fact-dup" not in checks and "fact-conflict" not in checks
+
+
 def test_space_readable_by_no_one_is_warn(master):
     seed_meta(master)
     findings = run_doctor(master)
