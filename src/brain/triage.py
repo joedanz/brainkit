@@ -3,12 +3,18 @@
 Doctor finds; triage delivers. Warn-level content findings go to the owner of
 the space they're about (personal spaces have exactly one owner); findings
 about shared spaces, unresolvable paths, or departed people go to the admins,
-as do error-level infra findings the admin's agent can only escalate. Each
-recipient gets ONE machine-owned digest note (People/<id>/Inbox/doctor-digest.md)
-that is fingerprint-skipped when unchanged, rewritten when the finding set
-changes, and deleted when nothing remains — re-running is always idempotent
-and findings never multiply. Fixes flow back through the existing gates
-(write-back validation, human-approved promotions); triage never applies one.
+as do error-level infra findings the admin's agent can only escalate. A
+multi-path finding routes to each path's owner independently; if any
+non-admin owner-recipient cannot read one of the finding's *other* spaces,
+that recipient's digest line is redacted (path/statement withheld) and the
+finding is additionally routed to the admins, who always receive the full
+message (their oversight role gets the same detail the master dashboard
+shows). Each recipient gets ONE machine-owned digest note
+(People/<id>/Inbox/doctor-digest.md) that is fingerprint-skipped when
+unchanged, rewritten when the finding set changes, and deleted when nothing
+remains — re-running is always idempotent and findings never multiply.
+Fixes flow back through the existing gates (write-back validation,
+human-approved promotions); triage never applies one.
 """
 
 from __future__ import annotations
@@ -22,8 +28,8 @@ import yaml
 
 from brain.doctor import DIGEST_NAME, Finding, run_doctor
 from brain.frontmatter import split_frontmatter
-from brain.resolver import can_write_path, space_of_path
-from brain.schemas import Org, SchemaError, load_org, load_spaces
+from brain.resolver import can_read, can_write_path, space_of_path
+from brain.schemas import Org, Person, SchemaError, SpaceRule, load_org, load_spaces
 
 # DIGEST_NAME is canonically owned by brain.doctor — doctor's own-digest
 # exclusion needs it too (see doctor._is_own_digest: doctor must never read
@@ -42,16 +48,21 @@ TRIAGE_CHECKS = frozenset({
 
 
 def route_findings(
-    findings: list[Finding], org: Org,
+    findings: list[Finding], org: Org, rules: tuple[SpaceRule, ...],
 ) -> tuple[dict[str, list[Finding]], int]:
     """Map findings to recipient person ids. Returns (routed, unrouted_count).
 
     Content checks route per path: a People/<id> space to its owner, anything
-    else (shared space, unresolvable path, id not in org) to the admins.
-    Info-level findings are never routed — the disjoint-space dup tier is a
-    hint, not work. Error-severity findings from non-content checks are
-    escalations for the admins. With no admins configured, findings that
-    needed one count as unrouted (surfaced in the report, never a crash).
+    else (shared space, unresolvable path, id not in org) to the admins. A
+    multi-path finding also escalates to the admins if any non-admin
+    owner-recipient lacks `can_read` on the space of one of the finding's
+    OTHER paths — that recipient's digest line gets redacted (see
+    `_display`), and someone with fuller view (the admins) still sees the
+    whole picture. Info-level findings are never routed — the disjoint-space
+    dup tier is a hint, not work. Error-severity findings from non-content
+    checks are escalations for the admins. With no admins configured,
+    findings that needed one count as unrouted (surfaced in the report,
+    never a crash).
     """
     admins = sorted(p.id for p in org.people.values() if "admin" in p.roles)
     routed: dict[str, list[Finding]] = {}
@@ -81,12 +92,47 @@ def route_findings(
                         recipients.append(pid)
                 else:
                     need_admins = True
+            if len(f.paths) > 1 and not need_admins:
+                for pid in recipients:
+                    if pid in admins:
+                        continue
+                    person = org.people[pid]
+                    if any(
+                        (sp := space_of_path(path)) is None
+                        or not can_read(sp, person, rules)
+                        for path in f.paths
+                    ):
+                        need_admins = True
+                        break
             if need_admins:
                 recipients += [a for a in admins if a not in recipients]
             assign(f, recipients)
         elif f.severity == "error":
             assign(f, admins)
     return routed, unrouted
+
+
+def _display(f: Finding, person: Person, rules: tuple[SpaceRule, ...], *, is_admin: bool) -> str:
+    """The line a given recipient sees for this finding. Admins are the
+    oversight role and get `f.message` verbatim — the same detail the master
+    dashboard already shows them. Non-admins never see a path or fact
+    statement from a space they cannot read: if every path's space is
+    readable, the message passes through unchanged; otherwise the line is
+    rebuilt from ONLY the readable path(s), pointing to the admins' digest
+    for the rest. An unresolvable space counts as unreadable (fail closed)."""
+    if is_admin:
+        return f.message
+
+    def readable(path: str) -> bool:
+        space = space_of_path(path)
+        return space is not None and can_read(space, person, rules)
+
+    if f.paths and all(readable(p) for p in f.paths):
+        return f.message
+    own_paths = [p for p in f.paths if readable(p)]
+    own = ", ".join(own_paths) if own_paths else "a note of yours"
+    return (f"{own}: {f.check} involving a note in a space you cannot "
+            "read — the admins' digest has the detail")
 
 
 @dataclass
@@ -98,13 +144,19 @@ class TriageReport:
     warnings: list[str] = field(default_factory=list)
 
 
-def _fingerprint(findings: list[Finding]) -> str:
-    key = "\n".join(sorted(f"{f.check}\t{f.message}" for f in findings))
+def _fingerprint(lines: list[tuple[str, str]]) -> str:
+    """`lines` is this recipient's (check, display_line) pairs — the text
+    they'll actually see, post-redaction — not the raw finding messages, so
+    a fingerprint match means their digest genuinely has nothing new to say."""
+    key = "\n".join(sorted(f"{check}\t{msg}" for check, msg in lines))
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
-def render_digest(findings: list[Finding], today: str, fingerprint: str) -> str:
-    lines = [
+def render_digest(lines: list[tuple[str, str]], today: str, fingerprint: str) -> str:
+    """`lines` is this recipient's (check, display_line) pairs (see
+    `_fingerprint`) — already redacted where needed, so rendering never
+    re-derives readability."""
+    out = [
         "---",
         "title: Doctor digest",
         "source: doctor",
@@ -118,14 +170,13 @@ def render_digest(findings: list[Finding], today: str, fingerprint: str) -> str:
         "`Needs-Routing.md`. Do not edit or archive this note — it rewrites",
         "itself as findings change and disappears when everything is fixed.",
     ]
-    by_check: dict[str, list[Finding]] = {}
-    for f in findings:
-        by_check.setdefault(f.check, []).append(f)
+    by_check: dict[str, list[str]] = {}
+    for check, msg in lines:
+        by_check.setdefault(check, []).append(msg)
     for check in sorted(by_check):
-        lines += ["", f"## {check}", ""]
-        lines += [f"- {f.message}"
-                  for f in sorted(by_check[check], key=lambda f: f.message)]
-    return "\n".join(lines) + "\n"
+        out += ["", f"## {check}", ""]
+        out += [f"- {msg}" for msg in sorted(by_check[check])]
+    return "\n".join(out) + "\n"
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
@@ -152,7 +203,7 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
         return TriageReport(0, 0, 0, len(findings),
                             [f"meta unreadable — nothing routed: {e}"])
 
-    routed, unrouted = route_findings(findings, org)
+    routed, unrouted = route_findings(findings, org, rules)
     delivered = len({f for fs in routed.values() for f in fs})
     written = removed = 0
     changed: list[str] = []
@@ -192,7 +243,10 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
                 removed += 1
                 changed.append(rel)
             continue
-        fp = _fingerprint(person_findings)
+        is_admin = "admin" in person.roles
+        lines = [(f.check, _display(f, person, rules, is_admin=is_admin))
+                 for f in person_findings]
+        fp = _fingerprint(lines)
         if target.is_file() and not target.is_symlink():
             try:
                 meta, _body = split_frontmatter(target.read_text())
@@ -212,7 +266,7 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
             continue
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(render_digest(person_findings, today, fp))
+            target.write_text(render_digest(lines, today, fp))
         except OSError as e:
             warnings.append(f"{rel}: {e}")
             continue

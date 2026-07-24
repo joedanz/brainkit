@@ -9,6 +9,7 @@ from brain.schemas import Org, Person
 from brain.triage import route_findings
 
 from .test_cli import seed_meta  # noqa: F401  (used by later tasks' tests)
+from .conftest import RULES
 
 ALICE = Person(id="alice", name="Alice", roles=("admin",), teams=("sales",))
 BOB = Person(id="bob", name="Bob", teams=("ops",))
@@ -18,7 +19,7 @@ ORG = Org(people={"alice": ALICE, "bob": BOB})
 def test_personal_space_finding_routes_to_owner():
     f = Finding("warn", "unlinked-notes", "People/bob/Notes/Solo.md: no links",
                 paths=("People/bob/Notes/Solo.md",))
-    routed, unrouted = route_findings([f], ORG)
+    routed, unrouted = route_findings([f], ORG, RULES)
     assert routed == {"bob": [f]}
     assert unrouted == 0
 
@@ -28,7 +29,7 @@ def test_shared_space_and_unresolvable_route_to_admins():
                      paths=("Company/Intel/X.md",))
     stray = Finding("warn", "orphan-files", "People/stray.md sits directly under People/",
                     paths=("People/stray.md",))  # People/stray is no org member
-    routed, unrouted = route_findings([shared, stray], ORG)
+    routed, unrouted = route_findings([shared, stray], ORG, RULES)
     assert routed == {"alice": [shared, stray]}
     assert unrouted == 0
 
@@ -36,7 +37,7 @@ def test_shared_space_and_unresolvable_route_to_admins():
 def test_two_path_finding_routes_to_both_owners():
     f = Finding("warn", "dup-exact", "People/bob/Notes/Copy.md and Company/Orig.md ...",
                 paths=("People/bob/Notes/Copy.md", "Company/Orig.md"))
-    routed, _ = route_findings([f], ORG)
+    routed, _ = route_findings([f], ORG, RULES)
     assert routed == {"bob": [f], "alice": [f]}
 
 
@@ -46,7 +47,8 @@ def test_error_infra_routes_to_admins_and_info_is_dropped():
                        paths=("People/alice/Notes/a.md", "People/bob/Notes/b.md"))
     info_shares = Finding("info", "shares", "pending share")
     warn_infra = Finding("warn", "rule-paths", "rule 'X': missing")
-    routed, unrouted = route_findings([err, info_dup, info_shares, warn_infra], ORG)
+    routed, unrouted = route_findings(
+        [err, info_dup, info_shares, warn_infra], ORG, RULES)
     assert routed == {"alice": [err]}  # info + warn-infra never routed
     assert unrouted == 0
 
@@ -57,9 +59,27 @@ def test_no_admins_counts_unrouted():
                      paths=("Company/Intel/X.md",))
     mine = Finding("warn", "unlinked-notes", "People/bob/Notes/Solo.md: no links",
                    paths=("People/bob/Notes/Solo.md",))
-    routed, unrouted = route_findings([shared, mine], org)
+    routed, unrouted = route_findings([shared, mine], org, RULES)
     assert routed == {"bob": [mine]}
     assert unrouted == 1
+
+
+def test_multipath_finding_escalates_to_admins_when_owner_cannot_read_partner_path():
+    """A non-admin owner-recipient of a multi-path finding who cannot read
+    one of the finding's other spaces triggers admin escalation, even
+    though both paths resolved to legitimate People/<id> owners (so
+    need_admins would otherwise stay False)."""
+    org = Org(people={
+        "alice": ALICE,  # admin
+        "carol": Person(id="carol", name="Carol"),
+        "dave": Person(id="dave", name="Dave"),
+    })
+    f = Finding("warn", "fact-dup",
+                "People/carol/Notes/Deal.md ↔ People/dave/Notes/Deal.md: dup",
+                paths=("People/carol/Notes/Deal.md", "People/dave/Notes/Deal.md"))
+    routed, unrouted = route_findings([f], org, RULES)
+    assert set(routed) == {"carol", "dave", "alice"}
+    assert unrouted == 0
 
 
 from brain.triage import DIGEST_NAME, run_triage
@@ -225,6 +245,50 @@ def test_doctor_never_reads_its_own_digest(master, tmp_path):
 
     again = run_triage(master, today="2026-07-25")
     assert again.digests_written == 0
+
+
+def _add_carol(master: Path) -> None:
+    """Add carol (non-admin) to org.yaml, mirroring test_cycle.py's helper —
+    needed here for a non-admin owner pair (bob, carol) neither of whom can
+    read the other's personal space."""
+    org_yaml = (master / "_meta/org.yaml").read_text()
+    org_yaml = org_yaml.replace(
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}",
+        "bob:   {name: Bob Rivera, teams: [ops], email: bob@acme.com}\n"
+        "  carol: {name: Carol, teams: [], email: carol@acme.com}",
+    )
+    (master / "_meta/org.yaml").write_text(org_yaml)
+
+
+def test_redaction_hides_unreadable_path_and_escalates_to_admins(master, tmp_path):
+    seed_meta(master)
+    _add_carol(master)
+
+    bob_note = master / "People/bob/Notes/Deal.md"
+    carol_note = master / "People/carol/Notes/Deal.md"
+    bob_note.parent.mkdir(parents=True, exist_ok=True)
+    carol_note.parent.mkdir(parents=True, exist_ok=True)
+    bob_note.write_text("- [[Widget]] costs $10 [from:: 2026-01]\n")
+    carol_note.write_text("- [[Widget]] costs $10 [from:: 2026-01]\n")
+
+    run_triage(master, today="2026-07-24")
+
+    bob_digest = _digest(master, "bob").read_text()
+    alice_digest = _digest(master, "alice").read_text()
+
+    # (a) bob (non-admin) never sees carol's path or the shared statement
+    # text — only a pointer to the admins' digest.
+    assert "People/carol" not in bob_digest
+    assert "$10" not in bob_digest
+    assert "cannot read" in bob_digest
+
+    # (b) admins (alice) receive the full, unredacted message.
+    assert "People/bob/Notes/Deal.md" in alice_digest
+    assert "People/carol/Notes/Deal.md" in alice_digest
+    assert "$10" in alice_digest
+
+    # (c) redaction routed the finding to the admins in the first place.
+    assert _digest(master, "alice").exists()
 
 
 def test_cli_triage_json(master, capsys):
