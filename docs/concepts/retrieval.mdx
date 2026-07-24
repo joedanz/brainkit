@@ -158,6 +158,14 @@ it, e.g.
 
 A fact is never edited or deleted once superseded — the old line gets an
 `[until::]` and a new line is added, so the full history stays on the record.
+
+Forgetting that `[until::]` is the failure mode this grammar makes
+detectable: the superseded line and its successor are both "true now," and a
+query returns a coin flip. `brain doctor` flags open facts that assign two
+values to the same attribute of one entity (`fact-conflict`) and identical
+open fact lines from a double-landed ingest (`fact-dup`) — close the
+superseded line with `[until::]`, or delete the duplicate via write-back.
+
 Three questions read that history differently:
 
 - **Current** (default) — facts true today.
