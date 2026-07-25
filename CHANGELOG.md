@@ -13,6 +13,44 @@ explicitly under **Changed**, with what to do about it.
 
 Nothing yet.
 
+## [0.1.2] - unreleased
+
+Makes the package publishable to PyPI. No behavior changes beyond where `brain
+mcp` reads its own version from.
+
+### Added
+
+- **A tag-driven release workflow** (`.github/workflows/release.yml`). Pushing
+  `vX.Y.Z` builds, verifies, publishes to PyPI via
+  [Trusted Publishing](https://docs.pypi.org/trusted-publishers/), and attaches
+  the artifacts to a GitHub release. No API token is stored anywhere; PyPI trades
+  a short-lived GitHub OIDC token for an upload token scoped to this repo and
+  workflow, and signs [PEP 740](https://peps.python.org/pep-0740/) attestations
+  with it. `workflow_dispatch` runs the same path against TestPyPI. The runbook,
+  including the one-time PyPI setup, is in
+  [CONTRIBUTING.md](https://github.com/joedanz/brainkit/blob/main/CONTRIBUTING.md#cutting-a-release).
+- Four release gates, each for a failure that is unfixable after upload — a PyPI
+  version number can be yanked but never reused: the git tag must match the
+  packaged version, the sdist must not have swallowed a build tree, the vendored
+  fonts must ship their license, and the long description must render.
+- `tests/test_packaging.py` guards the PyPI-facing surface, which nothing else
+  exercised.
+
+### Fixed
+
+- **The package metadata was almost empty.** The published 0.1.1 wheel carried a
+  name, version, summary, license, and dependencies — and nothing else. With no
+  `readme` key the PyPI project page would have shown a single summary line above
+  a blank body, with no link to the docs, the repo, or this changelog, and no
+  classifiers to be found by. Now sets `readme`, `authors`, `keywords`, twelve
+  classifiers, and five project URLs.
+- **README images would have been broken on PyPI**, which does not resolve
+  relative paths the way GitHub does. All nine relative references — the demo
+  GIF, both dashboard screenshots, and six file links — are now absolute.
+- `brain mcp` no longer restates its version in a second place. `SERVER_INFO`
+  reads it from installed metadata, so a release cannot report a version its
+  artifact doesn't have; a test asserts the two agree.
+
 ## [0.1.1] - 2026-07-24
 
 A licensing fix and the documentation 0.1.0 should have shipped with. No
@@ -128,5 +166,6 @@ answer "what's in here?".
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
 [Unreleased]: https://github.com/joedanz/brainkit/compare/v0.1.1...HEAD
+[0.1.2]: https://github.com/joedanz/brainkit/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/joedanz/brainkit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/joedanz/brainkit/releases/tag/v0.1.0

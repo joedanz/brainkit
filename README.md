@@ -9,7 +9,7 @@ Shared team knowledge on plain, Obsidian-compatible markdown and git. A compiler
 ![License: MIT](https://img.shields.io/badge/license-MIT-yellow)
 ![MCP](https://img.shields.io/badge/MCP-supported-green)
 
-![60-second demo: a private note in the master vault never reaches another person's compiled vault](scripts/demo/demo.gif)
+![60-second demo: a private note in the master vault never reaches another person's compiled vault](https://raw.githubusercontent.com/joedanz/brainkit/main/scripts/demo/demo.gif)
 
 **Prefer pictures?** Three visual walkthroughs, shallow to deep: [the quick version](https://claude.ai/code/artifact/fc1eb4ce-775e-4eaa-84bb-758bc6adbbd4), [how it works](https://claude.ai/code/artifact/d198eb64-b9a7-4aab-bba6-92ab9129cc6a), and [where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6) — the production deployment architecture.
 
@@ -73,7 +73,7 @@ The deeper story — link stubbing, symlink and path-traversal defenses, the two
 The brain is a shared platform for people *and* software. Your team works in Obsidian; agents and any MCP client reach the same vault as a tool, and every one of them inherits the boundary, so an agent can only ever see what its person can see. It's runtime-independent, too: underneath it's plain markdown and git, with no hard dependency on any AI vendor.
 
 - **Claude Code** — zero install. Every compiled vault ships a generated `CLAUDE.md` that carries the working protocol, scoped to that person.
-- **Hermes Agent** ([NousResearch](https://github.com/NousResearch)) — first-class support via `hermes profile install`, plus a ready-to-run Docker image in [`deploy/agents-box`](deploy/agents-box).
+- **Hermes Agent** ([NousResearch](https://github.com/NousResearch)) — first-class support via `hermes profile install`, plus a ready-to-run Docker image in [`deploy/agents-box`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box).
 - **Any MCP client** — `brain mcp` exposes search, note reading, links, typed-relation graph walks, recent changes, and time-stamped facts over the Model Context Protocol, so Claude Desktop, Cursor, Codex, and friends can use the vault as a tool.
 - **Or no agent at all** — the vault is just files. Obsidian, `grep`, and your editor all work.
 
@@ -97,11 +97,11 @@ Run `brain dashboard` and you get a live, self-hosted view of the brain — no e
 
 **Each person's live dashboard** shows their own vault, and only their own: what's waiting in the inbox, open actions, notes by space, their most-linked notes, an interactive 2D/3D map of how those notes connect, and search across everything they're allowed to see. Notes can be captured straight from the dashboard, too. A Facts tab lists the vault's time-stamped facts — filter by entity or type, or pick a date to see what was true then — and the 2D map rings typed entity pages (clients, people, projects) by type.
 
-![A person's live dashboard — notes, inbox and open-action cards, a notes-by-space chart, and most-linked notes](scripts/demo/dashboard-user.png)
+![A person's live dashboard — notes, inbox and open-action cards, a notes-by-space chart, and most-linked notes](https://raw.githubusercontent.com/joedanz/brainkit/main/scripts/demo/dashboard-user.png)
 
 **The admin dashboard** is the operator's view of the whole company: every person's vault at a glance, the human-approval sharing queue, live `brain doctor` findings — and a read/write **permissions matrix** that makes "who can see what" impossible to get wrong by accident.
 
-![The admin permissions matrix — every space by every person, read / write / none](scripts/demo/dashboard-admin.png)
+![The admin permissions matrix — every space by every person, read / write / none](https://raw.githubusercontent.com/joedanz/brainkit/main/scripts/demo/dashboard-admin.png)
 
 ## Deploy it securely
 
@@ -111,7 +111,7 @@ The repo ships the documented [two-box reference deployment](https://brainkit-do
 
 - A **brain box** holds the master vault and everyone's compiled copies, served over SSH with a restricted, single-purpose key.
 - An **agents box** runs one Docker container per person, each mounting *only* that person's vault. The mount is the boundary — an agent physically cannot read a colleague's notes.
-- **Encrypted offsite backups**, per-person agent snapshots, supervised sync, and health checks are included as scripts in [`deploy/`](deploy/), not left as an exercise. What gets protected and how each failure recovers: [What survives](https://claude.ai/code/artifact/47825f67-2621-478b-b7ba-d181e6a17f93), or the full [Backups & Restore](https://brainkit-docs.vercel.app/guides/backup-restore) guide.
+- **Encrypted offsite backups**, per-person agent snapshots, supervised sync, and health checks are included as scripts in [`deploy/`](https://github.com/joedanz/brainkit/tree/main/deploy), not left as an exercise. What gets protected and how each failure recovers: [What survives](https://claude.ai/code/artifact/47825f67-2621-478b-b7ba-d181e6a17f93), or the full [Backups & Restore](https://brainkit-docs.vercel.app/guides/backup-restore) guide.
 
 Start smaller if you like: a single machine and a cron job is a complete, working setup.
 
@@ -191,7 +191,7 @@ Known and measured, so you find out here rather than in production.
 - **The dashboard has no authentication.** It binds `127.0.0.1`, rejects non-local `Host` headers, and enforces a strict CSP — but those defend the loopback assumption rather than replace a login. Pass a non-loopback `--host` and you have published the vault; the CLI warns, and that warning is the whole protection. The [reference deployment](https://brainkit-docs.vercel.app/guides/reference-deployment) reaches it through a tunnel, not an open port.
 - **Semantic search sends note text to your embedding provider.** Keyword-only is the default and leaks nothing. If that tradeoff matters, point `BRAIN_EMBED_BASE_URL` at something you host.
 - **Not packaged yet.** No PyPI release — install from source. There is a tagged release with a built wheel and sdist attached.
-- **Pre-1.0.** Minor versions may break vault layouts or `_meta` schemas. Breaking changes are called out in [CHANGELOG.md](CHANGELOG.md) with what to do about them.
+- **Pre-1.0.** Minor versions may break vault layouts or `_meta` schemas. Breaking changes are called out in [CHANGELOG.md](https://github.com/joedanz/brainkit/blob/main/CHANGELOG.md) with what to do about them.
 - **Scale is tested in the tens.** The design target is a 5–25 person pilot growing to 150+, where growth adds capacity rather than changing the architecture. Above that, nothing is known to break — and nothing has been measured either.
 
 ## Learn more
@@ -217,7 +217,7 @@ uv run pytest
 
 The test suite is the contract — especially the no-leak property tests. If you're touching the compiler, ingest, or write-back, start there.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide, [CHANGELOG.md](CHANGELOG.md) for what's in each release, and [SECURITY.md](SECURITY.md) to report a vulnerability privately — never in a public issue.
+See [CONTRIBUTING.md](https://github.com/joedanz/brainkit/blob/main/CONTRIBUTING.md) for the full guide, [CHANGELOG.md](https://github.com/joedanz/brainkit/blob/main/CHANGELOG.md) for what's in each release, and [SECURITY.md](https://github.com/joedanz/brainkit/blob/main/SECURITY.md) to report a vulnerability privately — never in a public issue.
 
 ## License
 
