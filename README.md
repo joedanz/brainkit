@@ -11,7 +11,7 @@ Shared team knowledge on plain, Obsidian-compatible markdown and git. A compiler
 
 ![60-second demo: a private note in the master vault never reaches another person's compiled vault](https://raw.githubusercontent.com/joedanz/brainkit/main/scripts/demo/demo.gif)
 
-**Prefer pictures?** Three visual walkthroughs, shallow to deep: [the quick version](https://claude.ai/code/artifact/fc1eb4ce-775e-4eaa-84bb-758bc6adbbd4), [how it works](https://claude.ai/code/artifact/d198eb64-b9a7-4aab-bba6-92ab9129cc6a), and [where the brain lives](https://claude.ai/code/artifact/af2936aa-b341-4625-8fda-450f2fa16ae6) — the production deployment architecture.
+**Prefer pictures?** Three visual walkthroughs, shallow to deep: [the quick version](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/quick-version.html), [how it works](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/how-it-works.html), and [where the brain lives](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/two-box-chat-only.html) — the production deployment architecture.
 
 **The complete system, not a demo.** What you clone is the whole thing: the same code built to run a company's shared brain, with nothing held back for a paid tier. It's early — pre-1.0, installed from source, no PyPI package yet — and honest about its limits, which are spelled out below rather than hidden.
 
@@ -111,7 +111,7 @@ The repo ships the documented [two-box reference deployment](https://brainkit-do
 
 - A **brain box** holds the master vault and everyone's compiled copies, served over SSH with a restricted, single-purpose key.
 - An **agents box** runs one Docker container per person, each mounting *only* that person's vault. The mount is the boundary — an agent physically cannot read a colleague's notes.
-- **Encrypted offsite backups**, per-person agent snapshots, supervised sync, and health checks are included as scripts in [`deploy/`](https://github.com/joedanz/brainkit/tree/main/deploy), not left as an exercise. What gets protected and how each failure recovers: [What survives](https://claude.ai/code/artifact/47825f67-2621-478b-b7ba-d181e6a17f93), or the full [Backups & Restore](https://brainkit-docs.vercel.app/guides/backup-restore) guide.
+- **Encrypted offsite backups**, per-person agent snapshots, supervised sync, and health checks are included as scripts in [`deploy/`](https://github.com/joedanz/brainkit/tree/main/deploy), not left as an exercise. What gets protected and how each failure recovers: [What survives](https://raw.githack.com/joedanz/brainkit/main/docs/explainers/backup-restore.html), or the full [Backups & Restore](https://brainkit-docs.vercel.app/guides/backup-restore) guide.
 
 Start smaller if you like: a single machine and a cron job is a complete, working setup.
 
