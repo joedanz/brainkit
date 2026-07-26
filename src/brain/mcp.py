@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import json
 import sys
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+
+from brain.version import DISTRIBUTION, __version__
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -29,19 +30,11 @@ PROTOCOL_VERSION = "2025-06-18"
 # would have to behave differently for does not belong on this list.
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
-DISTRIBUTION = "brainkit"
-
-try:
-    _VERSION = version(DISTRIBUTION)
-except PackageNotFoundError:
-    # Importable but never installed — a source checkout on sys.path. The server
-    # still works; it just cannot honestly name its own version, and inventing
-    # one here is how a hand-maintained copy silently drifts from pyproject.
-    _VERSION = "0+unknown"
-
-# Read from installed metadata rather than restated, so `brain mcp` cannot
-# report a version the artifact it shipped in does not have.
-SERVER_INFO = {"name": DISTRIBUTION, "version": _VERSION}
+# Read from installed metadata (see brain/version.py) rather than restated, so
+# `brain mcp` cannot report a version the artifact it shipped in does not have.
+# Deliberately no revision here: serverInfo.version is consumed by MCP clients
+# that may parse it, and PEP 440 is the only contract they can rely on.
+SERVER_INFO = {"name": DISTRIBUTION, "version": __version__}
 
 
 def negotiate_protocol(requested: object) -> str:

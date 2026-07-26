@@ -17,6 +17,7 @@ from brain.errors import HANDLED, describe
 from brain.ingest import IngestError, ingest_note
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
+from brain.version import version_string
 from brain.writeback import ManifestError, apply_writeback
 
 
@@ -566,6 +567,11 @@ def _dashboard_serve(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="brain")
+    # Answers "what is this box running?" over ssh or `docker exec`, which
+    # nothing else could: the version was only ever reachable through the MCP
+    # initialize handshake. argparse's version action exits while parsing, so
+    # this works despite the subcommand below being required.
+    parser.add_argument("--version", action="version", version=version_string())
     sub = parser.add_subparsers(dest="command", required=True)
 
     c = sub.add_parser("compile", help="compile per-person vaults from master")
