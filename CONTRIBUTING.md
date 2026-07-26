@@ -159,10 +159,29 @@ token:
 | Workflow name | `release.yml` |
 | Environment name | `pypi` (or `testpypi`) |
 
+**Before the first release the project does not exist yet, so this has to be a
+["pending" publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)** —
+configured from *account* settings → **Publishing**, not from a project's
+settings page, which is only reachable for projects that already exist. A
+pending publisher converts itself into a normal one on first successful upload.
+
+Two things that follow from how PyPI validates that form, both learned the hard
+way:
+
+- **A pending publisher does not reserve the name.** PyPI's docs are explicit
+  that it "does not create a project or reserve a project's name until it is
+  actually used to publish." Only a successful upload claims a name.
+- **The form applies the full name-availability check** — `PendingPublisherMixin`
+  in `warehouse/oidc/forms/_core.py` calls the same `check_project_name` an
+  upload does. So you cannot pre-stage a publisher for a name that is currently
+  blocked; the conflict has to be cleared first. Note that PyPI's conflict rule
+  is far more aggressive than PEP 503: `ultranormalize_name` **deletes** `.`,
+  `_`, and `-` and folds `l`/`i`→`1` and `o`→`0`, so `brain-kit` and `brainkit`
+  are the same name to PyPI while looking distinct in every public API.
+
 Then add matching [GitHub environments](https://github.com/joedanz/brainkit/settings/environments).
-Putting a
-required reviewer on `pypi` is the point of the environment: it inserts a human
-in front of the one step in the workflow that cannot be undone.
+Putting a required reviewer on `pypi` is the point of the environment: it inserts
+a human in front of the one step in the workflow that cannot be undone.
 
 Trusted Publishing means GitHub mints a short-lived OIDC token that PyPI trades
 for an upload token scoped to this repo and workflow. There is no long-lived
