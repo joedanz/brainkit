@@ -174,6 +174,8 @@ Full walkthrough: [Getting started](https://brainkit-docs.vercel.app/getting-sta
 | `brain doctor` | Read-only integrity audit, CI-friendly exit codes |
 | `brain rename-entities` | Rename the third-party tree (`Clients/` → whatever fits you) across rules, requests, and the queue |
 
+`brain --version` reports the installed version, plus the exact commit when you installed from git or a container image — because a version reads the same for every commit between releases, and deployments rarely sit on a release.
+
 Flags and exit codes: [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
 ## Requirements

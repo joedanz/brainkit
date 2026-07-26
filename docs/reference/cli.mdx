@@ -20,6 +20,33 @@ Every subcommand exits `0` on success and `1` on a handled error, with a human-r
 
 Two other exit codes: `2` for a usage error (argparse, or a missing flag a subcommand needs), and `130` if you interrupt with Ctrl-C.
 
+## `brain --version`
+
+Ask an installed copy what it is. The only top-level flag; everything else is a subcommand.
+
+```bash
+brain --version
+# brain 0.1.2
+
+brain --version
+# brain 0.1.2 (rev 69631f68e8c9)
+```
+
+The version comes from installed package metadata, never a string in the source, so it cannot drift from what was actually installed.
+
+The `rev` suffix appears **only when the version alone would not identify the code**, which is the usual case for a deployment. A version names a *release*: it reads the same for every commit between one tag and the next. So if you installed from git — `uv tool install git+https://github.com/joedanz/brainkit` — two boxes provisioned weeks apart both honestly answer `0.1.2`, and the commit is the only thing that tells them apart.
+
+| How it was installed | Where the revision comes from |
+|---|---|
+| From git (`git+https://…`) | [PEP 610](https://peps.python.org/pep-0610/) `direct_url.json`, which the installer wrote at install time |
+| A container image | `BRAINKIT_GIT_SHA`, stamped at build time — see [reference deployment](/guides/reference-deployment#knowing-what-is-deployed) |
+| A released wheel (`pip install brainkit`) | Nothing — and correctly so: the version already identifies the code exactly |
+| An editable checkout (`pip install -e .`) | Nothing — its commit is whatever `HEAD` is right now, which install metadata cannot know |
+
+<Callout type="info">
+  `brain mcp` reports the bare version in its `initialize` response and never the revision. MCP clients may parse `serverInfo.version`, so a `(rev …)` suffix there would be a wire-format change rather than a convenience.
+</Callout>
+
 ## `brain init`
 
 Scaffold a new company master vault.

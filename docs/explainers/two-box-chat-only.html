@@ -899,10 +899,12 @@ adduser --disabled-password brain-sync</pre>
       <h3><span class="n">3</span>Agents box — once</h3>
       <ol>
         <li>Install Docker + the compose plugin.</li>
-        <li>Build the <code>hermes-brain</code> image — it ships in the repo at
-        <code>deploy/agents-box/</code>, derived from the official
+        <li>Build the <code>hermes-brain</code> image with
+        <code>deploy/agents-box/build-image.sh</code> — derived from the official
         <code>nousresearch/hermes-agent</code> image with <code>brainkit</code> baked in
-        (agents need <code>brain index / search / mcp</code> locally).</li>
+        (agents need <code>brain index / search / mcp</code> locally). The script
+        stamps the source commit into the image, which is what lets you ask a
+        container later what it is running.</li>
         <li>Set an LLM provider key once, shared via compose env.</li>
       </ol>
       <pre><span class="c"># deploy/agents-box/docker-compose.yml — one stanza per person</span>
@@ -961,7 +963,10 @@ services:
         <li><strong>Watch two numbers:</strong> cycle exit ≠ 0 (rejected write-back) and
         doctor exit ≠ 0 (integrity) — both already ping your alert URL.</li>
         <li><strong>Updates:</strong> <code>uv tool upgrade brainkit</code> on the brain box;
-        rebuild the hermes image and <code>docker compose up -d</code> to roll agents.</li>
+        <code>build-image.sh</code> then <code>docker compose up -d</code> to roll agents.
+        The two halves upgrade separately, so they drift — <code>brain --version</code>
+        answers what each is actually on, down to the commit
+        (<code>brain 0.1.2 (rev 69631f68e8c9)</code>).</li>
         <li><strong>Backups, both halves, offsite by default:</strong> the brain box ships
         the master vault plus its wiring (proxy/tunnel config, systemd units, the sync
         <code>authorized_keys</code>) to object storage hourly with

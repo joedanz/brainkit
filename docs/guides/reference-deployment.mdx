@@ -370,10 +370,13 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   </Step>
 
   <Step title="Agents box — once">
-    Install Docker and build the `hermes-brain` image — it ships in the repo at
-    [`deploy/agents-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box),
+    Install Docker and build the `hermes-brain` image with
+    [`deploy/agents-box/build-image.sh`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box) —
     based on the official `nousresearch/hermes-agent` image with brainkit baked
-    in. One compose stanza per person:
+    in. Use the script rather than a bare `docker build`: it stamps the source
+    commit into the image, which is the only thing that can later tell you what
+    a container is running (see [below](#knowing-what-is-deployed)). One compose
+    stanza per person:
 
     ```yaml
     services:
@@ -470,6 +473,37 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
       line, remove their container.
   </Step>
 </Steps>
+
+## Knowing what is deployed
+
+Two boxes upgraded on different days drift, and the drift is silent unless you can ask each one what it is running. `brain --version` is that question:
+
+```bash
+# brain box
+ssh brain-box sudo -u brain-sync brain --version
+# brain 0.1.2 (rev 69631f68e8c9)
+
+# any agent container
+ssh agents-box docker exec agent-alice brain --version
+# brain 0.1.2 (rev 69631f68e8c9)
+
+# the image itself, without starting anything
+ssh agents-box docker inspect --format \
+  '{{index .Config.Labels "org.opencontainers.image.revision"}}' hermes-brain:latest
+```
+
+The revision is what matters here, not the version. Neither box installs a release — the brain box installs from git, the image bakes in a working tree — and a version reads the same for every commit between two tags. So `0.1.2` on both boxes tells you nothing; `rev 69631f68e8c9` on both tells you they match.
+
+Each half knows its commit for a different reason:
+
+- **Brain box** — nothing had to be added. [PEP 610](https://peps.python.org/pep-0610/) requires an installer to record the resolved commit of a VCS install, so `uv tool install git+…` has always written it to `direct_url.json` beside the package.
+- **Agents box** — an image built from a working tree has no such record, so `build-image.sh` stamps the commit in as a build argument. It also tags `hermes-brain:<short-sha>` alongside `:latest`, which gives you a rollback target, and refuses to build with uncommitted changes under `src/` — a stamp naming a commit the image does not contain is worse than no stamp.
+
+A bare `docker build` still works; it just bakes `unknown`, and then nothing on the box can say what the container holds.
+
+<Callout type="info">
+  Containers built before the stamp existed report `brain 0.1.2` with no revision. That is the honest answer — the information was never recorded — and it resolves itself on the next rebuild.
+</Callout>
 
 ## Failure drills
 
