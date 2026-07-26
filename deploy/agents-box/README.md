@@ -16,12 +16,29 @@ supervision, all state on `/opt/data`), with three additions:
 ## Build
 
 ```bash
-# from the repo root — the build bakes brainkit from src/
-docker build -f deploy/agents-box/Dockerfile -t hermes-brain:latest .
+# preferred — stamps the source commit into the image and tags :<short-sha>
+deploy/agents-box/build-image.sh
 
-# or let compose do it
-cd deploy/agents-box && docker compose up -d --build
+# or let compose do it (pass GIT_SHA, or the stamp reads "unknown")
+cd deploy/agents-box && GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build
 ```
+
+**Why the stamp.** This image installs a working tree, not a release, and
+brainkit's version comes from package metadata — which reads the same number for
+every commit between releases. So the version alone cannot tell two images
+apart. The commit can, and it is recorded in two places:
+
+```bash
+docker inspect --format \
+  '{{index .Config.Labels "org.opencontainers.image.revision"}}' hermes-brain:latest
+docker exec agent-alice brain --version    # brain 0.1.2 (rev 10ea7eb…)
+```
+
+A plain `docker build` still works; it just bakes `GIT_SHA=unknown`, and then
+nothing on the box can say what the container is running. `build-image.sh`
+additionally refuses to build with uncommitted changes under `src/` or
+`pyproject.toml`, since a stamp naming a commit the image does not contain is
+worse than no stamp at all.
 
 ## First boot, step by step
 

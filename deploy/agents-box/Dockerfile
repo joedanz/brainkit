@@ -23,6 +23,18 @@ ENV HERMES_WRITE_SAFE_ROOT=/opt/data:/vault
 # the hermes install tree (/opt/hermes, immutable at runtime) is touched.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
+# Which commit this image was built from. The version string alone cannot say:
+# pyproject reads the same number for every commit between releases, and this
+# image installs a working tree rather than a release — so without a stamp,
+# "which brainkit is this container on?" is unanswerable. Surfaced two ways:
+# as an OCI label for `docker inspect`, and as an env var that `brain --version`
+# reads inside the container.
+#   docker build --build-arg GIT_SHA=$(git rev-parse HEAD) …
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.revision="$GIT_SHA"
+LABEL org.opencontainers.image.source="https://github.com/joedanz/brainkit"
+ENV BRAINKIT_GIT_SHA=$GIT_SHA
+
 COPY pyproject.toml /tmp/brainkit/pyproject.toml
 COPY src /tmp/brainkit/src
 RUN uv venv /opt/brainkit --python 3.13 \

@@ -15,6 +15,12 @@ x-agent-base: &agent-base
   build:
     context: ../..                          # repo root: bakes brainkit from source
     dockerfile: deploy/agents-box/Dockerfile
+    args:
+      # Stamps the commit into the image so `brain --version` and `docker
+      # inspect` can name the build. Defaults to the literal "unknown" rather
+      # than failing, so an ad-hoc `compose up --build` still works — but then
+      # the image cannot say what it contains. See build-image.sh.
+      GIT_SHA: ${GIT_SHA:-unknown}
   restart: unless-stopped
   command: gateway run
   mem_limit: 1g                             # one runaway agent can't starve the others
