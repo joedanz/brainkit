@@ -24,6 +24,9 @@
     --bob: #a8506b;      /* someone else's private space */
     --client: #4c5e5c;   /* clients space */
     --stub: #c9d3d0;
+    --space-ink: rgba(255,255,255,0.97);
+    --brain-outline: #22403a;
+    --brain-fold: rgba(255,255,255,0.40);
     --display: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
     --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -47,6 +50,9 @@
       --bob: #ce7d97;
       --client: #8fa39f;
       --stub: #35443f;
+      --space-ink: #0c1f1b;
+      --brain-outline: #0a1513;
+      --brain-fold: rgba(8,22,19,0.30);
     }
   }
   :root[data-theme="dark"] {
@@ -67,6 +73,9 @@
     --bob: #ce7d97;
     --client: #8fa39f;
     --stub: #35443f;
+    --space-ink: #0c1f1b;
+    --brain-outline: #0a1513;
+    --brain-fold: rgba(8,22,19,0.30);
   }
   :root[data-theme="light"] {
     --paper: #f3f5f4;
@@ -86,6 +95,9 @@
     --bob: #a8506b;
     --client: #4c5e5c;
     --stub: #c9d3d0;
+    --space-ink: rgba(255,255,255,0.97);
+    --brain-outline: #22403a;
+    --brain-fold: rgba(255,255,255,0.40);
   }
 
   html { -webkit-text-size-adjust: 100%; }
@@ -242,6 +254,28 @@
   .swatch.b-stub { border: 1px dashed var(--ink-soft); }
 
   .caption { font-size: 14px; color: var(--ink-soft); margin: 0 0 26px; max-width: 680px; }
+
+  /* ---- the brain map ---- */
+  .brains { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 30px; }
+  .brain-fig { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .brain-fig svg { width: 100%; height: auto; display: block; }
+  .brain-name {
+    font-size: 12.5px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--accent-ink);
+  }
+  .brain-fig figcaption { font-size: 14.5px; line-height: 1.5; color: var(--ink-soft); }
+  .brain-fig figcaption b { color: var(--ink); }
+  .b-label {
+    font-family: var(--body); font-size: 14px; font-weight: 700;
+    letter-spacing: 0.08em; fill: var(--space-ink);
+  }
+  .b-sub {
+    font-family: var(--body); font-size: 11.5px; font-weight: 600;
+    letter-spacing: 0.03em; fill: var(--space-ink); opacity: 0.8;
+  }
+  .b-label.off, .b-sub.off { fill: var(--ink-soft); opacity: 1; }
+  .b-sub.off { opacity: 0.85; }
+  .b-tick { stroke: var(--ink-soft); stroke-width: 1.2; }
 
   /* ---- component list ---- */
   .pieces { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; margin-top: 8px; }
@@ -422,7 +456,7 @@
   footer .fine { font-size: 13.5px; color: var(--ink-soft); margin: 0; }
 
   @media (max-width: 720px) {
-    .fail-grid, .pieces, .guarantees, .benefits, .intake, .windows { grid-template-columns: 1fr; }
+    .fail-grid, .pieces, .guarantees, .benefits, .intake, .windows, .brains { grid-template-columns: 1fr; }
     .space { grid-template-columns: 16px 1fr; }
     .space .sdesc { grid-column: 2; }
     .space .swho { grid-column: 2; text-align: left; }
@@ -472,7 +506,155 @@
     <p class="eyebrow">The structure</p>
     <h2>How the pieces fit together</h2>
     <div class="col">
-      <p>All company knowledge lives in one sealed master vault, organized into color-coded areas. The compiler makes each person their own copy containing <em>only</em> the areas they may read. Watch what happens to the orange and rose bars below — private areas belonging to other people simply don't exist in your copy.</p>
+      <p>Picture the company's knowledge as one brain. Every note in it sits in exactly one compartment, and the compartment decides who can read it. Nobody works from the whole brain — each person gets their own brain, built with only their compartments in it.</p>
+    </div>
+
+    <div class="diagram-band">
+      <div class="brains">
+
+        <figure class="brain-fig">
+          <div class="brain-name">The company's whole brain</div>
+          <svg viewBox="0 0 500 410" role="img" aria-labelledby="wholeT wholeD">
+            <title id="wholeT">The company's whole brain, divided into compartments</title>
+            <desc id="wholeD">A brain seen from the side. Its upper mass is the company compartment, the front is teams, the middle holds one private compartment each for you, Alice and Bob, the back is clients, and the brain stem and cerebellum are the control room that stays on the server.</desc>
+            <defs>
+              <clipPath id="cxWhole">
+                <path d="M 150 46 C 168 20 206 16 226 38 C 248 18 286 22 296 48 C 322 34 352 48 356 76 C 386 84 402 112 384 144 C 408 174 400 214 372 238 C 370 268 352 292 322 290 C 300 304 264 302 232 288 C 198 304 154 296 138 270 C 102 268 74 240 82 208 C 50 192 44 146 68 122 C 74 88 90 60 116 56 C 126 42 140 38 150 46 Z"/>
+              </clipPath>
+              <clipPath id="cbWhole">
+                <path d="M 268 240 C 302 228 340 244 348 276 C 356 306 336 336 306 338 C 292 340 284 336 280 330 C 278 344 272 358 266 370 C 262 378 248 374 250 364 C 254 350 256 338 258 326 C 258 312 256 300 258 288 C 256 268 260 254 268 240 Z"/>
+              </clipPath>
+              <pattern id="stWhole" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="9" height="9" fill="var(--card)"/>
+                <rect width="4.5" height="9" fill="var(--stub)"/>
+              </pattern>
+            </defs>
+
+            <path d="M 268 240 C 302 228 340 244 348 276 C 356 306 336 336 306 338 C 292 340 284 336 280 330 C 278 344 272 358 266 370 C 262 378 248 374 250 364 C 254 350 256 338 258 326 C 258 312 256 300 258 288 C 256 268 260 254 268 240 Z" fill="url(#stWhole)" stroke="var(--brain-outline)" stroke-width="2"/>
+            <g clip-path="url(#cbWhole)" fill="none" stroke="var(--brain-outline)" stroke-opacity="0.35" stroke-width="1.4">
+              <path d="M 266 258 C 288 248 320 248 344 258"/>
+              <path d="M 264 280 C 288 268 320 268 348 280"/>
+              <path d="M 268 302 C 290 292 318 292 342 300"/>
+              <path d="M 276 316 C 292 310 314 308 330 313"/>
+            </g>
+
+            <g clip-path="url(#cxWhole)">
+              <path d="M 0 0 L 152 0 L 146 410 L 0 410 Z" fill="var(--team)"/>
+              <path d="M 148 0 L 302 0 L 302 190 C 250 196 200 192 148 200 Z" fill="var(--you)"/>
+              <path d="M 148 200 C 200 192 250 196 302 190 L 302 238 C 250 244 200 240 148 248 Z" fill="var(--alice)"/>
+              <path d="M 148 248 C 200 240 250 244 302 238 L 302 410 L 148 410 Z" fill="var(--bob)"/>
+              <path d="M 300 0 L 500 0 L 500 410 L 294 410 Z" fill="var(--client)"/>
+              <path d="M 0 0 L 500 0 L 500 146 C 380 126 180 140 0 166 Z" fill="var(--co)"/>
+              <g fill="none" stroke="var(--brain-fold)" stroke-width="2.4" stroke-linecap="round">
+                <path d="M 40 76 C 62 65 84 87 106 76 C 128 65 150 87 172 76 C 194 65 216 87 238 76 C 260 65 282 87 304 76 C 326 65 348 87 370 76 C 384 70 396 80 410 76"/>
+                <path d="M 40 128 C 62 117 84 139 106 128 C 128 117 150 139 172 128 C 194 117 216 139 238 128 C 260 117 282 139 304 128 C 326 117 348 139 370 128 C 384 122 396 132 410 128"/>
+                <path d="M 40 180 C 62 169 84 191 106 180 C 128 169 150 191 172 180 C 194 169 216 191 238 180 C 260 169 282 191 304 180 C 326 169 348 191 370 180 C 384 174 396 184 410 180"/>
+                <path d="M 40 232 C 62 221 84 243 106 232 C 128 221 150 243 172 232 C 194 221 216 243 238 232 C 260 221 282 243 304 232 C 326 221 348 243 370 232 C 384 226 396 236 410 232"/>
+                <path d="M 40 280 C 62 269 84 291 106 280 C 128 269 150 291 172 280 C 194 269 216 291 238 280 C 260 269 282 291 304 280 C 326 269 348 291 370 280 C 384 274 396 284 410 280"/>
+              </g>
+            </g>
+
+            <path d="M 150 46 C 168 20 206 16 226 38 C 248 18 286 22 296 48 C 322 34 352 48 356 76 C 386 84 402 112 384 144 C 408 174 400 214 372 238 C 370 268 352 292 322 290 C 300 304 264 302 232 288 C 198 304 154 296 138 270 C 102 268 74 240 82 208 C 50 192 44 146 68 122 C 74 88 90 60 116 56 C 126 42 140 38 150 46 Z" fill="none" stroke="var(--brain-outline)" stroke-width="2.2" stroke-linejoin="round"/>
+
+            <g text-anchor="middle">
+              <text class="b-label" x="222" y="86">COMPANY</text>
+              <text class="b-sub" x="222" y="105">everyone</text>
+              <text class="b-label" x="114" y="182">TEAMS</text>
+              <text class="b-sub" x="114" y="200">team only</text>
+              <text class="b-label" x="226" y="166">YOU</text>
+              <text class="b-sub" x="226" y="184">private to you</text>
+              <text class="b-label" x="226" y="220">ALICE</text>
+              <text class="b-sub" x="226" y="236">private to Alice</text>
+              <text class="b-label" x="226" y="261">BOB</text>
+              <text class="b-sub" x="226" y="277">private to Bob</text>
+              <text class="b-label" x="344" y="174">CLIENTS</text>
+              <text class="b-sub" x="344" y="192">assigned only</text>
+            </g>
+            <line class="b-tick" x1="344" y1="304" x2="404" y2="304"/>
+            <g text-anchor="start">
+              <text class="b-label off" x="410" y="293">CONTROL</text>
+              <text class="b-label off" x="410" y="310">ROOM</text>
+              <text class="b-sub off" x="410" y="327">server only</text>
+            </g>
+          </svg>
+          <figcaption>One brain, divided by audience. <b>Where a note lives is the permission</b> — there are no per-document checkboxes to get wrong.</figcaption>
+        </figure>
+
+        <figure class="brain-fig">
+          <div class="brain-name">The brain you carry</div>
+          <svg viewBox="0 0 500 410" role="img" aria-labelledby="yoursT yoursD">
+            <title id="yoursT">Your own copy of the brain</title>
+            <desc id="yoursD">The same brain shape, but Alice's and Bob's private compartments and the control room are drawn as empty hatching, because they were never written into your copy.</desc>
+            <defs>
+              <clipPath id="cxYours">
+                <path d="M 150 46 C 168 20 206 16 226 38 C 248 18 286 22 296 48 C 322 34 352 48 356 76 C 386 84 402 112 384 144 C 408 174 400 214 372 238 C 370 268 352 292 322 290 C 300 304 264 302 232 288 C 198 304 154 296 138 270 C 102 268 74 240 82 208 C 50 192 44 146 68 122 C 74 88 90 60 116 56 C 126 42 140 38 150 46 Z"/>
+              </clipPath>
+              <pattern id="stYours" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="9" height="9" fill="var(--card)"/>
+                <rect width="4.5" height="9" fill="var(--stub)"/>
+              </pattern>
+            </defs>
+
+            <path d="M 268 240 C 302 228 340 244 348 276 C 356 306 336 336 306 338 C 292 340 284 336 280 330 C 278 344 272 358 266 370 C 262 378 248 374 250 364 C 254 350 256 338 258 326 C 258 312 256 300 258 288 C 256 268 260 254 268 240 Z" fill="url(#stYours)" stroke="var(--stub)" stroke-width="2" stroke-dasharray="5 4"/>
+
+            <g clip-path="url(#cxYours)">
+              <path d="M 0 0 L 152 0 L 146 410 L 0 410 Z" fill="var(--team)"/>
+              <path d="M 148 0 L 302 0 L 302 190 C 250 196 200 192 148 200 Z" fill="var(--you)"/>
+              <path d="M 148 200 C 200 192 250 196 302 190 L 302 238 C 250 244 200 240 148 248 Z" fill="url(#stYours)"/>
+              <path d="M 148 248 C 200 240 250 244 302 238 L 302 410 L 148 410 Z" fill="url(#stYours)"/>
+              <path d="M 300 0 L 500 0 L 500 410 L 294 410 Z" fill="var(--client)"/>
+              <path d="M 0 0 L 500 0 L 500 146 C 380 126 180 140 0 166 Z" fill="var(--co)"/>
+              <g fill="none" stroke="var(--brain-fold)" stroke-width="2.4" stroke-linecap="round">
+                <path d="M 40 76 C 62 65 84 87 106 76 C 128 65 150 87 172 76 C 194 65 216 87 238 76 C 260 65 282 87 304 76 C 326 65 348 87 370 76 C 384 70 396 80 410 76"/>
+                <path d="M 40 128 C 62 117 84 139 106 128 C 128 117 150 139 172 128 C 194 117 216 139 238 128 C 260 117 282 139 304 128 C 326 117 348 139 370 128 C 384 122 396 132 410 128"/>
+                <path d="M 40 180 C 62 169 84 191 106 180 C 128 169 150 191 172 180 C 194 169 216 191 238 180 C 260 169 282 191 304 180 C 326 169 348 191 370 180 C 384 174 396 184 410 180"/>
+                <path d="M 40 232 C 62 221 84 243 106 232 C 128 221 150 243 172 232 C 194 221 216 243 238 232 C 260 221 282 243 304 232 C 326 221 348 243 370 232 C 384 226 396 236 410 232"/>
+                <path d="M 40 280 C 62 269 84 291 106 280 C 128 269 150 291 172 280 C 194 269 216 291 238 280 C 260 269 282 291 304 280 C 326 269 348 291 370 280 C 384 274 396 284 410 280"/>
+              </g>
+              <g fill="none" stroke="var(--stub)" stroke-width="1.6" stroke-dasharray="5 4">
+                <path d="M 152 201 C 202 194 250 197 300 192"/>
+                <path d="M 152 249 C 202 242 250 245 300 240"/>
+              </g>
+            </g>
+
+            <path d="M 150 46 C 168 20 206 16 226 38 C 248 18 286 22 296 48 C 322 34 352 48 356 76 C 386 84 402 112 384 144 C 408 174 400 214 372 238 C 370 268 352 292 322 290 C 300 304 264 302 232 288 C 198 304 154 296 138 270 C 102 268 74 240 82 208 C 50 192 44 146 68 122 C 74 88 90 60 116 56 C 126 42 140 38 150 46 Z" fill="none" stroke="var(--brain-outline)" stroke-width="2.2" stroke-linejoin="round"/>
+
+            <g text-anchor="middle">
+              <text class="b-label" x="222" y="86">COMPANY</text>
+              <text class="b-sub" x="222" y="105">everyone</text>
+              <text class="b-label" x="114" y="182">TEAMS</text>
+              <text class="b-sub" x="114" y="200">team only</text>
+              <text class="b-label" x="226" y="166">YOU</text>
+              <text class="b-sub" x="226" y="184">private to you</text>
+              <text class="b-sub off" x="226" y="222">ALICE — NOT COPIED</text>
+              <text class="b-sub off" x="226" y="268">BOB — NOT COPIED</text>
+              <text class="b-label" x="344" y="174">CLIENTS</text>
+              <text class="b-sub" x="344" y="192">assigned only</text>
+            </g>
+            <line class="b-tick" x1="344" y1="304" x2="404" y2="304"/>
+            <g text-anchor="start">
+              <text class="b-label off" x="410" y="293">CONTROL</text>
+              <text class="b-label off" x="410" y="310">ROOM</text>
+              <text class="b-sub off" x="410" y="327">not copied</text>
+            </g>
+          </svg>
+          <figcaption>Same shape, fewer compartments. <b>The hatched areas aren't locked — they're empty.</b> Nothing of Alice's or Bob's was ever written into your brain.</figcaption>
+        </figure>
+
+      </div>
+
+      <div class="legend">
+        <div><span class="swatch b-co"></span> Shared with everyone</div>
+        <div><span class="swatch b-team"></span> Shared with a team</div>
+        <div><span class="swatch b-you"></span> Your private space</div>
+        <div><span class="swatch b-alice"></span> Someone else's private space</div>
+        <div><span class="swatch b-stub"></span> Not copied — physically absent</div>
+      </div>
+    </div>
+    <p class="caption">Both pictures are the same brain. The difference is what got written down when your copy was assembled.</p>
+
+    <div class="col">
+      <p>Underneath the picture, that's one sealed master vault holding all company knowledge, organized into those same color-coded areas. The compiler makes each person their own copy containing <em>only</em> the areas they may read. Watch what happens to the orange and rose bars below — private areas belonging to other people simply don't exist in your copy.</p>
     </div>
 
     <div class="diagram-band">
@@ -528,13 +710,6 @@
         </div>
       </div>
 
-      <div class="legend">
-        <div><span class="swatch b-co"></span> Shared with everyone</div>
-        <div><span class="swatch b-team"></span> Shared with a team</div>
-        <div><span class="swatch b-you"></span> Your private space</div>
-        <div><span class="swatch b-alice"></span> Someone else's private space</div>
-        <div><span class="swatch b-stub"></span> Not copied — physically absent</div>
-      </div>
     </div>
     <p class="caption">The striped bar is the whole point: other people's private material isn't hidden, locked, or filtered out of your copy — it was never put there.</p>
 
@@ -561,7 +736,7 @@
       </div>
       <div class="piece">
         <h3>Search</h3>
-        <p>Ask a question in plain language and get the right notes back — by keyword and by meaning. The index is built only from your own copy, so it inherits the same wall.</p>
+        <p>Ask a question in plain language and get the right notes back — by keyword and by meaning. The index is built only from your own copy, so it inherits the same wall. Facts with dates attached — who's the current contact, and since when — can be looked up as they stood on any date, with the full history kept.</p>
       </div>
     </div>
   </section>
@@ -780,3 +955,7 @@
 
 </body>
 </html>
+
+
+
+</body></html>
