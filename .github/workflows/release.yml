@@ -1,0 +1,157 @@
+name: release
+
+# Tag-driven publishing. Pushing v1.2.3 builds, verifies, publishes to PyPI, and
+# attaches the same two artifacts to a GitHub release. `workflow_dispatch` runs
+# the identical path against TestPyPI so the whole thing can be rehearsed
+# without spending a version number.
+#
+# A PyPI version is single-use forever: you can yank 1.2.3, but you can never
+# re-upload it, and even a deleted file's name stays claimed. Everything here is
+# arranged around that — verify before the upload, because there is no after.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Where to publish
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+
+# Least privilege by default; the publishing jobs opt back in to exactly what
+# they need. The build job deliberately has no token of any kind.
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      # The guard that matters most. hatchling takes the version from
+      # pyproject.toml and ignores the tag, so a forgotten bump publishes
+      # brainkit-0.1.2 from tag v0.1.3 — a name that can then never be
+      # corrected. Fail here instead.
+      - name: The tag must match the packaged version
+        if: github.event_name == 'push'
+        run: |
+          packaged=$(python3 -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
+          tagged="${GITHUB_REF_NAME#v}"
+          echo "pyproject: $packaged / tag: $tagged"
+          test "$packaged" = "$tagged" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $packaged"
+            exit 1
+          }
+
+      # Same reasoning as the tests workflow's package job: a clean checkout is
+      # not what a release is cut from, and the sdist allowlist has been broken
+      # twice by build trees a local build didn't happen to have.
+      - name: Litter the tree the way a working copy is littered
+        run: |
+          mkdir -p docs/node_modules/junk docs/dist docs/.vercel/output
+          head -c 20000000 /dev/urandom > docs/node_modules/junk/blob.bin
+          head -c 20000000 /dev/urandom > docs/dist/bundle.js
+          head -c 20000000 /dev/urandom > docs/.vercel/output/fn.js
+
+      - run: uv build
+
+      - name: The allowlist must have held
+        run: |
+          size=$(stat -c%s dist/*.tar.gz)
+          files=$(tar tzf dist/*.tar.gz | wc -l)
+          echo "sdist: $size bytes, $files files"
+          test "$size" -lt 5000000 || { echo "::error::sdist ballooned to $size bytes"; exit 1; }
+          test "$files" -lt 500 || { echo "::error::sdist grew to $files files"; exit 1; }
+          if tar tzf dist/*.tar.gz | grep -E 'node_modules|/dist/|\.vercel'; then
+            echo "::error::build trees leaked into the sdist"; exit 1
+          fi
+
+      # The fonts are redistributed under OFL 1.1, whose section 2 permits that
+      # only if each copy carries the license. Shipping them without it is what
+      # 0.1.0 did, and a release is exactly the moment nobody re-checks.
+      - name: The vendored fonts must carry their license
+        run: |
+          python3 - <<'PY'
+          import glob, sys, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          fonts = sum(n.endswith(".woff2") for n in names)
+          ofl = sum(n.endswith("assets/vendor/fonts/OFL.txt") for n in names)
+          print(f"wheel: {fonts} woff2, {ofl} OFL.txt")
+          if fonts and ofl != 1:
+              sys.exit(f"::error::{fonts} fonts shipped with {ofl} copies of the OFL")
+          PY
+
+      # readme_renderer is the same library that renders the project page, so
+      # this is the actual answer to "will the description show up", not a proxy
+      # for it. Warnings are errors: PyPI silently falls back to plain text.
+      - name: The long description must render on PyPI
+        run: uvx --from twine twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    needs: build
+    if: inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v7.0.0
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    needs: build
+    if: github.event_name == 'push' || inputs.target == 'pypi'
+    runs-on: ubuntu-latest
+    # Configure this environment with required reviewers to put a human in front
+    # of the one step in this file that cannot be undone.
+    environment: pypi
+    permissions:
+      # Trusted Publishing: GitHub mints a short-lived OIDC token that PyPI
+      # exchanges for an upload token scoped to this repo and workflow. Nothing
+      # long-lived is stored in repository secrets, so there is no API token to
+      # leak, rotate, or forget to scope. Also what signs the PEP 740
+      # attestations gh-action-pypi-publish uploads alongside the artifacts.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v7.0.0
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.1
+
+  github-release:
+    needs: pypi
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7.0.0
+        with:
+          name: dist
+          path: dist/
+      # Idempotent: the release may already exist if it was drafted by hand.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)." \
+            || gh release upload "$GITHUB_REF_NAME" dist/* --clobber

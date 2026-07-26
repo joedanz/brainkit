@@ -134,3 +134,92 @@ vault-related, `brain doctor --master <path>` output is usually the fastest way
 to a diagnosis.
 
 Please don't paste real vault contents into a public issue.
+
+## Cutting a release
+
+Releases are tag-driven: pushing `vX.Y.Z` runs `.github/workflows/release.yml`,
+which builds, verifies, publishes to PyPI, and attaches the same two artifacts
+to a GitHub release.
+
+The thing to internalize before touching any of this: **a PyPI version number
+is permanent.** You can yank a release, but you can never re-upload that
+version, and even a deleted file's name stays claimed. Everything below is
+front-loaded for that reason — there is no fixing it afterward, only a `.postN`
+release explaining what went wrong.
+
+### One-time setup
+
+Configure a [Trusted Publisher](https://docs.pypi.org/trusted-publishers/) on
+PyPI (and separately on TestPyPI, if rehearsing) rather than storing an API
+token:
+
+| field | value |
+|---|---|
+| Owner / repository | `joedanz` / `brainkit` |
+| Workflow name | `release.yml` |
+| Environment name | `pypi` (or `testpypi`) |
+
+**Before the first release the project does not exist yet, so this has to be a
+["pending" publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)** —
+configured from *account* settings → **Publishing**, not from a project's
+settings page, which is only reachable for projects that already exist. A
+pending publisher converts itself into a normal one on first successful upload.
+
+Two things that follow from how PyPI validates that form, both learned the hard
+way:
+
+- **A pending publisher does not reserve the name.** PyPI's docs are explicit
+  that it "does not create a project or reserve a project's name until it is
+  actually used to publish." Only a successful upload claims a name.
+- **The form applies the full name-availability check** — `PendingPublisherMixin`
+  in `warehouse/oidc/forms/_core.py` calls the same `check_project_name` an
+  upload does. So you cannot pre-stage a publisher for a name that is currently
+  blocked; the conflict has to be cleared first. Note that PyPI's conflict rule
+  is far more aggressive than PEP 503: `ultranormalize_name` **deletes** `.`,
+  `_`, and `-` and folds `l`/`i`→`1` and `o`→`0`, so `brain-kit` and `brainkit`
+  are the same name to PyPI while looking distinct in every public API.
+
+Then add matching [GitHub environments](https://github.com/joedanz/brainkit/settings/environments).
+Putting a required reviewer on `pypi` is the point of the environment: it inserts
+a human in front of the one step in the workflow that cannot be undone.
+
+Trusted Publishing means GitHub mints a short-lived OIDC token that PyPI trades
+for an upload token scoped to this repo and workflow. There is no long-lived
+credential to leak, rotate, or forget to scope — and it's what signs the
+[PEP 740](https://peps.python.org/pep-0740/) attestations uploaded beside the
+artifacts.
+
+### Each release
+
+1. **Rehearse**, if the packaging changed: Actions → release →
+   *Run workflow* → target `testpypi`. This spends a TestPyPI version number,
+   not a real one, and exercises the same build and the same guards. Bump the
+   patch version if you need a second rehearsal.
+2. **Bump the version** in `pyproject.toml`. Nowhere else — `brain mcp` reads
+   its version from installed metadata, and `tests/test_packaging.py` fails if
+   the two ever disagree.
+3. **Move the CHANGELOG section** from `Unreleased` to `[X.Y.Z] - YYYY-MM-DD`,
+   and add the compare link at the bottom.
+4. **Check the README's claims are still true.** It says in two places that
+   there is no PyPI package; the first release makes both false.
+5. Merge, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+6. Approve the `pypi` environment when Actions asks.
+
+### What the workflow refuses to publish
+
+Each of these exists because it already went wrong once, or because it can only
+go wrong on the run you can't redo:
+
+- **A tag that disagrees with `pyproject.toml`.** hatchling names the artifact
+  from pyproject and ignores the tag, so a forgotten bump publishes `0.1.2` from
+  tag `v0.1.3` — a name that can then never be corrected.
+- **An sdist that swallowed a build tree.** hatchling reads only the *root*
+  `.gitignore`, so `docs/.gitignore` never reaches it. This has broken twice,
+  once to 133 MB and 24,990 files, and both times a local build looked fine
+  because the trees weren't there. The workflow creates them on purpose first.
+- **Fonts without their license.** The vendored `.woff2` files are OFL 1.1,
+  whose section 2 permits redistribution only if each copy carries the license.
+  0.1.0 shipped eight fonts and zero copies of it.
+- **A description PyPI won't render.** `twine check --strict` runs the same
+  renderer the project page uses. Without it, a broken long description degrades
+  silently to plain text.
