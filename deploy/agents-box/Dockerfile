@@ -9,7 +9,16 @@
 #
 # Build from the REPO ROOT (the context must include pyproject.toml and src/):
 #   docker build -f deploy/agents-box/Dockerfile -t hermes-brain:latest .
-FROM nousresearch/hermes-agent:latest
+#
+# The base is a build-arg so the layers below can be exercised against a small
+# image instead of pulling the multi-GB agent base:
+#   docker build --build-arg BASE_IMAGE=python:3.13-slim …
+# Nothing below needs hermes at build time — uv brings its own interpreter, and
+# the s6 paths are COPY destinations, not running services. That makes the swap
+# a *build* test only: the stamp and the install are verifiable, the container
+# is not runnable, because s6-overlay from the real base is what supervises it.
+ARG BASE_IMAGE=nousresearch/hermes-agent:latest
+FROM ${BASE_IMAGE}
 
 USER root
 

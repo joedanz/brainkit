@@ -40,6 +40,20 @@ additionally refuses to build with uncommitted changes under `src/` or
 `pyproject.toml`, since a stamp naming a commit the image does not contain is
 worse than no stamp at all.
 
+**Checking the build without the agent base.** `BASE_IMAGE` overrides the base,
+so the stamp and the brainkit install can be exercised against a small image:
+
+```bash
+docker build -f deploy/agents-box/Dockerfile \
+  --build-arg BASE_IMAGE=python:3.13-slim \
+  --build-arg GIT_SHA=$(git rev-parse HEAD) -t stamp-test .
+docker inspect --format \
+  '{{index .Config.Labels "org.opencontainers.image.revision"}}' stamp-test
+```
+
+The result builds but does not run: s6-overlay from the real base is what
+supervises the container. `build-image.sh` always uses the default base.
+
 ## First boot, step by step
 
 1. s6's stock init seeds hermes defaults on the `/opt/data` volume.
