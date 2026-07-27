@@ -372,11 +372,11 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   <Step title="Agents box — once">
     Install Docker and build the `hermes-brain` image with
     [`deploy/agents-box/build-image.sh`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box) —
-    based on the official `nousresearch/hermes-agent` image with brainkit baked
-    in. Use the script rather than a bare `docker build`: it stamps the source
-    commit into the image, which is the only thing that can later tell you what
-    a container is running (see [below](#knowing-what-is-deployed)). One compose
-    stanza per person:
+    based on the official `nousresearch/hermes-agent` image, with brainkit
+    installed from the public repo. Use the script rather than a bare `docker
+    build`: it resolves the ref to a commit first, so the image is built from an
+    exact revision and tagged with it (see
+    [below](#knowing-what-is-deployed)). One compose stanza per person:
 
     ```yaml
     services:

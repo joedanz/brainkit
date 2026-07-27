@@ -901,10 +901,11 @@ adduser --disabled-password brain-sync</pre>
         <li>Install Docker + the compose plugin.</li>
         <li>Build the <code>hermes-brain</code> image with
         <code>deploy/agents-box/build-image.sh</code> — derived from the official
-        <code>nousresearch/hermes-agent</code> image with <code>brainkit</code> baked in
-        (agents need <code>brain index / search / mcp</code> locally). The script
-        stamps the source commit into the image, which is what lets you ask a
-        container later what it is running.</li>
+        <code>nousresearch/hermes-agent</code> image, with <code>brainkit</code> installed
+        from the public repo (agents need <code>brain index / search / mcp</code>
+        locally). The script resolves the ref to a commit first, so the image is
+        built from an exact revision — which is what lets you ask a container
+        later what it is running.</li>
         <li>Set an LLM provider key once, shared via compose env.</li>
       </ol>
       <pre><span class="c"># deploy/agents-box/docker-compose.yml — one stanza per person</span>
