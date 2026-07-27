@@ -17,11 +17,51 @@ if [ -z "${BRAIN_PERSON:-}" ]; then
     exit 0
 fi
 
-# --- 1. company-brain profile (once) ---------------------------------------
-if [ ! -f "$DATA/.company-brain-installed" ]; then
+# --- 1. company-brain profile ------------------------------------------------
+# Installed once, then RE-SYNCED when the image's brainkit revision changes.
+#
+# The sentinel used to hold only a timestamp, and the gate was its mere
+# existence — so a newer image could land, the container be recreated onto it,
+# and the profile never update. Every embark agent was in that state: installed
+# 2026-07-20, running an image built two days later. Nothing detected it because
+# nothing recorded WHICH revision had been applied.
+#
+# What re-syncs and what does not is the whole design:
+#   skills/      refreshed — additive, and the image is the source of truth
+#   SOUL.md      only when untouched since we wrote it (hash recorded at install)
+#   config.yaml  NEVER — hermes rewrites it at runtime (model, _config_version,
+#                plugins, approvals…). Regenerating from the template would
+#                discard live settings, including the model the operator chose.
+#
+# The SOUL rule is the dpkg-conffile pattern: ship updates to a file the local
+# side may also edit, by remembering what we last wrote. Equal hash means
+# untouched and safe to advance; different means someone meant it, so leave it
+# and say so.
+SENTINEL="$DATA/.company-brain-installed"
+
+# `brain --version` prints "brain 0.1.2 (rev abc123def456)". The revision comes
+# from PEP 610 install metadata, so the image describes itself and cannot name a
+# commit it does not contain.
+image_rev="$(/usr/local/bin/brain --version 2>/dev/null | sed -n 's/.*(rev \([^)]*\)).*/\1/p')"
+[ -n "$image_rev" ] || image_rev=unknown
+
+sentinel_field() {
+    [ -f "$SENTINEL" ] || return 0
+    sed -n "s/^$1=//p" "$SENTINEL" | tail -1
+}
+file_md5() { md5sum "$1" 2>/dev/null | cut -d' ' -f1; }
+install_skills() { mkdir -p "$DATA/skills"; cp -R /opt/brain-profile/skills/. "$DATA/skills/"; }
+
+# key=value lines. $1 = original install time (preserved across re-syncs so the
+# agent's true age is not lost), $2 = the SOUL hash now on disk.
+write_sentinel() {
+    printf 'installed_at=%s\nrevision=%s\nsoul_md5=%s\nsynced_at=%s\n' \
+        "$1" "$image_rev" "$2" "$(date -u +%FT%TZ)" > "$SENTINEL"
+}
+
+if [ ! -f "$SENTINEL" ]; then
     cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
-    mkdir -p "$DATA/skills"
-    cp -R /opt/brain-profile/skills/. "$DATA/skills/"
+    install_skills
 
     # Profile config with the vault path filled in, plus the pieces that only
     # make sense server-side: the brain MCP server and tool-loop hard stops
@@ -42,8 +82,36 @@ tool_loop_guardrails:
     exact_failure: 5
     idempotent_no_progress: 5
 EOF
-    date -u +%FT%TZ > "$DATA/.company-brain-installed"
-    echo "[brain] company-brain profile installed for $BRAIN_PERSON"
+    write_sentinel "$(date -u +%FT%TZ)" "$(file_md5 "$DATA/SOUL.md")"
+    echo "[brain] company-brain profile installed for $BRAIN_PERSON (rev $image_rev)"
+
+elif [ "$(sentinel_field revision)" != "$image_rev" ]; then
+    recorded_rev="$(sentinel_field revision)"
+    # A legacy sentinel holds a bare ISO timestamp and no key=value lines; keep
+    # that as the install date rather than resetting the agent's age to now.
+    installed_at="$(sentinel_field installed_at)"
+    [ -n "$installed_at" ] || installed_at="$(head -1 "$SENTINEL")"
+
+    install_skills
+
+    recorded_soul="$(sentinel_field soul_md5)"
+    live_soul="$(file_md5 "$DATA/SOUL.md")"
+    if [ -z "$recorded_soul" ]; then
+        # Legacy sentinel: no record of what we shipped, so we cannot tell an
+        # edited SOUL from an untouched one. Never overwrite on a guess — adopt
+        # the current hash so the NEXT image change can decide correctly.
+        live_soul="$(file_md5 "$DATA/SOUL.md")"
+        echo "[brain] SOUL.md left as-is (no recorded hash to compare — first re-sync since the sentinel gained one)"
+    elif [ "$recorded_soul" = "$live_soul" ]; then
+        cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
+        live_soul="$(file_md5 "$DATA/SOUL.md")"
+        echo "[brain] SOUL.md updated from the image (was unmodified)"
+    else
+        echo "[brain] SOUL.md locally modified — left as-is; the image's version was NOT applied"
+    fi
+
+    write_sentinel "$installed_at" "$live_soul"
+    echo "[brain] profile re-synced ${recorded_rev:-<unrecorded>} -> $image_rev (config.yaml untouched — hermes owns it)"
 fi
 
 # --- 2. deploy key (once) — the private key never leaves this container ----
