@@ -9,36 +9,43 @@ supervision, all state on `/opt/data`), with three additions:
 
 | Addition | Where | What it does |
 | --- | --- | --- |
-| **brainkit** | `/opt/brainkit` venv, `brain` on PATH | `brain index / search / mcp` inside the container (built from this repo's source — brainkit is not on PyPI, so the build context is the repo root) |
+| **brainkit** | `/opt/brainkit` venv, `brain` on PATH | `brain index / search / mcp` inside the container (installed from `git+https://github.com/joedanz/brainkit` — it is not on PyPI) |
 | **company-brain profile** | staged at `/opt/brain-profile` | installed into `/opt/data` on first boot: SOUL.md, `terminal.cwd: /vault`, the brain MCP server, tool-loop hard stops, the brain-protocol skill |
 | **vault-sync** | s6-supervised longrun | `git pull → brain index → git push` every 5 minutes (`BRAIN_SYNC_INTERVAL` to change); crash-restarted by s6 like the gateway itself |
 
 ## Build
 
 ```bash
-# preferred — stamps the source commit into the image and tags :<short-sha>
+# preferred — resolves the tip of main to a commit and tags :<short-sha>
 deploy/agents-box/build-image.sh
 
-# or let compose do it (pass GIT_SHA, or the stamp reads "unknown")
-cd deploy/agents-box && GIT_SHA=$(git rev-parse HEAD) docker compose up -d --build
+# a specific commit, tag, or branch
+REF=v0.1.2 deploy/agents-box/build-image.sh
+
+# or let compose do it (defaults to the tip of main)
+cd deploy/agents-box && docker compose up -d --build
 ```
 
-**Why the stamp.** This image installs a working tree, not a release, and
-brainkit's version comes from package metadata — which reads the same number for
-every commit between releases. So the version alone cannot tell two images
-apart. The commit can, and it is recorded in two places:
+**Where brainkit comes from.** The image installs it from the public repo
+(`git+https://github.com/joedanz/brainkit@<ref>`), not from the working tree.
+That makes the container traceable to a commit anyone can fetch, and it means
+the image describes itself: a VCS install records the resolved commit in
+`direct_url.json` (PEP 610), which is where `brain --version` reads it from.
 
 ```bash
+docker exec agent-alice brain --version    # brain 0.1.2 (rev 10ea7eb…)
 docker inspect --format \
   '{{index .Config.Labels "org.opencontainers.image.revision"}}' hermes-brain:latest
-docker exec agent-alice brain --version    # brain 0.1.2 (rev 10ea7eb…)
 ```
 
-A plain `docker build` still works; it just bakes `GIT_SHA=unknown`, and then
-nothing on the box can say what the container is running. `build-image.sh`
-additionally refuses to build with uncommitted changes under `src/` or
-`pyproject.toml`, since a stamp naming a commit the image does not contain is
-worse than no stamp at all.
+The label is a convenience for inspecting an image without running it;
+`brain --version` is the authoritative answer, since it reports what pip
+actually installed rather than what the build was asked for.
+
+**Local work is not in the image.** Only pushed commits can be, by
+construction. `build-image.sh` prints a note when your local `HEAD` differs
+from the ref it is building, so the surprise happens at build time rather than
+on the box.
 
 ## First boot, step by step
 

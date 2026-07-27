@@ -2,12 +2,13 @@
 #
 # Base: the official hermes image (s6-overlay as PID 1, supervised gateway,
 # all state on the /opt/data volume). This layer adds:
-#   - brainkit (from this repo's source — it is not on PyPI), in its own venv
+#   - brainkit (installed from git — it is not on PyPI), in its own venv
 #   - the company-brain hermes profile, staged for first boot
 #   - a first-boot hook (profile install, deploy-key mint, /vault ownership)
 #   - an s6-supervised vault-sync loop (git pull → brain index → git push)
 #
-# Build from the REPO ROOT (the context must include pyproject.toml and src/):
+# Build from the REPO ROOT — the context still supplies the profile template and
+# the s6 scripts below, though brainkit itself now comes from the public repo:
 #   docker build -f deploy/agents-box/Dockerfile -t hermes-brain:latest .
 FROM nousresearch/hermes-agent:latest
 
@@ -23,24 +24,24 @@ ENV HERMES_WRITE_SAFE_ROOT=/opt/data:/vault
 # the hermes install tree (/opt/hermes, immutable at runtime) is touched.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
-# Which commit this image was built from. The version string alone cannot say:
-# pyproject reads the same number for every commit between releases, and this
-# image installs a working tree rather than a release — so without a stamp,
-# "which brainkit is this container on?" is unanswerable. Surfaced two ways:
-# as an OCI label for `docker inspect`, and as an env var that `brain --version`
-# reads inside the container.
-#   docker build --build-arg GIT_SHA=$(git rev-parse HEAD) …
-ARG GIT_SHA=unknown
-LABEL org.opencontainers.image.revision="$GIT_SHA"
+# Which brainkit to install. A VCS install records the resolved commit in
+# direct_url.json (PEP 610) and `brain --version` reads it — so the image
+# describes itself, with no separate stamp that could name a commit the image
+# does not contain. build-image.sh passes the resolved commit; a bare build
+# takes whatever main points at.
+#   docker build --build-arg BRAINKIT_REF=<sha> …
+ARG BRAINKIT_REF=main
+LABEL org.opencontainers.image.revision="$BRAINKIT_REF"
 LABEL org.opencontainers.image.source="https://github.com/joedanz/brainkit"
-ENV BRAINKIT_GIT_SHA=$GIT_SHA
 
-COPY pyproject.toml /tmp/brainkit/pyproject.toml
-COPY src /tmp/brainkit/src
+# Installing from git rather than the working tree is what keeps this image out
+# of brainkit's build: no source is copied, so the only thing crossing the
+# boundary is a commit on the public repo. uv shells out to git, which the
+# hermes base already carries (vault-sync uses it at runtime).
 RUN uv venv /opt/brainkit --python 3.13 \
-    && uv pip install --python /opt/brainkit/bin/python /tmp/brainkit \
+    && uv pip install --python /opt/brainkit/bin/python \
+       "brainkit @ git+https://github.com/joedanz/brainkit@${BRAINKIT_REF}" \
     && ln -s /opt/brainkit/bin/brain /usr/local/bin/brain \
-    && rm -rf /tmp/brainkit \
     && /usr/local/bin/brain --help >/dev/null
 
 # The company-brain profile (SOUL.md, config defaults, brain-protocol skill).
