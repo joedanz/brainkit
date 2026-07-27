@@ -48,7 +48,7 @@ to lift out into runtime-neutral docs first.
 deploy/agents-box/build-image.sh
 
 # a specific commit, tag, or branch
-REF=v0.1.2 deploy/agents-box/build-image.sh
+REF=v0.2.0 deploy/agents-box/build-image.sh
 
 # or let compose do it (defaults to the tip of main)
 cd deploy/agents-box && docker compose up -d --build
@@ -61,7 +61,7 @@ the image describes itself: a VCS install records the resolved commit in
 `direct_url.json` (PEP 610), which is where `brain --version` reads it from.
 
 ```bash
-docker exec agent-alice brain --version    # brain 0.1.2 (rev 10ea7eb…)
+docker exec agent-alice brain --version    # brain 0.2.0 (rev 10ea7eb…)
 docker inspect --format \
   '{{index .Config.Labels "org.opencontainers.image.revision"}}' hermes-brain:latest
 ```
@@ -88,6 +88,28 @@ on the box.
    index` builds the search index, and the agent is fully live.
 
 Every step is idempotent; `docker compose up -d --force-recreate` is always safe.
+
+## Rolling a new image
+
+The profile is installed once and then **re-synced whenever the image's brainkit
+build changes**. The sentinel at `/opt/data/.company-brain-installed` records
+which build was applied (`brain --version`, i.e. the whole string — a release
+install has no revision to report, so keying on the revision alone would stop
+detecting anything the moment this image installs from PyPI), so the container
+can tell "already current" from "never updated".
+
+What re-syncs is deliberately narrow:
+
+| | on a new build | why |
+|---|---|---|
+| `skills/` | refreshed | additive, and the image is the source of truth |
+| `SOUL.md` | only if untouched since we wrote it | the hash we shipped is recorded; equal means safe to advance, different means someone meant it, so it is left alone and the refusal logged |
+| `config.yaml` | never | hermes rewrites it at runtime — model, `_config_version`, plugins, approvals. Regenerating it would discard live settings, including the model an operator chose |
+
+So a person's edits to their own SOUL survive an upgrade, and so does their
+model. To hand the image's SOUL back, delete `/opt/data/SOUL.md` and restart:
+an absent file is not a local edit, so it is restored on the next boot — which
+also means a backup restored without one heals itself.
 
 ## Adding a person
 

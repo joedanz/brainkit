@@ -487,18 +487,18 @@ Two boxes upgraded on different days drift, and the drift is silent unless you c
 ```bash
 # brain box
 ssh brain-box sudo -u brain-sync brain --version
-# brain 0.1.2 (rev 69631f68e8c9)
+# brain 0.2.0 (rev 69631f68e8c9)
 
 # any agent container
 ssh agents-box docker exec agent-alice brain --version
-# brain 0.1.2 (rev 69631f68e8c9)
+# brain 0.2.0 (rev 69631f68e8c9)
 
 # the image itself, without starting anything
 ssh agents-box docker inspect --format \
   '{{index .Config.Labels "org.opencontainers.image.revision"}}' hermes-brain:latest
 ```
 
-The revision is what matters here, not the version. Neither box installs a release, and a version reads the same for every commit between two tags. So `0.1.2` on both boxes tells you nothing; `rev 69631f68e8c9` on both tells you they match.
+The revision is what matters here, not the version. Neither box installs a release, and a version reads the same for every commit between two tags. So `0.2.0` on both boxes tells you nothing; `rev 69631f68e8c9` on both tells you they match.
 
 Both halves know their commit for the same reason. [PEP 610](https://peps.python.org/pep-0610/) requires an installer to record the resolved commit of a VCS install, so `uv tool install git+…` on the brain box and the image's `uv pip install git+…` both write it to `direct_url.json` beside the package. Neither answer is stamped in by hand, so neither can drift from what is actually installed.
 
