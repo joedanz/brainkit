@@ -13,6 +13,34 @@ supervision, all state on `/opt/data`), with three additions:
 | **company-brain profile** | staged at `/opt/brain-profile` | installed into `/opt/data` on first boot: SOUL.md, `terminal.cwd: /vault`, the brain MCP server, tool-loop hard stops, the brain-protocol skill |
 | **vault-sync** | s6-supervised longrun | `git pull → brain index → git push` every 5 minutes (`BRAIN_SYNC_INTERVAL` to change); crash-restarted by s6 like the gateway itself |
 
+## What is in this directory
+
+Everything hermes-specific lives here, and nothing outside it is baked into the
+image — brainkit arrives from the public repo at build time.
+
+```text
+deploy/agents-box/
+├── Dockerfile                  the image
+├── build-image.sh              resolve a ref → build → tag :latest and :<sha>
+├── docker-compose.yml          one stanza per person
+├── add-agent.sh                prints a stanza + the onboarding checklist
+├── company-brain-profile/      the hermes profile, staged to /opt/brain-profile
+│   ├── SOUL.md                 how the agent should behave
+│   ├── config.yaml             terminal.cwd, brain MCP server, disabled skills
+│   └── skills/brain-protocol/  how an agent should use a brain
+├── scripts/                    s6 hooks: first boot, vault-sync
+├── agents-liveness.sh          fleet check → healthchecks.io
+└── backup-agents*.sh           nightly state zips, encrypted offsite
+```
+
+One caveat worth knowing: `company-brain-profile/skills/brain-protocol/SKILL.md`
+is not hermes-specific in *substance*. It describes how any agent should work
+with a brain — look it up first, enrich what you read, cite the source — and
+that guidance would apply equally to a different runtime. It lives here because
+it ships as a hermes skill file, and that file is currently the only written
+statement of it. If brainkit ever grows a second deployment, this is the piece
+to lift out into runtime-neutral docs first.
+
 ## Build
 
 ```bash

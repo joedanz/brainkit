@@ -140,7 +140,7 @@ def test_skill_carries_share_mechanic():
     import re
     from pathlib import Path
 
-    skill = Path("templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text().lower()
+    skill = Path("deploy/agents-box/company-brain-profile/skills/brain-protocol/SKILL.md").read_text().lower()
     # frontmatter keys
     assert "share-with" in skill and "access" in skill and "action" in skill
     # file structure
@@ -182,7 +182,7 @@ def test_spaces_yaml_custom_noun_parses_with_custom_wildcard():
 def test_brain_protocol_skill_is_noun_neutral():
     from pathlib import Path
     skill = (Path(__file__).resolve().parents[1] /
-             "templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
+             "deploy/agents-box/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
     for literal in ("Clients/", "ClientRequests", "client-name"):
         assert literal not in skill, literal
 
@@ -234,7 +234,7 @@ def test_assistant_protocol_carries_decider_guidance():
 def test_skill_carries_decider_guidance_noun_neutral():
     from pathlib import Path
     skill = (Path(__file__).resolve().parents[1] /
-             "templates/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
+             "deploy/agents-box/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
     for needle in ("Awaiting your decision", "Approvals/", "explicitly"):
         assert needle in skill, needle
     for literal in ("Clients/", "ClientRequests", "client-name"):

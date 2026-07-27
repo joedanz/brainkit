@@ -398,7 +398,13 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
           - alice-vault:/vault      # her compiled vault clone
     ```
 
-    Each container's first boot installs the `company-brain` hermes profile
+    Everything this image bakes in lives in that one directory —
+    [`deploy/agents-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box)
+    holds the Dockerfile, the compose file, the s6 scripts, and the
+    `company-brain-profile/` staged into each container. brainkit itself is not
+    copied from the repo; it is installed from the public repo at build time.
+
+    Each container's first boot installs that `company-brain` hermes profile
     (SOUL.md, `terminal.cwd: /vault`, the brain MCP server and skills — with
     hermes's built-in memory *and* its bundled `llm-wiki` skill disabled
     (`skills.disabled: [llm-wiki]`), so the vault is the agent's only durable

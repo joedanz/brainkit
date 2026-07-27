@@ -7,8 +7,10 @@
 #   - a first-boot hook (profile install, deploy-key mint, /vault ownership)
 #   - an s6-supervised vault-sync loop (git pull → brain index → git push)
 #
-# Build from the REPO ROOT — the context still supplies the profile template and
-# the s6 scripts below, though brainkit itself now comes from the public repo:
+# Build from the REPO ROOT — the COPY paths below are repo-relative — but every
+# file this image bakes in now lives beside this Dockerfile in deploy/agents-box/,
+# and brainkit comes from the public repo rather than the working tree. Nothing
+# outside this directory crosses into the image:
 #   docker build -f deploy/agents-box/Dockerfile -t hermes-brain:latest .
 FROM nousresearch/hermes-agent:latest
 
@@ -46,7 +48,7 @@ RUN uv venv /opt/brainkit --python 3.13 \
 
 # The company-brain profile (SOUL.md, config defaults, brain-protocol skill).
 # First boot copies it into /opt/data with terminal.cwd pointed at /vault.
-COPY templates/company-brain-profile /opt/brain-profile
+COPY deploy/agents-box/company-brain-profile /opt/brain-profile
 
 # OpenSSH resolves `~/.ssh` from the passwd entry (pw_dir = /opt/data), NOT
 # from $HOME (/opt/data/home for hermes tool subprocesses) — so the deploy key
