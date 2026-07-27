@@ -13,14 +13,14 @@
 x-agent-base: &agent-base
   image: hermes-brain:latest
   build:
-    context: ../..                          # repo root: bakes brainkit from source
+    context: ../..                          # repo root: profile template + s6 scripts
     dockerfile: deploy/agents-box/Dockerfile
     args:
-      # Stamps the commit into the image so `brain --version` and `docker
-      # inspect` can name the build. Defaults to the literal "unknown" rather
-      # than failing, so an ad-hoc `compose up --build` still works — but then
-      # the image cannot say what it contains. See build-image.sh.
-      GIT_SHA: ${GIT_SHA:-unknown}
+      # Which brainkit commit to install from the public repo. Defaults to the
+      # tip of main, so an ad-hoc `compose up --build` works and still produces
+      # an image that can name its own commit (PEP 610 records whatever the ref
+      # resolved to). Pin it for a reproducible build. See build-image.sh.
+      BRAINKIT_REF: ${BRAINKIT_REF:-main}
   restart: unless-stopped
   command: gateway run
   mem_limit: 1g                             # one runaway agent can't starve the others

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1] / "templates/company-brain-profile"
+ROOT = Path(__file__).resolve().parents[1] / "deploy/agents-box/company-brain-profile"
 
 
 def test_required_files_exist():

@@ -901,10 +901,11 @@ adduser --disabled-password brain-sync</pre>
         <li>Install Docker + the compose plugin.</li>
         <li>Build the <code>hermes-brain</code> image with
         <code>deploy/agents-box/build-image.sh</code> — derived from the official
-        <code>nousresearch/hermes-agent</code> image with <code>brainkit</code> baked in
-        (agents need <code>brain index / search / mcp</code> locally). The script
-        stamps the source commit into the image, which is what lets you ask a
-        container later what it is running.</li>
+        <code>nousresearch/hermes-agent</code> image, with <code>brainkit</code> installed
+        from the public repo (agents need <code>brain index / search / mcp</code>
+        locally). The script resolves the ref to a commit first, so the image is
+        built from an exact revision — which is what lets you ask a container
+        later what it is running.</li>
         <li>Set an LLM provider key once, shared via compose env.</li>
       </ol>
       <pre><span class="c"># deploy/agents-box/docker-compose.yml — one stanza per person</span>
@@ -922,6 +923,11 @@ services:
     volumes:
       - alice-state:/opt/data   <span class="c"># sessions, pairing, deploy key</span>
       - alice-vault:/vault      <span class="c"># her compiled vault clone</span></pre>
+      <p>Everything the image bakes in lives in one directory —
+      <code>deploy/agents-box/</code> holds the Dockerfile, the compose file, the s6
+      scripts, and the <code>company-brain-profile/</code> staged into each container;
+      brainkit itself is installed from the public repo at build time, not copied
+      from the working tree.</p>
       <p>Each container's first boot: install the <code>company-brain</code> hermes profile
       (SOUL.md, <code>terminal.cwd: /vault</code>, the brain MCP server + skills —
       with the assistant's built-in memory disabled, so the vault is its only

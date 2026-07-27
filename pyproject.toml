@@ -87,7 +87,6 @@ include = [
   "/docs/vite.config.ts",
   "/docs/README.md",
   "/deploy",
-  "/templates",
   "/scripts/demo/seed.sh",
   "/README.md",
   "/SECURITY.md",

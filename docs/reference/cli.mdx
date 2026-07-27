@@ -39,7 +39,7 @@ The `rev` suffix appears **only when the version alone would not identify the co
 | How it was installed | Where the revision comes from |
 |---|---|
 | From git (`git+https://…`) | [PEP 610](https://peps.python.org/pep-0610/) `direct_url.json`, which the installer wrote at install time |
-| A container image | `BRAINKIT_GIT_SHA`, stamped at build time — see [reference deployment](/guides/reference-deployment#knowing-what-is-deployed) |
+| A container image | The same `direct_url.json`, since the image installs from git. `BRAINKIT_GIT_SHA` overrides it, for an image that installs a working tree instead — see [reference deployment](/guides/reference-deployment#knowing-what-is-deployed) |
 | A released wheel (`pip install brainkit`) | Nothing — and correctly so: the version already identifies the code exactly |
 | An editable checkout (`pip install -e .`) | Nothing — its commit is whatever `HEAD` is right now, which install metadata cannot know |
 

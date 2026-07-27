@@ -372,11 +372,11 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
   <Step title="Agents box — once">
     Install Docker and build the `hermes-brain` image with
     [`deploy/agents-box/build-image.sh`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box) —
-    based on the official `nousresearch/hermes-agent` image with brainkit baked
-    in. Use the script rather than a bare `docker build`: it stamps the source
-    commit into the image, which is the only thing that can later tell you what
-    a container is running (see [below](#knowing-what-is-deployed)). One compose
-    stanza per person:
+    based on the official `nousresearch/hermes-agent` image, with brainkit
+    installed from the public repo. Use the script rather than a bare `docker
+    build`: it resolves the ref to a commit first, so the image is built from an
+    exact revision and tagged with it (see
+    [below](#knowing-what-is-deployed)). One compose stanza per person:
 
     ```yaml
     services:
@@ -398,7 +398,13 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
           - alice-vault:/vault      # her compiled vault clone
     ```
 
-    Each container's first boot installs the `company-brain` hermes profile
+    Everything this image bakes in lives in that one directory —
+    [`deploy/agents-box/`](https://github.com/joedanz/brainkit/tree/main/deploy/agents-box)
+    holds the Dockerfile, the compose file, the s6 scripts, and the
+    `company-brain-profile/` staged into each container. brainkit itself is not
+    copied from the repo; it is installed from the public repo at build time.
+
+    Each container's first boot installs that `company-brain` hermes profile
     (SOUL.md, `terminal.cwd: /vault`, the brain MCP server and skills — with
     hermes's built-in memory *and* its bundled `llm-wiki` skill disabled
     (`skills.disabled: [llm-wiki]`), so the vault is the agent's only durable
@@ -492,17 +498,16 @@ ssh agents-box docker inspect --format \
   '{{index .Config.Labels "org.opencontainers.image.revision"}}' hermes-brain:latest
 ```
 
-The revision is what matters here, not the version. Neither box installs a release — the brain box installs from git, the image bakes in a working tree — and a version reads the same for every commit between two tags. So `0.1.2` on both boxes tells you nothing; `rev 69631f68e8c9` on both tells you they match.
+The revision is what matters here, not the version. Neither box installs a release, and a version reads the same for every commit between two tags. So `0.1.2` on both boxes tells you nothing; `rev 69631f68e8c9` on both tells you they match.
 
-Each half knows its commit for a different reason:
+Both halves know their commit for the same reason. [PEP 610](https://peps.python.org/pep-0610/) requires an installer to record the resolved commit of a VCS install, so `uv tool install git+…` on the brain box and the image's `uv pip install git+…` both write it to `direct_url.json` beside the package. Neither answer is stamped in by hand, so neither can drift from what is actually installed.
 
-- **Brain box** — nothing had to be added. [PEP 610](https://peps.python.org/pep-0610/) requires an installer to record the resolved commit of a VCS install, so `uv tool install git+…` has always written it to `direct_url.json` beside the package.
-- **Agents box** — an image built from a working tree has no such record, so `build-image.sh` stamps the commit in as a build argument. It also tags `hermes-brain:<short-sha>` alongside `:latest`, which gives you a rollback target, and refuses to build with uncommitted changes under `src/` — a stamp naming a commit the image does not contain is worse than no stamp.
+The image adds two conveniences on top: the commit as an OCI label, so you can read it without starting a container, and a `hermes-brain:<short-sha>` tag alongside `:latest` for a rollback target. `build-image.sh` resolves the ref to a commit before building, so the label names a revision rather than a branch.
 
-A bare `docker build` still works; it just bakes `unknown`, and then nothing on the box can say what the container holds.
+A bare `docker build` still works; it installs whatever `main` points at, and the container can still say which commit that turned out to be.
 
 <Callout type="info">
-  Containers built before the stamp existed report `brain 0.1.2` with no revision. That is the honest answer — the information was never recorded — and it resolves itself on the next rebuild.
+  Containers built from an older image — before brainkit was installed from git — report `brain 0.1.2` with no revision. That is the honest answer: the information was never recorded. It resolves itself on the next rebuild.
 </Callout>
 
 ## Failure drills
