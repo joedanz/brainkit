@@ -97,10 +97,11 @@ def test_brain_version_reports_the_packaged_version(project, capsys):
 def test_a_stamped_build_names_its_commit(monkeypatch):
     """Between releases the version repeats, so the commit is the only identifier.
 
-    The agents-box image installs a working tree and stamps BRAINKIT_GIT_SHA at
-    build time; this is what makes `docker exec … brain --version` useful. The
-    build arg carries a full sha so the OCI label is complete, so display has to
-    abbreviate it.
+    BRAINKIT_GIT_SHA is the escape hatch for a builder that installs a working
+    tree, which no installer can describe. Nothing in this repo needs it — the
+    agents-box image installs from git, so PEP 610 covers it (see the test
+    below) — but a build arg carries a full sha so the OCI label is complete,
+    so display has to abbreviate it.
     """
     monkeypatch.setenv("BRAINKIT_GIT_SHA", "9627593abc1234567890deadbeefcafe00112233")
     assert revision() == "9627593abc12"
