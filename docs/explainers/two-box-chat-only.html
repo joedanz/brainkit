@@ -936,6 +936,12 @@ services:
       <code>docker logs</code>, the private half never leaves the container. A supervised
       sync loop then clones <code>$BRAIN_GIT_REMOTE</code>, runs <code>brain index</code>,
       and keeps syncing: pull → index → push every five minutes.</p>
+      <p>Rolling a new image <strong>re-syncs</strong> that profile — the container records
+      which brainkit build it applied, so a rebuild propagates instead of landing
+      silently. Narrow on purpose: skills refresh; <code>SOUL.md</code> updates only if
+      untouched since the image wrote it, so an edit someone meant survives;
+      <code>config.yaml</code> never, because the assistant rewrites it at runtime and
+      regenerating it would discard live settings — including the model you chose.</p>
     </div>
 
     <div class="phase">
@@ -969,9 +975,10 @@ services:
         <li><strong>Watch two numbers:</strong> cycle exit ≠ 0 (rejected write-back) and
         doctor exit ≠ 0 (integrity) — both already ping your alert URL.</li>
         <li><strong>Updates:</strong> <code>uv tool upgrade brainkit</code> on the brain box;
-        <code>build-image.sh</code> then <code>docker compose up -d</code> to roll agents.
-        The two halves upgrade separately, so they drift — <code>brain --version</code>
-        answers what each is actually on, down to the commit
+        <code>build-image.sh</code> then <code>docker compose up -d</code> to roll agents —
+        which also re-syncs each container's profile, since it records the build it
+        applied. The two halves upgrade separately, so they drift —
+        <code>brain --version</code> answers what each is actually on, down to the commit
         (<code>brain 0.2.0 (rev 69631f68e8c9)</code>).</li>
         <li><strong>Backups, both halves, offsite by default:</strong> the brain box ships
         the master vault plus its wiring (proxy/tunnel config, systemd units, the sync
