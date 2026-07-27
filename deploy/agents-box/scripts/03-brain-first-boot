@@ -18,13 +18,13 @@ if [ -z "${BRAIN_PERSON:-}" ]; then
 fi
 
 # --- 1. company-brain profile ------------------------------------------------
-# Installed once, then RE-SYNCED when the image's brainkit revision changes.
+# Installed once, then RE-SYNCED when the image's brainkit build changes.
 #
 # The sentinel used to hold only a timestamp, and the gate was its mere
 # existence — so a newer image could land, the container be recreated onto it,
 # and the profile never update. Every embark agent was in that state: installed
 # 2026-07-20, running an image built two days later. Nothing detected it because
-# nothing recorded WHICH revision had been applied.
+# nothing recorded WHICH build had been applied.
 #
 # What re-syncs and what does not is the whole design:
 #   skills/      refreshed — additive, and the image is the source of truth
@@ -39,11 +39,20 @@ fi
 # and say so.
 SENTINEL="$DATA/.company-brain-installed"
 
-# `brain --version` prints "brain 0.1.2 (rev abc123def456)". The revision comes
-# from PEP 610 install metadata, so the image describes itself and cannot name a
-# commit it does not contain.
-image_rev="$(/usr/local/bin/brain --version 2>/dev/null | sed -n 's/.*(rev \([^)]*\)).*/\1/p')"
-[ -n "$image_rev" ] || image_rev=unknown
+# `brain --version` prints "brain 0.2.0 (rev abc123def456)" for a git install —
+# the revision comes from PEP 610 install metadata, so the image describes itself
+# and cannot name a commit it does not contain.
+#
+# The WHOLE string is the build identity, not just the revision, because a
+# release install has no revision to report: the version already identifies the
+# code exactly, so `revision()` correctly returns None. Keying on the revision
+# alone would mean every PyPI-installed image recorded the same empty value and
+# re-syncs stopped being detectable the moment this image stops installing from
+# git. Version-only, revision-only, and both are all covered by comparing the
+# line as it is printed. head -1 keeps a future multi-line --version from
+# corrupting the key=value file.
+image_id="$(/usr/local/bin/brain --version 2>/dev/null | head -1)"
+[ -n "$image_id" ] || image_id=unknown
 
 sentinel_field() {
     [ -f "$SENTINEL" ] || return 0
@@ -52,11 +61,20 @@ sentinel_field() {
 file_md5() { md5sum "$1" 2>/dev/null | cut -d' ' -f1; }
 install_skills() { mkdir -p "$DATA/skills"; cp -R /opt/brain-profile/skills/. "$DATA/skills/"; }
 
+# The original install date, from either sentinel shape — key=value, or the bare
+# ISO timestamp the pre-re-sync version wrote. Carried through every rewrite so
+# an agent's true age is not reset to whenever it last happened to update.
+original_install_time() {
+    t="$(sentinel_field installed_at)"
+    [ -n "$t" ] || t="$(head -1 "$SENTINEL")"
+    printf '%s\n' "$t"
+}
+
 # key=value lines. $1 = original install time (preserved across re-syncs so the
 # agent's true age is not lost), $2 = the SOUL hash now on disk.
 write_sentinel() {
-    printf 'installed_at=%s\nrevision=%s\nsoul_md5=%s\nsynced_at=%s\n' \
-        "$1" "$image_rev" "$2" "$(date -u +%FT%TZ)" > "$SENTINEL"
+    printf 'installed_at=%s\nbuild=%s\nsoul_md5=%s\nsynced_at=%s\n' \
+        "$1" "$image_id" "$2" "$(date -u +%FT%TZ)" > "$SENTINEL"
 }
 
 if [ ! -f "$SENTINEL" ]; then
@@ -83,24 +101,23 @@ tool_loop_guardrails:
     idempotent_no_progress: 5
 EOF
     write_sentinel "$(date -u +%FT%TZ)" "$(file_md5 "$DATA/SOUL.md")"
-    echo "[brain] company-brain profile installed for $BRAIN_PERSON (rev $image_rev)"
+    echo "[brain] company-brain profile installed for $BRAIN_PERSON ($image_id)"
 
-elif [ "$(sentinel_field revision)" != "$image_rev" ]; then
-    recorded_rev="$(sentinel_field revision)"
-    # A legacy sentinel holds a bare ISO timestamp and no key=value lines; keep
-    # that as the install date rather than resetting the agent's age to now.
-    installed_at="$(sentinel_field installed_at)"
-    [ -n "$installed_at" ] || installed_at="$(head -1 "$SENTINEL")"
+elif [ "$(sentinel_field build)" != "$image_id" ]; then
+    recorded_build="$(sentinel_field build)"
+    installed_at="$(original_install_time)"
 
     install_skills
 
     recorded_soul="$(sentinel_field soul_md5)"
     live_soul="$(file_md5 "$DATA/SOUL.md")"
-    if [ -z "$recorded_soul" ]; then
+    if [ -z "$live_soul" ]; then
+        : # Gone, not edited. The heal below restores it and records the hash;
+          # calling that "locally modified" here would be a lie.
+    elif [ -z "$recorded_soul" ]; then
         # Legacy sentinel: no record of what we shipped, so we cannot tell an
         # edited SOUL from an untouched one. Never overwrite on a guess — adopt
         # the current hash so the NEXT image change can decide correctly.
-        live_soul="$(file_md5 "$DATA/SOUL.md")"
         echo "[brain] SOUL.md left as-is (no recorded hash to compare — first re-sync since the sentinel gained one)"
     elif [ "$recorded_soul" = "$live_soul" ]; then
         cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
@@ -111,7 +128,20 @@ elif [ "$(sentinel_field revision)" != "$image_rev" ]; then
     fi
 
     write_sentinel "$installed_at" "$live_soul"
-    echo "[brain] profile re-synced ${recorded_rev:-<unrecorded>} -> $image_rev (config.yaml untouched — hermes owns it)"
+    echo "[brain] profile re-synced ${recorded_build:-<unrecorded>} -> $image_id (config.yaml untouched — hermes owns it)"
+fi
+
+# Heal a SOUL.md that vanished — a hand deletion, or a restore from a backup
+# that predates it. An absent file is not a local edit: nobody means for their
+# agent to have no instructions at all, so unlike a *modified* SOUL this is safe
+# to replace. Every boot rather than only on a build change, for the same reason
+# the deploy-key chmod below is: the alternative is an agent that quietly has no
+# soul until the next image happens to land. This is also the documented way to
+# ask for the image's version back.
+if [ ! -f "$DATA/SOUL.md" ]; then
+    cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
+    write_sentinel "$(original_install_time)" "$(file_md5 "$DATA/SOUL.md")"
+    echo "[brain] SOUL.md was missing — restored from the image"
 fi
 
 # --- 2. deploy key (once) — the private key never leaves this container ----

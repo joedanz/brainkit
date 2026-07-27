@@ -13,13 +13,23 @@ explicitly under **Changed**, with what to do about it.
 
 Nothing yet.
 
-## [0.1.2] - unreleased
+## [0.2.0] - 2026-07-27
 
-Makes the package publishable to PyPI. No behavior changes beyond where `brain
-mcp` reads its own version from.
+Makes the package publishable to PyPI, and makes a deployment able to say what
+it is running. The minor bump is for `brain --version`; nothing here is
+breaking, and no vault layout, `_meta` schema, or permission rule changed.
 
 ### Added
 
+- **`brain --version`**, which answers "what is this box running?" over ssh or
+  `docker exec` — the version was previously reachable only through the MCP
+  `initialize` handshake. It reports the installed version, plus the commit when
+  the version alone would not identify the code: a git install records its
+  resolved revision under [PEP 610](https://peps.python.org/pep-0610/), so a box
+  provisioned from `git+…` describes itself with nothing stamped in by hand. A
+  released install reports no revision, correctly — the version already
+  identifies the code exactly. See
+  [Knowing what is deployed](https://brainkit-docs.vercel.app/guides/reference-deployment#knowing-what-is-deployed).
 - **A tag-driven release workflow** (`.github/workflows/release.yml`). Pushing
   `vX.Y.Z` builds, verifies, publishes to PyPI via
   [Trusted Publishing](https://docs.pypi.org/trusted-publishers/), and attaches
@@ -36,7 +46,34 @@ mcp` reads its own version from.
 - `tests/test_packaging.py` guards the PyPI-facing surface, which nothing else
   exercised.
 
+### Changed
+
+- **The agents-box image installs brainkit from git rather than copying the
+  working tree.** Nothing outside `deploy/agents-box/` crosses into the image
+  now, so a container is traceable to a commit anyone can fetch — and it is what
+  lets the image describe itself, since a VCS install records its revision where
+  `brain --version` reads it. Build a specific one with
+  `REF=<sha|tag|branch> deploy/agents-box/build-image.sh`. Operator-facing only;
+  no change to what runs inside the container.
+
 ### Fixed
+
+- **A new agents-box image did not reach the agents running on it.** First boot
+  gated on the mere existence of `/opt/data/.company-brain-installed`, so the
+  company-brain profile was copied once and never again: a newer image could
+  land, the container be recreated onto it, and `SOUL.md` and `skills/` stay at
+  whatever the original build shipped, with nothing recording *which* build had
+  been applied so nothing could detect the drift. The sentinel now records the
+  build (`brain --version` in full, so this keeps working once the image installs
+  a release, which has no revision to report) and re-syncs when it differs.
+  What re-syncs is deliberately narrow: `skills/` is refreshed, `SOUL.md` only
+  when untouched since we wrote it — the hash we shipped is recorded, so an edit
+  someone meant is preserved and the refusal logged — and `config.yaml` never,
+  because hermes rewrites it at runtime and regenerating it would discard live
+  settings including the operator's chosen model. A `SOUL.md` that is *missing*
+  rather than edited is restored on the next boot, so a partial backup restore
+  heals itself. **If you run the agents box, roll your containers onto a fresh
+  image** — this is the release that starts propagating profile changes.
 
 - **The package metadata was almost empty.** The published 0.1.1 wheel carried a
   name, version, summary, license, and dependencies — and nothing else. With no
@@ -165,7 +202,7 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.1.1...HEAD
-[0.1.2]: https://github.com/joedanz/brainkit/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/joedanz/brainkit/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/joedanz/brainkit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/joedanz/brainkit/releases/tag/v0.1.0

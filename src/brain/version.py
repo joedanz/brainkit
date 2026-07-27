@@ -1,10 +1,11 @@
 """One place that answers "which brainkit is this?".
 
 The distribution version alone cannot identify a deployment. `pyproject.toml`
-reads 0.1.2 from the moment it is bumped until the next release, so every commit
+reads 0.2.0 from the moment it is bumped until the next release, so every commit
 in between reports the same string — and neither live box installs a release:
-the brain box uses `uv tool install git+…` and the agents image `COPY`s a working
-tree. Two boxes built weeks apart can honestly both answer "0.1.2".
+the brain box uses `uv tool install git+…` and the agents image installs
+`brainkit @ git+…` at a build-arg ref. Two boxes built weeks apart can honestly
+both answer "0.2.0".
 
 So the version comes from installed metadata (never restated, so it cannot drift
 from pyproject) and the *build* is identified separately by a revision the
@@ -67,12 +68,13 @@ def _recorded_revision() -> str | None:
 def revision() -> str | None:
     """The commit this build came from, abbreviated for display.
 
-    Two sources, in order of authority. `BRAINKIT_GIT_SHA` is stamped by the
-    agents-box Dockerfile, which installs a working tree an installer cannot
+    Two sources, in order of authority. `BRAINKIT_GIT_SHA` is an escape hatch
+    for a builder that installs a working tree, which an installer cannot
     describe; it wins because a builder who bothered to say is more reliable
-    than inference. Otherwise PEP 610 install metadata, which covers the brain
-    box. Absent for a release install, where the version already identifies the
-    code exactly.
+    than inference. Otherwise PEP 610 install metadata, which covers both live
+    boxes — the brain box's `uv tool install git+…` and the agents-box image,
+    which installs from git for exactly this reason. Absent for a release
+    install, where the version already identifies the code exactly.
     """
     stamped = os.environ.get("BRAINKIT_GIT_SHA", "").strip()
     found = stamped or _recorded_revision()

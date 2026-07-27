@@ -26,15 +26,15 @@ Ask an installed copy what it is. The only top-level flag; everything else is a 
 
 ```bash
 brain --version
-# brain 0.1.2
+# brain 0.2.0
 
 brain --version
-# brain 0.1.2 (rev 69631f68e8c9)
+# brain 0.2.0 (rev 69631f68e8c9)
 ```
 
 The version comes from installed package metadata, never a string in the source, so it cannot drift from what was actually installed.
 
-The `rev` suffix appears **only when the version alone would not identify the code**, which is the usual case for a deployment. A version names a *release*: it reads the same for every commit between one tag and the next. So if you installed from git — `uv tool install git+https://github.com/joedanz/brainkit` — two boxes provisioned weeks apart both honestly answer `0.1.2`, and the commit is the only thing that tells them apart.
+The `rev` suffix appears **only when the version alone would not identify the code**, which is the usual case for a deployment. A version names a *release*: it reads the same for every commit between one tag and the next. So if you installed from git — `uv tool install git+https://github.com/joedanz/brainkit` — two boxes provisioned weeks apart both honestly answer `0.2.0`, and the commit is the only thing that tells them apart.
 
 | How it was installed | Where the revision comes from |
 |---|---|
