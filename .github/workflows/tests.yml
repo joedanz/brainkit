@@ -36,7 +36,13 @@ jobs:
       - run: |
           git config --global user.name "ci"
           git config --global user.email "ci@example.invalid"
-      - run: uv sync --extra dev
+      # --locked, not a bare sync. `uv sync` SILENTLY re-locks when pyproject
+      # has moved, so a release that bumps the version and forgets `uv lock`
+      # passes CI with a lockfile still naming the old one — the version then
+      # lives in two places that disagree, and nothing says so. With --locked
+      # the job fails and names the fix ("run `uv lock`"), which keeps
+      # pyproject.toml the single source of truth for the version.
+      - run: uv sync --extra dev --locked
       - run: uv run pytest -q
 
   # A stated guarantee nobody checks is one that quietly stops being true.
