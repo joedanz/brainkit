@@ -13,6 +13,45 @@ explicitly under **Changed**, with what to do about it.
 
 Nothing yet.
 
+## [0.2.1] - 2026-07-29
+
+Stops agents paging their users about our maintenance. Nothing here changes a
+vault layout, a `_meta` schema, or a permission rule.
+
+### Changed
+
+- **Gateway lifecycle notifications are off by default** for `telegram` and
+  `email` in the company-brain profile. The hermes gateway broadcasts
+  "Gateway shutting down" / "Gateway online" to each platform's home channel on
+  every restart — but on a managed fleet a restart is always an operator action
+  (image roll, compose regen, box reboot), so the person on the other end gets
+  paged about a maintenance window they can do nothing with.
+
+  Pinned per platform at the **top level** of `config.yaml`, not under
+  `gateway.platforms` — that nested path is the headline case of hermes #34067,
+  written without complaint and then never read. A block naming only this key
+  does not enable the platform; enablement still comes from `TELEGRAM_BOT_TOKEN`
+  or the four `EMAIL_*` vars.
+
+  One tradeoff worth knowing: the same flag silences the per-active-session
+  "your task was interrupted, message me and I'll resume" note. Hermes has no
+  separate control for the two.
+
+### Fixed
+
+- **First boot heals the flag on agents that already exist.** The profile
+  template alone only ever reaches a new volume, because `config.yaml` is never
+  re-synced — hermes rewrites it at runtime and regenerating would discard live
+  settings, including the model an operator chose. Without the heal, every agent
+  provisioned before this release would keep pinging forever, as would any
+  restore from an older backup.
+
+  The heal uses `hermes config set` (a real YAML merge; a shell append would
+  produce a duplicate top-level key and an unparseable file) and fires **only
+  when the key is unset**, so an operator who deliberately turns notifications
+  back on is not overridden on the next boot — the same "only replace what we
+  know we wrote" rule `SOUL.md` already follows.
+
 ## [0.2.0] - 2026-07-27
 
 Makes the package publishable to PyPI, and makes a deployment able to say what
@@ -202,7 +241,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/joedanz/brainkit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/joedanz/brainkit/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/joedanz/brainkit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/joedanz/brainkit/releases/tag/v0.1.0
