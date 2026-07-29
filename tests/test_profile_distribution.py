@@ -24,6 +24,15 @@ def test_config_enforces_policies():
     # with Memory.md.
     assert "llm-wiki" in cfg["skills"]["disabled"]
     assert "REPLACE_WITH_VAULT_PATH" in cfg["terminal"]["cwd"]
+    # Gateway lifecycle pings stay OFF on every platform we deploy: a restart
+    # here is always an operator action the user can do nothing about, so the
+    # "gateway shutting down / back online" broadcast is pure noise in their
+    # inbox. Pinned per platform because the flag has no global switch.
+    for plat in ("telegram", "email"):
+        assert cfg[plat]["gateway_restart_notification"] is False, plat
+        # Top level, not under gateway.platforms — the nested path is hermes
+        # #34067: written without complaint, then never read.
+        assert "platforms" not in cfg.get("gateway", {})
 
 
 def test_soul_and_skill_reference_the_vault_protocol():

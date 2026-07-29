@@ -25,3 +25,23 @@ skills:
 
 display:
   tool_progress: new
+
+# Gateway lifecycle pings, off on purpose. On every restart the gateway
+# broadcasts "⚠️ Gateway shutting down" / "♻️ Gateway online" to each platform's
+# home channel — but here a restart is always an operator action (image roll,
+# compose regen, box reboot), never something the user asked for or can act on.
+# They get pinged about our maintenance window.
+#
+# The same flag also silences the per-active-session "your task was interrupted,
+# message me and I'll resume" note. Hermes has no separate control for the two,
+# and noise on every deploy is the worse of them.
+#
+# Top level, NOT under `gateway.platforms` — that nested path is the headline
+# case of hermes #34067, silently written and never read. A block naming only
+# this key does not enable the platform: enablement still comes from
+# TELEGRAM_BOT_TOKEN / the four EMAIL_* vars.
+telegram:
+  gateway_restart_notification: false
+
+email:
+  gateway_restart_notification: false
