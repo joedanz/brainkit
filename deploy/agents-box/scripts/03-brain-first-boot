@@ -144,6 +144,35 @@ if [ ! -f "$DATA/SOUL.md" ]; then
     echo "[brain] SOUL.md was missing — restored from the image"
 fi
 
+# Silence the gateway's restart pings on agents provisioned before the profile
+# carried the flag. The template above can only ever reach a NEW volume, because
+# config.yaml is never re-synced (see the rule at the top of this file) — so
+# without this, every agent that already exists keeps mailing its user "Gateway
+# shutting down" on every image roll, forever, as does any future restore from a
+# backup that predates the change.
+#
+# `hermes config set`, never a shell append: a second top-level `telegram:` key
+# would make config.yaml unparseable, and the CLI does a real YAML merge that
+# leaves the runtime keys hermes owns (model, _config_version, plugins) alone.
+#
+# Only when UNSET. An operator who deliberately turns pings back on must not find
+# them off again after the next boot — the same "we only replace what we know we
+# wrote" stance the SOUL.md rule takes above.
+#
+# Fully guarded: this script runs `set -eu`, and a lifecycle notification is
+# never worth failing a boot over.
+for plat in telegram email; do
+    key="$plat.gateway_restart_notification"
+    if su hermes -s /bin/sh -c "hermes config get '$key'" >/dev/null 2>&1; then
+        continue        # already decided, by us or by the operator
+    fi
+    if su hermes -s /bin/sh -c "hermes config set '$key' false" >/dev/null 2>&1; then
+        echo "[brain] $key -> false (gateway lifecycle pings off)"
+    else
+        echo "[brain] could not set $key — left as-is, agent may ping on restart"
+    fi
+done
+
 # --- 2. deploy key (once) — the private key never leaves this container ----
 # ssh finds it via /etc/ssh/ssh_config.d/brain.conf (absolute paths, baked
 # into the image): OpenSSH resolves ~ from the passwd entry, not $HOME, so a

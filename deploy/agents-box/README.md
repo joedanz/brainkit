@@ -10,7 +10,7 @@ supervision, all state on `/opt/data`), with three additions:
 | Addition | Where | What it does |
 | --- | --- | --- |
 | **brainkit** | `/opt/brainkit` venv, `brain` on PATH | `brain index / search / mcp` inside the container (installed from `git+https://github.com/joedanz/brainkit` — it is not on PyPI) |
-| **company-brain profile** | staged at `/opt/brain-profile` | installed into `/opt/data` on first boot: SOUL.md, `terminal.cwd: /vault`, the brain MCP server, tool-loop hard stops, the brain-protocol skill |
+| **company-brain profile** | staged at `/opt/brain-profile` | installed into `/opt/data` on first boot: SOUL.md, `terminal.cwd: /vault`, the brain MCP server, tool-loop hard stops, gateway lifecycle pings off, the brain-protocol skill |
 | **vault-sync** | s6-supervised longrun | `git pull → brain index → git push` every 5 minutes (`BRAIN_SYNC_INTERVAL` to change); crash-restarted by s6 like the gateway itself |
 
 ## What is in this directory
@@ -26,7 +26,8 @@ deploy/agents-box/
 ├── add-agent.sh                prints a stanza + the onboarding checklist
 ├── company-brain-profile/      the hermes profile, staged to /opt/brain-profile
 │   ├── SOUL.md                 how the agent should behave
-│   ├── config.yaml             terminal.cwd, brain MCP server, disabled skills
+│   ├── config.yaml             terminal.cwd, brain MCP server, disabled skills,
+│   │                           gateway lifecycle pings off
 │   └── skills/brain-protocol/  how an agent should use a brain
 ├── scripts/                    s6 hooks: first boot, vault-sync
 ├── agents-liveness.sh          fleet check → healthchecks.io
@@ -104,7 +105,15 @@ What re-syncs is deliberately narrow:
 |---|---|---|
 | `skills/` | refreshed | additive, and the image is the source of truth |
 | `SOUL.md` | only if untouched since we wrote it | the hash we shipped is recorded; equal means safe to advance, different means someone meant it, so it is left alone and the refusal logged |
-| `config.yaml` | never | hermes rewrites it at runtime — model, `_config_version`, plugins, approvals. Regenerating it would discard live settings, including the model an operator chose |
+| `config.yaml` | never regenerated; one key healed | hermes rewrites it at runtime — model, `_config_version`, plugins, approvals. Regenerating it would discard live settings, including the model an operator chose |
+
+The single exception is `<platform>.gateway_restart_notification`, set to `false`
+**only when unset**, on every boot, via `hermes config set` — a real YAML merge,
+never an append. It is an exception because the alternative is worse than the
+rule: the template default only ever reaches a new volume, so every agent that
+already exists would keep mailing its user "Gateway shutting down" on every image
+roll, forever. Setting it only when unset keeps the rule's spirit — an operator
+who turns pings back on is never overridden.
 
 So a person's edits to their own SOUL survive an upgrade, and so does their
 model. To hand the image's SOUL back, delete `/opt/data/SOUL.md` and restart:
