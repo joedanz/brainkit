@@ -29,6 +29,10 @@ explicitly under **Changed**, with what to do about it.
 
 - Sharing a subfolder of the shared space is now refused at request time under
   any shared name (previously a silent no-op grant under a renamed top).
+- Share grants and revokes on a vault with a non-default `shared:` no longer
+  fail against the default name. A revoke was the worse half: it was refused
+  inside the sweep's per-request guard, so it left the access in place with no
+  outcome, no inbox note, and no log entry, every cycle.
 - `brain rename-entities` no longer drops a non-default `shared:` key from
   `_meta/config.yaml`.
 
