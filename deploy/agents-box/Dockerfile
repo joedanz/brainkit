@@ -12,7 +12,11 @@
 # and brainkit comes from the public repo rather than the working tree. Nothing
 # outside this directory crosses into the image:
 #   docker build -f deploy/agents-box/Dockerfile -t hermes-brain:latest .
-FROM nousresearch/hermes-agent:latest
+# Which hermes base to build on. Default preserves every existing build path;
+# the deploy dashboard's upgrade-hermes job passes a digest-pinned ref
+# (nousresearch/hermes-agent@sha256:…) so fleet upgrades are byte-exact.
+ARG HERMES_IMAGE=nousresearch/hermes-agent:latest
+FROM ${HERMES_IMAGE}
 
 USER root
 
@@ -35,6 +39,10 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
 ARG BRAINKIT_REF=main
 LABEL org.opencontainers.image.revision="$BRAINKIT_REF"
 LABEL org.opencontainers.image.source="https://github.com/joedanz/brainkit"
+
+# Re-declared: an ARG before FROM is scoped to FROM only (Docker semantics).
+ARG HERMES_IMAGE=nousresearch/hermes-agent:latest
+LABEL io.deploy.hermes-image="$HERMES_IMAGE"
 
 # Installing from git rather than the working tree is what keeps this image out
 # of brainkit's build: no source is copied, so the only thing crossing the
