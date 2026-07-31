@@ -268,7 +268,7 @@ function proposeButton(path, text) {
     btn.dataset.open = "1";
     const row = el("div", "promo-actions");
     const target = el("input"); target.type = "text";
-    target.placeholder = "target path in a shared space, e.g. Company/Shared/Note.md";
+    target.placeholder = "target path in a shared space, e.g. Shared/Note.md";
     target.setAttribute("aria-label", "Promotion target path");
     const go = el("button", "btn primary", "Draft");
     const cancel = el("button", "btn", "Cancel");

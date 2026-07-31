@@ -68,13 +68,15 @@ When a space matches both an exact rule and a wildcard, the exact rule wins. Def
 
 ## `_meta/config.yaml` — vault-level settings
 
-Optional. Two keys name the restricted third-party tree:
+Optional. Three keys name the vault's top-level trees:
 
 ```yaml
-entities: Clients   # the top-level folder (default)
+# _meta/config.yaml — vault-level naming
+entities: Clients   # top-level tree for third-party spaces
 entity: client      # singular form: used in guidance text and as the
                     # request frontmatter key (client-name:) and folder
                     # (ClientRequests/)
+shared: Company     # the shared top-level space everyone reads
 ```
 
 Missing file or keys fall back to the defaults shown (a missing `entity`
@@ -84,7 +86,7 @@ Change the pair on a live vault with [`brain rename-entities`](/reference/cli#br
 the command also renames the folder and rewrites the affected rules and
 pending queues.
 
-`entities` may not be `Company`, `Teams`, `People`, or `_meta` (checked case-insensitively) — those names are already the fixed tops of the master layout. `brain init --entities People` (or `Company`, `Teams`, `_meta`) fails fast with a clear error instead of silently colliding with them.
+`entities` may not be `Company`, `Teams`, `People`, or `_meta` (checked case-insensitively), and may not equal `shared`. `shared` may not be `Teams`, `People`, or `_meta`, and is set at `brain init --shared` — it has no rename command, so pick it at the start. When a key is absent the default applies; permissions never depend on any of these names — `spaces.yaml` is the only authority on who reads what.
 
 The default pair (`Clients`/`client` → `ClientRequests/`, `client-name:`) is one case of a general rule: the request folder is `entity` with its first letter capitalized, plus `Requests` (`family` → `FamilyRequests/`), and the frontmatter key is `<entity>-name` (`family-name:`). Reach for `--entity`/`entity:` whenever the naive plural-stripping default would get an irregular noun wrong, e.g. `--entities Families --entity family`.
 

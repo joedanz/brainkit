@@ -1067,3 +1067,39 @@ def test_unreadable_clients_log_is_reported(tmp_path):
     assert len(findings) == 1
     assert findings[0].severity == "error" and findings[0].check == "clients"
     assert "Danziger Family" not in findings[0].message
+
+
+def test_family_master_has_no_false_structural_findings(tmp_path):
+    from brain.doctor import run_doctor
+    from brain.schemas import make_config
+    from brain.templates import scaffold_master
+    scaffold_master(tmp_path, "Fam", make_config("Clients", "client", "Family"))
+    findings = run_doctor(tmp_path)
+    bad = [f for f in findings
+           if f.check in ("space-coverage", "unreadable-spaces", "orphan-files")
+           and "Family" in f.message]
+    assert bad == [], [f.message for f in bad]
+
+
+def test_shared_agreement_mismatch_warns(tmp_path):
+    from brain.doctor import run_doctor
+    from brain.templates import scaffold_master
+    scaffold_master(tmp_path, "Acme")            # default: Company/ on disk
+    (tmp_path / "_meta/config.yaml").write_text(
+        "entities: Clients\nentity: client\nshared: Family\n")
+    msgs = [f.message for f in run_doctor(tmp_path)]
+    assert any("spaces.yaml has no exact rule" in m for m in msgs)
+    assert any("tree on disk is 'Company'" in m for m in msgs)
+
+
+def test_shared_agreement_clean_on_default_and_on_real_family(tmp_path):
+    from brain.doctor import run_doctor
+    from brain.schemas import make_config
+    from brain.templates import scaffold_master
+    default = tmp_path / "default"
+    scaffold_master(default, "Acme")
+    family = tmp_path / "family"
+    scaffold_master(family, "Fam", make_config("Clients", "client", "Family"))
+    for master in (default, family):
+        msgs = [f.message for f in run_doctor(master)]
+        assert not any("config.yaml names shared" in m for m in msgs), msgs

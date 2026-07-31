@@ -29,7 +29,16 @@ import yaml
 from brain.doctor import DIGEST_NAME, Finding, run_doctor
 from brain.frontmatter import split_frontmatter
 from brain.resolver import can_read, can_write_path, space_of_path
-from brain.schemas import Org, Person, SchemaError, SpaceRule, load_org, load_spaces
+from brain.schemas import (
+    DEFAULT_SHARED,
+    Org,
+    Person,
+    SchemaError,
+    SpaceRule,
+    load_config,
+    load_org,
+    load_spaces,
+)
 
 # DIGEST_NAME is canonically owned by brain.doctor — doctor's own-digest
 # exclusion needs it too (see doctor._is_own_digest: doctor must never read
@@ -52,6 +61,7 @@ TRIAGE_CHECKS = frozenset({
 
 def route_findings(
     findings: list[Finding], org: Org, rules: tuple[SpaceRule, ...],
+    shared: str = DEFAULT_SHARED,
 ) -> tuple[dict[str, list[Finding]], int]:
     """Map findings to recipient person ids. Returns (routed, unrouted_count).
 
@@ -88,7 +98,7 @@ def route_findings(
             recipients: list[str] = []
             need_admins = not f.paths
             for path in f.paths:
-                space = space_of_path(path)
+                space = space_of_path(path, shared)
                 pid = space.split("/", 1)[1] if space and space.startswith("People/") else None
                 if pid is not None and pid in org.people:
                     if pid not in recipients:
@@ -101,7 +111,7 @@ def route_findings(
                         continue
                     person = org.people[pid]
                     if any(
-                        (sp := space_of_path(path)) is None
+                        (sp := space_of_path(path, shared)) is None
                         or not can_read(sp, person, rules)
                         for path in f.paths
                     ):
@@ -115,7 +125,8 @@ def route_findings(
     return routed, unrouted
 
 
-def _display(f: Finding, person: Person, rules: tuple[SpaceRule, ...], *, is_admin: bool) -> str:
+def _display(f: Finding, person: Person, rules: tuple[SpaceRule, ...], *,
+             is_admin: bool, shared: str = DEFAULT_SHARED) -> str:
     """The line a given recipient sees for this finding. Admins are the
     oversight role and get `f.message` verbatim — the same detail the master
     dashboard already shows them. Non-admins never see a path or fact
@@ -127,7 +138,7 @@ def _display(f: Finding, person: Person, rules: tuple[SpaceRule, ...], *, is_adm
         return f.message
 
     def readable(path: str) -> bool:
-        space = space_of_path(path)
+        space = space_of_path(path, shared)
         return space is not None and can_read(space, person, rules)
 
     if f.paths and all(readable(p) for p in f.paths):
@@ -202,11 +213,12 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
     try:
         org = load_org(master / "_meta/org.yaml")
         rules = load_spaces(master / "_meta/spaces.yaml")
+        shared = load_config(master).shared
     except (SchemaError, OSError, yaml.YAMLError) as e:
         return TriageReport(0, 0, 0, len(findings),
                             [f"meta unreadable — nothing routed: {e}"])
 
-    routed, unrouted = route_findings(findings, org, rules)
+    routed, unrouted = route_findings(findings, org, rules, shared)
     delivered = len({f for fs in routed.values() for f in fs})
     written = removed = 0
     changed: list[str] = []
@@ -228,10 +240,10 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
         target = master / rel
         # Both branches below touch the same path — protect delete and write
         # with the same posture check, not just write.
-        if space_of_path(rel) != f"People/{person.id}":
+        if space_of_path(rel, shared) != f"People/{person.id}":
             warnings.append(f"{rel}: resolves outside People/{person.id} — skipped")
             continue
-        if not can_write_path(rel, person, rules):
+        if not can_write_path(rel, person, rules, shared=shared):
             warnings.append(
                 f"{person.id} has no write grant on their own space — skipped")
             continue
@@ -251,7 +263,8 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
                 changed.append(rel)
             continue
         is_admin = "admin" in person.roles
-        lines = [(f.check, _display(f, person, rules, is_admin=is_admin))
+        lines = [(f.check, _display(f, person, rules, is_admin=is_admin,
+                                    shared=shared))
                  for f in person_findings]
         fp = _fingerprint(lines)
         if target.is_file() and not target.is_symlink():

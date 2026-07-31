@@ -28,7 +28,7 @@ from pathlib import Path, PurePosixPath
 
 from brain.errors import HANDLED, BrainError, describe
 from brain.resolver import readable_spaces
-from brain.schemas import Org, Person, SpaceRule, VaultConfig, load_config
+from brain.schemas import DEFAULT_SHARED, Org, Person, SpaceRule, VaultConfig, load_config
 
 MANIFEST_NAME = ".brain-manifest.json"
 
@@ -115,7 +115,7 @@ def compile_vault(
 ) -> CompileResult:
     today = today or date.today().isoformat()
     config = config or load_config(master)
-    spaces = readable_spaces(master, person, rules)
+    spaces = readable_spaces(master, person, rules, shared=config.shared)
     building = out.parent / f".{out.name}.building"
     old = out.parent / f".{out.name}.old"
 
@@ -163,6 +163,11 @@ def compile_vault(
             "compiled": compiled_hashes,
             "generated": generated,
         }
+        if config.shared != DEFAULT_SHARED:
+            # How vault-side readers (write-back, the index, MCP) learn to
+            # parse this vault's paths. Written only when it is not the
+            # default, so a default vault's manifest is byte-unchanged.
+            manifest["shared"] = config.shared
         (building / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2))
 
         # Two-phase swap: rename the previous vault aside, promote the new
@@ -212,7 +217,8 @@ def _post_process(
         if ".git" not in p.parts and "_meta" not in p.parts
     }
     for rel in compiled:
-        if rel.endswith(".md") and not can_write_path(rel, person, rules):
+        if rel.endswith(".md") and not can_write_path(rel, person, rules,
+                                                      shared=config.shared):
             f = building / rel
             f.write_text(stub_links(f.read_text(), included_stems, master_stems))
 
@@ -220,7 +226,7 @@ def _post_process(
 
     # Derived once and shared: both generators need it, and two derivations
     # would be two sources of truth for one permission fact.
-    spaces_rw = writable_spaces(spaces, person, rules)
+    spaces_rw = writable_spaces(spaces, person, rules, shared=config.shared)
     generated = generate_context_files(building, person, spaces_rw, config=config)
 
     from brain.vaultmap import MAP_NAME, generate_map

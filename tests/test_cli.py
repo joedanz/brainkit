@@ -403,3 +403,18 @@ def test_cli_shares_list_approve(master: Path, tmp_path: Path, capsys):
                  "--approver", "alice"]) == 0
     assert main(["shares", "revoke", "--master", str(master),
                  "--space", "Clients/acme", "--subject", "person:alice"]) == 0
+
+
+def test_init_shared_flag(tmp_path: Path):
+    rc = main(["init", str(tmp_path / "m"), "--company", "Fam",
+               "--shared", "Family"])
+    assert rc == 0
+    assert (tmp_path / "m/Family/Home.md").is_file()
+    assert "shared: Family" in (tmp_path / "m/_meta/config.yaml").read_text()
+
+
+def test_init_bad_shared_leaves_no_partial_dir(tmp_path: Path, capsys):
+    rc = main(["init", str(tmp_path / "m"), "--company", "Fam",
+               "--shared", "Teams"])
+    assert rc == 1
+    assert not (tmp_path / "m").exists()   # validated before mkdir

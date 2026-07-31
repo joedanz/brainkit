@@ -195,7 +195,7 @@ def test_apply_skips_symlink_appearing_after_diff(master: Path, tmp_path: Path, 
     (vault / "People/bob/leak.md").symlink_to(secret)  # in Bob's writable scope
     monkeypatch.setattr(
         "brain.writeback.diff_vault",
-        lambda v: [Change("People/bob/leak.md", "modify")],
+        lambda v, manifest=None: [Change("People/bob/leak.md", "modify")],
     )
     result = apply_writeback(master, vault, BOB, RULES)
     assert result.violations == []  # path is in scope; the symlink is the issue
@@ -218,3 +218,16 @@ def test_client_request_subdir_survives_writeback(master: Path, tmp_path: Path):
     assert not result.violations
     assert any(c.path.startswith("People/bob/ClientRequests/") for c in result.applied)
     assert list((master / "People/bob/ClientRequests").glob("*.md"))
+
+
+def test_shared_of_semantics():
+    from brain.writeback import shared_of
+    assert shared_of({}) == "Company"
+    assert shared_of({"shared": "Family"}) == "Family"
+    assert shared_of({"shared": 7}) == "Company"      # non-string -> default
+    assert shared_of({"shared": ""}) == "Company"     # empty -> default
+
+
+def test_vault_shared_missing_manifest(tmp_path):
+    from brain.writeback import vault_shared
+    assert vault_shared(tmp_path) == "Company"  # naming lookup, never raises

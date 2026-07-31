@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from brain.compiler import MANIFEST_NAME, compile_vault
-from tests.conftest import BOB, RULES
+from tests.conftest import BOB, RULES, familyize, rules_for
 
 
 def test_compiles_only_readable_spaces(master: Path, tmp_path: Path):
@@ -403,3 +403,22 @@ def test_undecodable_read_only_note_still_fails_closed(
     out = tmp_path / "bob-vault"
     with pytest.raises(UnicodeDecodeError):
         compile_vault(master, BOB, RULES, out)
+
+
+def test_manifest_shared_key_only_when_nondefault(master: Path, tmp_path: Path):
+
+
+    # Default compile: no "shared" key, so a default vault's manifest is
+    # byte-unchanged from before the setting existed.
+    out = tmp_path / "bob-default"
+    compile_vault(master, BOB, RULES, out)
+    manifest = json.loads((out / MANIFEST_NAME).read_text())
+    assert "shared" not in manifest
+
+    # A Family-shaped master: shared tree renamed, config declares it.
+    fam = familyize(master, tmp_path / "family-master")
+    fam_out = tmp_path / "bob-family"
+    compile_vault(fam, BOB, rules_for("Family"), fam_out)
+    manifest = json.loads((fam_out / MANIFEST_NAME).read_text())
+    assert manifest["shared"] == "Family"
+    assert (fam_out / "Family/Home.md").exists()

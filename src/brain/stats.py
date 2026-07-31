@@ -29,8 +29,8 @@ from brain.resolver import (
     enumerate_spaces,
     space_of_path,
 )
-from brain.schemas import load_org, load_spaces
-from brain.writeback import ManifestError, _load_manifest, diff_vault
+from brain.schemas import load_config, load_org, load_spaces
+from brain.writeback import ManifestError, _load_manifest, diff_vault, shared_of
 
 
 @dataclass
@@ -226,13 +226,14 @@ def collect_vault_stats(
 ) -> VaultStats:
     vault = Path(vault)
     manifest = _load_manifest(vault)  # raises ManifestError if uncompiled
+    shared = shared_of(manifest)
     person = manifest.get("person", "")
     candidates = _manifest_candidates(manifest)
 
     warnings: list[str] = []
     notes_by_space: dict[str, int] = {}
     for rel in candidates:
-        space = space_of_path(rel) or "(outside spaces)"
+        space = space_of_path(rel, shared) or "(outside spaces)"
         notes_by_space[space] = notes_by_space.get(space, 0) + 1
 
     index_info: IndexInfo | None = None
@@ -483,16 +484,17 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
     master = Path(master)
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
+    shared = load_config(master).shared
 
     warnings: list[str] = []
-    spaces = enumerate_spaces(master)
+    spaces = enumerate_spaces(master, shared)
     uncovered = [s for s in spaces if _match_rule(s, rules)[0] is None]
     permissions = [
         SpacePermission(
             space=s,
             readers=[p.id for p in org.people.values() if can_read(s, p, rules)],
             writers=[p.id for p in org.people.values()
-                     if can_write_path(f"{s}/x.md", p, rules)],
+                     if can_write_path(f"{s}/x.md", p, rules, shared=shared)],
         )
         for s in spaces
     ]

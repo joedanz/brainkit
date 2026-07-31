@@ -295,17 +295,17 @@ def _tool_recent(vault: Path, args: dict) -> tuple[str, bool]:
     return "\n".join(lines), False
 
 
-def _tool_read(vault: Path, args: dict) -> tuple[str, bool]:
+def _tool_read(vault: Path, args: dict, shared: str) -> tuple[str, bool]:
     from brain.notes import NoteAccessError, read_note
 
     rel = args.get("rel_path", "")
     try:
-        return read_note(vault, rel), False
+        return read_note(vault, rel, shared), False
     except NoteAccessError as e:
         return f"refused: {e}", True
 
 
-def _handle(vault: Path, provider, msg: dict):
+def _handle(vault: Path, provider, msg: dict, shared: str):
     """Return a response dict, or None for notifications (no id)."""
     method = msg.get("method")
     mid = msg.get("id")
@@ -330,7 +330,7 @@ def _handle(vault: Path, provider, msg: dict):
             if name == "brain_search":
                 text, is_err = _tool_search(vault, args, provider)
             elif name == "brain_read":
-                text, is_err = _tool_read(vault, args)
+                text, is_err = _tool_read(vault, args, shared)
             elif name == "brain_links":
                 text, is_err = _tool_links(vault, args)
             elif name == "brain_graph":
@@ -360,6 +360,8 @@ def serve(vault: Path, stdin=None, stdout=None) -> None:
 
     from brain.embeddings import provider_from_config
     provider = provider_from_config()  # resolved once; None → keyword-only
+    from brain.writeback import vault_shared
+    shared = vault_shared(vault)  # read once per process, passed down as a str
 
     for line in stdin:
         line = line.strip()
@@ -371,7 +373,7 @@ def serve(vault: Path, stdin=None, stdout=None) -> None:
             stdout.write(json.dumps(_error(None, -32700, "parse error")) + "\n")
             stdout.flush()
             continue
-        resp = _handle(vault, provider, msg)
+        resp = _handle(vault, provider, msg, shared)
         if resp is not None:
             stdout.write(json.dumps(resp) + "\n")
             stdout.flush()

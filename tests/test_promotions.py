@@ -734,3 +734,24 @@ def test_sweep_leaves_patch_draft_when_target_is_symlink(master: Path, tmp_path:
     d.write_text("---\ntarget-path: Company/Intel/SLink.md\nmode: patch\n---\nv2\n")
     assert sweep(master, today="2026-07-21") == []
     assert d.exists()
+
+
+def test_validate_target_custom_shared():
+    from brain.promotions import PromotionError, _validate_target
+    _validate_target("Family/Playbook/Chores.md", "Family")   # ok: file in shared space
+    # under a custom name, "Company" is just another nested top, so a file in
+    # one of its child spaces is a legal target...
+    _validate_target("Company/Playbook/X.md", "Family")
+    with pytest.raises(PromotionError):
+        _validate_target("Family", "Family")                  # bare space
+    with pytest.raises(PromotionError):
+        _validate_target("Company/X.md", "Family")            # arity: nested top needs 3+ parts
+
+
+@pytest.mark.parametrize(
+    "bare", ["Family", "Family/", "Teams/sales", "Teams/sales/"],
+)
+def test_validate_target_rejects_bare_space_custom_shared(bare: str):
+    from brain.promotions import _validate_target
+    with pytest.raises(PromotionError):
+        _validate_target(bare, "Family")

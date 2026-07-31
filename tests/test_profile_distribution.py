@@ -45,7 +45,8 @@ def test_soul_and_skill_reference_the_vault_protocol():
     assert "Notes/<Topic>.md" in skill
     assert "lean overview" in skill
     # articles distill into the shared Intel wiki; no off-vault knowledge base
-    assert "Company/Intel/" in skill
+    # (noun-neutral: the vault's AGENTS.md names the shared space)
+    assert "<shared space>/Intel/" in skill
     assert "Distill, never archive" in skill
     assert "as of YYYY-MM" in skill
     assert "captured YYYY-MM" in skill       # today's-date fallback when source undated
@@ -56,3 +57,10 @@ def test_soul_and_skill_reference_the_vault_protocol():
     # typed-relation authoring: declare up/down/same/prev/next edges
     assert "## Relate" in skill
     assert "brain graph" in skill
+
+
+def test_profile_skill_has_no_shared_space_literals():
+    # The skill ships to every deployment; the shared top's name is per-vault
+    # config, so the skill must defer to the vault's own AGENTS.md for it.
+    text = (ROOT / "skills/brain-protocol/SKILL.md").read_text()
+    assert "Company/" not in text

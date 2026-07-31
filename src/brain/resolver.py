@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
-from brain.schemas import Person, SpaceRule
+from brain.schemas import DEFAULT_SHARED, Person, SpaceRule
 
-# Company is itself a space; every other non-reserved top-level directory is a
-# nested top whose child directories are each a space. No tree name is special:
-# spaces.yaml is the only authority on readability, so a space under a top no
-# rule covers has zero readers (fail closed).
+# The shared top is itself a space; every other non-reserved top-level directory
+# is a nested top whose child directories are each a space. No tree name is
+# special: spaces.yaml is the only authority on readability, so a space under a
+# top no rule covers has zero readers (fail closed). Which top is the shared one
+# is vault config, so callers pass it in; the default keeps pure leaves honest.
+#
+# A loose file directly under a nested top (`Clients/stray.md`) resolves to a
+# space named after the file. Deliberate: this is a pure path parser with no
+# filesystem access (it runs per-note in compile hot loops), so it cannot tell
+# a space root from a file. The junk name matches no rule, so every permission
+# check on it fails closed, and consumers that care reject it on arity —
+# see promotions._validate_target.
 RESERVED = ("_meta", ".git")
 
 
@@ -17,31 +25,30 @@ def _is_top(name: str) -> bool:
     return name not in RESERVED and not name.startswith(".")
 
 
-def enumerate_spaces(master: Path) -> list[str]:
+def enumerate_spaces(master: Path, shared: str = DEFAULT_SHARED) -> list[str]:
     spaces: list[str] = []
     for top in sorted(p for p in master.iterdir() if p.is_dir()):
         if not _is_top(top.name):
             continue
-        if top.name == "Company":
-            spaces.append("Company")
+        if top.name == shared:
+            spaces.append(shared)
         else:
             spaces.extend(
                 f"{top.name}/{child.name}"
                 for child in sorted(top.iterdir())
-                if child.is_dir()
-            )
+                if child.is_dir() and _is_top(child.name))
     return spaces
 
 
-def space_of_path(rel_path: str) -> str | None:
+def space_of_path(rel_path: str, shared: str = DEFAULT_SHARED) -> str | None:
     path = PurePosixPath(rel_path)
     parts = path.parts
     if not parts or path.is_absolute() or ".." in parts:
         return None
     if not _is_top(parts[0]):
         return None
-    if parts[0] == "Company":
-        return "Company"
+    if parts[0] == shared:
+        return shared
     if len(parts) >= 2:
         return f"{parts[0]}/{parts[1]}"
     return None
@@ -89,14 +96,16 @@ def can_read(space: str, person: Person, rules: tuple[SpaceRule, ...]) -> bool:
     return _allowed(space, person, rules, "read")
 
 
-def can_write_path(rel_path: str, person: Person, rules: tuple[SpaceRule, ...]) -> bool:
-    space = space_of_path(rel_path)
+def can_write_path(rel_path: str, person: Person, rules: tuple[SpaceRule, ...],
+                   shared: str = DEFAULT_SHARED) -> bool:
+    space = space_of_path(rel_path, shared)
     if space is None:
         return False
     return _allowed(space, person, rules, "write")
 
 
-def _self_named_spaces(person: Person, rules: tuple[SpaceRule, ...]) -> list[str]:
+def _self_named_spaces(person: Person, rules: tuple[SpaceRule, ...],
+                       shared: str = DEFAULT_SHARED) -> list[str]:
     """Wildcard spaces this person's own identity names, whether or not they
     exist on disk yet.
 
@@ -129,11 +138,13 @@ def _self_named_spaces(person: Person, rules: tuple[SpaceRule, ...]) -> list[str
                 if not _subject_matches(subject, person, binding):
                     continue
                 space = "/".join([*parts[:-1], binding])
-                if space_of_path(f"{space}/x.md") == space:
+                if space_of_path(f"{space}/x.md", shared) == space:
                     found.add(space)
     return sorted(found)
 
 
-def readable_spaces(master: Path, person: Person, rules: tuple[SpaceRule, ...]) -> list[str]:
-    spaces = set(enumerate_spaces(master)) | set(_self_named_spaces(person, rules))
+def readable_spaces(master: Path, person: Person, rules: tuple[SpaceRule, ...],
+                    shared: str = DEFAULT_SHARED) -> list[str]:
+    spaces = (set(enumerate_spaces(master, shared))
+              | set(_self_named_spaces(person, rules, shared)))
     return sorted(s for s in spaces if can_read(s, person, rules))

@@ -43,6 +43,23 @@ RULES = (
     SpaceRule("Clients/*", read=("everyone",), write=("role:admin",)),
 )
 
+def rules_for(shared: str) -> tuple[SpaceRule, ...]:
+    """RULES with the shared top renamed. The one place that tuple is built,
+    so a suite exercising a custom shared name never hand-rolls it."""
+    return (SpaceRule(shared, read=("everyone",), write=("role:admin",)), *RULES[1:])
+
+
+def familyize(master: Path, dest: Path, shared: str = "Family") -> Path:
+    """Copy the `master` fixture into a <shared>-shaped vault: shared tree
+    renamed on disk, config.yaml declaring the name. Pair with `rules_for`."""
+    import shutil
+
+    shutil.copytree(master, dest)
+    (dest / "Company").rename(dest / shared)
+    (dest / "_meta/config.yaml").write_text(f"shared: {shared}\n")
+    return dest
+
+
 ALICE = Person(id="alice", name="Alice Nguyen", roles=("admin",), teams=("sales",))
 BOB = Person(id="bob", name="Bob Rivera", roles=(), teams=("ops",))
 ORG = Org(people={"alice": ALICE, "bob": BOB})

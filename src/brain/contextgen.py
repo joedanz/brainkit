@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from brain.schemas import Person, SpaceRule, VaultConfig
+from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, VaultConfig
 
 ROOT_LIMIT = 20_000
 SPACE_LIMIT = 8_000
@@ -62,7 +62,7 @@ writable spaces; the write-back service rejects changes to read-only paths.
   only when the name is thin or ambiguous — a bare common surname, a name that
   matches a {entity} you already have, or one that collides with your own
   household. One utterance can split into two homes: e.g. a family attending an
-  event becomes a {entity} note AND a `Company/Intel/Events/` promotion,
+  event becomes a {entity} note AND a `{shared}/Intel/Events/` promotion,
   cross-linked.
 - {entity_title} facts about a {entity} you already own -> write them into that
   `{entities}/<name>/` space directly
@@ -83,23 +83,23 @@ writable spaces; the write-back service rejects changes to read-only paths.
   only a decision your human has explicitly made — never decide on your own.
   Company-wide shares (to `everyone`) always need an admin, not you.
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
-  promotion targeting a new file in `Company/Decisions/`
+  promotion targeting a new file in `{shared}/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion
-  targeting a new file in `Company/Playbook/`
+  targeting a new file in `{shared}/Playbook/`
 - Articles, posts, links, PDFs, and screenshots: distill, never archive —
   read the source (fetch a URL, extract PDF text, read an image) and route
-  destination, provider, event, or trend intel to `Company/Intel/` via a
+  destination, provider, event, or trend intel to `{shared}/Intel/` via a
   promotion (see below). The full text or file never enters the vault; your
   personal take stays in `People/{pid}/Notes/`. Because the original is gone,
   the citation is the only way back to it: on any distilled page **outside**
-  `Company/Intel/`, add frontmatter `distilled: <URL or title>` and cite the
+  `{shared}/Intel/`, add frontmatter `distilled: <URL or title>` and cite the
   claims `[source](URL), as of YYYY-MM` — inside Intel the folder already
   says it, so no marker is needed
 - If unsure where something belongs, add it to `People/{pid}/Needs-Routing.md`
 
-## Company Intel (the shared travel wiki)
+## {shared} Intel (the shared travel wiki)
 
-`Company/Intel/` holds shared reference knowledge, mapped in `Intel/Home.md`:
+`{shared}/Intel/` holds shared reference knowledge, mapped in `Intel/Home.md`:
 `Destinations/<Place>.md`, `Providers/<Name>.md` (hotels, DMCs, outfitters,
 villas, cruise, aviation, guides), `Events/<Name>.md` (venues and
 access-worthy events), `Trends/<YYYY-MM Topic>.md`. Conventions:
@@ -140,7 +140,7 @@ Nothing in `People/{pid}/` is shared automatically. To share knowledge:
    shared page set `mode: append` (adds your note under a divider) or
    `mode: patch` (your body replaces the whole page — include ALL of it; the
    approver reviews a diff). Never target a running file like
-   `Company/Memory.md` with `mode: create` — approval fails on any existing
+   `{shared}/Memory.md` with `mode: create` — approval fails on any existing
    target.
 3. {name} reviews and approves via `brain promotions approve`; only then does
    the note reach the shared space.
@@ -171,6 +171,7 @@ def render_root_protocol(
         entities=config.entities, entity=config.entity,
         entity_title=config.entity[:1].upper() + config.entity[1:],
         requests=config.requests_folder, name_key=config.name_key,
+        shared=config.shared,
     )
     if len(text) > ROOT_LIMIT:
         raise ValueError(f"root protocol exceeds {ROOT_LIMIT} chars")
@@ -200,14 +201,16 @@ def render_space_note(space: str, writable: bool, owner: bool) -> str:
 
 
 def writable_spaces(
-    spaces: list[str], person: Person, rules: tuple[SpaceRule, ...]
+    spaces: list[str], person: Person, rules: tuple[SpaceRule, ...],
+    shared: str = DEFAULT_SHARED,
 ) -> list[tuple[str, bool]]:
     """Pair each space with whether this person may write it. The caller owns
     the result: the compiler needs the same list for the vault map, and
     deriving it twice would mean two sources of truth for one fact."""
     from brain.resolver import can_write_path
 
-    return [(s, can_write_path(f"{s}/x.md", person, rules)) for s in spaces]
+    return [(s, can_write_path(f"{s}/x.md", person, rules, shared=shared))
+            for s in spaces]
 
 
 def generate_context_files(

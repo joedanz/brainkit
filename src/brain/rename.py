@@ -20,6 +20,7 @@ from pathlib import Path
 
 from brain.errors import BrainError
 from brain.schemas import VaultConfig, load_config, make_config
+from brain.templates import config_yaml
 
 
 class RenameError(BrainError, ValueError):
@@ -71,8 +72,11 @@ def _prefix_rewriter(keys: tuple[str, ...], old_tree: str, new_tree: str):
 
 def rename_entities(master: Path, entities: str,
                     entity: str | None = None) -> RenameReport:
-    new = make_config(entities, entity)        # raises SchemaError on bad names
     old = load_config(master)
+    # Carry the shared name across: it is not what is being renamed, and
+    # rebuilding the config without it would silently rename the shared
+    # top back to the default on the next load.
+    new = make_config(entities, entity, old.shared)  # raises SchemaError on bad names
     if (old.entities, old.entity) == (new.entities, new.entity):
         return RenameReport(old, new, False, 0, 0, 0, 0, False)
 
@@ -137,8 +141,7 @@ def rename_entities(master: Path, entities: str,
     for f in sorted(master.glob("_meta/promotions/pending/*.md")):
         queue_rewritten += 1 if _rewrite_file_lines(f, promo_fix) else 0
 
-    (master / "_meta/config.yaml").write_text(
-        f"entities: {new.entities}\nentity: {new.entity}\n")
+    (master / "_meta/config.yaml").write_text(config_yaml(new))
 
     committed = False
     if (master / ".git").exists():

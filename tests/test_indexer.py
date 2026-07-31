@@ -7,7 +7,7 @@ from brain.compiler import compile_vault
 from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.store import IndexStore
-from tests.conftest import ALICE, BOB, RULES, requires_vectors
+from tests.conftest import ALICE, BOB, RULES, familyize, requires_vectors, rules_for
 
 
 class SpyProvider(FakeEmbeddingProvider):
@@ -332,3 +332,20 @@ def test_build_index_populates_typed_edges(master, tmp_path):
     assert ("Company/Projects/Beta.md", "Company/Projects/Gamma.md",
             "same", "entity") in rows
     s.close()
+
+
+def test_index_tags_custom_shared_space(master, tmp_path):
+    import sqlite3
+
+    fam = familyize(master, tmp_path / "family-master")
+    (fam / "Family/Playbook").mkdir()
+    (fam / "Family/Playbook/Chores.md").write_text("# Chores\nTake out bins.\n")
+    vault = tmp_path / "bob-family"
+    compile_vault(fam, BOB, rules_for("Family"), vault)
+    build_index(vault, provider=None, cache=None)
+    con = sqlite3.connect(vault / ".brain/index.db")
+    spaces = {r[0] for r in con.execute("select distinct space from files")}
+    con.close()
+    # the space column must be the flat "Family", not nested "Family/Playbook"
+    assert "Family" in spaces
+    assert not any(s.startswith("Family/") for s in spaces)

@@ -122,14 +122,15 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     from brain.shares import sweep_approvals, sweep_shares
 
     provisioned = materialize_clients(master, org, today=today, config=config)
-    share_outcomes = sweep_shares(master, org, today=today)
-    decision_outcomes = sweep_approvals(master, org, today=today)
+    share_outcomes = sweep_shares(master, org, today=today, shared=config.shared)
+    decision_outcomes = sweep_approvals(master, org, today=today,
+                                        shared=config.shared)
     # sweep_shares/sweep_approvals may have modified spaces.yaml (revokes,
     # delegated approvals); materialize_clients appended grants too. The
     # compile below must see all of it, so reload.
     rules = load_spaces(master / "_meta/spaces.yaml")
 
-    swept = len(sweep(master, today=today))
+    swept = len(sweep(master, today=today, shared=config.shared))
     compiled = len(compile_all(master, org, rules, out_root, today=today, config=config))
     pending = len(list_pending(master))
 

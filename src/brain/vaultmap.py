@@ -23,7 +23,7 @@ from pathlib import Path
 
 from brain.compiler import extract_wikilinks
 from brain.frontmatter import split_frontmatter
-from brain.schemas import Person, VaultConfig
+from brain.schemas import DEFAULT_SHARED, Person, VaultConfig
 
 MAP_NAME = "Map.md"
 
@@ -113,7 +113,8 @@ def rank_hubs(degree: dict[str, int], cap: int) -> list[tuple[str, int]]:
     return [(rel, n) for rel, n in ranked if n > 0][:cap]
 
 
-def notes_by_space(notes: dict[str, NoteFacts]) -> dict[str, list[str]]:
+def notes_by_space(notes: dict[str, NoteFacts],
+                   shared: str = DEFAULT_SHARED) -> dict[str, list[str]]:
     """Bucket note paths by their space. Computed once per vault and shared —
     `space_of_path` parses every path, and at 5k notes x 50 people a second
     pass is a quarter-million redundant parses per compile."""
@@ -121,7 +122,7 @@ def notes_by_space(notes: dict[str, NoteFacts]) -> dict[str, list[str]]:
 
     buckets: dict[str, list[str]] = {}
     for rel in notes:
-        space = space_of_path(rel)
+        space = space_of_path(rel, shared)
         if space is not None:
             buckets.setdefault(space, []).append(rel)
     return buckets
@@ -346,7 +347,7 @@ def generate_map(
 ) -> str:
     """The one call the compiler makes. Reads only the building tree."""
     notes = scan_vault(building, compiled)
-    by_space = notes_by_space(notes)
+    by_space = notes_by_space(notes, config.shared)
     degree = link_degree(notes)
     return render_map(
         person,

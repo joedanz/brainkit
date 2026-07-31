@@ -134,3 +134,22 @@ def test_unknown_top_space_is_denied_without_a_rule():
     person = Person(id="joe", name="Joe", roles=("admin",))
     # no rule matches Archive/old -> denied even for an admin
     assert not can_write_path("Archive/old/x.md", person, ())
+
+
+def test_space_of_path_custom_shared():
+    assert space_of_path("Family/note.md", "Family") == "Family"
+    assert space_of_path("Family/Playbook/x.md", "Family") == "Family"
+    # under a custom name, "Company" is just another nested top:
+    assert space_of_path("Company/Playbook/x.md", "Family") == "Company/Playbook"
+    # a loose file directly under a nested top names no real space; the junk
+    # name matches no rule, so the permission check still fails closed.
+    assert space_of_path("Company/loose.md", "Family") == "Company/loose.md"
+
+
+def test_enumerate_spaces_custom_shared(tmp_path):
+    (tmp_path / "Family/Decisions").mkdir(parents=True)
+    (tmp_path / "Teams/kids").mkdir(parents=True)
+    spaces = enumerate_spaces(tmp_path, "Family")
+    assert "Family" in spaces
+    assert "Teams/kids" in spaces
+    assert not any(s.startswith("Family/") for s in spaces)

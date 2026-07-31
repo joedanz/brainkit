@@ -129,3 +129,25 @@ def test_rename_then_cycle_processes_all_pending_state(tmp_path):
     rules = load_spaces(m / "_meta/spaces.yaml")
     acme = next(r for r in rules if r.path == "Vendors/Acme")
     assert "person:mary" in acme.read
+
+
+def _family_master(tmp_path):
+    from brain.schemas import make_config
+    from brain.templates import scaffold_master
+    master = tmp_path / "family-master"
+    scaffold_master(master, "Fam",
+                    make_config("Projects", "project", "Family"))
+    return master
+
+
+def test_rename_entities_preserves_shared(tmp_path):
+    master = _family_master(tmp_path)
+    rename_entities(master, "Ventures", "venture")
+    cfg = load_config(master)
+    assert (cfg.entities, cfg.entity, cfg.shared) == ("Ventures", "venture", "Family")
+
+
+def test_rename_entities_to_shared_name_rejected(tmp_path):
+    master = _family_master(tmp_path)
+    with pytest.raises(SchemaError):
+        rename_entities(master, "Family")   # policy, not dir-collision

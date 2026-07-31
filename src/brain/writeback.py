@@ -21,7 +21,7 @@ from pathlib import Path
 from brain.compiler import MANIFEST_NAME
 from brain.errors import BrainError
 from brain.resolver import can_write_path
-from brain.schemas import Person, SpaceRule
+from brain.schemas import DEFAULT_SHARED, Person, SpaceRule
 
 
 @dataclass
@@ -62,12 +62,37 @@ def _load_manifest(vault: Path) -> dict:
     return manifest
 
 
+def shared_of(manifest: dict) -> str:
+    """The shared top-level space name a compiled vault was built with.
+
+    Absent key means the vault predates the setting (or uses the default),
+    which is the same thing: the default name. A non-string is treated as
+    absent rather than trusted into a path parse.
+    """
+    value = manifest.get("shared", DEFAULT_SHARED)
+    return value if isinstance(value, str) and value else DEFAULT_SHARED
+
+
+def vault_shared(vault: Path) -> str:
+    """`shared_of` for callers holding only a path. The one seam vault-side
+    entry points (server, MCP) use to learn the name once per request and
+    pass it down as a string — no leaf module reads the manifest itself.
+    An unreadable manifest yields the default: this is a naming lookup, not
+    a permission check, and the callers that DO need a trustworthy manifest
+    (write-back) still raise through `_load_manifest`.
+    """
+    try:
+        return shared_of(_load_manifest(vault))
+    except ManifestError:
+        return DEFAULT_SHARED
+
+
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def diff_vault(vault: Path) -> list[Change]:
-    manifest = _load_manifest(vault)
+def diff_vault(vault: Path, manifest: dict | None = None) -> list[Change]:
+    manifest = _load_manifest(vault) if manifest is None else manifest
     baseline: dict[str, str] = manifest["compiled"]  # rel path -> sha256
     generated = set(manifest["generated"]) | {MANIFEST_NAME}
 
@@ -109,11 +134,13 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
 def apply_writeback(
     master: Path, vault: Path, person: Person, rules: tuple[SpaceRule, ...]
 ) -> WritebackResult:
-    changes = diff_vault(vault)
+    manifest = _load_manifest(vault)
+    shared = shared_of(manifest)
+    changes = diff_vault(vault, manifest)
     violations = [
         f"{c.kind} {c.path}: outside write scope for {person.id}"
         for c in changes
-        if not can_write_path(c.path, person, rules)
+        if not can_write_path(c.path, person, rules, shared=shared)
     ]
     if violations:
         return WritebackResult(applied=[], violations=violations)
