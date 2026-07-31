@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from brain.resolver import space_of_path
+from brain.schemas import DEFAULT_SHARED
 from brain.stats import pending_reindex, ro_connect
 
 
@@ -94,6 +95,7 @@ def list_notes(
     pending_only: bool = False,
     modified_after: str | None = None,
     limit: int = 200,
+    shared: str = DEFAULT_SHARED,
 ) -> list[NoteRow]:
     vault = Path(vault)
     db = vault / ".brain" / "index.db"
@@ -132,7 +134,7 @@ def list_notes(
             continue
         rows.append(NoteRow(
             rel_path=rel_path,
-            space=sp or (space_of_path(rel_path) or ""),
+            space=sp or (space_of_path(rel_path, shared) or ""),
             chunks=chunks,
             inbound=inbound,
             unresolved_out=unresolved_out,

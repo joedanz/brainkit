@@ -27,7 +27,7 @@ from brain.facts import parse_entity, parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
 from brain.store import IndexStore
-from brain.writeback import _load_manifest
+from brain.writeback import _load_manifest, shared_of
 
 
 @dataclass
@@ -90,6 +90,8 @@ def build_index(
 ) -> IndexReport:
     vault = Path(vault)
     manifest = _load_manifest(vault)  # raises ManifestError if uncompiled
+    # Read once here; every path parse below and in the chunker uses it.
+    shared = shared_of(manifest)
     generated = set(manifest["generated"])
     candidates = {
         rel: sha
@@ -162,12 +164,12 @@ def build_index(
                               tuple[str, list[str]] | None, list]] = {}
     needed: dict[str, str] = {}  # chunk_sha -> embedding input
     for rel in changed:
-        space = space_of_path(rel)
+        space = space_of_path(rel, shared)
         if space is None:  # compiled files are always in a space; defensive
             report.warnings.append(f"{rel}: outside any space, skipped")
             continue
         text = (vault / rel).read_text(encoding="utf-8", errors="replace")
-        chunks = chunk_markdown(rel, text)
+        chunks = chunk_markdown(rel, text, shared=shared)
         cshas = [_sha_text(embedding_input(c)) for c in chunks]
         entity, raw_facts = parsed[rel]
         links = _resolve_links(extract_wikilinks(text), link_paths, by_stem, by_alias)

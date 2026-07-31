@@ -17,20 +17,22 @@ from pathlib import Path
 
 from brain.errors import BrainError
 from brain.resolver import space_of_path
+from brain.schemas import DEFAULT_SHARED
 
 
 class NoteAccessError(BrainError):
     """A path is not a readable file inside this vault (refused, not missing)."""
 
 
-def read_note(vault: Path, rel_path: str) -> str:
+def read_note(vault: Path, rel_path: str,
+              shared: str = DEFAULT_SHARED) -> str:
     """Read one markdown file by its vault-relative path.
 
     Raises `NoteAccessError` if the path is outside any readable space, escapes
     the vault (via ``..`` or a symlink), is a symlink, or is not a regular file.
     """
     vault = Path(vault)
-    if space_of_path(rel_path) is None:
+    if space_of_path(rel_path, shared) is None:
         raise NoteAccessError(f"{rel_path!r} is not inside any readable space")
     target = vault / rel_path
     try:

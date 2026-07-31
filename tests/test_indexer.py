@@ -332,3 +332,30 @@ def test_build_index_populates_typed_edges(master, tmp_path):
     assert ("Company/Projects/Beta.md", "Company/Projects/Gamma.md",
             "same", "entity") in rows
     s.close()
+
+
+def test_index_tags_custom_shared_space(master, tmp_path):
+    import sqlite3
+
+    from brain.schemas import SpaceRule
+
+    # A Family-shaped master (same three edits as the compiler test).
+    fam = tmp_path / "family-master"
+    shutil.copytree(master, fam)
+    (fam / "Company").rename(fam / "Family")
+    (fam / "Family/Playbook").mkdir()
+    (fam / "Family/Playbook/Chores.md").write_text("# Chores\nTake out bins.\n")
+    (fam / "_meta/config.yaml").write_text("shared: Family\n")
+    fam_rules = (
+        SpaceRule("Family", read=("everyone",), write=("role:admin",)),
+        *RULES[1:],
+    )
+    vault = tmp_path / "bob-family"
+    compile_vault(fam, BOB, fam_rules, vault)
+    build_index(vault, provider=None, cache=None)
+    con = sqlite3.connect(vault / ".brain/index.db")
+    spaces = {r[0] for r in con.execute("select distinct space from files")}
+    con.close()
+    # the space column must be the flat "Family", not nested "Family/Playbook"
+    assert "Family" in spaces
+    assert not any(s.startswith("Family/") for s in spaces)

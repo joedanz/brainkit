@@ -28,7 +28,7 @@ from pathlib import Path
 
 from brain.errors import BrainError
 from brain.resolver import can_write_path, space_of_path
-from brain.schemas import Person, SpaceRule
+from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, load_config
 
 _MAX_SLUG = 60
 
@@ -91,6 +91,7 @@ def build_inbox_note(
     sender: str,
     created: str,
     original_name: str = "",
+    shared: str = DEFAULT_SHARED,
 ) -> BuiltNote:
     """Construct a provenance-stamped Inbox note under ``root`` without writing it.
 
@@ -132,7 +133,7 @@ def build_inbox_note(
     rel_path = f"{inbox_rel}/{fname}"
     # Belt and braces: the path is constructed, but confirm it resolves to the
     # person's own space before anyone touches disk.
-    if space_of_path(rel_path) != f"People/{person_id}":
+    if space_of_path(rel_path, shared) != f"People/{person_id}":
         raise IngestError(f"refusing to write outside {inbox_rel}")
 
     front = [
@@ -160,16 +161,20 @@ def ingest_note(
     sender: str,
     created: str,
     original_name: str = "",
+    shared: str | None = None,
 ) -> IngestResult:
     """Write ``body`` as a note in ``person``'s Inbox in ``master`` and commit it.
 
     ``created`` is an ISO date supplied by the caller (the CLI edge defaults it to
     today) — never read from the clock here, matching the rest of the codebase.
     """
+    if shared is None:
+        shared = load_config(master).shared
     built = build_inbox_note(master, person.id, body, title=title, source=source,
-                             sender=sender, created=created, original_name=original_name)
+                             sender=sender, created=created,
+                             original_name=original_name, shared=shared)
     rel_path, title, source = built.rel_path, built.title, built.source
-    if not can_write_path(rel_path, person, rules):
+    if not can_write_path(rel_path, person, rules, shared=shared):
         raise IngestError(f"{person.id} has no write access to People/{person.id}/Inbox")
 
     fname = Path(rel_path).name

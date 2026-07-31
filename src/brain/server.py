@@ -64,6 +64,17 @@ def _org_people(master: Path) -> dict[str, str]:
     return {p.id: p.name for p in org.people.values()}
 
 
+def _master_shared(master: Path) -> str:
+    """The master's shared space name for naming/parse purposes. A broken
+    config is doctor's problem, not this request's — fall back to default."""
+    from brain.schemas import SchemaError, VaultConfig, load_config
+
+    try:
+        return load_config(master).shared
+    except SchemaError:
+        return VaultConfig().shared
+
+
 def _target_vault(app: web.Application, request: web.Request) -> Path:
     """The compiled vault a graph/search/note/notes request should read.
 
@@ -237,8 +248,10 @@ async def handle_facts(request: web.Request) -> web.Response:
 
 async def handle_notes(request: web.Request) -> web.Response:
     from brain.filters import list_notes
+    from brain.writeback import vault_shared
 
     vault = _target_vault(request.app, request)
+    shared = vault_shared(vault)
     q = request.query
     try:
         limit = int(q.get("limit", 200))
@@ -255,6 +268,7 @@ async def handle_notes(request: web.Request) -> web.Response:
             pending_only=q.get("pending") in ("1", "true", "yes"),
             modified_after=q.get("after") or None,
             limit=limit,
+            shared=shared,
         )
         return [asdict(r) for r in rows]
 
@@ -277,11 +291,13 @@ def _lens_person(app: web.Application, request: web.Request) -> str:
 async def handle_note(request: web.Request) -> web.Response:
     from brain.filters import note_links
     from brain.notes import NoteAccessError, read_note
+    from brain.writeback import vault_shared
 
     vault = _target_vault(request.app, request)
     rel_path = request.query.get("path", "")
     try:
-        text = await asyncio.to_thread(read_note, vault, rel_path)
+        text = await asyncio.to_thread(read_note, vault, rel_path,
+                                       vault_shared(vault))
     except NoteAccessError as e:
         raise web.HTTPForbidden(reason=str(e)) from e
     except OSError:
@@ -359,8 +375,12 @@ async def handle_capture(request: web.Request) -> web.Response:
             raise web.HTTPBadRequest(reason="this vault has no person manifest")
 
         def _write() -> str:
+            from brain.writeback import vault_shared
+
             built = build_inbox_note(Path(lens.vault), person, body,
-                                     title=title, source=source, sender="", created=created)
+                                     title=title, source=source, sender="",
+                                     created=created,
+                                     shared=vault_shared(Path(lens.vault)))
             target = Path(lens.vault) / built.rel_path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(built.text)
@@ -417,14 +437,18 @@ async def handle_promote(request: web.Request) -> web.Response:
         person = _lens_person(request.app, request)
         if not person:
             raise web.HTTPBadRequest(reason="this vault has no person manifest")
+        from brain.writeback import vault_shared
+        shared = vault_shared(root)
     else:
         person = data.get("person") or request.query.get("person")
         if not person or person not in request.app["people"]:
             raise web.HTTPNotFound(reason="unknown or missing person")
         root = Path(lens.master)
+        shared = _master_shared(root)
 
     def _draft() -> str:
-        return draft_into_space(root, person, target, source, body, _today())
+        return draft_into_space(root, person, target, source, body, _today(),
+                                shared=shared)
 
     try:
         rel = await asyncio.to_thread(_draft)

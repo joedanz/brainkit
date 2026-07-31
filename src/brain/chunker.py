@@ -19,6 +19,7 @@ from pathlib import PurePosixPath
 from brain.compiler import WIKILINK_RE
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
+from brain.schemas import DEFAULT_SHARED
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _FENCE_PREFIXES = ("```", "~~~")
@@ -144,6 +145,7 @@ def chunk_markdown(
     target_chars: int = 1200,
     max_chars: int = 2400,
     min_chars: int = 64,
+    shared: str = DEFAULT_SHARED,
 ) -> list[Chunk]:
     """Chunk a markdown document into heading-aware retrieval units.
 
@@ -190,7 +192,7 @@ def chunk_markdown(
         else:
             folded.append((hp, t))
 
-    space = space_of_path(rel_path) or ""
+    space = space_of_path(rel_path, shared) or ""
     return [
         Chunk(rel_path=rel_path, space=space, heading_path=" > ".join(hp),
               pos=i, text=t.strip("\n"))

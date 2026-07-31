@@ -88,7 +88,7 @@ def request_client(
         fname = f"{created}-{base}-{n}.md"
         n += 1
     rel_path = f"{req_rel}/{fname}"
-    if space_of_path(rel_path) != f"People/{person_id}":
+    if space_of_path(rel_path, config.shared) != f"People/{person_id}":
         raise ClientError(f"refusing to write outside {req_rel}")
 
     dest = root / rel_path
@@ -223,7 +223,8 @@ def materialize_clients(
             folder = (master / space).is_dir()
 
             if (exact is not None and person is not None
-                    and can_write_path(f"{space}/x.md", person, rules)):
+                    and can_write_path(f"{space}/x.md", person, rules,
+                                       shared=config.shared)):
                 # (2) already this owner's client -> merge, no new grant
                 note.parent.mkdir(parents=True, exist_ok=True)
                 current = note.read_text() if note.is_file() else ""

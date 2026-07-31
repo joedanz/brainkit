@@ -18,6 +18,7 @@ from brain.mcp import _tool_read
 from brain.resolver import readable_spaces, space_of_path
 from brain.search import search_index
 from brain.store import IndexStore
+from brain.writeback import vault_shared
 from tests.test_leak_property import RULES, random_world
 
 
@@ -122,7 +123,8 @@ def test_mcp_read_refuses_symlink_into_master(tmp_path):
     link = vault / own_space / "leak.md"
     link.parent.mkdir(parents=True, exist_ok=True)
     link.symlink_to(master / "_meta/secret.yaml")
-    text, is_err = _tool_read(vault, {"rel_path": f"{own_space}/leak.md"})
+    text, is_err = _tool_read(vault, {"rel_path": f"{own_space}/leak.md"},
+                              vault_shared(vault))
     assert is_err
     assert "secret" not in text
 
