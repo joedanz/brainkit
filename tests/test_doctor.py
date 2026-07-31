@@ -1067,3 +1067,15 @@ def test_unreadable_clients_log_is_reported(tmp_path):
     assert len(findings) == 1
     assert findings[0].severity == "error" and findings[0].check == "clients"
     assert "Danziger Family" not in findings[0].message
+
+
+def test_family_master_has_no_false_structural_findings(tmp_path):
+    from brain.doctor import run_doctor
+    from brain.schemas import make_config
+    from brain.templates import scaffold_master
+    scaffold_master(tmp_path, "Fam", make_config("Clients", "client", "Family"))
+    findings = run_doctor(tmp_path)
+    bad = [f for f in findings
+           if f.check in ("space-coverage", "unreadable-spaces", "orphan-files")
+           and "Family" in f.message]
+    assert bad == [], [f.message for f in bad]

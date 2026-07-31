@@ -47,6 +47,18 @@ class Finding:
     paths: tuple[str, ...] = ()  # rel path(s) this finding is about; () = infra-level
 
 
+def _shared(master: Path, shared: str | None) -> str:
+    """The shared space name for a doctor check. `None` asks the master's
+    config.yaml, which is the authority — so a caller that omits it reads the
+    truth rather than a stale default."""
+    if shared is not None:
+        return shared
+    try:
+        return load_config(master).shared
+    except SchemaError:
+        return VaultConfig().shared
+
+
 def _check_meta(master: Path) -> tuple[list[Finding], Org | None, tuple[SpaceRule, ...] | None]:
     findings: list[Finding] = []
     org = rules = None
@@ -96,9 +108,10 @@ def _check_rule_paths(master: Path, rules: tuple[SpaceRule, ...]) -> list[Findin
     return findings
 
 
-def _check_space_coverage(master: Path, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+def _check_space_coverage(master: Path, rules: tuple[SpaceRule, ...],
+                          shared: str) -> list[Finding]:
     findings: list[Finding] = []
-    for space in enumerate_spaces(master):
+    for space in enumerate_spaces(master, shared):
         rule, _ = _match_rule(space, rules)
         if rule is None:
             findings.append(Finding(
@@ -107,7 +120,8 @@ def _check_space_coverage(master: Path, rules: tuple[SpaceRule, ...]) -> list[Fi
     return findings
 
 
-def _check_unreadable_spaces(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+def _check_unreadable_spaces(master: Path, org: Org, rules: tuple[SpaceRule, ...],
+                             shared: str) -> list[Finding]:
     """A space whose rule resolves to zero readers is hidden from everyone —
     fail-closed, so nothing leaks, but the content silently compiles into no
     vault. The usual causes: a folder name that doesn't match any team/person
@@ -119,7 +133,7 @@ def _check_unreadable_spaces(master: Path, org: Org, rules: tuple[SpaceRule, ...
         return []
     readers_of = _reader_index(org, rules)
     findings: list[Finding] = []
-    for space in enumerate_spaces(master):
+    for space in enumerate_spaces(master, shared):
         rule, _ = _match_rule(space, rules)
         if rule is None or readers_of(space):
             continue
@@ -131,16 +145,16 @@ def _check_unreadable_spaces(master: Path, org: Org, rules: tuple[SpaceRule, ...
     return findings
 
 
-def _check_orphan_files(master: Path) -> list[Finding]:
+def _check_orphan_files(master: Path, shared: str) -> list[Finding]:
     """A .md placed directly under a nested top (Teams/, People/, the entity
     tree, or any other top-level dir) belongs to no space — those tops only
     form spaces from their subfolders — so the compiler copies it into
-    nobody's vault. It vanishes silently. Company is itself a space, so files
-    directly under it are fine and not checked here."""
+    nobody's vault. It vanishes silently. The shared top is itself a space, so
+    files directly under it are fine and not checked here."""
     findings: list[Finding] = []
     for d in sorted(p for p in master.iterdir() if p.is_dir()):
         top = d.name
-        if top in RESERVED or top.startswith(".") or top == "Company":
+        if top in RESERVED or top.startswith(".") or top == shared:
             continue
         for f in sorted(d.glob("*.md")):
             if f.is_file():
@@ -153,7 +167,7 @@ def _check_orphan_files(master: Path) -> list[Finding]:
     return findings
 
 
-def _check_unlinked_notes(master: Path) -> list[Finding]:
+def _check_unlinked_notes(master: Path, shared: str) -> list[Finding]:
     """Notes with no graph connections at all — no resolved wikilinks in or
     out (typed relations are wikilinks, so they count), no fact lines, and no
     mined structural edge (folder-index parent, date-sequence neighbor, or
@@ -168,7 +182,7 @@ def _check_unlinked_notes(master: Path) -> list[Finding]:
     from brain.facts import parse_entity
 
     findings: list[Finding] = []
-    rels = _content_files(master)
+    rels = _content_files(master, shared)
     paths = set(rels)
     by_stem: dict[str, str] = {}
     for rel in sorted(rels):
@@ -224,11 +238,11 @@ def _dup_exempt(rel: str) -> bool:
     return bool(_ADDENDUM_RE.match(parts[-1]))
 
 
-def _skeleton_pair(a: str, b: str) -> bool:
+def _skeleton_pair(a: str, b: str, shared: str) -> bool:
     """Same subpath inside two different personal spaces — every person owns
     the same scaffold (Memory.md, Notes/...), so identical templates across
     People/ spaces are structure, not duplication."""
-    sa, sb = space_of_path(a), space_of_path(b)
+    sa, sb = space_of_path(a, shared), space_of_path(b, shared)
     if not sa or not sb or sa == sb:
         return False
     if not (sa.startswith("People/") and sb.startswith("People/")):
@@ -280,7 +294,8 @@ def _cached_file_vectors(
     return out
 
 
-def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
+                      shared: str) -> list[Finding]:
     """Duplicate and near-duplicate notes, in three tiers: identical bytes
     (dup-exact), colliding title stems (stem-collision — bare wikilinks
     resolve by stem, first match wins), and near-duplicate content
@@ -292,7 +307,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     from brain.dedup import DUP_MIN_WORDS, normalize_text
 
     texts: dict[str, str] = {}
-    for r in _content_files(master):
+    for r in _content_files(master, shared):
         if _dup_exempt(r):
             continue
         text = _read_text(master / r)
@@ -304,7 +319,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     readers_of = _reader_index(org, rules)
 
     def space_readers(rel: str) -> frozenset[str]:
-        space = space_of_path(rel)
+        space = space_of_path(rel, shared)
         return readers_of(space) if space else frozenset()
 
     findings: list[Finding] = []
@@ -312,7 +327,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
 
     def emit(a: str, b: str, check: str, warn_msg: str, info_msg: str) -> None:
         pair = frozenset((a, b))
-        if pair in flagged or _skeleton_pair(a, b):
+        if pair in flagged or _skeleton_pair(a, b, shared):
             return
         flagged.add(pair)
         if space_readers(a) & space_readers(b):
@@ -352,7 +367,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
         for i, a in enumerate(group):
             for b in group[i + 1:]:
                 pair = frozenset((a, b))
-                if pair in flagged or _skeleton_pair(a, b):
+                if pair in flagged or _skeleton_pair(a, b, shared):
                     continue
                 if Path(a).name == "Home.md" and Path(b).name == "Home.md":
                     # Home.md is the per-space landing-page convention (the
@@ -478,7 +493,7 @@ def _read_text(path: Path) -> str | None:
         return None
 
 
-def _check_unreadable_files(master: Path) -> list[Finding]:
+def _check_unreadable_files(master: Path, shared: str) -> list[Finding]:
     """A note the OS won't hand over is worse than a lint problem: the
     compiler copies with shutil.copy2 and dies on the same file, so nobody's
     vault rebuilds until it's fixed. Error severity — doctor also cannot
@@ -486,7 +501,7 @@ def _check_unreadable_files(master: Path) -> list[Finding]:
     Symlinks are skipped: `_check_symlinks` already owns them, and a dangling
     link would otherwise be reported twice."""
     findings: list[Finding] = []
-    for rel in _walk_content(master):
+    for rel in _walk_content(master, shared):
         f = master / rel
         if f.is_symlink():
             continue
@@ -501,7 +516,7 @@ def _check_unreadable_files(master: Path) -> list[Finding]:
     return findings
 
 
-def _walk_content(master: Path) -> list[str]:
+def _walk_content(master: Path, shared: str) -> list[str]:
     """Every .md rel path in a resolvable space, readable or not."""
     rels: list[str] = []
     for f in sorted(master.rglob("*.md")):
@@ -511,16 +526,16 @@ def _walk_content(master: Path) -> list[str]:
         rel = f.relative_to(master).as_posix()
         if _is_own_digest(rel, parts):
             continue
-        if space_of_path(rel) is not None:
+        if space_of_path(rel, shared) is not None:
             rels.append(rel)
     return rels
 
 
-def _content_files(master: Path) -> list[str]:
+def _content_files(master: Path, shared: str) -> list[str]:
     """All rel paths of .md files that live in a resolvable space AND can be
     read. Unreadable files drop out here so no scan below has to think about
     them — `_check_unreadable_files` is what reports them."""
-    return [rel for rel in _walk_content(master)
+    return [rel for rel in _walk_content(master, shared)
             if _unreadable(master / rel) is None]
 
 
@@ -549,14 +564,15 @@ def _reader_index(org: Org, rules: tuple[SpaceRule, ...]):
     return readers_of
 
 
-def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...],
+                            shared: str) -> list[Finding]:
     """A note in space S that links to a note in space T leaks T's *name* to
     everyone who can read S — even though the compiler guarantees the *file*
     never crosses. If some reader of S cannot read T, that link exposes a note
     (client, deal, person) they aren't cleared to see. Warn, not error: no file
     crossed, but a human wrote a name into the wrong space. Unlinked plain-text
     mentions are caught separately by `_check_plain_refs`."""
-    rels = _content_files(master)
+    rels = _content_files(master, shared)
     paths = set(rels)
     by_stem: dict[str, str] = {}
     for rel in rels:
@@ -565,7 +581,7 @@ def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]
     readers_of = _reader_index(org, rules)
     findings: list[Finding] = []
     for rel in rels:
-        src_space = space_of_path(rel)
+        src_space = space_of_path(rel, shared)
         # A personal space (People/<id>) has a single reader — its owner. A name
         # they reference in their own notes is exposed to no one else, so it can
         # never be a cross-person leak; skip to avoid "owner cannot see it" noise.
@@ -582,7 +598,7 @@ def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]
             hit = _resolve_target(target, paths, by_stem)
             if hit is None:
                 continue
-            tgt_space = space_of_path(hit)
+            tgt_space = space_of_path(hit, shared)
             if tgt_space is None or tgt_space == src_space or tgt_space in flagged:
                 continue
             leaked = src_readers - readers_of(tgt_space)
@@ -599,7 +615,8 @@ def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]
 _WIKILINK_STRIP = re.compile(r"!?\[\[[^\]]*\]\]")
 
 
-def _sensitive_names(master: Path, org: Org, readers_of) -> dict[str, str]:
+def _sensitive_names(master: Path, org: Org, readers_of,
+                     shared: str) -> dict[str, str]:
     """Map each restricted space's leaf name to its space path, for spaces some
     person cannot read. Only names starting with a capital are kept: client and
     deal folders are proper nouns (``Vandenberg``), while team/person identifiers
@@ -608,7 +625,7 @@ def _sensitive_names(master: Path, org: Org, readers_of) -> dict[str, str]:
     client folder isn't scanned (name it ``Acme``, not ``acme``, to include it)."""
     roster = frozenset(org.people)
     names: dict[str, str] = {}
-    for space in enumerate_spaces(master):
+    for space in enumerate_spaces(master, shared):
         leaf = space.split("/")[-1]
         if not leaf[:1].isupper():
             continue
@@ -618,7 +635,8 @@ def _sensitive_names(master: Path, org: Org, readers_of) -> dict[str, str]:
     return names
 
 
-def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> list[Finding]:
+def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...],
+                      shared: str) -> list[Finding]:
     """The unstructured sibling of `_check_cross_space_refs`: a restricted space's
     name written into shared prose *without* a wikilink still leaks. The compiler
     can only gate files, never redact text, so a client named in `Company/Memory`
@@ -626,7 +644,7 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     names (whole word, case-sensitive) after stripping wikilinks (those are the
     cross-refs check's job). Heuristic by nature — hence warn, not error."""
     readers_of = _reader_index(org, rules)
-    sensitive = _sensitive_names(master, org, readers_of)
+    sensitive = _sensitive_names(master, org, readers_of, shared)
     if not sensitive:
         return []
     matchers = {
@@ -634,8 +652,8 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
         for name in sensitive
     }
     findings: list[Finding] = []
-    for rel in _content_files(master):
-        src_space = space_of_path(rel)
+    for rel in _content_files(master, shared):
+        src_space = space_of_path(rel, shared)
         if src_space.startswith("People/"):
             continue  # sole reader is the owner — see _check_cross_space_refs
         src_readers = readers_of(src_space)
@@ -662,13 +680,13 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]) -> l
     return findings
 
 
-def _check_facts(master: Path) -> list[Finding]:
+def _check_facts(master: Path, shared: str) -> list[Finding]:
     """Warn-only lint of fact lines and entity frontmatter. A malformed line
     is simply not a fact — nothing here ever blocks a compile."""
     from brain.facts import lint_facts, parse_entity
 
     findings: list[Finding] = []
-    for rel in _content_files(master):
+    for rel in _content_files(master, shared):
         text = _read_text(master / rel)
         if text is None:
             continue
@@ -681,7 +699,7 @@ def _check_facts(master: Path) -> list[Finding]:
     return findings
 
 
-def _check_fact_conflicts(master: Path) -> list[Finding]:
+def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
     """Two open facts about the same entity that duplicate or contradict each
     other — a double-landed ingest or a forgotten [until::]. Either way
     `brain facts` returns both lines and a reading agent gets a coin flip.
@@ -692,7 +710,7 @@ def _check_fact_conflicts(master: Path) -> list[Finding]:
     contains both lines."""
     from brain.facts import find_fact_conflicts, parse_entity
 
-    rels = _content_files(master)
+    rels = _content_files(master, shared)
     paths = set(rels)
     by_stem: dict[str, str] = {}
     for rel in rels:
@@ -747,7 +765,7 @@ def _check_symlinks(master: Path) -> list[Finding]:
     return findings
 
 
-def _check_promotions(master: Path) -> list[Finding]:
+def _check_promotions(master: Path, shared: str) -> list[Finding]:
     findings: list[Finding] = []
     pending_dir = _pending_dir(master)
     valid_pending = 0
@@ -755,7 +773,7 @@ def _check_promotions(master: Path) -> list[Finding]:
         for f in sorted(pending_dir.glob("*.md")):
             try:
                 promo = _parse(f)
-                _validate_target(promo.target_path)
+                _validate_target(promo.target_path, shared)
                 valid_pending += 1
             except (KeyError, ValueError, PromotionError, OSError) as e:
                 findings.append(Finding(
@@ -780,7 +798,7 @@ def _check_promotions(master: Path) -> list[Finding]:
                 "warn", "promotions", f"{rel}: draft has no frontmatter, sweep skips it"))
             continue
         try:
-            _validate_target(meta.get("target-path", ""))
+            _validate_target(meta.get("target-path", ""), shared)
         except PromotionError as e:
             findings.append(Finding(
                 "warn", "promotions", f"{rel}: sweep will never move it ({e})"))
@@ -893,7 +911,10 @@ STALE_MONTHS = 12
 _CITATION_RE = re.compile(r"(?:as of|captured)\s+(\d{4})-(0[1-9]|1[0-2])")
 _CITATION_URL_RE = re.compile(r"\]\((https?://[^\s)]+)\)")
 _ADDENDUM_RE = re.compile(r".+ [—-] updates \d{4}-(?:0[1-9]|1[0-2])\.md$")
-_INTEL_DIR = "Company/Intel"
+def _intel_dir(shared: str) -> str:
+    """The Intel wiki lives under the shared top, so its path moves with that
+    space's name. A function rather than a constant for exactly that reason."""
+    return f"{shared}/Intel"
 # Frontmatter key marking a page as distilled from an external source. Intel
 # needs no marker — the path is the convention — but everywhere else a page
 # distilled from an article and a page of original thinking look identical,
@@ -948,27 +969,29 @@ def _citation_urls(text: str) -> list[str]:
     return list(dict.fromkeys(_CITATION_URL_RE.findall(text)))
 
 
-def _citation_scope(rel: str, meta: dict[str, str]) -> str | None:
+def _citation_scope(rel: str, meta: dict[str, str], shared: str) -> str | None:
     """Which citation rule covers this page: "intel", "distilled", or None.
 
     Intel's own exemptions live here so every consumer inherits them: Home.md
     is the link map (no claims of its own), and an addendum is already flagged
     by its own rule — dating it too would just double the noise."""
     name = Path(rel).name
-    if rel.startswith(_INTEL_DIR + "/"):
+    if rel.startswith(_intel_dir(shared) + "/"):
         if name == "Home.md" or _ADDENDUM_RE.match(name):
             return None
         return "intel"
     return "distilled" if meta.get(_DISTILLED_KEY, "").strip() else None
 
 
-def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
+def _check_intel(master: Path, today: date | None = None,
+                 shared: str | None = None) -> list[Finding]:
     """The Intel wiki's conventions fail silently: an unfolded addendum
     contradicts its merged page in search results, and a page nobody feeds
     quietly goes stale behind its own citations. Warn-only — nothing leaks
     and nothing blocks a compile. Home.md is the link map, exempt from the
     citation rule; addenda are exempt from staleness (already flagged)."""
-    intel = master / _INTEL_DIR
+    shared = _shared(master, shared)
+    intel = master / _intel_dir(shared)
     if not intel.is_dir():
         return []
     findings: list[Finding] = []
@@ -981,10 +1004,11 @@ def _check_intel(master: Path, today: date | None = None) -> list[Finding]:
             f"{rel}: unfolded addendum — fold it into its page and delete "
             "it, or have the agent resubmit as a mode: patch promotion",
             paths=(rel,)))
-    return findings + _citation_findings(master, "intel", today)
+    return findings + _citation_findings(master, "intel", today, shared)
 
 
-def _cited_pages(master: Path, scope: str | None = None) -> list[tuple[str, str, str]]:
+def _cited_pages(master: Path, scope: str | None = None,
+                 shared: str | None = None) -> list[tuple[str, str, str]]:
     """(rel, text, source) for every page the citation rule covers — Intel
     pages (source "") and `distilled:` pages alike. The one traversal behind
     all three consumers, so `_citation_scope`'s "single source of truth" holds
@@ -994,40 +1018,43 @@ def _cited_pages(master: Path, scope: str | None = None) -> list[tuple[str, str,
     Intel is walked from disk rather than through `_content_files` because its
     rule predates spaces and must hold even where one can't be resolved;
     symlinks are skipped there because `_check_symlinks` already owns them."""
+    shared = _shared(master, shared)
     out: list[tuple[str, str, str]] = []
-    intel = master / _INTEL_DIR
+    intel = master / _intel_dir(shared)
     if scope in (None, "intel") and intel.is_dir():
         for f in sorted(intel.rglob("*.md")):
             rel = f.relative_to(master).as_posix()
-            if f.is_symlink() or _citation_scope(rel, {}) != "intel":
+            if f.is_symlink() or _citation_scope(rel, {}, shared) != "intel":
                 continue
             text = _read_text(f)
             if text is not None:
                 out.append((rel, text, ""))
     if scope in (None, "distilled"):
-        for rel in _content_files(master):
-            if rel.startswith(_INTEL_DIR + "/"):
+        for rel in _content_files(master, shared):
+            if rel.startswith(_intel_dir(shared) + "/"):
                 continue  # walked above, on Intel's own terms
             text = _read_text(master / rel)
             if text is None:
                 continue
             meta, _body = split_frontmatter(text)
-            if _citation_scope(rel, meta) == "distilled":
+            if _citation_scope(rel, meta, shared) == "distilled":
                 out.append((rel, text, meta[_DISTILLED_KEY].strip()))
     return out
 
 
 def _citation_findings(
     master: Path, scope: str, today: date | None = None,
+    shared: str | None = None,
 ) -> list[Finding]:
     """Apply one scope's citation rule. Intel and `distilled:` differ only in
     which pages they cover and how they word the complaint, so they share this
     loop and part ways in `_CITATION_RULES` — the alternative is two mirrored
     copies that drift the first time a third rule appears."""
+    shared = _shared(master, shared)
     now_m = _month_index(today or date.today())
     check, uncited_msg, stale_msg = _CITATION_RULES[scope]
     findings: list[Finding] = []
-    for rel, text, source in _cited_pages(master, scope):
+    for rel, text, source in _cited_pages(master, scope, shared):
         newest = _newest_citation(text)
         if newest is None:
             message = uncited_msg
@@ -1044,17 +1071,19 @@ def _citation_findings(
     return findings
 
 
-def _check_citations(master: Path, today: date | None = None) -> list[Finding]:
-    """The citation rule outside `Company/Intel/`. Distilled content routed to
+def _check_citations(master: Path, today: date | None = None,
+                     shared: str | None = None) -> list[Finding]:
+    """The citation rule outside the shared Intel tree. Distilled content routed to
     an entity page or `People/<pid>/Notes/` carries the same recovery risk as
     an Intel page — the full source deliberately never entered the vault, so a
     dropped detail is only recoverable by re-reading the original — but no path
     convention marks it. `distilled:` frontmatter does, and this check holds
     those pages to Intel's two rules: cite your claims, and stay fresh."""
-    return _citation_findings(master, "distilled", today)
+    return _citation_findings(master, "distilled", today, shared)
 
 
-def _check_liveness(master: Path, today: date | None = None) -> list[Finding]:
+def _check_liveness(master: Path, today: date | None = None,
+                    shared: str | None = None) -> list[Finding]:
     """Opt-in (`brain doctor --net`): do the sources behind stale pages still
     resolve? `stale AND dead` is the compound signal worth acting on — it means
     re-research this now, while someone still remembers the context. Neither
@@ -1066,9 +1095,10 @@ def _check_liveness(master: Path, today: date | None = None) -> list[Finding]:
     `_check_intel`/`_check_citations` already said so."""
     from brain.liveness import DEAD, probe_all, wayback
 
+    shared = _shared(master, shared)
     now_m = _month_index(today or date.today())
     stale: list[tuple[str, int, list[str]]] = []
-    for rel, text, _source in _cited_pages(master):
+    for rel, text, _source in _cited_pages(master, shared=shared):
         newest = _newest_citation(text)
         if newest is None or now_m - newest <= STALE_MONTHS:
             continue
@@ -1191,30 +1221,31 @@ def run_doctor(
     except SchemaError as e:
         findings.append(Finding("error", "meta", f"config.yaml: {e}"))
         config = VaultConfig()
+    shared = config.shared
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
-    findings += _check_space_coverage(master, rules)
-    findings += _check_unreadable_spaces(master, org, rules)
+    findings += _check_space_coverage(master, rules, shared)
+    findings += _check_unreadable_spaces(master, org, rules, shared)
     # Before the content scans: they all skip what they can't read, so this is
     # what explains a suspiciously quiet report.
-    findings += _check_unreadable_files(master)
-    findings += _check_orphan_files(master)
-    findings += _check_unlinked_notes(master)
-    findings += _check_duplicates(master, org, rules)
-    findings += _check_cross_space_refs(master, org, rules)
-    findings += _check_plain_refs(master, org, rules)
-    findings += _check_facts(master)
-    findings += _check_fact_conflicts(master)
+    findings += _check_unreadable_files(master, shared)
+    findings += _check_orphan_files(master, shared)
+    findings += _check_unlinked_notes(master, shared)
+    findings += _check_duplicates(master, org, rules, shared)
+    findings += _check_cross_space_refs(master, org, rules, shared)
+    findings += _check_plain_refs(master, org, rules, shared)
+    findings += _check_facts(master, shared)
+    findings += _check_fact_conflicts(master, shared)
     findings += _check_symlinks(master)
-    findings += _check_promotions(master)
+    findings += _check_promotions(master, shared)
     findings += _check_created_clients(master, config)
     findings += _check_pending_shares(master)
     findings += _check_delegated_decisions(master)
-    findings += _check_intel(master)
-    findings += _check_citations(master)
+    findings += _check_intel(master, shared=shared)
+    findings += _check_citations(master, shared=shared)
     findings += _check_webhook(master, org)
     if out_root is not None:
         findings += _check_compiled(master, org, out_root)
     if net:
-        findings += _check_liveness(master)
+        findings += _check_liveness(master, shared=shared)
     return findings
