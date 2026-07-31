@@ -291,3 +291,14 @@ def test_root_protocol_points_at_the_map():
     assert MAP_NAME in text
     assert "brain_search" in text  # map orients, search looks up
     assert len(text) <= ROOT_LIMIT
+
+
+def test_root_protocol_names_custom_shared():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person, make_config
+    cfg = make_config("Clients", "client", "Family")
+    person = Person(id="kid1", name="Kid One", roles=(), teams=(), email="")
+    text = render_root_protocol(
+        person, [("Family", False), ("People/kid1", True)], cfg)
+    assert "Family/Decisions/" in text and "Family/Intel/" in text
+    assert "Company/" not in text
