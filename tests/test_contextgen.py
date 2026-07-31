@@ -168,6 +168,47 @@ def test_assistant_protocol_custom_noun_has_no_client_literals():
     assert "Clients/" not in text and "ClientRequests" not in text
 
 
+def test_default_renders_are_byte_identical():
+    from brain.schemas import VaultConfig
+    from brain.templates import (
+        ASSISTANT_PROTOCOL,
+        ORG_YAML,
+        SPACES_YAML,
+        assistant_protocol,
+        config_yaml,
+        org_yaml,
+        spaces_yaml,
+    )
+    assert org_yaml() == ORG_YAML
+    assert spaces_yaml() == SPACES_YAML
+    assert assistant_protocol() == ASSISTANT_PROTOCOL
+    assert "Company" in SPACES_YAML and "@SHARED" not in SPACES_YAML
+    assert config_yaml(VaultConfig()) == "entities: Clients\nentity: client\n"
+
+
+def test_custom_shared_renders():
+    from brain.schemas import make_config
+    from brain.templates import config_yaml, spaces_yaml
+    cfg = make_config("Clients", "client", "Family")
+    y = spaces_yaml(cfg)
+    assert "- {path: Family," in y and "Company" not in y
+    # column alignment: read: starts at the same column as the default's
+    default_col = spaces_yaml().index("read: [everyone]")
+    assert y.index("read: [everyone]") == default_col
+    assert config_yaml(cfg) == "entities: Clients\nentity: client\nshared: Family\n"
+
+
+def test_scaffold_family(tmp_path):
+    from brain.schemas import make_config
+    from brain.templates import scaffold_master
+    cfg = make_config("Clients", "client", "Family")
+    scaffold_master(tmp_path, "The Danzigers", cfg)
+    assert (tmp_path / "Family/Home.md").is_file()
+    assert (tmp_path / "Family/Intel/Home.md").is_file()
+    assert not (tmp_path / "Company").exists()
+    assert "[[Family/Intel/Home|Intel]]" in (tmp_path / "Family/Home.md").read_text()
+
+
 def test_spaces_yaml_custom_noun_parses_with_custom_wildcard():
     import yaml
 

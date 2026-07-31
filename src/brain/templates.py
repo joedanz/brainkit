@@ -5,27 +5,27 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from brain.schemas import VaultConfig
+from brain.schemas import DEFAULT_SHARED, VaultConfig
 
-ORG_YAML = """\
+_ORG_YAML_T = """\
 people:
   # id: {name: Full Name, roles: [admin], teams: [sales], email: name@example.com}
   # email is optional and must be unique; it's the auth key for `brain ingest --from`.
   #
   # Keep the admin role on a dedicated curation identity, not on a real employee.
-  # 'admin' writes the shared Company space and approves promotions from the admin
+  # 'admin' writes the shared @SHARED@ space and approves promotions from the admin
   # dashboard / brain CLI — it needs no agent container. People who chat with an
-  # agent are plain employees (read-only on Company), so no one can rewrite shared
+  # agent are plain employees (read-only on @SHARED@), so no one can rewrite shared
   # knowledge without the human approval step. Add each employee like the example
   # below; grant the admin role to a person only if you want their own agent to
-  # edit Company directly.
+  # edit @SHARED@ directly.
   admin: {name: Admin, roles: [admin]}
   # alice: {name: Alice Example, teams: [sales], email: alice@example.com}
 """
 
 _SPACES_YAML_T = """\
 spaces:
-  - {path: Company,     read: [everyone],        write: ["role:admin"]}
+  - {path: @SHARED_FIELD@read: [everyone],        write: ["role:admin"]}
   - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}
   - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}
 
@@ -98,7 +98,7 @@ When a transcript appears in any `People/<person>/Inbox/`:
      reasonable identifier; when a name is ambiguous, ask before creating.
      A single mention can split into two homes — a @ENTITY@ note in
      `@ENTITIES@/<@ENTITY@>/` and, for a dated occurrence, a
-     `Company/Intel/Events/<Name>.md` page — cross-linked.
+     `@SHARED@/Intel/Events/<Name>.md` page — cross-linked.
      Owners share or revoke access to their spaces via
      `People/<person>/ShareRequests/` (`space`/`share-with`/`access`/`action`
      frontmatter); shares wait for their decider's approval — the recipient
@@ -114,25 +114,25 @@ When a transcript appears in any `People/<person>/Inbox/`:
      (share-with: everyone, read-only) are decided by an admin with
      `brain shares approve`, never in-vault.
    - Company-wide decisions (a choice made, with its why) -> a new file in
-     `Company/Decisions/`
-   - Standing processes and standards -> a new file in `Company/Playbook/`
+     `@SHARED@/Decisions/`
+   - Standing processes and standards -> a new file in `@SHARED@/Playbook/`
    - Destination, provider, event, or trend intel from articles, posts,
-     PDFs, or screenshots -> distill into `Company/Intel/` (never archive the
+     PDFs, or screenshots -> distill into `@SHARED@/Intel/` (never archive the
      full text or file): a new page per entity (`mode: create`), or update an
      existing page with `mode: append` / `mode: patch`. Cite every claim
      `[source](URL), as of YYYY-MM`: source is the URL or the
      publication/title (or uploaded filename); use the source's date, or
      `captured YYYY-MM` (today) when it shows none. Keep `Intel/Home.md`
      linking to every page. When distilled content lands outside
-     `Company/Intel/` instead — an entity page, a personal note — mark it
+     `@SHARED@/Intel/` instead — an entity page, a personal note — mark it
      `distilled: <URL or title>` in frontmatter and cite it the same way; the
      original never enters the vault, so the citation is the only route back
    - Session summary -> `People/<person>/Sessions/`
-   - General insights worth keeping -> fold into `Company/Memory.md`, which
+   - General insights worth keeping -> fold into `@SHARED@/Memory.md`, which
      stays a lean overview linking out to detail notes — not a running log
 4. Archive the processed transcript into `People/<person>/Sessions/`.
 
-If you cannot place an item confidently, add it to `Company/Needs-Routing.md`
+If you cannot place an item confidently, add it to `@SHARED@/Needs-Routing.md`
 instead of guessing. Doing nothing is always safer than routing wrongly.
 
 ## Facts and entities
@@ -181,7 +181,7 @@ restate those. A target that doesn't resolve just yields no edge.
 
 ## Dashboards
 
-Keep `Company/Home.md` current as the priority dashboard: open actions by
+Keep `@SHARED@/Home.md` current as the priority dashboard: open actions by
 owner, pending promotions, recent decisions.
 
 ## Boundaries
@@ -196,11 +196,20 @@ owner, pending promotions, recent decisions.
 
 def _render(template: str, config: VaultConfig) -> str:
     entity_title = config.entity[:1].upper() + config.entity[1:]
+    # @SHARED_FIELD@ is the grant line's `<name>,` cell, padded to keep the
+    # default's column alignment; a longer name just gets one space.
+    field = f"{config.shared + ',':<{max(13, len(config.shared) + 2)}}"
     return (template
+            .replace("@SHARED_FIELD@", field)
+            .replace("@SHARED@", config.shared)
             .replace("@ENTITIES@", config.entities)
             .replace("@ENTITY_TITLE@", entity_title)
             .replace("@ENTITY@", config.entity)
             .replace("@REQUESTS@", config.requests_folder))
+
+
+def org_yaml(config: VaultConfig = VaultConfig()) -> str:
+    return _render(_ORG_YAML_T, config)
 
 
 def spaces_yaml(config: VaultConfig = VaultConfig()) -> str:
@@ -211,11 +220,22 @@ def assistant_protocol(config: VaultConfig = VaultConfig()) -> str:
     return _render(_ASSISTANT_PROTOCOL_T, config)
 
 
+ORG_YAML = org_yaml()
 SPACES_YAML = spaces_yaml()
 ASSISTANT_PROTOCOL = assistant_protocol()
 
 
-def _home_md(company: str) -> str:
+def config_yaml(config: VaultConfig) -> str:
+    """The `shared:` key is written only when it is not the default, so a
+    default vault's config.yaml is byte-identical to what shipped before the
+    key existed."""
+    text = f"entities: {config.entities}\nentity: {config.entity}\n"
+    if config.shared != DEFAULT_SHARED:
+        text += f"shared: {config.shared}\n"
+    return text
+
+
+def _home_md(company: str, config: VaultConfig) -> str:
     return (
         f"# {company} — Home\n\n"
         "The company's live priority dashboard, kept current by the assistant.\n"
@@ -226,7 +246,7 @@ def _home_md(company: str) -> str:
         # what makes Intel reachable — the protocol connects Intel by links
         # rather than folder structure, and until something points at it the
         # wiki's own index is an island no graph walk can enter.
-        "[[Company/Intel/Home|Intel]] for the shared reference wiki.\n\n"
+        f"[[{config.shared}/Intel/Home|Intel]] for the shared reference wiki.\n\n"
         "## Priorities\n\n_What needs attention now._\n\n"
         "## Open actions by owner\n\n_Outstanding action items, grouped by owner._\n\n"
         "## Pending promotions\n\n_Drafts awaiting approval._\n\n"
@@ -234,9 +254,9 @@ def _home_md(company: str) -> str:
     )
 
 
-def _memory_md(company: str) -> str:
+def _memory_md(company: str, config: VaultConfig) -> str:
     return (
-        f"# {company} — Company Memory\n\n"
+        f"# {company} — {config.shared} Memory\n\n"
         "Business overview, positioning, offers, team structure. Maintained by\n"
         "the company assistant; substantive changes arrive via promotions or\n"
         "admin edits.\n"
@@ -266,22 +286,22 @@ def scaffold_master(dest: Path, company: str,
         # rebuildable, must never enter the master's git history
         ".gitignore": "_meta/cache/\n",
         "AGENTS.md": assistant_protocol(config),
-        "Company/Home.md": _home_md(company),
-        "Company/Memory.md": _memory_md(company),
-        "Company/Decisions/.gitkeep": "",
-        "Company/Playbook/.gitkeep": "",
-        "Company/Templates/.gitkeep": "",
-        "Company/Intel/Home.md": _intel_home_md(),
-        "Company/Intel/Destinations/.gitkeep": "",
-        "Company/Intel/Providers/.gitkeep": "",
-        "Company/Intel/Events/.gitkeep": "",
-        "Company/Intel/Trends/.gitkeep": "",
+        f"{config.shared}/Home.md": _home_md(company, config),
+        f"{config.shared}/Memory.md": _memory_md(company, config),
+        f"{config.shared}/Decisions/.gitkeep": "",
+        f"{config.shared}/Playbook/.gitkeep": "",
+        f"{config.shared}/Templates/.gitkeep": "",
+        f"{config.shared}/Intel/Home.md": _intel_home_md(),
+        f"{config.shared}/Intel/Destinations/.gitkeep": "",
+        f"{config.shared}/Intel/Providers/.gitkeep": "",
+        f"{config.shared}/Intel/Events/.gitkeep": "",
+        f"{config.shared}/Intel/Trends/.gitkeep": "",
         "Teams/.gitkeep": "",
         "People/.gitkeep": "",
         f"{config.entities}/.gitkeep": "",
-        "_meta/org.yaml": ORG_YAML,
+        "_meta/org.yaml": org_yaml(config),
         "_meta/spaces.yaml": spaces_yaml(config),
-        "_meta/config.yaml": f"entities: {config.entities}\nentity: {config.entity}\n",
+        "_meta/config.yaml": config_yaml(config),
         "_meta/webhook.yaml.example": WEBHOOK_YAML_EXAMPLE,
         "_meta/promotions/pending/.gitkeep": "",
         "_meta/promotions/approved/.gitkeep": "",
