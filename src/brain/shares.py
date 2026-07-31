@@ -27,11 +27,24 @@ from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.promotions import _commit, _slug
 from brain.resolver import can_write_path, space_of_path
-from brain.schemas import Org, Person, SchemaError, load_org, load_spaces
+from brain.schemas import (
+    DEFAULT_SHARED,
+    Org,
+    Person,
+    SchemaError,
+    load_config,
+    load_org,
+    load_spaces,
+)
 
 
 class ShareError(BrainError, ValueError):
     """Invalid share request, subject, space, or unknown share id."""
+
+
+def _shared(master: Path, shared: str | None) -> str:
+    """See promotions._shared — `None` asks the master's config.yaml."""
+    return shared if shared is not None else load_config(master).shared
 
 
 ACCESS_LEVELS = ("read", "write")
@@ -71,12 +84,12 @@ def may_decide(person: Person | None, share_with: str) -> bool:
     return False  # "everyone" — admin only
 
 
-def validate_space(space: str) -> None:
+def validate_space(space: str, shared: str = DEFAULT_SHARED) -> None:
     if "*" in space:
         raise ShareError(f"cannot share a wildcard path {space!r}")
     if len(PurePosixPath(space).parts) != 2:
         raise ShareError(f"{space!r} is not a shareable space (expected <Top>/<Name>)")
-    if space_of_path(f"{space}/x.md") != space:
+    if space_of_path(f"{space}/x.md", shared) != space:
         raise ShareError(f"{space!r} is not inside any space family")
     if space.startswith("People/"):
         raise ShareError("personal spaces cannot be shared")
@@ -167,12 +180,13 @@ def request_share(
     created: str,
     body: str = "",
     action: str = "share",
+    shared: str = DEFAULT_SHARED,
 ) -> str:
     """Write a share/revoke request into the person's own space; return its
     vault-relative path. ``root`` may be a compiled slice — write-back carries
     it to master, where sweep_shares routes it. ``body`` is an optional note
     to the approver."""
-    validate_space(space)
+    validate_space(space, shared)
     validate_subject(share_with)
     if access not in ACCESS_LEVELS:
         raise ShareError(f"unknown access {access!r} — expected read or write")
@@ -200,7 +214,7 @@ def request_share(
         fname = f"{created}-{base}-{n}.md"
         n += 1
     rel_path = f"{req_rel}/{fname}"
-    if space_of_path(rel_path) != f"People/{person_id}":
+    if space_of_path(rel_path, shared) != f"People/{person_id}":
         raise ShareError(f"refusing to write outside {req_rel}")
 
     dest = root / rel_path
@@ -276,11 +290,13 @@ def _subject_known(subject: str, org: Org) -> bool:
     return any(name in p.teams for p in org.people.values())
 
 
-def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
+def sweep_shares(master: Path, org: Org, today: str,
+                 shared: str | None = None) -> list[ShareOutcome]:
     """Route People/*/ShareRequests/*.md: shares to the human-gated pending
     queue, revokes auto-applied (Task 5). The <pid> path segment is the
     authoritative requester; server-side ownership is re-checked against the
     live exact rule per iteration."""
+    shared = _shared(master, shared)
     results: list[ShareOutcome] = []
     decided = _decided_ids(master)
     for req in sorted(master.glob("People/*/ShareRequests/*.md")):
@@ -316,7 +332,7 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
 
             # syntactic validity — malformed stays in place for inspection
             try:
-                validate_space(space)
+                validate_space(space, shared)
                 validate_subject(subject)
                 if access not in ACCESS_LEVELS or action not in ACTIONS:
                     raise ShareError("bad access/action")
@@ -331,7 +347,7 @@ def sweep_shares(master: Path, org: Org, today: str) -> list[ShareOutcome]:
             rules = load_spaces(master / "_meta/spaces.yaml")
             exact = next((r for r in rules if r.path == space), None)
             if exact is None or person is None or not can_write_path(
-                    f"{space}/x.md", person, rules):
+                    f"{space}/x.md", person, rules, shared=shared):
                 consume("tampering", "not the owner of this space")
                 continue
 
@@ -443,13 +459,15 @@ class DecisionOutcome:
     reason: str = ""
 
 
-def sweep_approvals(master: Path, org: Org, today: str) -> list[DecisionOutcome]:
+def sweep_approvals(master: Path, org: Org, today: str,
+                    shared: str | None = None) -> list[DecisionOutcome]:
     """Apply delegated decisions from People/*/Approvals/*.md to the pending
     share queue. The <pid> path segment is the authoritative decider (writeback
     already gated the write); the filename stem is the share id. Eligibility is
     re-checked at decision time with may_decide. Company-wide (everyone) shares
     are never decidable here — master-side admins only. Only a forged owner:
     is tampering; every other failure is a routine refusal with an inbox note."""
+    shared = _shared(master, shared)
     results: list[DecisionOutcome] = []
     for note in sorted(master.glob("People/*/Approvals/*.md")):
         if note.is_symlink():
@@ -521,7 +539,7 @@ def sweep_approvals(master: Path, org: Org, today: str) -> list[DecisionOutcome]
             try:
                 if decision == "approve":
                     approve_share(master, share_id, approver=decider_id,
-                                  date=today, via="delegated")
+                                  date=today, via="delegated", shared=shared)
                 else:
                     reject_share(master, share_id, reason=reason, date=today,
                                  approver=decider_id, via="delegated")
@@ -550,9 +568,10 @@ def _find_pending_share(master: Path, share_id: str) -> Path:
 
 
 def approve_share(master: Path, share_id: str, approver: str, date: str,
-                   via: str = "") -> str:
+                   via: str = "", shared: str | None = None) -> str:
     """Amend the rule per the pending request. Everything is re-validated at
     decision time: the pending file sat on disk between sweep and approval."""
+    shared = _shared(master, shared)
     if not approver.strip():
         raise ShareError("an approver is required")
     people = load_org(master / "_meta/org.yaml").people
@@ -564,7 +583,7 @@ def approve_share(master: Path, share_id: str, approver: str, date: str,
     subject = str(meta.get("share-with", ""))
     access = str(meta.get("access", "read"))
     owner = str(meta.get("from", ""))
-    validate_space(space)
+    validate_space(space, shared)
     validate_subject(subject)
     if access not in ACCESS_LEVELS:
         raise ShareError(f"pending share {share_id!r} has invalid access {access!r}")
@@ -577,7 +596,8 @@ def approve_share(master: Path, share_id: str, approver: str, date: str,
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     owner_person = org.people.get(owner)
-    if owner_person is None or not can_write_path(f"{space}/x.md", owner_person, rules):
+    if owner_person is None or not can_write_path(f"{space}/x.md", owner_person,
+                                                  rules, shared=shared):
         raise ShareError(f"{owner!r} no longer owns {space!r} — refusing to apply")
     if not _subject_known(subject, org):
         raise ShareError(f"{subject!r} no longer resolves in the org")

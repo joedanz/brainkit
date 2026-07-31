@@ -878,3 +878,14 @@ def test_poison_and_symlink_notes_left_alone(tmp_path: Path):
     sweep_approvals(m, _ORG, today="2026-07-23")
     assert poison.read_bytes() == before
     assert symlink_note.is_symlink() and symlink_note.resolve() == target.resolve()
+
+
+def test_validate_space_refuses_shared_subfolder_under_custom_name():
+    import pytest
+
+    from brain.shares import ShareError, validate_space
+    # Unthreaded, this was ACCEPTED: a silent no-op grant for a subfolder of
+    # the shared space that matches no space and grants nothing.
+    with pytest.raises(ShareError):
+        validate_space("Family/Playbook", "Family")
+    validate_space("Projects/piano", "Family")  # real two-part space: fine
