@@ -91,6 +91,27 @@ def assert_vault_has_no_leaks(master: Path, person: Person, out: Path) -> None:
         )
 
 
+def assert_vault_contains_readable(master, vault, person, rules):
+    """The inverse guard: every .md in every readable space must ARRIVE.
+
+    Without this, a compiler that fail-closes into an empty vault passes the
+    no-leak assertion vacuously — nothing extra arrived because nothing
+    arrived at all."""
+    from brain.resolver import readable_spaces
+
+    checked = 0
+    for space in readable_spaces(master, person, rules):
+        src = master / space
+        if not src.is_dir():
+            continue  # self-named space not yet on disk
+        for f in sorted(src.rglob("*.md")):
+            rel = f.relative_to(master).as_posix()
+            assert (vault / rel).is_file(), (
+                f"{person.id}: readable {rel} missing from compiled vault")
+            checked += 1
+    assert checked > 0, f"{person.id}: vacuous — no readable content checked"
+
+
 def test_no_leak_across_random_worlds(tmp_path: Path):
     for seed in range(10):
         rng = random.Random(seed)
@@ -101,6 +122,18 @@ def test_no_leak_across_random_worlds(tmp_path: Path):
             out = tmp_path / f"out{seed}" / person.id
             compile_vault(master, person, RULES, out)
             assert_vault_has_no_leaks(master, person, out)
+
+
+def test_vault_contains_all_readable_content_across_random_worlds(tmp_path: Path):
+    for seed in range(10):
+        rng = random.Random(seed)
+        master = tmp_path / f"master{seed}"
+        master.mkdir()
+        org = random_world(rng, master)
+        for person in org.people.values():
+            out = tmp_path / f"out{seed}" / person.id
+            compile_vault(master, person, RULES, out)
+            assert_vault_contains_readable(master, out, person, RULES)
 
 
 def test_compile_all_creates_git_repos(tmp_path: Path):
