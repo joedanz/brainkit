@@ -164,7 +164,7 @@ def cmd_init(args) -> int:
     from brain.templates import scaffold_master
 
     try:
-        config = make_config(args.entities, args.entity or None)
+        config = make_config(args.entities, args.entity or None, args.shared)
     except SchemaError as e:
         print(str(e), file=sys.stderr)
         return 1
@@ -611,6 +611,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="name of the third-party tree (default: Clients)")
     i.add_argument("--entity", default="",
                    help="singular form (default: derived — Clients -> client)")
+    i.add_argument("--shared", default="Company",
+                   help="name of the shared top-level space everyone reads "
+                        "(default: Company)")
     i.set_defaults(func=cmd_init)
 
     rn = sub.add_parser("rename-entities",
