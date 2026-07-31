@@ -11,6 +11,23 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-07-31
+
+The shared space stops being called `Company`. A household runs `Family/`, a
+solo brain runs `Home/`, and a company keeps exactly what it had — the name is
+now a per-vault setting rather than a hardcoded path.
+
+**Nothing to do for existing vaults.** The `shared:` key is written only when
+it is not the default, so a default vault's `config.yaml`, compiled manifests,
+and `brain init` output are byte-for-byte what 0.2.1 produced (the scaffold's
+git tree hash is pinned by a test).
+
+The name is fixed at `brain init --shared` and has no rename command — unlike
+the entity tree, whose `brain rename-entities` counterpart still exists. Pick
+it at the start.
+
 ### Added
 
 - `brain init --shared` names the shared top-level space (default `Company`) —
@@ -264,7 +281,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/joedanz/brainkit/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/joedanz/brainkit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/joedanz/brainkit/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/joedanz/brainkit/compare/v0.1.0...v0.1.1
