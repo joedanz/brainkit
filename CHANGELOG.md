@@ -11,7 +11,26 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `brain init --shared` names the shared top-level space (default `Company`) —
+  a household can run `Family/`, a solo brain `Home/`. The name is fixed after
+  init. New optional `shared:` key in `_meta/config.yaml`; compiled-vault
+  manifests carry a `shared` key only when it is not the default.
+- `docs/guides/family-brain` — running brainkit for a household.
+
+### Changed
+
+- `_meta/config.yaml` schema: new optional `shared:` key. **Nothing to do for
+  existing vaults** — a missing key means `Company`, and every output
+  (scaffold, compiles, doctor) is byte-identical to before.
+
+### Fixed
+
+- Sharing a subfolder of the shared space is now refused at request time under
+  any shared name (previously a silent no-op grant under a renamed top).
+- `brain rename-entities` no longer drops a non-default `shared:` key from
+  `_meta/config.yaml`.
 
 ## [0.2.1] - 2026-07-29
 
