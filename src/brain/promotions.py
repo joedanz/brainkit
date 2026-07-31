@@ -12,11 +12,19 @@ from pathlib import Path, PurePosixPath
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
-from brain.schemas import load_org
+from brain.schemas import DEFAULT_SHARED, load_config, load_org
 
 
 class PromotionError(BrainError, ValueError):
     """Invalid promotion target or unknown promotion id."""
+
+
+def _shared(master: Path, shared: str | None) -> str:
+    """The shared space name for a master-side operation. `None` means "ask
+    the master" — its config.yaml is the authority, so this fallback is
+    correct rather than a guess; callers holding a config pass it to skip
+    the read."""
+    return shared if shared is not None else load_config(master).shared
 
 
 _ID = re.compile(r"[A-Za-z0-9._-]+")
@@ -92,8 +100,8 @@ def _resolved_ids(master: Path) -> set[str]:
     return ids
 
 
-def _validate_target(target_path: str) -> None:
-    space = space_of_path(target_path)
+def _validate_target(target_path: str, shared: str = DEFAULT_SHARED) -> None:
+    space = space_of_path(target_path, shared)
     if space is None:
         raise PromotionError(f"target {target_path!r} is not inside any space")
     if space.startswith("People/"):
@@ -134,8 +142,9 @@ def draft_promotion(
     created: str,
     mode: str = "create",
     base_hash: str = "",
+    shared: str | None = None,
 ) -> Path:
-    _validate_target(target_path)
+    _validate_target(target_path, _shared(master, shared))
     _validate_mode(mode)
     if "\n" in base_hash or "\r" in base_hash:
         raise PromotionError("base-hash must be a single line")
@@ -164,6 +173,7 @@ def draft_into_space(
     source: str,
     body: str,
     created: str,
+    shared: str = DEFAULT_SHARED,
 ) -> str:
     """Write a promotion *draft* into the person's own ``Promotions/`` space and
     return its vault-relative path.
@@ -179,7 +189,7 @@ def draft_into_space(
     for field, value in (("target-path", target_path), ("source", source)):
         if "\n" in value or "\r" in value:
             raise PromotionError(f"{field} must be a single line")
-    _validate_target(target_path)
+    _validate_target(target_path, shared)
     if not body.strip():
         raise PromotionError("empty promotion — nothing to share")
 
@@ -198,7 +208,7 @@ def draft_into_space(
         fname = f"{created}-{base}-{n}.md"
         n += 1
     rel_path = f"{promo_rel}/{fname}"
-    if space_of_path(rel_path) != f"People/{person_id}":
+    if space_of_path(rel_path, shared) != f"People/{person_id}":
         raise PromotionError(f"refusing to write outside {promo_rel}")
 
     dest = root / rel_path
@@ -243,7 +253,8 @@ def list_pending(master: Path) -> list[Promotion]:
     return pending
 
 
-def patch_diff(master: Path, promo: Promotion) -> str | None:
+def patch_diff(master: Path, promo: Promotion,
+               shared: str | None = None) -> str | None:
     """Live unified diff of a patch promotion against its current target.
 
     Computed at review time on purpose: the hash guards the write, the diff
@@ -251,7 +262,7 @@ def patch_diff(master: Path, promo: Promotion) -> str | None:
     for non-patch modes and for a missing target (approval fails closed on
     that anyway)."""
     try:
-        _validate_target(promo.target_path)
+        _validate_target(promo.target_path, _shared(master, shared))
     except PromotionError:
         return None
     if promo.mode != "patch":
@@ -279,7 +290,8 @@ def _find_pending(master: Path, promo_id: str) -> Path:
     return p
 
 
-def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
+def approve(master: Path, promo_id: str, approver: str, date: str,
+            shared: str | None = None) -> Path:
     # Attribution must be real: approved-by is machine-resolved against the
     # org roster, same as promoted-by.
     if not approver.strip():
@@ -291,7 +303,7 @@ def approve(master: Path, promo_id: str, approver: str, date: str) -> Path:
     promo = _parse(pending)
     # Pending files sit on disk between draft and approve; re-validate so a
     # hand-edited target can't escape the master root.
-    _validate_target(promo.target_path)
+    _validate_target(promo.target_path, _shared(master, shared))
     target = master / promo.target_path
     if promo.mode == "create":
         # Promotions only ever add knowledge. An existing target means approval
@@ -383,13 +395,14 @@ def _slug(text: str) -> str:
     return "-".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
 
 
-def sweep(master: Path, today: str) -> list[Path]:
+def sweep(master: Path, today: str, shared: str | None = None) -> list[Path]:
     """Move agent-drafted promotions from People/*/Promotions/ into the queue.
 
     Personal agents cannot write _meta/, so their drafts land in their own
     writable space; the server sweeps them here. Files without a valid
     target-path are left in place — never guessed at.
     """
+    shared = _shared(master, shared)
     moved: list[Path] = []
     changed: list[str] = []  # rel paths for the single audit commit at the end
     resolved = _resolved_ids(master)
@@ -411,7 +424,7 @@ def sweep(master: Path, today: str) -> list[Path]:
             if (_pending_dir(master) / f"{promo_id}.md").exists():
                 continue
             try:
-                _validate_target(target)
+                _validate_target(target, shared)
                 mode = meta.get("mode", "create")
                 _validate_mode(mode)
                 base_hash = ""
@@ -430,6 +443,7 @@ def sweep(master: Path, today: str) -> list[Path]:
                     created=today,
                     mode=mode,
                     base_hash=base_hash,
+                    shared=shared,
                 )
             except PromotionError:
                 continue
