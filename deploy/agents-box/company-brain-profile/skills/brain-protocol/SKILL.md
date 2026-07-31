@@ -25,8 +25,9 @@ your spaces and permissions — read it before acting.
    source: <originating note path>
    mode: create | append | patch
    `mode: create` (default) needs a target that does not exist yet —
-   decisions -> Company/Decisions/, standing processes or standards ->
-   Company/Playbook/. To update an existing shared page instead, use
+   decisions -> the shared space's Decisions/ folder, standing processes or
+   standards -> its Playbook/ folder (your vault's AGENTS.md names the shared
+   space — follow it). To update an existing shared page instead, use
    `mode: append` (your note is added under a divider) or `mode: patch`
    (your note body is the complete revised page — approval fails closed if
    the page changed since it was queued).
@@ -59,7 +60,7 @@ frontmatter-key names from there; the shapes below use placeholders.
    matches an entry you already have, or one that collides with your own
    household. Don't interrogate a distinctive name that's already unambiguous.
 4. One utterance can split into two homes: e.g. a family attending an event
-   becomes a third-party note AND a `Company/Intel/Events/` promotion,
+   also gets an `Intel/Events/<Name>.md` promotion under the shared space,
    cross-linked so each references the other.
 5. To share or revoke access to a space you own, write
    `People/<you>/ShareRequests/<name>.md` with frontmatter: `space: <the space>`,
@@ -86,7 +87,8 @@ frontmatter-key names from there; the shapes below use placeholders.
    there's no link; use the source's own date, or `captured YYYY-MM` (today)
    when it shows none.
 2. Route destination, provider, event, or trend intel to the shared wiki via
-   a promotion targeting Company/Intel/ — Destinations/<Place>.md,
+   a promotion targeting the shared Intel wiki (`<shared space>/Intel/` —
+   your AGENTS.md names it) — Destinations/<Place>.md,
    Providers/<Name>.md, Events/<Name>.md, or Trends/<YYYY-MM Topic>.md.
    New entity -> a new page (one-sentence summary first line; link related
    pages both ways). Page already exists -> promote with `mode: append` for
