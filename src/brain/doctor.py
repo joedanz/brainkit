@@ -108,6 +108,34 @@ def _check_rule_paths(master: Path, rules: tuple[SpaceRule, ...]) -> list[Findin
     return findings
 
 
+def _check_shared_agreement(master: Path, rules: tuple[SpaceRule, ...],
+                            config: VaultConfig) -> list[Finding]:
+    """config.yaml names the shared top; spaces.yaml and the directory tree
+    must agree, or the shared space silently compiles into no vault (fail
+    closed). Scoped to disagreement between the three — a merely missing
+    directory is `_check_rule_paths`' finding, never duplicated here."""
+    findings: list[Finding] = []
+    if not any(r.path == config.shared for r in rules):
+        findings.append(Finding(
+            "warn", "meta",
+            f"config.yaml names shared space {config.shared!r} but "
+            "spaces.yaml has no exact rule for it — its notes compile into "
+            "no vault"))
+    if not (master / config.shared).is_dir():
+        stray = next(
+            (r.path for r in rules
+             if "/" not in r.path and "*" not in r.path
+             and r.path != config.shared and (master / r.path).is_dir()),
+            None)
+        if stray is not None:
+            findings.append(Finding(
+                "warn", "meta",
+                f"config.yaml names shared space {config.shared!r} but the "
+                f"tree on disk is {stray!r} — rename the directory or fix "
+                "config.yaml"))
+    return findings
+
+
 def _check_space_coverage(master: Path, rules: tuple[SpaceRule, ...],
                           shared: str) -> list[Finding]:
     findings: list[Finding] = []
@@ -1218,12 +1246,16 @@ def run_doctor(
         return findings  # dependent checks are meaningless on broken meta
     try:
         config = load_config(master)
+        config_ok = True
     except SchemaError as e:
         findings.append(Finding("error", "meta", f"config.yaml: {e}"))
         config = VaultConfig()
+        config_ok = False
     shared = config.shared
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
+    if config_ok:
+        findings += _check_shared_agreement(master, rules, config)
     findings += _check_space_coverage(master, rules, shared)
     findings += _check_unreadable_spaces(master, org, rules, shared)
     # Before the content scans: they all skip what they can't read, so this is
