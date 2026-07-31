@@ -18,18 +18,7 @@ from brain.compiler import MANIFEST_NAME, compile_all, compile_vault
 from brain.resolver import readable_spaces, space_of_path
 from brain.schemas import Org, Person, SpaceRule, make_config
 from brain.templates import config_yaml
-
-
-def rules_for(shared: str) -> tuple[SpaceRule, ...]:
-    return (
-        SpaceRule(shared, read=("everyone",), write=("role:admin",)),
-        SpaceRule("Teams/*", read=("team:{name}",), write=("team:{name}",)),
-        SpaceRule("People/*", read=("person:{name}",), write=("person:{name}",)),
-        SpaceRule("Clients/*", read=("everyone",), write=("role:admin",)),
-    )
-
-
-RULES = rules_for("Company")
+from tests.conftest import rules_for
 
 
 def random_world(rng: random.Random, root: Path) -> tuple[Org, str]:
@@ -87,7 +76,7 @@ def random_world(rng: random.Random, root: Path) -> tuple[Org, str]:
 
 
 def assert_vault_has_no_leaks(master: Path, person: Person, out: Path,
-                              rules=RULES, shared: str = "Company") -> None:
+                              rules: tuple[SpaceRule, ...], shared: str) -> None:
     """Every file in the vault must live in a readable space, unless the
     compiler's own manifest declares it generated (or it is the manifest)."""
     allowed = set(readable_spaces(master, person, rules, shared))
@@ -105,8 +94,7 @@ def assert_vault_has_no_leaks(master: Path, person: Person, out: Path,
         )
 
 
-def assert_vault_contains_readable(master, vault, person, rules,
-                                   shared: str = "Company"):
+def assert_vault_contains_readable(master, vault, person, rules, shared: str):
     """The inverse guard: every .md in every readable space must ARRIVE.
 
     Without this, a compiler that fail-closes into an empty vault passes the

@@ -32,19 +32,14 @@ from brain.schemas import (
     Org,
     Person,
     SchemaError,
-    load_config,
     load_org,
     load_spaces,
+    master_shared,
 )
 
 
 class ShareError(BrainError, ValueError):
     """Invalid share request, subject, space, or unknown share id."""
-
-
-def _shared(master: Path, shared: str | None) -> str:
-    """See promotions._shared — `None` asks the master's config.yaml."""
-    return shared if shared is not None else load_config(master).shared
 
 
 ACCESS_LEVELS = ("read", "write")
@@ -124,12 +119,13 @@ def _rewrite_line(spaces_path: Path, idx: int, new_line: str) -> None:
     spaces_path.write_text("\n".join(lines) + "\n")
 
 
-def amend_space_rule(spaces_path: Path, space: str, subject: str, access: str) -> bool:
+def amend_space_rule(spaces_path: Path, space: str, subject: str, access: str,
+                     shared: str = DEFAULT_SHARED) -> bool:
     """Add ``subject`` to the exact rule's read list (and write, for
     access=="write"). Only ever adds; refuses missing rules and wildcards;
     idempotent. Every other line survives byte-identical."""
     validate_subject(subject)
-    validate_space(space)
+    validate_space(space, shared)
     if access not in ACCESS_LEVELS:
         raise ShareError(f"unknown access {access!r} — expected read or write")
     found = _find_rule_line(spaces_path.read_text(), space)
@@ -149,13 +145,14 @@ def amend_space_rule(spaces_path: Path, space: str, subject: str, access: str) -
     return True
 
 
-def remove_subject_from_rule(spaces_path: Path, space: str, subject: str) -> bool:
+def remove_subject_from_rule(spaces_path: Path, space: str, subject: str,
+                             shared: str = DEFAULT_SHARED) -> bool:
     """Remove ``subject`` from both lists of the exact rule. role:admin is
     structural oversight and can never be removed."""
     if subject == "role:admin":
         raise ShareError("role:admin cannot be revoked — admin oversight is structural")
     validate_subject(subject)
-    validate_space(space)
+    validate_space(space, shared)
     found = _find_rule_line(spaces_path.read_text(), space)
     if found is None:
         raise ShareError(f"no exact rule for {space!r} — nothing to revoke")
@@ -296,7 +293,7 @@ def sweep_shares(master: Path, org: Org, today: str,
     queue, revokes auto-applied (Task 5). The <pid> path segment is the
     authoritative requester; server-side ownership is re-checked against the
     live exact rule per iteration."""
-    shared = _shared(master, shared)
+    shared = master_shared(master, shared)
     results: list[ShareOutcome] = []
     decided = _decided_ids(master)
     for req in sorted(master.glob("People/*/ShareRequests/*.md")):
@@ -426,7 +423,7 @@ def sweep_shares(master: Path, org: Org, today: str,
                 continue
 
             removed = remove_subject_from_rule(
-                master / "_meta/spaces.yaml", space, subject)
+                master / "_meta/spaces.yaml", space, subject, shared)
             if not removed:
                 note = _share_inbox_note(
                     master, person_id, slug,
@@ -467,7 +464,7 @@ def sweep_approvals(master: Path, org: Org, today: str,
     re-checked at decision time with may_decide. Company-wide (everyone) shares
     are never decidable here — master-side admins only. Only a forged owner:
     is tampering; every other failure is a routine refusal with an inbox note."""
-    shared = _shared(master, shared)
+    shared = master_shared(master, shared)
     results: list[DecisionOutcome] = []
     for note in sorted(master.glob("People/*/Approvals/*.md")):
         if note.is_symlink():
@@ -571,7 +568,7 @@ def approve_share(master: Path, share_id: str, approver: str, date: str,
                    via: str = "", shared: str | None = None) -> str:
     """Amend the rule per the pending request. Everything is re-validated at
     decision time: the pending file sat on disk between sweep and approval."""
-    shared = _shared(master, shared)
+    shared = master_shared(master, shared)
     if not approver.strip():
         raise ShareError("an approver is required")
     people = load_org(master / "_meta/org.yaml").people
@@ -601,7 +598,7 @@ def approve_share(master: Path, share_id: str, approver: str, date: str,
         raise ShareError(f"{owner!r} no longer owns {space!r} — refusing to apply")
     if not _subject_known(subject, org):
         raise ShareError(f"{subject!r} no longer resolves in the org")
-    amend_space_rule(master / "_meta/spaces.yaml", space, subject, access)
+    amend_space_rule(master / "_meta/spaces.yaml", space, subject, access, shared)
     archived = master / "_meta/shares/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, body = pending.read_text().split("---\n", 2)
@@ -655,10 +652,12 @@ def reject_share(master: Path, share_id: str, reason: str, date: str, approver: 
     return rejected
 
 
-def admin_revoke(master: Path, space: str, subject: str, date: str) -> bool:
+def admin_revoke(master: Path, space: str, subject: str, date: str,
+                 shared: str | None = None) -> bool:
     """Direct admin revoke — no request file. Doubles as the veto lever for
     the created-clients review list. role:admin remains irremovable."""
-    removed = remove_subject_from_rule(master / "_meta/spaces.yaml", space, subject)
+    removed = remove_subject_from_rule(master / "_meta/spaces.yaml", space, subject,
+                                       master_shared(master, shared))
     if not removed:
         return False
     audit = master / "_meta/shares/revoked" / f"admin-{date}-{_slug(f'{space}-{subject}')}.md"

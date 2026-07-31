@@ -24,6 +24,7 @@ from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
 from brain.resolver import RESERVED, _match_rule, can_read, enumerate_spaces, space_of_path
 from brain.schemas import (
+    DEFAULT_SHARED,
     Org,
     SchemaError,
     SpaceRule,
@@ -45,18 +46,6 @@ class Finding:
     check: str
     message: str
     paths: tuple[str, ...] = ()  # rel path(s) this finding is about; () = infra-level
-
-
-def _shared(master: Path, shared: str | None) -> str:
-    """The shared space name for a doctor check. `None` asks the master's
-    config.yaml, which is the authority — so a caller that omits it reads the
-    truth rather than a stale default."""
-    if shared is not None:
-        return shared
-    try:
-        return load_config(master).shared
-    except SchemaError:
-        return VaultConfig().shared
 
 
 def _check_meta(master: Path) -> tuple[list[Finding], Org | None, tuple[SpaceRule, ...] | None]:
@@ -109,28 +98,30 @@ def _check_rule_paths(master: Path, rules: tuple[SpaceRule, ...]) -> list[Findin
 
 
 def _check_shared_agreement(master: Path, rules: tuple[SpaceRule, ...],
-                            config: VaultConfig) -> list[Finding]:
+                            shared: str) -> list[Finding]:
     """config.yaml names the shared top; spaces.yaml and the directory tree
     must agree, or the shared space silently compiles into no vault (fail
     closed). Scoped to disagreement between the three — a merely missing
     directory is `_check_rule_paths`' finding, never duplicated here."""
     findings: list[Finding] = []
-    if not any(r.path == config.shared for r in rules):
+    if not any(r.path == shared for r in rules):
         findings.append(Finding(
             "warn", "meta",
-            f"config.yaml names shared space {config.shared!r} but "
+            f"config.yaml names shared space {shared!r} but "
             "spaces.yaml has no exact rule for it — its notes compile into "
             "no vault"))
-    if not (master / config.shared).is_dir():
+    if not (master / shared).is_dir():
+        # No `r.path != shared` guard needed: the branch above established
+        # that directory is missing, so it fails the is_dir test anyway.
         stray = next(
             (r.path for r in rules
              if "/" not in r.path and "*" not in r.path
-             and r.path != config.shared and (master / r.path).is_dir()),
+             and (master / r.path).is_dir()),
             None)
         if stray is not None:
             findings.append(Finding(
                 "warn", "meta",
-                f"config.yaml names shared space {config.shared!r} but the "
+                f"config.yaml names shared space {shared!r} but the "
                 f"tree on disk is {stray!r} — rename the directory or fix "
                 "config.yaml"))
     return findings
@@ -279,7 +270,7 @@ def _skeleton_pair(a: str, b: str, shared: str) -> bool:
 
 
 def _cached_file_vectors(
-    rels: list[str], texts: dict[str, str],
+    rels: list[str], texts: dict[str, str], shared: str,
 ) -> dict[str, list[float]]:
     """File-level mean-pooled vectors, resolved from the shared embedding
     cache ONLY — the provider is never called (its constructor does no I/O
@@ -304,7 +295,7 @@ def _cached_file_vectors(
         return {}
     try:
         for rel in rels:
-            chunks = chunk_markdown(rel, texts[rel])
+            chunks = chunk_markdown(rel, texts[rel], shared=shared)
             if not chunks:
                 continue
             shas = [
@@ -460,7 +451,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     # Tier 3b: semantic near-duplicates from cached embeddings. Sign-bit
     # hamming prefilters the O(n^2) pair loop; exact cosine confirms.
-    vecs = _cached_file_vectors(substantive, texts)
+    vecs = _cached_file_vectors(substantive, texts, shared)
     bits = {rel: sign_bits(v) for rel, v in vecs.items()}
     dim = len(next(iter(vecs.values()))) if vecs else 0
     max_ham = int(dim * DUP_HAMMING_FRAC)
@@ -1012,13 +1003,12 @@ def _citation_scope(rel: str, meta: dict[str, str], shared: str) -> str | None:
 
 
 def _check_intel(master: Path, today: date | None = None,
-                 shared: str | None = None) -> list[Finding]:
+                 shared: str = DEFAULT_SHARED) -> list[Finding]:
     """The Intel wiki's conventions fail silently: an unfolded addendum
     contradicts its merged page in search results, and a page nobody feeds
     quietly goes stale behind its own citations. Warn-only — nothing leaks
     and nothing blocks a compile. Home.md is the link map, exempt from the
     citation rule; addenda are exempt from staleness (already flagged)."""
-    shared = _shared(master, shared)
     intel = master / _intel_dir(shared)
     if not intel.is_dir():
         return []
@@ -1036,7 +1026,7 @@ def _check_intel(master: Path, today: date | None = None,
 
 
 def _cited_pages(master: Path, scope: str | None = None,
-                 shared: str | None = None) -> list[tuple[str, str, str]]:
+                 shared: str = DEFAULT_SHARED) -> list[tuple[str, str, str]]:
     """(rel, text, source) for every page the citation rule covers — Intel
     pages (source "") and `distilled:` pages alike. The one traversal behind
     all three consumers, so `_citation_scope`'s "single source of truth" holds
@@ -1046,8 +1036,8 @@ def _cited_pages(master: Path, scope: str | None = None,
     Intel is walked from disk rather than through `_content_files` because its
     rule predates spaces and must hold even where one can't be resolved;
     symlinks are skipped there because `_check_symlinks` already owns them."""
-    shared = _shared(master, shared)
     out: list[tuple[str, str, str]] = []
+    intel_prefix = _intel_dir(shared) + "/"   # built once, tested per file below
     intel = master / _intel_dir(shared)
     if scope in (None, "intel") and intel.is_dir():
         for f in sorted(intel.rglob("*.md")):
@@ -1059,7 +1049,7 @@ def _cited_pages(master: Path, scope: str | None = None,
                 out.append((rel, text, ""))
     if scope in (None, "distilled"):
         for rel in _content_files(master, shared):
-            if rel.startswith(_intel_dir(shared) + "/"):
+            if rel.startswith(intel_prefix):
                 continue  # walked above, on Intel's own terms
             text = _read_text(master / rel)
             if text is None:
@@ -1072,13 +1062,12 @@ def _cited_pages(master: Path, scope: str | None = None,
 
 def _citation_findings(
     master: Path, scope: str, today: date | None = None,
-    shared: str | None = None,
+    shared: str = DEFAULT_SHARED,
 ) -> list[Finding]:
     """Apply one scope's citation rule. Intel and `distilled:` differ only in
     which pages they cover and how they word the complaint, so they share this
     loop and part ways in `_CITATION_RULES` — the alternative is two mirrored
     copies that drift the first time a third rule appears."""
-    shared = _shared(master, shared)
     now_m = _month_index(today or date.today())
     check, uncited_msg, stale_msg = _CITATION_RULES[scope]
     findings: list[Finding] = []
@@ -1100,7 +1089,7 @@ def _citation_findings(
 
 
 def _check_citations(master: Path, today: date | None = None,
-                     shared: str | None = None) -> list[Finding]:
+                     shared: str = DEFAULT_SHARED) -> list[Finding]:
     """The citation rule outside the shared Intel tree. Distilled content routed to
     an entity page or `People/<pid>/Notes/` carries the same recovery risk as
     an Intel page — the full source deliberately never entered the vault, so a
@@ -1111,7 +1100,7 @@ def _check_citations(master: Path, today: date | None = None,
 
 
 def _check_liveness(master: Path, today: date | None = None,
-                    shared: str | None = None) -> list[Finding]:
+                    shared: str = DEFAULT_SHARED) -> list[Finding]:
     """Opt-in (`brain doctor --net`): do the sources behind stale pages still
     resolve? `stale AND dead` is the compound signal worth acting on — it means
     re-research this now, while someone still remembers the context. Neither
@@ -1123,7 +1112,6 @@ def _check_liveness(master: Path, today: date | None = None,
     `_check_intel`/`_check_citations` already said so."""
     from brain.liveness import DEAD, probe_all, wayback
 
-    shared = _shared(master, shared)
     now_m = _month_index(today or date.today())
     stale: list[tuple[str, int, list[str]]] = []
     for rel, text, _source in _cited_pages(master, shared=shared):
@@ -1255,7 +1243,7 @@ def run_doctor(
     findings += _check_subjects(org, rules)
     findings += _check_rule_paths(master, rules)
     if config_ok:
-        findings += _check_shared_agreement(master, rules, config)
+        findings += _check_shared_agreement(master, rules, shared)
     findings += _check_space_coverage(master, rules, shared)
     findings += _check_unreadable_spaces(master, org, rules, shared)
     # Before the content scans: they all skip what they can't read, so this is

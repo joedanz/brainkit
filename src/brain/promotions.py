@@ -12,19 +12,11 @@ from pathlib import Path, PurePosixPath
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
-from brain.schemas import DEFAULT_SHARED, load_config, load_org
+from brain.schemas import DEFAULT_SHARED, load_org, master_shared
 
 
 class PromotionError(BrainError, ValueError):
     """Invalid promotion target or unknown promotion id."""
-
-
-def _shared(master: Path, shared: str | None) -> str:
-    """The shared space name for a master-side operation. `None` means "ask
-    the master" — its config.yaml is the authority, so this fallback is
-    correct rather than a guess; callers holding a config pass it to skip
-    the read."""
-    return shared if shared is not None else load_config(master).shared
 
 
 _ID = re.compile(r"[A-Za-z0-9._-]+")
@@ -144,7 +136,7 @@ def draft_promotion(
     base_hash: str = "",
     shared: str | None = None,
 ) -> Path:
-    _validate_target(target_path, _shared(master, shared))
+    _validate_target(target_path, master_shared(master, shared))
     _validate_mode(mode)
     if "\n" in base_hash or "\r" in base_hash:
         raise PromotionError("base-hash must be a single line")
@@ -262,7 +254,7 @@ def patch_diff(master: Path, promo: Promotion,
     for non-patch modes and for a missing target (approval fails closed on
     that anyway)."""
     try:
-        _validate_target(promo.target_path, _shared(master, shared))
+        _validate_target(promo.target_path, master_shared(master, shared))
     except PromotionError:
         return None
     if promo.mode != "patch":
@@ -303,7 +295,7 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     promo = _parse(pending)
     # Pending files sit on disk between draft and approve; re-validate so a
     # hand-edited target can't escape the master root.
-    _validate_target(promo.target_path, _shared(master, shared))
+    _validate_target(promo.target_path, master_shared(master, shared))
     target = master / promo.target_path
     if promo.mode == "create":
         # Promotions only ever add knowledge. An existing target means approval
@@ -402,7 +394,7 @@ def sweep(master: Path, today: str, shared: str | None = None) -> list[Path]:
     writable space; the server sweeps them here. Files without a valid
     target-path are left in place — never guessed at.
     """
-    shared = _shared(master, shared)
+    shared = master_shared(master, shared)
     moved: list[Path] = []
     changed: list[str] = []  # rel paths for the single audit commit at the end
     resolved = _resolved_ids(master)

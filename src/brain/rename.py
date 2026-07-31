@@ -20,6 +20,7 @@ from pathlib import Path
 
 from brain.errors import BrainError
 from brain.schemas import VaultConfig, load_config, make_config
+from brain.templates import config_yaml
 
 
 class RenameError(BrainError, ValueError):
@@ -139,8 +140,6 @@ def rename_entities(master: Path, entities: str,
         queue_rewritten += 1 if _rewrite_file_lines(f, share_fix) else 0
     for f in sorted(master.glob("_meta/promotions/pending/*.md")):
         queue_rewritten += 1 if _rewrite_file_lines(f, promo_fix) else 0
-
-    from brain.templates import config_yaml
 
     (master / "_meta/config.yaml").write_text(config_yaml(new))
 

@@ -28,7 +28,7 @@ from pathlib import Path
 
 from brain.errors import BrainError
 from brain.resolver import can_write_path, space_of_path
-from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, load_config
+from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, master_shared
 
 _MAX_SLUG = 60
 
@@ -168,8 +168,7 @@ def ingest_note(
     ``created`` is an ISO date supplied by the caller (the CLI edge defaults it to
     today) — never read from the clock here, matching the rest of the codebase.
     """
-    if shared is None:
-        shared = load_config(master).shared
+    shared = master_shared(master, shared)
     built = build_inbox_note(master, person.id, body, title=title, source=source,
                              sender=sender, created=created,
                              original_name=original_name, shared=shared)

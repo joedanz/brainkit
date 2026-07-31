@@ -111,6 +111,28 @@ def load_config(master: Path) -> VaultConfig:
                        data.get("shared", DEFAULT_SHARED))
 
 
+def master_shared(master: Path, shared: str | None = None) -> str:
+    """The shared space name for a master-side operation. `None` means "ask
+    the master" — its config.yaml is the authority, so this fallback is
+    correct rather than a guess; callers holding a config pass it to skip
+    the read. A malformed config raises, because a write path must not act
+    on a guessed vocabulary."""
+    return shared if shared is not None else load_config(master).shared
+
+
+def master_shared_or_default(master: Path, shared: str | None = None) -> str:
+    """`master_shared` for read-only surfaces that must survive a broken
+    config — doctor reports the malformation itself, and a dashboard request
+    should render rather than 500. Degrading to the default is safe here
+    precisely because these callers never write."""
+    if shared is not None:
+        return shared
+    try:
+        return load_config(master).shared
+    except SchemaError:
+        return DEFAULT_SHARED
+
+
 @dataclass(frozen=True)
 class Person:
     id: str

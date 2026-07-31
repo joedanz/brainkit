@@ -11,6 +11,13 @@ from brain.schemas import DEFAULT_SHARED, Person, SpaceRule
 # special: spaces.yaml is the only authority on readability, so a space under a
 # top no rule covers has zero readers (fail closed). Which top is the shared one
 # is vault config, so callers pass it in; the default keeps pure leaves honest.
+#
+# A loose file directly under a nested top (`Clients/stray.md`) resolves to a
+# space named after the file. Deliberate: this is a pure path parser with no
+# filesystem access (it runs per-note in compile hot loops), so it cannot tell
+# a space root from a file. The junk name matches no rule, so every permission
+# check on it fails closed, and consumers that care reject it on arity —
+# see promotions._validate_target.
 RESERVED = ("_meta", ".git")
 
 
@@ -28,8 +35,8 @@ def enumerate_spaces(master: Path, shared: str = DEFAULT_SHARED) -> list[str]:
         else:
             spaces.extend(
                 f"{top.name}/{child.name}"
-                for child in sorted(p for p in top.iterdir() if p.is_dir())
-                if _is_top(child.name))
+                for child in sorted(top.iterdir())
+                if child.is_dir() and _is_top(child.name))
     return spaces
 
 

@@ -197,8 +197,9 @@ owner, pending promotions, recent decisions.
 def _render(template: str, config: VaultConfig) -> str:
     entity_title = config.entity[:1].upper() + config.entity[1:]
     # @SHARED_FIELD@ is the grant line's `<name>,` cell, padded to keep the
-    # default's column alignment; a longer name just gets one space.
-    field = f"{config.shared + ',':<{max(13, len(config.shared) + 2)}}"
+    # default's column alignment; a name too long for the column just gets
+    # the single trailing space.
+    field = (config.shared + ", ").ljust(13)
     return (template
             .replace("@SHARED_FIELD@", field)
             .replace("@SHARED@", config.shared)

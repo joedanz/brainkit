@@ -67,12 +67,9 @@ def _org_people(master: Path) -> dict[str, str]:
 def _master_shared(master: Path) -> str:
     """The master's shared space name for naming/parse purposes. A broken
     config is doctor's problem, not this request's — fall back to default."""
-    from brain.schemas import SchemaError, VaultConfig, load_config
+    from brain.schemas import master_shared_or_default
 
-    try:
-        return load_config(master).shared
-    except SchemaError:
-        return VaultConfig().shared
+    return master_shared_or_default(master)
 
 
 def _target_vault(app: web.Application, request: web.Request) -> Path:
@@ -251,7 +248,6 @@ async def handle_notes(request: web.Request) -> web.Response:
     from brain.writeback import vault_shared
 
     vault = _target_vault(request.app, request)
-    shared = vault_shared(vault)
     q = request.query
     try:
         limit = int(q.get("limit", 200))
@@ -260,6 +256,8 @@ async def handle_notes(request: web.Request) -> web.Response:
     limit = max(1, min(limit, 1000))
 
     def _list() -> list[dict]:
+        # Resolved inside the worker thread: vault_shared reads and parses the
+        # manifest, and that blocking I/O must not run on the event loop.
         rows = list_notes(
             vault,
             space=q.get("space") or None,
@@ -268,7 +266,7 @@ async def handle_notes(request: web.Request) -> web.Response:
             pending_only=q.get("pending") in ("1", "true", "yes"),
             modified_after=q.get("after") or None,
             limit=limit,
-            shared=shared,
+            shared=vault_shared(vault),
         )
         return [asdict(r) for r in rows]
 
@@ -296,8 +294,10 @@ async def handle_note(request: web.Request) -> web.Response:
     vault = _target_vault(request.app, request)
     rel_path = request.query.get("path", "")
     try:
-        text = await asyncio.to_thread(read_note, vault, rel_path,
-                                       vault_shared(vault))
+        # vault_shared parses the manifest — call it inside the thread, never
+        # as an argument expression evaluated on the event loop.
+        text = await asyncio.to_thread(
+            lambda: read_note(vault, rel_path, vault_shared(vault)))
     except NoteAccessError as e:
         raise web.HTTPForbidden(reason=str(e)) from e
     except OSError:
@@ -437,16 +437,19 @@ async def handle_promote(request: web.Request) -> web.Response:
         person = _lens_person(request.app, request)
         if not person:
             raise web.HTTPBadRequest(reason="this vault has no person manifest")
-        from brain.writeback import vault_shared
-        shared = vault_shared(root)
     else:
         person = data.get("person") or request.query.get("person")
         if not person or person not in request.app["people"]:
             raise web.HTTPNotFound(reason="unknown or missing person")
         root = Path(lens.master)
-        shared = _master_shared(root)
 
     def _draft() -> str:
+        # Both lookups read a file (vault manifest / master config.yaml), so
+        # they belong in the worker thread beside the write they inform.
+        from brain.writeback import vault_shared
+
+        shared = (vault_shared(root) if lens.kind == "vault"
+                  else _master_shared(root))
         return draft_into_space(root, person, target, source, body, _today(),
                                 shared=shared)
 

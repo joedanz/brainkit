@@ -7,7 +7,7 @@ from brain.compiler import compile_vault
 from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.store import IndexStore
-from tests.conftest import ALICE, BOB, RULES, requires_vectors
+from tests.conftest import ALICE, BOB, RULES, familyize, requires_vectors, rules_for
 
 
 class SpyProvider(FakeEmbeddingProvider):
@@ -337,21 +337,11 @@ def test_build_index_populates_typed_edges(master, tmp_path):
 def test_index_tags_custom_shared_space(master, tmp_path):
     import sqlite3
 
-    from brain.schemas import SpaceRule
-
-    # A Family-shaped master (same three edits as the compiler test).
-    fam = tmp_path / "family-master"
-    shutil.copytree(master, fam)
-    (fam / "Company").rename(fam / "Family")
+    fam = familyize(master, tmp_path / "family-master")
     (fam / "Family/Playbook").mkdir()
     (fam / "Family/Playbook/Chores.md").write_text("# Chores\nTake out bins.\n")
-    (fam / "_meta/config.yaml").write_text("shared: Family\n")
-    fam_rules = (
-        SpaceRule("Family", read=("everyone",), write=("role:admin",)),
-        *RULES[1:],
-    )
     vault = tmp_path / "bob-family"
-    compile_vault(fam, BOB, fam_rules, vault)
+    compile_vault(fam, BOB, rules_for("Family"), vault)
     build_index(vault, provider=None, cache=None)
     con = sqlite3.connect(vault / ".brain/index.db")
     spaces = {r[0] for r in con.execute("select distinct space from files")}

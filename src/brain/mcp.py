@@ -18,7 +18,6 @@ import json
 import sys
 from pathlib import Path
 
-from brain.schemas import DEFAULT_SHARED
 from brain.version import DISTRIBUTION, __version__
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -306,7 +305,7 @@ def _tool_read(vault: Path, args: dict, shared: str) -> tuple[str, bool]:
         return f"refused: {e}", True
 
 
-def _handle(vault: Path, provider, msg: dict, shared: str = DEFAULT_SHARED):
+def _handle(vault: Path, provider, msg: dict, shared: str):
     """Return a response dict, or None for notifications (no id)."""
     method = msg.get("method")
     mid = msg.get("id")
