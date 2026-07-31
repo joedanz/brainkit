@@ -403,3 +403,31 @@ def test_undecodable_read_only_note_still_fails_closed(
     out = tmp_path / "bob-vault"
     with pytest.raises(UnicodeDecodeError):
         compile_vault(master, BOB, RULES, out)
+
+
+def test_manifest_shared_key_only_when_nondefault(master: Path, tmp_path: Path):
+    import shutil
+
+    from brain.schemas import SpaceRule
+
+    # Default compile: no "shared" key, so a default vault's manifest is
+    # byte-unchanged from before the setting existed.
+    out = tmp_path / "bob-default"
+    compile_vault(master, BOB, RULES, out)
+    manifest = json.loads((out / MANIFEST_NAME).read_text())
+    assert "shared" not in manifest
+
+    # A Family-shaped master: shared tree renamed, config declares it.
+    fam = tmp_path / "family-master"
+    shutil.copytree(master, fam)
+    (fam / "Company").rename(fam / "Family")
+    (fam / "_meta/config.yaml").write_text("shared: Family\n")
+    fam_rules = (
+        SpaceRule("Family", read=("everyone",), write=("role:admin",)),
+        *RULES[1:],
+    )
+    fam_out = tmp_path / "bob-family"
+    compile_vault(fam, BOB, fam_rules, fam_out)
+    manifest = json.loads((fam_out / MANIFEST_NAME).read_text())
+    assert manifest["shared"] == "Family"
+    assert (fam_out / "Family/Home.md").exists()
