@@ -184,3 +184,43 @@ def test_vaultconfig_rejects_injection_at_construction():
         VaultConfig(entities="Bad Name")
     VaultConfig()                      # defaults stay valid
     VaultConfig("Families", "family")  # normal custom pair stays valid
+
+
+def test_shared_defaults_to_company(tmp_path):
+    assert load_config(tmp_path).shared == "Company"
+
+
+def test_shared_custom(tmp_path):
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text(
+        "entities: Clients\nentity: client\nshared: Family\n")
+    cfg = load_config(tmp_path)
+    assert cfg.shared == "Family"
+    assert cfg.entities == "Clients"
+
+
+@pytest.mark.parametrize("bad", [
+    "Teams", "teams", "People", "_meta",   # reserved: would shadow a nested top
+    "Clients",                              # collides with entities (default)
+    ".Hidden", "bad name", "a\nb", "",      # charset / injection
+    "X" * 65,                               # length cap
+])
+def test_shared_invalid_rejected(bad):
+    with pytest.raises(SchemaError):
+        make_config("Clients", "client", bad)
+
+
+def test_shared_entities_collision_case_insensitive():
+    with pytest.raises(SchemaError):
+        make_config("family", None, "Family")
+
+
+def test_entities_company_still_reserved_under_custom_shared():
+    # conservative: _RESERVED_TOPS is unchanged even when shared != Company
+    with pytest.raises(SchemaError):
+        make_config("Company", None, "Family")
+
+
+def test_positional_construction_unchanged():
+    cfg = VaultConfig("Clients", "client")
+    assert cfg.shared == "Company"

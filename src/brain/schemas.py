@@ -19,12 +19,20 @@ SUBJECT_PREFIXES = ("person:", "team:", "role:")
 
 _CONFIG_WORD = re.compile(r"[A-Za-z0-9._-]+")
 _RESERVED_TOPS = ("company", "teams", "people", "_meta")
+# The shared top may be named anything except the two per-identity trees
+# and the operational directory: those tops carry structural meaning
+# (their children are spaces), so a shared space named for one of them
+# would be a space and a nested top at once.
+_RESERVED_SHARED = ("teams", "people", "_meta")
+DEFAULT_SHARED = "Company"
+_MAX_CONFIG_WORD = 64
 
 
 def _config_word(value: object, key: str) -> str:
     if not isinstance(value, str):
         raise SchemaError(f"config.yaml: {key} must be a string")
-    if not _CONFIG_WORD.fullmatch(value) or value.startswith("."):
+    if (not _CONFIG_WORD.fullmatch(value) or value.startswith(".")
+            or len(value) > _MAX_CONFIG_WORD):
         raise SchemaError(f"config.yaml: invalid {key} {value!r}")
     return value
 
@@ -44,10 +52,12 @@ class VaultConfig:
     """
     entities: str = "Clients"   # TitleCase tree/folder name (plural)
     entity: str = "client"      # lowercase singular: prose + frontmatter key
+    shared: str = DEFAULT_SHARED  # TitleCase name of the shared top-level space
 
     def __post_init__(self) -> None:
         _config_word(self.entities, "entities")
         _config_word(self.entity, "entity")
+        _config_word(self.shared, "shared")
 
     @property
     def requests_folder(self) -> str:
@@ -65,13 +75,20 @@ def derive_entity(entities: str) -> str:
     return low[:-1] if low.endswith("s") and len(low) > 1 else low
 
 
-def make_config(entities: str, entity: str | None = None) -> VaultConfig:
+def make_config(entities: str, entity: str | None = None,
+                shared: str = DEFAULT_SHARED) -> VaultConfig:
     entities = _config_word(entities, "entities")
     if entities.lower() in _RESERVED_TOPS:
         raise SchemaError(f"config.yaml: entities {entities!r} is a reserved name")
+    shared = _config_word(shared, "shared")
+    if shared.lower() in _RESERVED_SHARED:
+        raise SchemaError(f"config.yaml: shared {shared!r} is a reserved name")
+    if shared.lower() == entities.lower():
+        raise SchemaError(
+            f"config.yaml: shared {shared!r} collides with entities {entities!r}")
     entity = _config_word(entity if entity is not None else derive_entity(entities),
                           "entity")
-    return VaultConfig(entities=entities, entity=entity)
+    return VaultConfig(entities=entities, entity=entity, shared=shared)
 
 
 def load_config(master: Path) -> VaultConfig:
@@ -90,7 +107,8 @@ def load_config(master: Path) -> VaultConfig:
         return VaultConfig()
     if not isinstance(data, dict):
         raise SchemaError("config.yaml must be a mapping")
-    return make_config(data.get("entities", "Clients"), data.get("entity"))
+    return make_config(data.get("entities", "Clients"), data.get("entity"),
+                       data.get("shared", DEFAULT_SHARED))
 
 
 @dataclass(frozen=True)
