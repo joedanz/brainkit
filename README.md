@@ -54,7 +54,7 @@ Sharing something new goes through one door: someone drafts a suggestion ("this 
 
 The third-party tree (`Clients/` by default) works the same way from the other direction: a person's agent can request its own new client space instead of an admin hand-editing config, and once granted, that client's owner can share access to a colleague themselves — new grants still go through the same human approval, revokes apply immediately. See [Spaces & permissions](https://brainkit-docs.vercel.app/concepts/spaces-and-permissions#self-service-client-spaces).
 
-Want it just for yourself — personal notes, family stuff? Run your own instance as a company of one: [A brain of one](https://brainkit-docs.vercel.app/guides/personal-brain).
+Want it beyond work? Run your own instance — solo as [a brain of one](https://brainkit-docs.vercel.app/guides/personal-brain), or for your household as [a family brain](https://brainkit-docs.vercel.app/guides/family-brain).
 
 ## Your knowledge is protected by design
 

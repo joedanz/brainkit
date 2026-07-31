@@ -39,8 +39,7 @@
         "guides/getting-things-in",
         "guides/deployment",
         "guides/reference-deployment",
-        "guides/backup-restore",
-        "guides/personal-brain"
+        "guides/backup-restore"
       ]
     },
     {
@@ -52,6 +51,10 @@
         "concepts/promotions",
         "concepts/retrieval"
       ]
+    },
+    {
+      "group": "Other shapes",
+      "pages": ["guides/personal-brain", "guides/family-brain"]
     },
     {
       "group": "Reference",

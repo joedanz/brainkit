@@ -1,0 +1,74 @@
+---
+title: A family brain
+description: Run brainkit for a household — kids and parents, same guarantees.
+icon: house
+---
+
+This guide renames the space the rest of these docs call `Company/`. Everything
+else — the compiler, permissions, the promotion queue — is the same product the
+company docs describe; a household is a small org with a sharper privacy story.
+
+## Set it up
+
+```bash
+brain init ~/brain/master --company "The Danzigers" --shared Family
+```
+
+`--company` is just the display name on the seeded pages; `--shared Family`
+names the folder everyone reads. Pick it now — the shared space's name is fixed
+for the life of the vault.
+
+Then describe the household in `~/brain/master/_meta/org.yaml`:
+
+```yaml
+people:
+  dad:  {name: Dad,  roles: [admin, lead], teams: [parents]}
+  mom:  {name: Mom,  roles: [lead],        teams: [parents]}
+  kid1: {name: Kid One, teams: [kids]}
+  kid2: {name: Kid Two, teams: [kids]}
+```
+
+## Choosing the parents' roles
+
+Two arrangements work; pick by how you want approvals to flow:
+
+- **Both parents `[admin]`** — simplest. Either parent approves anything:
+  promotions into `Family/`, shares, everything. Choose it when parents are
+  interchangeable operators. (Adding `lead` here changes nothing — an admin's
+  approval rights already cover everything a lead's do.)
+- **One operator, both leads** (the example above) — `dad` holds the master's
+  keys; a share scoped to `team:parents` can be approved by *either* parent,
+  because a team's lead may decide its shares. Choose it when one person runs
+  the server but day-to-day approvals should not bottleneck on them.
+
+## What the kids can do
+
+Kids are full members, exactly like employees: their vaults contain `Family/`,
+their own `People/<kid>/` space, and their team's space — and their agents can
+**draft promotions** ("add this to the family playbook") that wait in the queue
+until a parent approves. Nothing a kid or a kid's agent does can change shared
+knowledge without that approval.
+
+<Callout type="warning">
+  **Be straight with your household about the boundary.** A kid's `People/`
+  space is private from siblings — the compiler guarantees it structurally.
+  It is **not** private from the parent who administers the master vault:
+  whoever runs the server can read every space. Same deal as the
+  [personal brain](/guides/personal-brain) warning, pointed the other way.
+</Callout>
+
+## The admin-and-agent exception
+
+Company docs advise keeping `admin` on a dedicated identity with no agent, so
+no agent can write the shared space unreviewed. A parent is unavoidably both
+operator and agent user, so a household carves an exception — knowingly: **the
+admin parent's agent can write `Family/` directly, without review. The kids'
+agents cannot.** If that trade bothers you, keep a dedicated `admin` identity
+for approvals and give both parents `lead` only.
+
+## Getting things in
+
+The same [intake surfaces](/guides/getting-things-in) work unchanged — email
+the brain a permission slip, forward the camp schedule, voice-memo the packing
+list. Notes land in the sender's Inbox and route from there; anything for
+everyone goes through a promotion into `Family/`.
