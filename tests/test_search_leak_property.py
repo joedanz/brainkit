@@ -19,27 +19,28 @@ from brain.resolver import readable_spaces, space_of_path
 from brain.search import search_index
 from brain.store import IndexStore
 from brain.writeback import vault_shared
-from tests.test_leak_property import RULES, random_world
+from tests.test_leak_property import random_world, rules_for
 
 
 def _build_world(tmp_path: Path, seed: int):
     rng = random.Random(seed)
     master = tmp_path / f"master{seed}"
     master.mkdir()
-    org = random_world(rng, master)
+    org, shared = random_world(rng, master)
+    rules = rules_for(shared)
     out_root = tmp_path / f"out{seed}"
-    compile_all(master, org, RULES, out_root)
+    compile_all(master, org, rules, out_root)
     cache = EmbeddingCache(tmp_path / f"cache{seed}.db")
     for person in org.people.values():
         build_index(out_root / person.id, provider=FakeEmbeddingProvider(), cache=cache)
-    return master, org, out_root
+    return master, org, out_root, rules, shared
 
 
 def test_stored_content_never_leaves_readable_spaces(tmp_path):
     for seed in range(5):
-        master, org, out_root = _build_world(tmp_path, seed)
+        master, org, out_root, rules, shared = _build_world(tmp_path, seed)
         for person in org.people.values():
-            allowed = set(readable_spaces(master, person, RULES))
+            allowed = set(readable_spaces(master, person, rules, shared))
             store = IndexStore.open(out_root / person.id / ".brain/index.db")
             for (space,) in store.conn.execute("SELECT DISTINCT space FROM files"):
                 assert space in allowed, f"LEAK(files) {person.id}: {space}"
@@ -50,9 +51,9 @@ def test_stored_content_never_leaves_readable_spaces(tmp_path):
 
 def test_query_probes_stay_in_readable_spaces(tmp_path):
     for seed in range(5):
-        master, org, out_root = _build_world(tmp_path, seed)
+        master, org, out_root, rules, shared = _build_world(tmp_path, seed)
         for person in org.people.values():
-            allowed = set(readable_spaces(master, person, RULES))
+            allowed = set(readable_spaces(master, person, rules, shared))
             # the honeypot phrase + a generic term that matches many notes
             for query in ("leaked server note", "content note", "secret"):
                 report = search_index(out_root / person.id, query, k=50,
@@ -63,7 +64,7 @@ def test_query_probes_stay_in_readable_spaces(tmp_path):
 
 
 def test_cross_person_private_content_is_unreachable(tmp_path):
-    _master, org, out_root = _build_world(tmp_path, 3)
+    _master, org, out_root, _rules, _shared = _build_world(tmp_path, 3)
     people = list(org.people.values())
     if len(people) >= 2:
         a, b = people[0], people[1]
@@ -74,9 +75,9 @@ def test_cross_person_private_content_is_unreachable(tmp_path):
 
 
 def test_index_never_enters_vault_git(tmp_path):
-    master, org, out_root = _build_world(tmp_path, 1)
+    master, org, out_root, rules, _shared = _build_world(tmp_path, 1)
     # recompile after indexing — the index must survive and stay untracked
-    compile_all(master, org, RULES, out_root)
+    compile_all(master, org, rules, out_root)
     for person in org.people.values():
         vault = out_root / person.id
         assert (vault / ".brain/index.db").is_file()
@@ -93,20 +94,20 @@ def test_facts_never_leave_readable_spaces(tmp_path):
 
     saw_nonempty_facts = False
     for seed in range(5):
-        master, org, out_root = _build_world(tmp_path, seed)
+        master, org, out_root, rules, shared = _build_world(tmp_path, seed)
         for person in org.people.values():
-            allowed = set(readable_spaces(master, person, RULES))
+            allowed = set(readable_spaces(master, person, rules, shared))
             store = IndexStore.open(out_root / person.id / ".brain/index.db")
             rels = store.conn.execute("SELECT DISTINCT rel_path FROM facts").fetchall()
             if rels:
                 saw_nonempty_facts = True
             for (rel,) in rels:
-                space = space_of_path(rel)
+                space = space_of_path(rel, shared)
                 assert space in allowed, f"LEAK(facts) {person.id}: {rel}"
             store.close()
             hits, _ = query_facts(out_root / person.id, include_ended=True)
             for h in hits:
-                assert space_of_path(h.rel_path) in allowed, (
+                assert space_of_path(h.rel_path, shared) in allowed, (
                     f"LEAK(query_facts) {person.id}: {h.rel_path}")
     assert saw_nonempty_facts, (
         "no facts were indexed for any person across any seed — the test "
@@ -116,7 +117,7 @@ def test_facts_never_leave_readable_spaces(tmp_path):
 
 
 def test_mcp_read_refuses_symlink_into_master(tmp_path):
-    master, org, out_root = _build_world(tmp_path, 2)
+    master, org, out_root, _rules, _shared = _build_world(tmp_path, 2)
     person = next(iter(org.people.values()))
     vault = out_root / person.id
     own_space = f"People/{person.id}"
@@ -134,9 +135,9 @@ def test_typed_edges_never_leave_readable_spaces(tmp_path):
     endpoint must be a file of the person's own vault, in a readable space —
     so no traversal or PPR walk can ever surface a forbidden note."""
     for seed in range(5):
-        master, org, out_root = _build_world(tmp_path, seed)
+        master, org, out_root, rules, shared = _build_world(tmp_path, seed)
         for person in org.people.values():
-            allowed = set(readable_spaces(master, person, RULES))
+            allowed = set(readable_spaces(master, person, rules, shared))
             store = IndexStore.open(out_root / person.id / ".brain/index.db")
             files = set(store.files())
             rows = store.conn.execute(
@@ -144,7 +145,7 @@ def test_typed_edges_never_leave_readable_spaces(tmp_path):
             for src, dst in rows:
                 for end in (src, dst):
                     assert end in files, f"LEAK(edges) {person.id}: {end} not a vault file"
-                    assert space_of_path(end) in allowed, \
+                    assert space_of_path(end, shared) in allowed, \
                         f"LEAK(edges) {person.id}: {end} outside readable spaces"
             store.close()
         if seed == 0:
@@ -154,7 +155,8 @@ def test_typed_edges_never_leave_readable_spaces(tmp_path):
             for person in org.people.values():
                 store = IndexStore.open(out_root / person.id / ".brain/index.db")
                 n = store.conn.execute(
-                    "SELECT COUNT(*) FROM edges WHERE src_rel_path = 'Company/note0.md'"
+                    "SELECT COUNT(*) FROM edges WHERE src_rel_path = ?",
+                    (f"{shared}/note0.md",),
                 ).fetchone()[0]
                 some_edges = some_edges or n > 0
                 store.close()

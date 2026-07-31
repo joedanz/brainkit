@@ -16,17 +16,26 @@ from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_all, compile_vault
 from brain.resolver import readable_spaces, space_of_path
-from brain.schemas import Org, Person, SpaceRule
-
-RULES = (
-    SpaceRule("Company", read=("everyone",), write=("role:admin",)),
-    SpaceRule("Teams/*", read=("team:{name}",), write=("team:{name}",)),
-    SpaceRule("People/*", read=("person:{name}",), write=("person:{name}",)),
-    SpaceRule("Clients/*", read=("everyone",), write=("role:admin",)),
-)
+from brain.schemas import Org, Person, SpaceRule, make_config
+from brain.templates import config_yaml
 
 
-def random_world(rng: random.Random, root: Path) -> Org:
+def rules_for(shared: str) -> tuple[SpaceRule, ...]:
+    return (
+        SpaceRule(shared, read=("everyone",), write=("role:admin",)),
+        SpaceRule("Teams/*", read=("team:{name}",), write=("team:{name}",)),
+        SpaceRule("People/*", read=("person:{name}",), write=("person:{name}",)),
+        SpaceRule("Clients/*", read=("everyone",), write=("role:admin",)),
+    )
+
+
+RULES = rules_for("Company")
+
+
+def random_world(rng: random.Random, root: Path) -> tuple[Org, str]:
+    # The shared top's name is itself a randomized dimension: the leak and
+    # completeness guarantees must hold whatever the space is called.
+    shared = rng.choice(["Company", "Family", "Home", "Ops"])
     teams = [f"team{i}" for i in range(rng.randint(1, 4))]
     people = {}
     for i in range(rng.randint(2, 8)):
@@ -37,7 +46,7 @@ def random_world(rng: random.Random, root: Path) -> Org:
             roles=("admin",) if rng.random() < 0.3 else (),
             teams=tuple(rng.sample(teams, k=rng.randint(0, len(teams)))),
         )
-    spaces = ["Company"] + [f"Teams/{t}" for t in teams]
+    spaces = [shared] + [f"Teams/{t}" for t in teams]
     spaces += [f"People/{pid}" for pid in people]
     spaces += [f"Clients/c{i}" for i in range(rng.randint(0, 3))]
     for space in spaces:
@@ -58,25 +67,30 @@ def random_world(rng: random.Random, root: Path) -> Org:
     (root / "Teams" / teams[0] / "AGENTS.md").write_text("leaked server note\n")
     (root / "_meta").mkdir(exist_ok=True)
     (root / "_meta/secret.yaml").write_text("secret: true\n")
+    # The generated master must declare its shared name the same way a real
+    # one does — config_yaml omits the key for the default, matching scaffold.
+    (root / "_meta/config.yaml").write_text(
+        config_yaml(make_config("Clients", "client", shared)))
     # Typed-relation honeypots: a shared note declares relations pointing into
     # private spaces. The compiler stubs those frontmatter wikilinks for any
     # non-reader, so no typed edge may ever materialize in their vault.
     pids = sorted(people)
-    shared = root / "Company" / "note0.md"
-    shared.write_text(
+    shared_note = root / shared / "note0.md"
+    shared_note.write_text(
         "---\n"
         f"up: [[People/{pids[0]}/note0]]\n"
         f"same: [[Teams/{teams[0]}/note0]], [[note0]]\n"
         "next: [[People/" + pids[-1] + "/note0]]\n"
-        "---\n" + shared.read_text()
+        "---\n" + shared_note.read_text()
     )
-    return Org(people=people)
+    return Org(people=people), shared
 
 
-def assert_vault_has_no_leaks(master: Path, person: Person, out: Path) -> None:
+def assert_vault_has_no_leaks(master: Path, person: Person, out: Path,
+                              rules=RULES, shared: str = "Company") -> None:
     """Every file in the vault must live in a readable space, unless the
     compiler's own manifest declares it generated (or it is the manifest)."""
-    allowed = set(readable_spaces(master, person, RULES))
+    allowed = set(readable_spaces(master, person, rules, shared))
     manifest = json.loads((out / MANIFEST_NAME).read_text())
     skip = set(manifest["generated"]) | {MANIFEST_NAME}
     for f in out.rglob("*"):
@@ -85,13 +99,14 @@ def assert_vault_has_no_leaks(master: Path, person: Person, out: Path) -> None:
         rel = f.relative_to(out).as_posix()
         if rel in skip:
             continue
-        space = space_of_path(rel)
+        space = space_of_path(rel, shared)
         assert space in allowed, (
             f"LEAK person={person.id}: {rel} (space={space})"
         )
 
 
-def assert_vault_contains_readable(master, vault, person, rules):
+def assert_vault_contains_readable(master, vault, person, rules,
+                                   shared: str = "Company"):
     """The inverse guard: every .md in every readable space must ARRIVE.
 
     Without this, a compiler that fail-closes into an empty vault passes the
@@ -100,7 +115,7 @@ def assert_vault_contains_readable(master, vault, person, rules):
     from brain.resolver import readable_spaces
 
     checked = 0
-    for space in readable_spaces(master, person, rules):
+    for space in readable_spaces(master, person, rules, shared):
         src = master / space
         if not src.is_dir():
             continue  # self-named space not yet on disk
@@ -117,11 +132,12 @@ def test_no_leak_across_random_worlds(tmp_path: Path):
         rng = random.Random(seed)
         master = tmp_path / f"master{seed}"
         master.mkdir()
-        org = random_world(rng, master)
+        org, shared = random_world(rng, master)
+        rules = rules_for(shared)
         for person in org.people.values():
             out = tmp_path / f"out{seed}" / person.id
-            compile_vault(master, person, RULES, out)
-            assert_vault_has_no_leaks(master, person, out)
+            compile_vault(master, person, rules, out)
+            assert_vault_has_no_leaks(master, person, out, rules, shared)
 
 
 def test_vault_contains_all_readable_content_across_random_worlds(tmp_path: Path):
@@ -129,24 +145,27 @@ def test_vault_contains_all_readable_content_across_random_worlds(tmp_path: Path
         rng = random.Random(seed)
         master = tmp_path / f"master{seed}"
         master.mkdir()
-        org = random_world(rng, master)
+        org, shared = random_world(rng, master)
+        rules = rules_for(shared)
         for person in org.people.values():
             out = tmp_path / f"out{seed}" / person.id
-            compile_vault(master, person, RULES, out)
-            assert_vault_contains_readable(master, out, person, RULES)
+            compile_vault(master, person, rules, out)
+            assert_vault_contains_readable(master, out, person, rules, shared)
 
 
 def test_compile_all_creates_git_repos(tmp_path: Path):
     rng = random.Random(42)
     master = tmp_path / "master"
     master.mkdir()
-    org = random_world(rng, master)
+    org, shared = random_world(rng, master)
+    rules = rules_for(shared)
     out_root = tmp_path / "compiled"
-    results = compile_all(master, org, RULES, out_root)
+    results = compile_all(master, org, rules, out_root)
     assert {r.person_id for r in results} == set(org.people)
     # The product-level entry point must uphold the leak boundary too.
     for person in org.people.values():
-        assert_vault_has_no_leaks(master, person, out_root / person.id)
+        assert_vault_has_no_leaks(master, person, out_root / person.id,
+                                  rules, shared)
     some = out_root / next(iter(org.people))
     assert (some / ".git").is_dir()
     log = subprocess.run(
@@ -155,7 +174,7 @@ def test_compile_all_creates_git_repos(tmp_path: Path):
     ).stdout
     assert "compile:" in log
     # Second compile with no master changes: no new commit
-    compile_all(master, org, RULES, out_root)
+    compile_all(master, org, rules, out_root)
     log2 = subprocess.run(
         ["git", "-C", str(some), "log", "--oneline"],
         capture_output=True, text=True, check=True,
@@ -170,14 +189,15 @@ def test_map_never_names_a_path_outside_readable_spaces(tmp_path: Path):
 
     rng = random.Random(1981)
     master = tmp_path / "master"
-    org = random_world(rng, master)
+    org, shared = random_world(rng, master)
+    rules = rules_for(shared)
     out_root = tmp_path / "out"
     for person in org.people.values():
         vault = out_root / person.id
-        compile_vault(master, person, RULES, vault)
-        readable = set(readable_spaces(master, person, RULES))
+        compile_vault(master, person, rules, vault)
+        readable = set(readable_spaces(master, person, rules, shared))
         text = (vault / MAP_NAME).read_text()
-        for space in sorted({space_of_path(str(p.relative_to(master)))
+        for space in sorted({space_of_path(str(p.relative_to(master)), shared)
                              for p in master.rglob("*.md")
                              if "_meta" not in p.parts}):
             if space and space not in readable:
