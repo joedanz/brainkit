@@ -1,0 +1,10 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# s6 longrun: portal serve lifecycle daemon (ensure/status/stop + idle reaper).
+# No /portal-cred volume mounted => this company has no portal; stay alive
+# but do nothing (exiting would make s6 restart-loop).
+if [ ! -d /portal-cred ]; then
+    echo "[portal-starter] no /portal-cred volume — portal not enabled"
+    exec sleep infinity
+fi
+exec s6-setuidgid hermes /opt/hermes/.venv/bin/python /usr/local/bin/portal-starter
