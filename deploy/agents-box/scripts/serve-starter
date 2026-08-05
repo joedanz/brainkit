@@ -1,10 +1,19 @@
 #!/opt/hermes/.venv/bin/python
-"""portal-starter — on-demand hermes serve lifecycle daemon.
+"""serve-starter — on-demand hermes serve lifecycle daemon.
 
 Runs as an s6-supervised longrun inside the per-person hermes-brain
 container. Exposes a tiny HTTP control plane (POST /ensure, GET /status,
-POST /stop) that the portal shim (Task 7) calls to spin `hermes serve` up
-and down on demand, plus an idle reaper that stops it after inactivity.
+POST /stop) that an in-cluster caller uses to spin `hermes serve` up and
+down on demand, plus an idle reaper that stops it after inactivity.
+
+`hermes serve` costs ~200 MiB resident against a 1 GiB container, so
+running it around the clock for a UI that is used minutes per week is
+waste. This daemon is ~15 MiB and starts serve in ~8 s when something
+actually asks for it.
+
+Opt-in: with no credential volume mounted the run script parks the
+service, so an image carrying this daemon behaves exactly as before for
+deployments that do not use it.
 
 Design constraints (the point of this file, not incidental detail):
   - `serve` is a *child process* we spawn and own. We kill it by PID —
@@ -12,8 +21,8 @@ Design constraints (the point of this file, not incidental detail):
     once cross-killed an unrelated process that happened to match on
     cmdline; PID-only kill makes that class of bug impossible here.
   - The auth token is read from disk on every request, not cached at
-    startup. Provisioning can mint /portal-cred/starter-token after this
-    daemon is already running, and it must take effect with no restart.
+    startup. Provisioning can mint the token file after this daemon is
+    already running, and it must take effect with no restart.
   - Token comparison uses hmac.compare_digest — a plain `==` leaks timing
     information about how many leading bytes matched.
   - The child's env explicitly sets HOME=/opt/data. s6-setuidgid drops
@@ -37,16 +46,16 @@ import time
 import urllib.error
 import urllib.request
 
-IDLE_STOP_MINUTES = int(os.environ.get("PORTAL_IDLE_STOP_MINUTES", "15"))
+IDLE_STOP_MINUTES = int(os.environ.get("SERVE_IDLE_STOP_MINUTES", "15"))
 SERVE_CMD = os.environ.get(
-    "PORTAL_SERVE_CMD",
+    "SERVE_CMD",
     "/opt/hermes/.venv/bin/hermes serve --host 0.0.0.0 --port 9120",
 )
 SERVE_STATUS_URL = os.environ.get(
-    "PORTAL_SERVE_STATUS_URL", "http://127.0.0.1:9120/api/status"
+    "SERVE_STATUS_URL", "http://127.0.0.1:9120/api/status"
 )
-STARTER_PORT = int(os.environ.get("PORTAL_STARTER_PORT", "9121"))
-CRED_DIR = os.environ.get("PORTAL_CRED_DIR", "/portal-cred")
+STARTER_PORT = int(os.environ.get("SERVE_STARTER_PORT", "9121"))
+CRED_DIR = os.environ.get("SERVE_CRED_DIR", "/serve-cred")
 
 POLL_ATTEMPTS = 40
 POLL_INTERVAL_SEC = 1
@@ -190,7 +199,7 @@ def _reaper_loop():
         except Exception as e:
             # A tick exception must never kill this daemon thread — that
             # would silently disable idle-stop until the container restarts.
-            print(f"[portal-starter] reaper tick error: {e}", file=sys.stderr)
+            print(f"[serve-starter] reaper tick error: {e}", file=sys.stderr)
 
 
 class Handler(http.server.BaseHTTPRequestHandler):

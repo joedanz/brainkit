@@ -76,13 +76,13 @@ RUN mkdir -p /etc/ssh/ssh_config.d && printf '%s\n' \
 COPY deploy/agents-box/scripts/03-brain-first-boot /etc/cont-init.d/03-brain-first-boot
 COPY deploy/agents-box/scripts/vault-sync /usr/local/bin/vault-sync
 COPY deploy/agents-box/scripts/vault-sync-run /etc/services.d/vault-sync/run
-COPY deploy/agents-box/scripts/portal-starter /usr/local/bin/portal-starter
-COPY deploy/agents-box/scripts/portal-starter-run /etc/services.d/portal-starter/run
+COPY deploy/agents-box/scripts/serve-starter /usr/local/bin/serve-starter
+COPY deploy/agents-box/scripts/serve-starter-run /etc/services.d/serve-starter/run
 RUN chmod 755 /etc/cont-init.d/03-brain-first-boot \
               /usr/local/bin/vault-sync \
               /etc/services.d/vault-sync/run \
-              /usr/local/bin/portal-starter \
-              /etc/services.d/portal-starter/run
+              /usr/local/bin/serve-starter \
+              /etc/services.d/serve-starter/run
 
 # No trailing USER directive: s6-overlay's /init must start as root — it fixes
 # volume ownership on boot, then drops to the `hermes` user (uid 10000) for

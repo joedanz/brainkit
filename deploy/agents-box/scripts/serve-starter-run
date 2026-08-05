@@ -1,0 +1,12 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# s6 longrun: on-demand `hermes serve` lifecycle daemon (ensure/status/stop
+# + idle reaper). Opt-in by mounting a credential volume at /serve-cred
+# holding a `starter-token`; with no such volume this deployment does not
+# use on-demand serve, so park the service instead of exiting (an exit
+# would make s6 restart-loop it forever).
+if [ ! -d /serve-cred ]; then
+    echo "[serve-starter] no /serve-cred volume — on-demand serve not enabled"
+    exec sleep infinity
+fi
+exec s6-setuidgid hermes /opt/hermes/.venv/bin/python /usr/local/bin/serve-starter
