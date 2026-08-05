@@ -1,0 +1,276 @@
+#!/opt/hermes/.venv/bin/python
+"""serve-starter — on-demand hermes serve lifecycle daemon.
+
+Runs as an s6-supervised longrun inside the per-person hermes-brain
+container. Exposes a tiny HTTP control plane (POST /ensure, GET /status,
+POST /stop) that an in-cluster caller uses to spin `hermes serve` up and
+down on demand, plus an idle reaper that stops it after inactivity.
+
+`hermes serve` costs ~200 MiB resident against a 1 GiB container, so
+running it around the clock for a UI that is used minutes per week is
+waste. This daemon is ~15 MiB and starts serve in ~8 s when something
+actually asks for it.
+
+Opt-in: with no credential volume mounted the run script parks the
+service, so an image carrying this daemon behaves exactly as before for
+deployments that do not use it.
+
+Design constraints (the point of this file, not incidental detail):
+  - `serve` is a *child process* we spawn and own. We kill it by PID —
+    never by matching its command line. The ops-side `hermes serve --stop`
+    once cross-killed an unrelated process that happened to match on
+    cmdline; PID-only kill makes that class of bug impossible here.
+  - The auth token is read from disk on every request, not cached at
+    startup. Provisioning can mint the token file after this daemon is
+    already running, and it must take effect with no restart.
+  - Token comparison uses hmac.compare_digest — a plain `==` leaks timing
+    information about how many leading bytes matched.
+  - The child's env explicitly sets HOME=/opt/data. s6-setuidgid drops
+    privileges to the `hermes` user but does not set HOME, and `hermes
+    serve` needs it to find its state.
+
+Stdlib only — this runs under the hermes venv's Python with no extra
+dependencies installed.
+"""
+
+import hmac
+import http.server
+import json
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+
+IDLE_STOP_MINUTES = int(os.environ.get("SERVE_IDLE_STOP_MINUTES", "15"))
+SERVE_CMD = os.environ.get(
+    "SERVE_CMD",
+    "/opt/hermes/.venv/bin/hermes serve --host 0.0.0.0 --port 9120",
+)
+SERVE_STATUS_URL = os.environ.get(
+    "SERVE_STATUS_URL", "http://127.0.0.1:9120/api/status"
+)
+STARTER_PORT = int(os.environ.get("SERVE_STARTER_PORT", "9121"))
+CRED_DIR = os.environ.get("SERVE_CRED_DIR", "/serve-cred")
+
+POLL_ATTEMPTS = 40
+POLL_INTERVAL_SEC = 1
+KILL_GRACE_SEC = 5
+REAPER_TICK_SEC = 30
+STDERR_TAIL_MAX = 4000
+
+
+class State:
+    def __init__(self):
+        self.proc = None
+        self.last_activity = None
+        self.stderr_tail = ""
+
+
+state = State()
+lock = threading.Lock()
+
+
+def _read_token():
+    try:
+        with open(os.path.join(CRED_DIR, "starter-token"), "r") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _check_auth(headers):
+    """Returns (authorized, provisioned)."""
+    token = _read_token()
+    if token is None:
+        return False, False
+    supplied = headers.get("X-Starter-Token", "")
+    return hmac.compare_digest(supplied, token), True
+
+
+def _drain_stderr(proc):
+    try:
+        for raw in iter(proc.stderr.readline, b""):
+            text = raw.decode("utf-8", "replace")
+            with lock:
+                if state.proc is proc:
+                    state.stderr_tail = (state.stderr_tail + text)[-STDERR_TAIL_MAX:]
+    except (OSError, ValueError):
+        pass
+
+
+def _spawn_locked():
+    env = dict(os.environ)
+    env["HOME"] = "/opt/data"  # set last: s6-setuidgid drops privileges but
+    # doesn't touch HOME, so an inherited value must not win over this one.
+    proc = subprocess.Popen(
+        shlex.split(SERVE_CMD),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    threading.Thread(target=_drain_stderr, args=(proc,), daemon=True).start()
+    return proc
+
+
+def _kill_locked():
+    proc = state.proc
+    if proc is None:
+        return
+    if proc.poll() is None:
+        try:
+            proc.send_signal(signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + KILL_GRACE_SEC
+        while proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if proc.poll() is None:
+            try:
+                proc.send_signal(signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.wait(timeout=KILL_GRACE_SEC)
+            except subprocess.TimeoutExpired:
+                pass
+    state.proc = None
+
+
+def _http_check(url):
+    try:
+        with urllib.request.urlopen(url, timeout=2):
+            return True
+    except urllib.error.HTTPError:
+        return True  # server responded, listening is what matters here
+    except Exception:
+        return False
+
+
+def _poll_until_up(proc):
+    for _ in range(POLL_ATTEMPTS):
+        if proc.poll() is not None:
+            return False
+        if _http_check(SERVE_STATUS_URL):
+            return True
+        time.sleep(POLL_INTERVAL_SEC)
+    return False
+
+
+def _ensure_locked():
+    if state.proc is not None and state.proc.poll() is None:
+        state.last_activity = time.monotonic()
+        return 200, {"running": True, "started": False}
+
+    state.proc = None
+    state.stderr_tail = ""
+    try:
+        proc = _spawn_locked()
+    except OSError as e:
+        return 502, {"error": "serve did not come up", "detail": str(e)[:300]}
+
+    state.proc = proc
+    if _poll_until_up(proc):
+        state.last_activity = time.monotonic()
+        return 200, {"running": True, "started": True}
+
+    detail = state.stderr_tail[-300:]
+    _kill_locked()
+    return 502, {"error": "serve did not come up", "detail": detail}
+
+
+def _reaper_loop():
+    while True:
+        time.sleep(REAPER_TICK_SEC)
+        try:
+            with lock:
+                if (
+                    state.proc is not None
+                    and state.proc.poll() is None
+                    and IDLE_STOP_MINUTES > 0
+                    and state.last_activity is not None
+                    and time.monotonic() - state.last_activity > IDLE_STOP_MINUTES * 60
+                ):
+                    _kill_locked()
+        except Exception as e:
+            # A tick exception must never kill this daemon thread — that
+            # would silently disable idle-stop until the container restarts.
+            print(f"[serve-starter] reaper tick error: {e}", file=sys.stderr)
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def _send_json(self, status, obj):
+        body = json.dumps(obj).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _authorize(self):
+        authorized, provisioned = _check_auth(self.headers)
+        if not provisioned:
+            self._send_json(503, {"error": "not provisioned"})
+            return False
+        if not authorized:
+            self._send_json(401, {"error": "unauthorized"})
+            return False
+        return True
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if path == "/ensure":
+            if not self._authorize():
+                return
+            with lock:
+                status, body = _ensure_locked()
+            self._send_json(status, body)
+        elif path == "/stop":
+            if not self._authorize():
+                return
+            with lock:
+                _kill_locked()
+            self._send_json(200, {"running": False})
+        else:
+            self._send_json(404, {"error": "not found"})
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0].rstrip("/")
+        if path == "/status":
+            if not self._authorize():
+                return
+            with lock:
+                running = state.proc is not None and state.proc.poll() is None
+                age = (
+                    int(time.monotonic() - state.last_activity)
+                    if state.last_activity is not None
+                    else None
+                )
+            self._send_json(
+                200,
+                {
+                    "running": running,
+                    "idleStopMinutes": IDLE_STOP_MINUTES,
+                    "lastActivityAgeSec": age,
+                },
+            )
+        else:
+            self._send_json(404, {"error": "not found"})
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+def main():
+    threading.Thread(target=_reaper_loop, daemon=True).start()
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", STARTER_PORT), Handler)
+    server.daemon_threads = True
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
