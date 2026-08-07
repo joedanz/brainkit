@@ -42,8 +42,15 @@ trap finish EXIT
 hc /start
 [ -d "$SRC" ] || { echo "backup-agents-offsite: $SRC missing" >&2; exit 1; }
 
-restic cat config >/dev/null 2>&1 || restic init
+# Unlock BEFORE the init-guard: `cat config` cannot tell "locked" from
+# "uninitialized", so a stale exclusive lock (left when a lock delete against
+# R2 fails on an otherwise-successful run; live incident 2026-08-07 on the
+# brain/git boxes) falls through to `restic init`, whose "already initialized"
+# Fatal kills every subsequent run until someone unlocks by hand. unlock only
+# removes locks whose owning process is dead; on first run the repo doesn't
+# exist yet and `|| true` keeps that from aborting the run that creates it.
 restic unlock >/dev/null 2>&1 || true
+restic cat config >/dev/null 2>&1 || restic init
 
 crontab -l > "$SRC/host-crontab.txt" 2>/dev/null || true
 
