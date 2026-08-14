@@ -243,6 +243,13 @@ records SOUL.md with the block stripped, so "has a human edited this" keeps
 answering correctly and image SOUL updates keep flowing. Delete the block by
 hand and the next boot puts it back.
 
+`/tmp` was wiped by every restart; this directory is on the volume and is not,
+so the `tmp-reaper` s6 service removes anything nothing has touched in 7 days
+(`SCRATCH_REAP_DAYS`, `SCRATCH_REAP_INTERVAL`). It judges each **top-level
+entry** by its newest descendant, so a cache still in use survives whole rather
+than being hollowed out one old file at a time. It refuses to run against a
+TMPDIR outside `/opt/data`, and drops to `hermes` before deleting anything.
+
 ## What this image deliberately does not do
 
 - **No published ports.** Telegram/WhatsApp long-poll outward; the vault syncs
