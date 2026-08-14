@@ -11,6 +11,10 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.5] - 2026-08-14
+
 ### Added
 
 - **CLI for Microsoft 365 in the agent image** (`@pnp/cli-microsoft365`,
