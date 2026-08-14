@@ -1,0 +1,79 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# s6 longrun: keep the scratch directory from growing without bound.
+#
+# Scratch used to be /tmp, which a container restart wiped. TMPDIR now points
+# into the /opt/data volume so that writes land inside HERMES_WRITE_SAFE_ROOT
+# (see the Dockerfile) — which means nothing clears it any more. A capture an
+# agent wrote once and forgot now outlives every reboot, and the volume is also
+# what the box's disk-usage alerts watch.
+#
+# Age is judged per TOP-LEVEL ENTRY, by its newest descendant — never per file.
+# $TMPDIR holds live caches as well as litter (the m365 CLI keeps its token
+# cache there), and a plain `find -mtime +N -delete` would reach inside an
+# actively-used cache, strip the older files out of it, and leave a half-gutted
+# directory behind. Judging the whole entry keeps a cache that is still in use
+# fully intact and removes only what nothing has touched in AGE_DAYS.
+#
+# Runs as hermes, not root: an unattended `rm -rf` loop should hold the least
+# authority that works, and deleting inside $TMPDIR needs write permission on
+# $TMPDIR (which hermes owns), not ownership of each file.
+
+# s6 starts every service as root, so drop on entry and re-enter as hermes.
+# Re-exec rather than wrapping each command: the authority drop then covers the
+# loop, the globs and the rm alike, with no way to add a line below that
+# quietly runs as root. s6-setuidgid preserves the environment, so TMPDIR and
+# the tunables below survive the hop.
+#
+# Absolute path, unlike the bare `s6-setuidgid` the sibling services use.
+# /command is on PATH only inside the s6 service environment — it is absent
+# from the image's default PATH — so a bare name makes this script unrunnable
+# anywhere else, which is how it first failed under test. Park rather than
+# continue if the tool is missing: an unattended `rm -rf` loop must never fall
+# back to running as root.
+SETUIDGID=/command/s6-setuidgid
+if [ "$(id -u)" = "0" ]; then
+    if [ ! -x "$SETUIDGID" ]; then
+        echo "[tmp-reaper] $SETUIDGID missing — refusing to reap as root"
+        exec sleep infinity
+    fi
+    exec "$SETUIDGID" hermes "$0" "$@"
+fi
+
+SCRATCH="${TMPDIR:-/opt/data/.cache/tmp}"
+AGE_DAYS="${SCRATCH_REAP_DAYS:-7}"
+INTERVAL="${SCRATCH_REAP_INTERVAL:-86400}"
+
+# A safety rail, not a formality: everything below is `rm -rf` driven by an
+# environment variable. If TMPDIR is ever repointed somewhere broad, park the
+# service instead of reaping it. Exiting would make s6 restart-loop forever.
+case "$SCRATCH" in
+    /opt/data/?*) ;;
+    *)
+        echo "[tmp-reaper] refusing to reap '$SCRATCH' — not under /opt/data"
+        exec sleep infinity
+        ;;
+esac
+
+echo "[tmp-reaper] watching $SCRATCH — entries idle ${AGE_DAYS}d+ removed every ${INTERVAL}s"
+
+while :; do
+    if [ -d "$SCRATCH" ]; then
+        # Both globs, so dotfiles are reaped too. An unmatched glob stays
+        # literal in sh, which is what the -e test filters out.
+        for entry in "$SCRATCH"/* "$SCRATCH"/.[!.]*; do
+            [ -e "$entry" ] || continue
+            # Anything modified inside the window keeps the whole entry. -quit
+            # stops at the first hit, so a large live cache costs one stat.
+            if [ -n "$(find "$entry" -newermt "-$AGE_DAYS days" -print -quit 2>/dev/null)" ]; then
+                continue
+            fi
+            if rm -rf "$entry" 2>/dev/null; then
+                echo "[tmp-reaper] removed $entry (nothing touched it in ${AGE_DAYS}d)"
+            else
+                echo "[tmp-reaper] could not remove $entry — left in place"
+            fi
+        done
+    fi
+    sleep "$INTERVAL"
+done

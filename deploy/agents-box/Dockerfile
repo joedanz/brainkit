@@ -94,11 +94,15 @@ COPY deploy/agents-box/scripts/vault-sync /usr/local/bin/vault-sync
 COPY deploy/agents-box/scripts/vault-sync-run /etc/services.d/vault-sync/run
 COPY deploy/agents-box/scripts/serve-starter /usr/local/bin/serve-starter
 COPY deploy/agents-box/scripts/serve-starter-run /etc/services.d/serve-starter/run
+# TMPDIR lives on the volume now, so nothing wipes it at restart the way /tmp
+# was wiped — this longrun is what keeps it from growing forever.
+COPY deploy/agents-box/scripts/tmp-reaper-run /etc/services.d/tmp-reaper/run
 RUN chmod 755 /etc/cont-init.d/03-brain-first-boot \
               /usr/local/bin/vault-sync \
               /etc/services.d/vault-sync/run \
               /usr/local/bin/serve-starter \
-              /etc/services.d/serve-starter/run
+              /etc/services.d/serve-starter/run \
+              /etc/services.d/tmp-reaper/run
 
 # No trailing USER directive: s6-overlay's /init must start as root — it fixes
 # volume ownership on boot, then drops to the `hermes` user (uid 10000) for

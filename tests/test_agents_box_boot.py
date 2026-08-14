@@ -165,3 +165,52 @@ def test_scratch_stays_under_a_backup_excluded_directory():
     """`hermes backup` skips `.cache` by name. Scratch holds HAR captures, which
     carry auth headers and cookies, and those zips ship to R2."""
     assert SCRATCH_REL.startswith(".cache/")
+
+
+# --- tmp-reaper ------------------------------------------------------------
+# The reaper's behaviour is only observable inside a running container (s6
+# service env, GNU find, a real volume), and it was verified there. What can
+# drift silently on this side is its wiring and the two properties that make an
+# unattended `rm -rf` loop safe — so those are pinned here.
+
+REAPER = DEPLOY / "scripts/tmp-reaper-run"
+
+
+def _reaper_code() -> str:
+    """The reaper minus its comments. The comments name the anti-pattern this
+    script exists to avoid (`find -mtime +N -delete`), so asserting against the
+    raw text would fail on the prose that explains the code being correct."""
+    return "\n".join(
+        line for line in REAPER.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
+def test_reaper_is_wired_into_the_image():
+    df = DOCKERFILE.read_text()
+    assert "scripts/tmp-reaper-run /etc/services.d/tmp-reaper/run" in df
+    assert "/etc/services.d/tmp-reaper/run" in df.split("RUN chmod 755")[1], \
+        "the reaper is copied but never made executable — s6 would skip it"
+
+
+def test_reaper_drops_privileges_by_absolute_path():
+    """/command is on PATH only inside the s6 service environment. A bare
+    `s6-setuidgid` makes the script unrunnable anywhere else, and a PATH change
+    would turn the drop into a silent no-op with the rm loop still root."""
+    src = REAPER.read_text()
+    assert "SETUIDGID=/command/s6-setuidgid" in src
+    assert "exec sleep infinity" in src, "must park, never continue as root"
+
+
+def test_reaper_refuses_to_reap_outside_the_volume():
+    """Everything the loop does is `rm -rf` driven by an env var."""
+    assert "/opt/data/?*)" in REAPER.read_text()
+
+
+def test_reaper_judges_whole_entries_not_individual_files():
+    """The live-cache case: `find -mtime +N -delete` would strip the old files
+    out of an actively-used cache and leave a half-gutted directory. Judging the
+    newest descendant of each top-level entry is what keeps caches intact."""
+    code = _reaper_code()
+    assert "-newermt" in code and "-print -quit" in code
+    assert "-delete" not in code
