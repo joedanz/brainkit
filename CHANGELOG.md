@@ -11,7 +11,27 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **CLI for Microsoft 365 in the agent image** (`@pnp/cli-microsoft365`,
+  pinned). This is how an agent reaches Outlook mail and calendar, OneDrive
+  and Teams. Installing it here rather than from the job that connects an
+  account makes the version a property of the image, so upgrading it is a
+  brainkit release rather than a per-agent step.
+
+  Installed to the default global prefix, deliberately **not** `/opt/data` —
+  that is the runtime volume, and a build-time write there is masked when the
+  volume mounts.
+
+  `CLIMICROSOFT365_NOUPDATE=true` is set alongside it. The CLI's update notice
+  prints on stdout, and the device-code prompt is parsed out of that stream
+  when an agent signs in; a nag arriving mid-output is a parse failure with no
+  obvious cause.
+
+  **Migrating an agent that had this hand-installed:** the runtime `PATH` puts
+  `/opt/data/.local/bin` ahead of `/usr/local/bin`, so a copy on the volume
+  shadows the image's indefinitely. Remove the hand-installed copy, or the
+  pinned version is a fiction.
 
 ## [0.3.0] - 2026-07-31
 

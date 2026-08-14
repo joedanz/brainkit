@@ -70,6 +70,35 @@ RUN uv venv /opt/brainkit --python 3.13 \
     && ln -s /opt/brainkit/bin/brain /usr/local/bin/brain \
     && /usr/local/bin/brain --help >/dev/null
 
+# CLI for Microsoft 365 — how an agent reaches Outlook mail and calendar,
+# OneDrive and Teams. Installed here rather than by the job that connects an
+# account, so the version is a property of the image and upgrading it is a
+# brainkit release, not a per-agent step.
+#
+# PINNED. A floating tag would let the tool surface move under agents that
+# were never rebuilt, and the failure would look like the agent forgetting how
+# to do something it did yesterday.
+#
+# NOT into /opt/data. That is the runtime volume, so anything written there at
+# build time is masked the moment the volume mounts — the same trap the TMPDIR
+# comment above describes. The default global prefix (/usr/local) is baked into
+# the image and survives.
+#
+# Note for whoever migrates an agent that had this hand-installed: the runtime
+# PATH puts /opt/data/.local/bin BEFORE /usr/local/bin, so a hand-installed
+# copy on the volume SHADOWS this one indefinitely. Remove it, or the pin here
+# is a fiction.
+ARG M365_CLI_VERSION=11.10.0
+LABEL io.deploy.m365-cli-version="$M365_CLI_VERSION"
+RUN npm install -g --no-fund --no-audit "@pnp/cli-microsoft365@${M365_CLI_VERSION}" \
+    && m365 --version >/dev/null
+
+# Suppresses the CLI's update check. Not cosmetic: the nag prints on stdout,
+# and the device-code prompt is parsed out of that stream by the job that
+# signs an agent in — an update notice landing mid-output is a parse failure
+# with no obvious cause.
+ENV CLIMICROSOFT365_NOUPDATE=true
+
 # The company-brain profile (SOUL.md, config defaults, brain-protocol skill).
 # First boot copies it into /opt/data with terminal.cwd pointed at /vault.
 COPY deploy/agents-box/company-brain-profile /opt/brain-profile
