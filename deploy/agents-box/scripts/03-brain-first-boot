@@ -150,23 +150,45 @@ elif [ "$(sentinel_field build)" != "$image_id" ]; then
 
     recorded_soul="$(sentinel_field soul_md5)"
     live_soul="$(soul_fingerprint "$DATA/SOUL.md")"
+    # What the IMAGE ships. The sentinel records THIS, never the live hash —
+    # see the write_sentinel call below for why that distinction is the whole
+    # correctness of this block.
+    image_soul="$(soul_fingerprint /opt/brain-profile/SOUL.md)"
     if [ -z "$live_soul" ]; then
         : # Gone, not edited. The heal below restores it and records the hash;
           # calling that "locally modified" here would be a lie.
     elif [ -z "$recorded_soul" ]; then
         # Legacy sentinel: no record of what we shipped, so we cannot tell an
-        # edited SOUL from an untouched one. Never overwrite on a guess — adopt
-        # the current hash so the NEXT image change can decide correctly.
+        # edited SOUL from an untouched one. Never overwrite on a guess.
         echo "[brain] SOUL.md left as-is (no recorded hash to compare — first re-sync since the sentinel gained one)"
     elif [ "$recorded_soul" = "$live_soul" ]; then
         cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
-        live_soul="$(soul_fingerprint "$DATA/SOUL.md")"
         echo "[brain] SOUL.md updated from the image (was unmodified)"
     else
         echo "[brain] SOUL.md locally modified — left as-is; the image's version was NOT applied"
     fi
 
-    write_sentinel "$installed_at" "$live_soul"
+    # The sentinel records WHAT THE IMAGE SHIPPED, not what is on disk.
+    #
+    # Recording the live hash is what destroyed four agents' identities on
+    # 2026-08-14. The fleet writes a "Your name is <X>." line into SOUL.md, so
+    # every agent's file diverges from the image. Under the old code the
+    # locally-modified branch left the file alone — correctly — and then
+    # recorded the MODIFIED hash as the new baseline. On the next image change
+    # `recorded = live` was therefore true, the file was declared "unmodified",
+    # and the image's copy replaced it. A customised SOUL survived exactly one
+    # upgrade and died on the second, and the log line said "was unmodified"
+    # about a file nobody had left untouched.
+    #
+    # Recording the image's hash makes the comparison mean what it reads as:
+    # "is the live file still the one we shipped?". A diverged file answers no
+    # every time, forever, instead of drifting back into being overwritable.
+    #
+    # The cost is the dpkg-conffile cost, and it is the right one: once an
+    # agent's SOUL.md is customised, brainkit stops updating it. Improvements
+    # to the shipped SOUL reach new agents and untouched ones, never a
+    # customised one. Silent data loss is not a better trade.
+    write_sentinel "$installed_at" "$image_soul"
     echo "[brain] profile re-synced ${recorded_build:-<unrecorded>} -> $image_id (config.yaml untouched — hermes owns it)"
 fi
 
