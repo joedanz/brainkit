@@ -13,6 +13,33 @@ explicitly under **Changed**, with what to do about it.
 
 Nothing yet.
 
+## [0.3.6] - 2026-08-14
+
+### Fixed
+
+- **SOUL.md is three-way merged on an image upgrade, not overwritten.** Four
+  agents lost their names to the previous behaviour.
+
+  The re-sync is a dpkg-conffile pattern — overwrite from the image only when
+  the live file still matches what we shipped — but the sentinel recorded the
+  *live* hash after every re-sync, including on the branch that had just
+  decided the file was locally modified. A customised SOUL therefore became
+  its own baseline, and on the next image change was declared unmodified and
+  replaced. It survived exactly one upgrade and died on the second.
+
+  Recording the image's hash would have stopped the loss while freezing every
+  shipped SOUL improvement, because the fleet customises every agent's SOUL.
+  So instead `.company-brain-soul.base` now keeps the exact SOUL.md the image
+  last installed, and an upgrade merges (last-shipped → now-shipped) into the
+  live file with `git merge-file`. Both sides survive.
+
+  A conflict **keeps the local file** and logs where to reconcile, rather than
+  writing conflict markers into a file the agent reads as instructions — so a
+  conflicting shipped change is not applied until somebody acts on the log.
+
+  Agents upgrading from 0.3.5 or earlier have no recorded base; the first
+  upgrade after this falls back to the old comparison and records one.
+
 ## [0.3.5] - 2026-08-14
 
 ### Added
