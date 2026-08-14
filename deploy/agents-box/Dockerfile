@@ -26,6 +26,22 @@ USER root
 # every write_file into the vault is denied and "saved" notes silently bounce.
 ENV HERMES_WRITE_SAFE_ROOT=/opt/data:/vault
 
+# Scratch that lands INSIDE the guard above. The default /tmp is outside it, so
+# every throwaway probe script an agent writes there is denied — and the denial
+# only surfaces in the file-mutation verifier footer, after the agent has
+# already said it wrote the file.
+#
+# Under .cache/ on purpose, not /opt/data/tmp: `hermes backup` walks the whole
+# volume into the nightly zip and skips only the names in its _EXCLUDED_DIRS,
+# of which .cache is one. Scratch is exactly the traffic that must not be
+# archived — a captured HAR carries auth headers and session cookies, and those
+# zips ship to R2.
+#
+# The directory itself is created by 03-brain-first-boot, NOT here: /opt/data is
+# a volume mount, so anything mkdir'd into it at build time is masked at runtime
+# and TMPDIR would point at nothing.
+ENV TMPDIR=/opt/data/.cache/tmp
+
 # brainkit in a dedicated venv: uv brings its own interpreter, so nothing in
 # the hermes install tree (/opt/hermes, immutable at runtime) is touched.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

@@ -221,6 +221,27 @@ to `/usr/local/sbin/`, and cron it after the local job (03:45). See
 | edits vanish after sync | working as designed — the cycle rejected an illegal write-back and the compile reverted it (fail closed). |
 | agent chats but knows nothing | vault not cloned yet (see clone failure above) or index missing — run `docker exec agent-alice vault-sync`. |
 | agent says "saved" but the vault never changes | `write_file` denied by `HERMES_WRITE_SAFE_ROOT` (the hermes base image pins it to `/opt/data`; this image extends it with `/vault` — don't override it without keeping both paths). The gateway reply looks like success; only the file-mutation verifier footer reveals the denial. |
+| `Write denied: '/tmp/…' is outside HERMES_WRITE_SAFE_ROOT` | working as designed — `/tmp` is not in the guard. Scratch belongs in `/opt/data/.cache/tmp`, which is `TMPDIR` (Dockerfile) and is named in the managed block `03-brain-first-boot` keeps at the end of SOUL.md. An agent hitting this on a *fresh* container has neither yet — check the boot log for `SOUL.md scratch block applied`. |
+
+## Scratch files
+
+Agents write throwaway files — probe scripts, HAR captures, downloads — to
+`/opt/data/.cache/tmp`. Two mechanisms put them there, and both are needed:
+
+- `TMPDIR` (Dockerfile) covers everything that asks the OS for a temp path:
+  `tempfile`, subprocesses, shell redirection.
+- A marked block at the end of `SOUL.md`, re-applied on every boot by
+  `03-brain-first-boot`, covers the model choosing `/tmp` on its own —
+  `write_file` never consults `TMPDIR`.
+
+`.cache/` and not `/opt/data/tmp` because `hermes backup` walks the volume into
+the nightly zip and skips `.cache` by name. A captured HAR carries auth headers
+and session cookies; those zips go to R2.
+
+The block is invisible to the profile re-sync: the sentinel's `soul_md5`
+records SOUL.md with the block stripped, so "has a human edited this" keeps
+answering correctly and image SOUL updates keep flowing. Delete the block by
+hand and the next boot puts it back.
 
 ## What this image deliberately does not do
 

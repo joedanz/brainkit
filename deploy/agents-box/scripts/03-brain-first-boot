@@ -11,6 +11,7 @@ set -eu
 
 DATA=/opt/data
 SUBHOME="$DATA/home"   # HOME for hermes tool subprocesses (git, ssh)
+SCRATCH="$DATA/.cache/tmp"   # TMPDIR from the image; created in section 3
 
 if [ -z "${BRAIN_PERSON:-}" ]; then
     echo "[brain] BRAIN_PERSON not set — skipping brain first-boot (plain hermes container)"
@@ -61,6 +62,44 @@ sentinel_field() {
 file_md5() { md5sum "$1" 2>/dev/null | cut -d' ' -f1; }
 install_skills() { mkdir -p "$DATA/skills"; cp -R /opt/brain-profile/skills/. "$DATA/skills/"; }
 
+# The scratch-path block this script maintains at the end of SOUL.md — see the
+# section that applies it, below the re-sync. Declared up here because the
+# re-sync's own hash comparison has to be able to ignore it.
+SCRATCH_BEGIN='<!-- hermes-brain: scratch (managed — replaced on every boot) -->'
+SCRATCH_END='<!-- /hermes-brain: scratch -->'
+
+# SOUL.md as it would be WITHOUT our block, plus any trailing blank lines the
+# block was separated by. Stripping is what makes appending idempotent: the
+# next boot removes exactly what the last one added before comparing.
+strip_scratch_block() {
+    awk -v b="$SCRATCH_BEGIN" -v e="$SCRATCH_END" '
+        $0 == b { skip = 1 }
+        skip == 0 { line[++n] = $0 }
+        $0 == e { skip = 0 }
+        END {
+            while (n > 0 && line[n] == "") n--
+            for (i = 1; i <= n; i++) print line[i]
+        }
+    ' "$1"
+}
+
+# The hash the sentinel records, and the ONLY one it may record.
+#
+# soul_md5 answers exactly one question — has a human touched SOUL.md since we
+# wrote it — and the re-sync overwrites the file when the answer is no. Once
+# this script also appends to SOUL.md, hashing the raw file would make our own
+# append look like a human edit (blocking every future SOUL update), and
+# re-recording the raw hash after appending would make a human's edit look like
+# our own (destroying it on the next image roll). Hashing the stripped content
+# is what keeps both answers right.
+#
+# Empty for a missing file, matching file_md5 — `strip | md5sum` would instead
+# return the hash of the empty string and turn "gone" into "edited".
+soul_fingerprint() {
+    [ -f "$1" ] || return 0
+    strip_scratch_block "$1" 2>/dev/null | md5sum | cut -d' ' -f1
+}
+
 # The original install date, from either sentinel shape — key=value, or the bare
 # ISO timestamp the pre-re-sync version wrote. Carried through every rewrite so
 # an agent's true age is not reset to whenever it last happened to update.
@@ -100,7 +139,7 @@ tool_loop_guardrails:
     exact_failure: 5
     idempotent_no_progress: 5
 EOF
-    write_sentinel "$(date -u +%FT%TZ)" "$(file_md5 "$DATA/SOUL.md")"
+    write_sentinel "$(date -u +%FT%TZ)" "$(soul_fingerprint "$DATA/SOUL.md")"
     echo "[brain] company-brain profile installed for $BRAIN_PERSON ($image_id)"
 
 elif [ "$(sentinel_field build)" != "$image_id" ]; then
@@ -110,7 +149,7 @@ elif [ "$(sentinel_field build)" != "$image_id" ]; then
     install_skills
 
     recorded_soul="$(sentinel_field soul_md5)"
-    live_soul="$(file_md5 "$DATA/SOUL.md")"
+    live_soul="$(soul_fingerprint "$DATA/SOUL.md")"
     if [ -z "$live_soul" ]; then
         : # Gone, not edited. The heal below restores it and records the hash;
           # calling that "locally modified" here would be a lie.
@@ -121,7 +160,7 @@ elif [ "$(sentinel_field build)" != "$image_id" ]; then
         echo "[brain] SOUL.md left as-is (no recorded hash to compare — first re-sync since the sentinel gained one)"
     elif [ "$recorded_soul" = "$live_soul" ]; then
         cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
-        live_soul="$(file_md5 "$DATA/SOUL.md")"
+        live_soul="$(soul_fingerprint "$DATA/SOUL.md")"
         echo "[brain] SOUL.md updated from the image (was unmodified)"
     else
         echo "[brain] SOUL.md locally modified — left as-is; the image's version was NOT applied"
@@ -140,8 +179,63 @@ fi
 # ask for the image's version back.
 if [ ! -f "$DATA/SOUL.md" ]; then
     cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
-    write_sentinel "$(original_install_time)" "$(file_md5 "$DATA/SOUL.md")"
+    write_sentinel "$(original_install_time)" "$(soul_fingerprint "$DATA/SOUL.md")"
     echo "[brain] SOUL.md was missing — restored from the image"
+fi
+
+# --- SOUL.md: where scratch files go (managed block, every boot) -------------
+# TMPDIR (set in the Dockerfile) covers everything that asks the OS for a temp
+# path — tempfile, subprocesses, shell redirection. It does NOT cover the model
+# deciding on its own to `write_file` into /tmp, which is the case that actually
+# bites: the write is denied by HERMES_WRITE_SAFE_ROOT, and the agent finds out
+# only from the file-mutation verifier footer, after it has already told the
+# user it wrote the file.
+#
+# So the path has to be in the prompt too. SOUL.md and not a skill, because
+# SOUL.md is the stable tier of the system prompt and is present on every turn,
+# while a skill body enters context only once its description matches the task
+# — and the moment this matters (a capture script, a one-off probe) never
+# mentions the brain protocol.
+#
+# A marked block re-applied on every boot, not a template edit, for the reason
+# the restart-ping loop below gives: the template reaches only volumes that do
+# not exist yet. The re-sync above applies the image's SOUL.md only to an
+# untouched file, and no agent's is untouched — the portal writes a name
+# declaration into it during onboarding. A template-only change would reach
+# precisely the agents nobody is waiting for.
+#
+# The sentinel is deliberately NOT rewritten here: soul_fingerprint already
+# hides this block from it, so the human-edit detector keeps working.
+#
+# Guarded end to end — a scratch-path hint is never worth failing a boot over.
+if [ -f "$DATA/SOUL.md" ]; then
+    soul_tmp="$DATA/.SOUL.md.scratch-tmp"
+    if {
+        strip_scratch_block "$DATA/SOUL.md"
+        printf '\n%s\n' "$SCRATCH_BEGIN"
+        cat <<EOF
+## Scratch files
+
+Throwaway files — probe scripts, captures, downloads, anything you are not
+keeping — go in \`$SCRATCH\`, which is also \`\$TMPDIR\`. \`/tmp\` is outside
+this container's write guard, so writing there fails and you are told only
+after the fact. Nothing under \`.cache/\` is backed up; anything worth keeping
+belongs in the vault.
+EOF
+        printf '%s\n' "$SCRATCH_END"
+    } > "$soul_tmp" 2>/dev/null && [ -s "$soul_tmp" ]; then
+        # cmp, not two hashes: the question here is only "did anything change",
+        # and unlike soul_fingerprint nothing stores the answer.
+        if cmp -s "$soul_tmp" "$DATA/SOUL.md"; then
+            rm -f "$soul_tmp"
+        else
+            mv "$soul_tmp" "$DATA/SOUL.md"
+            echo "[brain] SOUL.md scratch block applied ($SCRATCH)"
+        fi
+    else
+        rm -f "$soul_tmp"
+        echo "[brain] could not apply the SOUL.md scratch block — left as-is"
+    fi
 fi
 
 # Silence the gateway's restart pings on agents provisioned before the profile
@@ -207,6 +301,18 @@ fi
 # it, plus the fresh /vault volume (named volumes are born root-owned).
 # mkdir covers a bare `docker run` without the vault mount.
 mkdir -p /vault
+
+# TMPDIR (Dockerfile) has to exist before anything supervised starts, or the
+# first tool to ask the OS for a temp path gets an error instead of a
+# directory. Here rather than in the image because /opt/data is a volume mount,
+# which masks whatever the build wrote there.
+#
+# chown, never `chown -R`: .cache is also where a browser download or a pip
+# wheel cache lands — hundreds of MB — and walking it on every boot is pure
+# cost for no ownership we do not already have.
+mkdir -p "$SCRATCH"
+chown hermes:hermes "$DATA/.cache" "$SCRATCH"
+
 chown -R hermes:hermes /vault "$SUBHOME/.ssh" "$DATA/skills"
 chown hermes:hermes "$DATA/SOUL.md" "$DATA/config.yaml" \
     "$DATA/deploy-key.pub" "$DATA/.company-brain-installed"
