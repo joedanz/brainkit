@@ -224,7 +224,9 @@ belongs in the vault.
 EOF
         printf '%s\n' "$SCRATCH_END"
     } > "$soul_tmp" 2>/dev/null && [ -s "$soul_tmp" ]; then
-        if [ "$(file_md5 "$soul_tmp")" = "$(file_md5 "$DATA/SOUL.md")" ]; then
+        # cmp, not two hashes: the question here is only "did anything change",
+        # and unlike soul_fingerprint nothing stores the answer.
+        if cmp -s "$soul_tmp" "$DATA/SOUL.md"; then
             rm -f "$soul_tmp"
         else
             mv "$soul_tmp" "$DATA/SOUL.md"
