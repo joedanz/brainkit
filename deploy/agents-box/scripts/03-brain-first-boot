@@ -35,10 +35,20 @@ fi
 #                discard live settings, including the model the operator chose.
 #
 # The SOUL rule is the dpkg-conffile pattern: ship updates to a file the local
-# side may also edit, by remembering what we last wrote. Equal hash means
-# untouched and safe to advance; different means someone meant it, so leave it
-# and say so.
+# side may also edit, by remembering what we last wrote.
+#
+# Not the crude form of it, though. "Equal means advance, different means leave
+# it alone" loses every shipped improvement the moment an agent's SOUL is
+# customised — and the fleet customises every one of them, writing a
+# "Your name is <X>." line. So a THREE-WAY MERGE: we keep the exact SOUL the
+# image last shipped, and on an upgrade we merge (last-shipped -> now-shipped)
+# into the live file. Both sides survive; only a genuine overlap conflicts, and
+# a conflict keeps the local side.
 SENTINEL="$DATA/.company-brain-installed"
+# The base for that merge — the image's SOUL.md as we last installed it. A hash
+# cannot be merged against, which is why this is the file and not another field
+# in the sentinel.
+SOUL_BASE="$DATA/.company-brain-soul.base"
 
 # `brain --version` prints "brain 0.2.0 (rev abc123def456)" for a git install —
 # the revision comes from PEP 610 install metadata, so the image describes itself
@@ -100,6 +110,43 @@ soul_fingerprint() {
     strip_scratch_block "$1" 2>/dev/null | md5sum | cut -d' ' -f1
 }
 
+# Three-way merge SOUL.md: $1 live, $2 base (image's last), $3 incoming (image's
+# now). Rewrites $1 in place. Echoes one word for the caller to log:
+#
+#   unchanged  the image's SOUL did not move; nothing to do
+#   fastfwd    live was untouched since we shipped it; took the new one whole
+#   merged     both sides changed, and they did not overlap
+#   conflict   both changed the SAME lines; LIVE IS KEPT, nothing is discarded
+#   nobase     no recorded base (first upgrade after this shipped, or legacy)
+#
+# The scratch block is stripped from the live side before merging and re-applied
+# afterwards by the managed-block section below. Merging with it present would
+# make our own append look like a local edit to be reconciled, and a conflict in
+# a block we rewrite every boot anyway is noise.
+#
+# `git merge-file` and not diff3: git is already in this image (uv shells out to
+# it) and diff3 is not. Exit 0 is a clean merge, >0 is the conflict count, and a
+# failure to run at all is treated as a conflict — keeping the local file is the
+# only safe answer when the merge tool cannot be trusted.
+merge_soul() {
+    _live=$1; _base=$2; _new=$3
+    [ -f "$_base" ] || { echo nobase; return 0; }
+    if cmp -s "$_base" "$_new"; then echo unchanged; return 0; fi
+
+    _mine=$(mktemp); _out=$(mktemp)
+    strip_scratch_block "$_live" > "$_mine" 2>/dev/null || cp "$_live" "$_mine"
+
+    if cmp -s "$_mine" "$_base"; then
+        cp "$_new" "$_live"; rm -f "$_mine" "$_out"; echo fastfwd; return 0
+    fi
+
+    if git merge-file -q -p "$_mine" "$_base" "$_new" > "$_out" 2>/dev/null; then
+        cp "$_out" "$_live"; rm -f "$_mine" "$_out"; echo merged; return 0
+    fi
+    rm -f "$_mine" "$_out"
+    echo conflict
+}
+
 # The original install date, from either sentinel shape — key=value, or the bare
 # ISO timestamp the pre-re-sync version wrote. Carried through every rewrite so
 # an agent's true age is not reset to whenever it last happened to update.
@@ -139,6 +186,7 @@ tool_loop_guardrails:
     exact_failure: 5
     idempotent_no_progress: 5
 EOF
+    cp /opt/brain-profile/SOUL.md "$SOUL_BASE"
     write_sentinel "$(date -u +%FT%TZ)" "$(soul_fingerprint "$DATA/SOUL.md")"
     echo "[brain] company-brain profile installed for $BRAIN_PERSON ($image_id)"
 
@@ -150,23 +198,64 @@ elif [ "$(sentinel_field build)" != "$image_id" ]; then
 
     recorded_soul="$(sentinel_field soul_md5)"
     live_soul="$(soul_fingerprint "$DATA/SOUL.md")"
+    # What the IMAGE ships. The sentinel records THIS, never the live hash —
+    # see the write_sentinel call below for why that distinction matters even
+    # now that the merge does the real work.
+    image_soul="$(soul_fingerprint /opt/brain-profile/SOUL.md)"
     if [ -z "$live_soul" ]; then
         : # Gone, not edited. The heal below restores it and records the hash;
           # calling that "locally modified" here would be a lie.
-    elif [ -z "$recorded_soul" ]; then
-        # Legacy sentinel: no record of what we shipped, so we cannot tell an
-        # edited SOUL from an untouched one. Never overwrite on a guess — adopt
-        # the current hash so the NEXT image change can decide correctly.
-        echo "[brain] SOUL.md left as-is (no recorded hash to compare — first re-sync since the sentinel gained one)"
-    elif [ "$recorded_soul" = "$live_soul" ]; then
-        cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
-        live_soul="$(soul_fingerprint "$DATA/SOUL.md")"
-        echo "[brain] SOUL.md updated from the image (was unmodified)"
     else
-        echo "[brain] SOUL.md locally modified — left as-is; the image's version was NOT applied"
+        case "$(merge_soul "$DATA/SOUL.md" "$SOUL_BASE" /opt/brain-profile/SOUL.md)" in
+            unchanged)
+                echo "[brain] SOUL.md untouched by this image (shipped version did not change)" ;;
+            fastfwd)
+                echo "[brain] SOUL.md updated from the image (was unmodified)" ;;
+            merged)
+                echo "[brain] SOUL.md merged: the image's changes applied alongside local edits" ;;
+            conflict)
+                # Both sides touched the same lines. Keeping the local file is
+                # the only answer that cannot lose someone's work; the image's
+                # version stays readable at /opt/brain-profile/SOUL.md.
+                echo "[brain] SOUL.md CONFLICT — local version kept, image changes NOT applied; reconcile against /opt/brain-profile/SOUL.md" ;;
+            nobase)
+                # First upgrade after the base file shipped, or a legacy agent.
+                # Nothing to merge against, so fall back to the old comparison:
+                # advance only when the live file is provably what we shipped.
+                if [ -n "$recorded_soul" ] && [ "$recorded_soul" = "$live_soul" ]; then
+                    cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
+                    echo "[brain] SOUL.md updated from the image (was unmodified; no merge base yet)"
+                else
+                    echo "[brain] SOUL.md left as-is (no merge base recorded yet — this boot records one)"
+                fi ;;
+        esac
     fi
 
-    write_sentinel "$installed_at" "$live_soul"
+    # The sentinel records WHAT THE IMAGE SHIPPED, not what is on disk.
+    #
+    # Recording the live hash is what destroyed four agents' identities on
+    # 2026-08-14. The fleet writes a "Your name is <X>." line into SOUL.md, so
+    # every agent's file diverges from the image. Under the old code the
+    # locally-modified branch left the file alone — correctly — and then
+    # recorded the MODIFIED hash as the new baseline. On the next image change
+    # `recorded = live` was therefore true, the file was declared "unmodified",
+    # and the image's copy replaced it. A customised SOUL survived exactly one
+    # upgrade and died on the second, and the log line said "was unmodified"
+    # about a file nobody had left untouched.
+    #
+    # Recording the image's hash makes the comparison mean what it reads as:
+    # "is the live file still the one we shipped?". A diverged file answers no
+    # every time, forever, instead of drifting back into being overwritable.
+    #
+    # The cost is the dpkg-conffile cost, and it is the right one: once an
+    # agent's SOUL.md is customised, brainkit stops updating it. Improvements
+    # to the shipped SOUL reach new agents and untouched ones, never a
+    # customised one. Silent data loss is not a better trade.
+    # The base advances to what this image ships, on EVERY outcome —
+    # including a conflict. The next upgrade must merge from where we are
+    # now, not replay a delta the operator has already been told about.
+    cp /opt/brain-profile/SOUL.md "$SOUL_BASE"
+    write_sentinel "$installed_at" "$image_soul"
     echo "[brain] profile re-synced ${recorded_build:-<unrecorded>} -> $image_id (config.yaml untouched — hermes owns it)"
 fi
 
@@ -179,6 +268,7 @@ fi
 # ask for the image's version back.
 if [ ! -f "$DATA/SOUL.md" ]; then
     cp /opt/brain-profile/SOUL.md "$DATA/SOUL.md"
+    cp /opt/brain-profile/SOUL.md "$SOUL_BASE"
     write_sentinel "$(original_install_time)" "$(soul_fingerprint "$DATA/SOUL.md")"
     echo "[brain] SOUL.md was missing — restored from the image"
 fi

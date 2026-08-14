@@ -32,7 +32,7 @@ SCRATCH_REL = ".cache/tmp"
 # extraction instead of silently testing nothing.
 HELPERS_AWK = (
     r'/^SCRATCH_BEGIN=/{on=1} on{print} '
-    r'/^soul_fingerprint\(\)/{f=1} f && /^}$/{exit}'
+    r'/^merge_soul\(\)/{f=1} f && /^}$/{exit}'
 )
 APPLY_AWK = r'/^# --- SOUL.md: where scratch files go/{on=1} on{print} on && /^fi$/{exit}'
 
@@ -214,3 +214,101 @@ def test_reaper_judges_whole_entries_not_individual_files():
     code = _reaper_code()
     assert "-newermt" in code and "-print -quit" in code
     assert "-delete" not in code
+
+
+# --- three-way merge --------------------------------------------------------
+#
+# The regression these pin cost four agents their names on 2026-08-14. The
+# re-sync was a two-way comparison: equal-to-what-we-shipped meant overwrite,
+# anything else meant leave alone — and the sentinel then recorded the LOCAL
+# hash, so a customised SOUL became its own baseline and was declared
+# "unmodified" on the next image change.
+#
+# Two-way could not have been made safe without also freezing every shipped
+# improvement, because the fleet customises EVERY agent's SOUL with a
+# "Your name is <X>." line. Hence the merge.
+
+PRISTINE_BASE = "# Identity\n\nYou are a personal assistant.\n\n## Voice\n- Concise.\n"
+NAMED_LOCAL = "# Identity\n\nYour name is Stewie.\n\nYou are a personal assistant.\n\n## Voice\n- Concise.\n"
+NEW_IMAGE = "# Identity\n\nYou are a personal assistant.\n\n## Voice\n- Concise.\n\n## Posture\n- Draft, don't send.\n"
+
+
+def _merge(shell, tmp_path, live_text, base_text, new_text):
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    live = data / "SOUL.md"
+    live.write_text(live_text)
+    base = tmp_path / "base.md"
+    base.write_text(base_text)
+    new = tmp_path / "new.md"
+    new.write_text(new_text)
+    out = shell(data, f'merge_soul "{live}" "{base}" "{new}"').strip().split("\n")[-1]
+    return out, live.read_text()
+
+
+def test_merge_keeps_the_local_name_and_takes_the_image_change(shell, tmp_path):
+    """THE regression. The agent keeps its name AND gains the new section."""
+    verdict, soul = _merge(shell, tmp_path, NAMED_LOCAL, PRISTINE_BASE, NEW_IMAGE)
+    assert verdict == "merged", verdict
+    assert "Your name is Stewie." in soul
+    assert "Draft, don't send." in soul
+
+
+def test_merge_fast_forwards_an_untouched_soul(shell, tmp_path):
+    """No local edit — take the image's version whole, as before."""
+    verdict, soul = _merge(shell, tmp_path, PRISTINE_BASE, PRISTINE_BASE, NEW_IMAGE)
+    assert verdict == "fastfwd", verdict
+    assert soul == NEW_IMAGE
+
+
+def test_merge_is_a_noop_when_the_image_soul_did_not_move(shell, tmp_path):
+    verdict, soul = _merge(shell, tmp_path, NAMED_LOCAL, PRISTINE_BASE, PRISTINE_BASE)
+    assert verdict == "unchanged", verdict
+    assert "Your name is Stewie." in soul
+
+
+def test_a_conflict_keeps_the_local_file(shell, tmp_path):
+    """Both sides rewrote the same line. Losing the local one is the failure
+    this whole mechanism exists to prevent, so the image's change is dropped
+    and the operator is told."""
+    theirs = PRISTINE_BASE.replace("You are a personal assistant.", "You are an executive assistant.")
+    mine = PRISTINE_BASE.replace("You are a personal assistant.", "You are Joe's assistant.")
+    verdict, soul = _merge(shell, tmp_path, mine, PRISTINE_BASE, theirs)
+    assert verdict == "conflict", verdict
+    assert "You are Joe's assistant." in soul
+    assert "executive assistant" not in soul
+    assert "<<<<<<<" not in soul
+
+
+def test_no_base_is_reported_rather_than_guessed(shell, tmp_path):
+    """A legacy agent has no recorded base. Guessing either way is how the
+    original bug happened, so the caller decides."""
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    (data / "SOUL.md").write_text(NAMED_LOCAL)
+    new = tmp_path / "new.md"
+    new.write_text(NEW_IMAGE)
+    out = shell(data, f'merge_soul "{data}/SOUL.md" "{tmp_path}/missing.md" "{new}"').strip().split("\n")[-1]
+    assert out == "nobase", out
+    assert "Your name is Stewie." in (data / "SOUL.md").read_text()
+
+
+def test_the_scratch_block_does_not_participate_in_the_merge(shell, tmp_path):
+    """Our own managed block must not read as a local edit to reconcile — it is
+    stripped before merging and re-applied afterwards by the boot script."""
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    (data / "SOUL.md").write_text(NAMED_LOCAL)
+    shell(data)                                    # appends the scratch block
+    assert "hermes-brain: scratch" in (data / "SOUL.md").read_text()
+
+    base = tmp_path / "base.md"
+    base.write_text(PRISTINE_BASE)
+    new = tmp_path / "new.md"
+    new.write_text(NEW_IMAGE)
+    out = shell(data, f'merge_soul "{data}/SOUL.md" "{base}" "{new}"').strip().split("\n")[-1]
+    soul = (data / "SOUL.md").read_text()
+    assert out == "merged", out
+    assert "Your name is Stewie." in soul
+    assert "Draft, don't send." in soul
+    assert "hermes-brain: scratch" not in soul      # re-applied by the caller
