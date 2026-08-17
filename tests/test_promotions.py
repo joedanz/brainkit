@@ -9,6 +9,7 @@ from brain.promotions import (
     draft_into_space,
     draft_promotion,
     list_pending,
+    may_approve,
     reject,
 )
 
@@ -195,6 +196,46 @@ def test_approve_rejects_missing_or_unknown_approver(master: Path, bad_approver:
     # a failed approval must not consume the pending file
     assert (master / "_meta/promotions/pending/p-010.md").exists()
     assert not (master / "Company/Playbook/SOP.md").exists()
+
+
+def test_approve_requires_an_admin_approver(master: Path):
+    """bob is in the org but holds no admin role. Promotion approval publishes
+    into a space other people read, so the roster check alone is not enough."""
+    _seed_org(master)
+    draft_promotion(
+        master, person_id="bob",
+        target_path="Company/Playbook/SOP.md",
+        source="People/bob/Sessions/call.md",
+        body="Step one.\n", promo_id="p-011", created="2026-07-07",
+    )
+    with pytest.raises(PromotionError, match="role:admin"):
+        approve(master, "p-011", approver="bob", date="2026-07-08")
+    assert (master / "_meta/promotions/pending/p-011.md").exists()
+    assert not (master / "Company/Playbook/SOP.md").exists()
+
+    # alice holds role: admin — same promotion, same target, now permitted
+    target = approve(master, "p-011", approver="alice", date="2026-07-08")
+    assert target.exists()
+    assert "approved-by: alice" in target.read_text()
+
+
+def test_approve_requires_admin_for_every_space_not_just_shared(master: Path):
+    """Team spaces are the deliberate future relaxation, not today's rule —
+    until team routing exists, a non-admin approves nothing anywhere."""
+    _seed_org(master)
+    draft_promotion(
+        master, person_id="bob",
+        target_path="Teams/ops/Escalation.md",
+        source="People/bob/Sessions/call.md",
+        body="Restart the thing.\n", promo_id="p-012", created="2026-07-07",
+    )
+    with pytest.raises(PromotionError, match="role:admin"):
+        approve(master, "p-012", approver="bob", date="2026-07-08")
+    assert not (master / "Teams/ops/Escalation.md").exists()
+
+
+def test_may_approve_fails_closed_on_unknown_person():
+    assert may_approve(None, "Company/Playbook/SOP.md") is False
 
 
 def test_list_pending_skips_malformed_files(master: Path):

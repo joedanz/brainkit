@@ -267,6 +267,23 @@ async def test_approve_requires_known_approver(aiohttp_client, master, tmp_path)
                               json={"approver": "alice"}, headers=_LOCAL)).status == 200
 
 
+async def test_approve_refuses_a_non_admin_approver(aiohttp_client, master, tmp_path):
+    """bob passes the roster check the handler does, and is still refused by the
+    core gate — the API cannot approve past may_approve."""
+    app, _ = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+    await client.post("/api/promote", json={"person": "bob",
+        "target_path": "Company/Shared/B.md", "body": "b"}, headers=_LOCAL)
+    await client.post("/api/promotions/sweep", json={}, headers=_LOCAL)
+    pid = (await (await client.get("/api/stats")).json())["promotions_pending"][0]["id"]
+
+    resp = await client.post(f"/api/promotions/{pid}/approve",
+                             json={"approver": "bob"}, headers=_LOCAL)
+    assert resp.status == 404  # PromotionError mapping, as for shares
+    assert "role:admin" in resp.reason
+    assert not (master / "Company/Shared/B.md").exists()
+
+
 async def test_reject_requires_reason(aiohttp_client, master, tmp_path):
     app, _ = _master_app(master, tmp_path)
     client = await aiohttp_client(app)

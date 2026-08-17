@@ -162,6 +162,8 @@ def test_master_stats_full_picture(master, tmp_path):
     assert by_person["bob"].index_built_at is None
     assert by_person["alice"].disk_bytes > 0
     assert by_person["alice"].notes > 0
+    # the dashboard's promotion approver dropdown filters on this flag
+    assert by_person["alice"].admin and not by_person["bob"].admin
 
     assert [p.id for p in s.promotions_pending] == ["p-1"]
 

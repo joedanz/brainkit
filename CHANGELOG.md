@@ -11,7 +11,30 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Promotion approval now requires `role: admin`.** The docs have always said
+  approval is an admin's call — "unlike promotions, that approval isn't always
+  an admin's call" is how the shares routing table draws the contrast — but
+  `approve()` only ever checked that the approver appeared in
+  `_meta/org.yaml`. Any colleague could be recorded as `approved-by` on a
+  promotion publishing to the whole company; the intended rule was enforced
+  purely by who could reach the master box.
+
+  The check now lives in `may_approve(person, target_path, shared)`, the
+  promotions counterpart to `shares.may_decide`, and the core `approve()` call
+  is the single place it runs — so the CLI, the dashboard API, and any future
+  caller inherit it rather than reimplementing it.
+
+  Admin-only applies to every target, `Teams/<team>/` included. Routing
+  team-space promotions to that team's lead is a deliberate future relaxation;
+  `target_path` is already in the signature so that change stays a function
+  body. The dashboard's approver dropdown now lists only admins, and says so
+  when an org has none.
+
+  **Upgrading:** if a non-admin has been approving promotions, give them
+  `roles: [admin]` in `_meta/org.yaml` or route their approvals through one.
+  Already-approved notes are untouched.
 
 ## [0.3.6] - 2026-08-14
 
