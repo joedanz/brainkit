@@ -504,7 +504,7 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
     for person in org.people.values():
         entry = PersonVaultStats(
             person_id=person.id, name=person.name,
-            admin="admin" in person.roles, compiled=False,
+            admin=person.is_admin, compiled=False,
             disk_bytes=0, notes=0, index_built_at=None,
             drift=None, drift_error=None,
         )

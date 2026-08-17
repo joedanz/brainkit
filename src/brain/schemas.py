@@ -141,6 +141,14 @@ class Person:
     teams: tuple[str, ...] = ()
     email: str = ""  # optional; the auth key for `brain ingest --from`
 
+    @property
+    def is_admin(self) -> bool:
+        """Structural oversight: admins decide promotions and any share, are
+        routed every finding triage can't give an owner, and can never be
+        revoked from a space rule. One definition so the role name is not a
+        string literal spread across the modules that ask."""
+        return "admin" in self.roles
+
 
 @dataclass(frozen=True)
 class Org:

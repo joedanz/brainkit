@@ -66,7 +66,7 @@ def may_decide(person: Person | None, share_with: str) -> bool:
     everyone-shares are admin-only by design."""
     if person is None:
         return False
-    if "admin" in person.roles:
+    if person.is_admin:
         return True
     try:
         kind, name = validate_subject(share_with)

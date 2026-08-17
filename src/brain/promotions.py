@@ -110,13 +110,16 @@ def may_approve(person: Person | None, target_path: str,
     Today the answer is admins only, for *every* target. A promotion publishes
     into a space other people read, and unlike a share request the recipient is
     implicit in ``target_path`` — so there is no consent step to fall back on.
-    ``target_path`` is already in the signature because team-lead routing for
-    ``Teams/*`` targets is the intended relaxation; landing the shape now keeps
-    that change a function body rather than a sweep over call sites.
+
+    ``target_path`` and ``shared`` are unused on purpose: team-lead routing for
+    ``Teams/*`` targets is the intended relaxation, and classifying a target
+    needs both (``space_of_path`` cannot name the space without knowing what
+    the shared one is called). Landing the signature now keeps that change a
+    function body rather than a sweep over call sites.
     """
     if person is None:
         return False
-    return "admin" in person.roles
+    return person.is_admin
 
 
 _MODES = ("create", "append", "patch")
