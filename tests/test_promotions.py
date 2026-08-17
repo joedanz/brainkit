@@ -857,3 +857,43 @@ def test_validate_target_rejects_bare_space_custom_shared(bare: str):
     from brain.promotions import _validate_target
     with pytest.raises(PromotionError):
         _validate_target(bare, "Family")
+
+
+def test_approve_via_stamps_archive(master: Path):
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/Via.md",
+                    source="s", body="b\n", promo_id="p-via", created="2026-08-17")
+    approve(master, "p-via", approver="alice", date="2026-08-17", via="delegated")
+    archived = (master / "_meta/promotions/approved/p-via.md").read_text()
+    assert "via: delegated" in archived
+    assert "approved-by: alice" in archived
+
+
+def test_approve_without_via_has_no_via_line(master: Path):
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/NoVia.md",
+                    source="s", body="b\n", promo_id="p-novia", created="2026-08-17")
+    approve(master, "p-novia", approver="alice", date="2026-08-17")
+    assert "via:" not in (master / "_meta/promotions/approved/p-novia.md").read_text()
+
+
+def test_reject_records_approver_and_via_when_given(master: Path):
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/Rej.md",
+                    source="s", body="b\n", promo_id="p-rej", created="2026-08-17")
+    rejected = reject(master, "p-rej", reason="not ready", date="2026-08-17",
+                      approver="alice", via="delegated")
+    text = rejected.read_text()
+    assert "rejected-by: alice" in text
+    assert "via: delegated" in text
+    assert "rejected-reason: not ready" in text
+
+
+def test_reject_without_approver_keeps_old_shape(master: Path):
+    _seed_org(master)
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/Rej2.md",
+                    source="s", body="b\n", promo_id="p-rej2", created="2026-08-17")
+    rejected = reject(master, "p-rej2", reason="no", date="2026-08-17")
+    text = rejected.read_text()
+    assert "rejected-by:" not in text
+    assert "via:" not in text

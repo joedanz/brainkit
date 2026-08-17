@@ -306,7 +306,7 @@ def _find_pending(master: Path, promo_id: str) -> Path:
 
 
 def approve(master: Path, promo_id: str, approver: str, date: str,
-            shared: str | None = None) -> Path:
+            shared: str | None = None, via: str = "") -> Path:
     # Attribution must be real: approved-by is machine-resolved against the
     # org roster, same as promoted-by.
     if not approver.strip():
@@ -374,8 +374,9 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     archived = master / "_meta/promotions/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, promo_body = pending.read_text().split("---\n", 2)
+    via_line = f"via: {via}\n" if via else ""
     archived.write_text(
-        f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n---\n{promo_body}"
+        f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n{via_line}---\n{promo_body}"
     )
     pending.unlink()
     # The publish is a commit under the approver's own identity — the moment a
@@ -392,22 +393,37 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     return target
 
 
-def reject(master: Path, promo_id: str, reason: str, date: str) -> Path:
+def reject(master: Path, promo_id: str, reason: str, date: str,
+           approver: str = "", via: str = "") -> Path:
+    """Move a pending promotion to rejected/ with the reason.
+
+    ``approver`` is optional so the CLI's existing shape (no identity — the
+    commit is ``Brain Promotions``) still works; the in-vault seam passes it
+    so a delegated rejection records who decided and commits as them.
+    ``via`` is stamped verbatim when non-empty (``delegated``)."""
     pending = _find_pending(master, promo_id)
     _, fm, body = pending.read_text().split("---\n", 2)
     rejected = master / "_meta/promotions/rejected" / pending.name
     rejected.parent.mkdir(parents=True, exist_ok=True)
+    by_line = f"rejected-by: {approver}\n" if approver else ""
+    via_line = f"via: {via}\n" if via else ""
     rejected.write_text(
-        f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n---\n{body}"
+        f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n"
+        f"{by_line}{via_line}---\n{body}"
     )
     pending.unlink()
+    if approver:
+        people = load_org(master / "_meta/org.yaml").people
+        name = people[approver].name if approver in people else approver
+        email = f"{approver}@brain.local"
+    else:
+        name, email = "Brain Promotions", "promotions@brain.local"
     _commit(
         master,
         [rejected.relative_to(master).as_posix(),
          pending.relative_to(master).as_posix()],
         f"promotions: reject {promo_id} ({reason})",
-        "Brain Promotions",
-        "promotions@brain.local",
+        name, email,
     )
     return rejected
 
