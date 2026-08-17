@@ -257,6 +257,17 @@ def _post_process(
                     "Status of what you have proposed to share. This file is\n"
                     "regenerated on every compile — edits here are discarded.\n")
         note = note.rstrip("\n") + "\n\n" + decider
+
+    from brain.promotions import generate_promotion_decider_section
+
+    promo_decider = generate_promotion_decider_section(master, person.id, today,
+                                                       shared=config.shared)
+    if promo_decider is not None:
+        if note is None:
+            note = ("---\ngenerated: true\n---\n# My Shares\n\n"
+                    "Status of what you have proposed to share. This file is\n"
+                    "regenerated on every compile — edits here are discarded.\n")
+        note = note.rstrip("\n") + "\n\n" + promo_decider
     if note is not None:
         # People/<pid>/Shares.md is a reserved generated filename —
         # regenerated from queue truth each compile.

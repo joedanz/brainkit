@@ -320,6 +320,38 @@ def test_decider_section_compiles_into_shares_md(master, tmp_path):
     assert "Awaiting your decision" in text
 
 
+def test_promotion_decider_section_compiles_into_lead_shares_md(master, tmp_path):
+    from brain.compiler import compile_vault
+    from brain.promotions import draft_promotion
+    from brain.schemas import Person, load_spaces
+
+    with (master / "_meta/spaces.yaml").open("w") as fh:
+        fh.write(
+            "spaces:\n"
+            '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
+            '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
+            '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
+        )
+    (master / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice, roles: [admin]}\n"
+        "  bob: {name: Bob, teams: [ops]}\n"
+        "  lead_ops: {name: Lead Ops, roles: [lead], teams: [ops]}\n")
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Escalation.md",
+                    source="s", body="Restart it.\n", promo_id="p-ops",
+                    created="2026-08-17")
+    lead = Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",))
+    dest = tmp_path / "lead_ops"
+    compile_vault(master, lead, load_spaces(master / "_meta/spaces.yaml"), dest,
+                  today="2026-08-17")
+    text = (dest / "People/lead_ops/Shares.md").read_text()
+    assert "Promotions awaiting your decision" in text
+    assert "Restart it." in text
+    # and it is a generated file: in the manifest's generated list
+    import json
+    manifest = json.loads((dest / ".brain-manifest.json").read_text())
+    assert "People/lead_ops/Shares.md" in manifest["generated"]
+
+
 def test_map_note_generated_and_in_manifest(master: Path, tmp_path: Path):
     from brain.vaultmap import MAP_NAME
 

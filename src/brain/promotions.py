@@ -642,10 +642,11 @@ _DECIDED_CAP = 20
 def generate_shares_note(master: Path, person_id: str, today: str) -> str | None:
     """Render one person's promotion-status note, or ``None`` if empty.
 
-    The only user-visible window into ``_meta/promotions``: everything of
-    theirs still pending, plus decisions from the last 30 days (newest
-    first, max 20). Compiled into the slice as a *generated* file — the
-    queue stays the single source of truth and edits are discarded.
+    The requester's window into ``_meta/promotions``: everything of theirs
+    still pending, plus decisions from the last 30 days (newest first, max
+    20). The decider's window is ``generate_promotion_decider_section``.
+    Compiled into the slice as a *generated* file — the queue stays the
+    single source of truth and edits are discarded.
     """
     from datetime import date as _date
     from datetime import timedelta
@@ -713,4 +714,83 @@ def generate_shares_note(master: Path, person_id: str, today: str) -> str | None
     if decided:
         lines += ["", "## Recently decided", ""]
         lines += [line for _, line in decided]
+    return "\n".join(lines) + "\n"
+
+
+_REVIEW_CAP = 4096  # chars of body/diff rendered per item into Shares.md
+
+
+def generate_promotion_decider_section(master: Path, person_id: str, today: str,
+                                       shared: str | None = None) -> str | None:
+    """The 'Promotions awaiting your decision' section for one person's
+    ``Shares.md``, or ``None`` when nothing is theirs to decide.
+
+    Eligibility is computed on a *delegated view* of the person — admin
+    stripped — so admins see nothing here and keep using the dashboard, and
+    shared-space targets are excluded outright (they are never decidable
+    in-vault). This mirrors ``shares.generate_decider_section`` exactly.
+
+    Because ``_meta/`` never compiles into a vault, this is the only way a
+    lead can read what they are approving: the body for create/append, a
+    unified diff for patch, each capped at ``_REVIEW_CAP`` with an explicit
+    truncation notice pointing at ``brain promotions show``."""
+    import yaml
+
+    from brain.schemas import SchemaError
+
+    shared = master_shared(master, shared)
+    try:
+        org = load_org(master / "_meta/org.yaml")
+    except (SchemaError, OSError, yaml.YAMLError):
+        return None
+    person = org.people.get(person_id)
+    if person is None:
+        return None
+    delegated_view = Person(
+        id=person.id, name=person.name,
+        roles=tuple(r for r in person.roles if r != "admin"),
+        teams=person.teams, email=person.email)
+    mine = [
+        p for p in list_pending(master)
+        if space_of_path(p.target_path, shared) != shared
+        and may_approve(delegated_view, p.target_path, shared)
+    ]
+    if not mine:
+        return None
+
+    lines = [
+        "## Promotions awaiting your decision", "",
+        "These promotions target a team you lead. Read what would be published,",
+        "then record only a decision your human has explicitly made.", "",
+    ]
+    for p in mine:
+        lines.append(f"### `{p.id}` → `{p.target_path}` ({p.mode}) from {p.person_id}, "
+                     f"drafted {p.created}")
+        lines.append("")
+        if p.mode == "patch":
+            rendered = patch_diff(master, p, shared)
+            fence = "diff"
+            if rendered is None:
+                rendered = "(target missing or unchanged — approval would fail closed)"
+                fence = ""
+        else:
+            rendered, fence = p.body, ""
+        truncated = len(rendered) > _REVIEW_CAP
+        if truncated:
+            rendered = rendered[:_REVIEW_CAP]
+        lines.append(f"```{fence}")
+        lines.append(rendered.rstrip("\n"))
+        lines.append("```")
+        if truncated:
+            lines.append(f"*Truncated at {_REVIEW_CAP} characters — see the full text with "
+                         f"`brain promotions show {p.id}` or in the dashboard.*")
+        lines.append("")
+    lines += [
+        f"To decide, write `People/{person_id}/PromotionApprovals/<promo-id>.md`:", "",
+        "```", "---", "decision: approve   # or: reject",
+        "reason: required when rejecting", f"owner: {person_id}",
+        f"created: {today}", "---", "```",
+        "",
+        f"Promotions into `{shared}/` are decided by an admin at the dashboard, not here.",
+    ]
     return "\n".join(lines) + "\n"

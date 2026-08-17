@@ -8,6 +8,7 @@ from brain.promotions import (
     approve,
     draft_into_space,
     draft_promotion,
+    generate_promotion_decider_section,
     list_pending,
     may_approve,
     reject,
@@ -1046,3 +1047,61 @@ def test_seam_promotion_error_surfaces_as_refusal(master: Path):
     out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
     assert out[0].status == "refused" and "already exists" in out[0].reason
     assert (master / "Teams/ops/Escalation.md").read_text() == "already here\n"
+
+
+# --- rendering review material into a lead's Shares.md ---------------------
+# _meta/ never compiles into a vault, so a lead cannot read what they would
+# be approving unless the compiler (which has master access) renders it into
+# their own generated Shares.md. Eligibility here mirrors
+# shares.generate_decider_section: computed on the delegated view (admin
+# stripped), so admins see nothing here and keep the dashboard.
+
+
+def test_decider_section_none_for_admin(master: Path):
+    """delegated_view strips admin: alice sees nothing in-vault and uses the
+    dashboard. Nothing here even though may_approve(alice, ...) is True."""
+    _lead_master(master)
+    assert generate_promotion_decider_section(master, "alice", "2026-08-17") is None
+
+
+def test_decider_section_lead_sees_own_team_only(master: Path):
+    _lead_master(master)
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    assert text is not None
+    assert "## Promotions awaiting your decision" in text
+    assert "p-ops" in text and "Teams/ops/Escalation.md" in text
+    assert "Restart it." in text            # the body is rendered
+    assert "p-co" not in text               # Company/ is never in-vault
+    assert "PromotionApprovals/<promo-id>.md" in text
+    # the other lead sees nothing — no ops draft is theirs to decide
+    assert generate_promotion_decider_section(master, "lead_sales", "2026-08-17") is None
+
+
+def test_decider_section_patch_renders_diff(master: Path):
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    (master / "Teams/ops/Runbook.md").write_text("Ops runbook.\nline two\n")
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Runbook.md",
+                    source="s", body="Ops runbook.\nline two changed\n",
+                    promo_id="p-patch", created="2026-08-17", mode="patch")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    assert "```diff" in text
+    assert "-line two" in text and "+line two changed" in text
+
+
+def test_decider_section_truncates_with_notice(master: Path):
+    from brain.promotions import _REVIEW_CAP
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    big = "x" * (_REVIEW_CAP + 500) + "\n"
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Big.md",
+                    source="s", body=big, promo_id="p-big", created="2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    assert "truncated" in text.lower()
+    assert "brain promotions show p-big" in text
+    # rendered content is bounded — the note doesn't balloon
+    assert len(text) < _REVIEW_CAP + 1500
+
+
+def test_decider_section_no_notice_below_cap(master: Path):
+    _lead_master(master)
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    assert "truncated" not in text.lower()
