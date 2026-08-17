@@ -11,6 +11,7 @@ from brain.promotions import (
     list_pending,
     may_approve,
     reject,
+    sweep_promotion_approvals,
 )
 from brain.schemas import Person
 
@@ -897,3 +898,151 @@ def test_reject_without_approver_keeps_old_shape(master: Path):
     text = rejected.read_text()
     assert "rejected-by:" not in text
     assert "via:" not in text
+
+
+# --- in-vault decision seam -------------------------------------------------
+# NOTE: this module already defines `import subprocess` and a `_git_init`
+# helper (identical shape: init -b main, add -A, commit as t/t@t) further up
+# for the git-audit-trail suite — reused here rather than redefined, to avoid
+# a ruff F811 (redefinition of unused name) that a literal duplicate would
+# trigger.
+
+
+def _decision(master: Path, pid: str, promo_id: str, decision: str,
+              reason: str = "", owner: str | None = None,
+              created: str = "2026-08-17") -> Path:
+    d = master / f"People/{pid}/PromotionApprovals"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{promo_id}.md"
+    p.write_text(f"---\ndecision: {decision}\nreason: {reason}\n"
+                 f"owner: {owner or pid}\ncreated: {created}\n---\n")
+    return p
+
+
+def _lead_master(master: Path) -> None:
+    """Org with leads; a Teams/ops draft from bob queued as p-ops, and a
+    Company draft from bob queued as p-co."""
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Escalation.md",
+                    source="s", body="Restart it.\n", promo_id="p-ops",
+                    created="2026-08-17")
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/SOP.md",
+                    source="s", body="Step one.\n", promo_id="p-co",
+                    created="2026-08-17")
+    _git_init(master)
+
+
+def _org(master: Path):
+    from brain.schemas import load_org
+    return load_org(master / "_meta/org.yaml")
+
+
+def test_seam_lead_approve_applies(master: Path):
+    _lead_master(master)
+    note = _decision(master, "lead_ops", "p-ops", "approve")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert [(o.promo_id, o.status) for o in out] == [("p-ops", "applied")]
+    assert (master / "Teams/ops/Escalation.md").exists()
+    assert not note.exists()  # consumed
+    archived = (master / "_meta/promotions/approved/p-ops.md").read_text()
+    assert "approved-by: lead_ops" in archived and "via: delegated" in archived
+    log = subprocess.run(["git", "-C", str(master), "log", "-1", "--format=%an <%ae>"],
+                         capture_output=True, text=True).stdout
+    assert "Lead Ops <lead_ops@brain.local>" in log
+
+
+def test_seam_lead_reject_with_reason_applies(master: Path):
+    _lead_master(master)
+    _decision(master, "lead_ops", "p-ops", "reject", reason="not ready")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "applied" and out[0].decision == "reject"
+    text = (master / "_meta/promotions/rejected/p-ops.md").read_text()
+    assert "rejected-by: lead_ops" in text and "via: delegated" in text
+    assert not (master / "Teams/ops/Escalation.md").exists()
+
+
+def test_seam_reject_without_reason_refused(master: Path):
+    _lead_master(master)
+    _decision(master, "lead_ops", "p-ops", "reject")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "refused" and out[0].reason == "missing reason"
+    assert (master / "_meta/promotions/pending/p-ops.md").exists()  # untouched
+    inbox = list((master / "People/lead_ops/Inbox").glob("promotion-*.md"))
+    assert inbox and "reason" in inbox[0].read_text()
+
+
+def test_seam_wrong_lead_refused_not_eligible(master: Path):
+    _lead_master(master)
+    _decision(master, "lead_sales", "p-ops", "approve")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "refused" and out[0].reason == "not eligible"
+    assert not (master / "Teams/ops/Escalation.md").exists()
+
+
+def test_seam_shared_space_target_refused_even_for_admin(master: Path):
+    """The in-vault carve-out: Company/ targets are decided at the dashboard.
+    alice is admin — may_approve would say yes — and is still refused here."""
+    _lead_master(master)
+    _decision(master, "alice", "p-co", "approve")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "refused" and out[0].reason == "shared space"
+    assert not (master / "Company/Playbook/SOP.md").exists()
+    inbox = list((master / "People/alice/Inbox").glob("promotion-*.md"))
+    assert inbox and "admin" in inbox[0].read_text().lower()
+
+
+def test_seam_owner_mismatch_is_tampering(master: Path):
+    _lead_master(master)
+    _decision(master, "lead_ops", "p-ops", "approve", owner="alice")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "tampering"
+    assert not (master / "Teams/ops/Escalation.md").exists()
+    assert not (master / "People/lead_ops/PromotionApprovals/p-ops.md").exists()
+
+
+def test_seam_unknown_id_refused(master: Path):
+    _lead_master(master)
+    _decision(master, "lead_ops", "p-nope", "approve")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "refused" and out[0].reason == "already decided or unknown"
+
+
+def test_seam_bad_decision_word_refused(master: Path):
+    _lead_master(master)
+    _decision(master, "lead_ops", "p-ops", "maybe")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "refused" and out[0].reason == "bad decision"
+
+
+def test_seam_malformed_note_left_in_place(master: Path):
+    _lead_master(master)
+    d = master / "People/lead_ops/PromotionApprovals"
+    d.mkdir(parents=True)
+    bad = d / "p-ops.md"
+    bad.write_text("no frontmatter here\n")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out == []
+    assert bad.exists()
+
+
+def test_seam_symlink_ignored(master: Path):
+    _lead_master(master)
+    outside = master.parent / "outside.md"
+    outside.write_text("---\ndecision: approve\nowner: lead_ops\n---\n")
+    d = master / "People/lead_ops/PromotionApprovals"
+    d.mkdir(parents=True)
+    (d / "p-ops.md").symlink_to(outside)
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out == []
+    assert not (master / "Teams/ops/Escalation.md").exists()
+
+
+def test_seam_promotion_error_surfaces_as_refusal(master: Path):
+    """approve() itself can fail closed (create over an existing file). The
+    seam turns that into a refusal + inbox note, never a crash."""
+    _lead_master(master)
+    (master / "Teams/ops/Escalation.md").write_text("already here\n")
+    _decision(master, "lead_ops", "p-ops", "approve")
+    out = sweep_promotion_approvals(master, _org(master), "2026-08-17")
+    assert out[0].status == "refused" and "already exists" in out[0].reason
+    assert (master / "Teams/ops/Escalation.md").read_text() == "already here\n"

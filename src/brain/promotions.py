@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
-from brain.schemas import DEFAULT_SHARED, Person, load_org, master_shared
+from brain.schemas import DEFAULT_SHARED, Org, Person, load_org, master_shared
 
 
 class PromotionError(BrainError, ValueError):
@@ -496,6 +496,142 @@ def sweep(master: Path, today: str, shared: str | None = None) -> list[Path]:
             "Brain Promotions", "promotions@brain.local",
         )
     return moved
+
+
+# ---- in-vault delegated decisions --------------------------------------------
+
+PROMOTION_APPROVALS_REL = "People/{person_id}/PromotionApprovals"
+
+
+@dataclass(frozen=True)
+class PromotionDecisionOutcome:
+    promo_id: str
+    decider: str
+    decision: str
+    status: str  # "applied" | "refused" | "tampering"
+    reason: str = ""
+
+
+def _promotion_inbox_note(master: Path, person_id: str, slug: str, text: str,
+                          today: str) -> str:
+    rel = f"People/{person_id}/Inbox/promotion-{slug}.md"
+    dest = master / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"---\ncreated: {today}\n---\n{text}\n")
+    return rel
+
+
+def sweep_promotion_approvals(master: Path, org: Org, today: str,
+                              shared: str | None = None,
+                              ) -> list[PromotionDecisionOutcome]:
+    """Apply delegated decisions from People/*/PromotionApprovals/*.md to the
+    pending promotion queue — the promotions counterpart to
+    ``shares.sweep_approvals``, line for line.
+
+    The <pid> path segment is the authoritative decider (write-back already
+    gated the write); the filename stem is the promotion id. Eligibility is
+    re-checked at decision time with the *full* person via ``may_approve``.
+    Targets inside the shared space are never decidable here — that is the
+    dashboard's job, where the diff and audience warning are visible — so
+    even an admin's in-vault decision on a ``Company/`` promotion is refused.
+    Only a forged ``owner:`` is tampering; every other failure is a routine
+    refusal with an inbox note explaining why. Malformed notes are left in
+    place untouched.
+    """
+    from brain.clients import _validate_owner_id
+
+    shared = master_shared(master, shared)
+    results: list[PromotionDecisionOutcome] = []
+    for note in sorted(master.glob("People/*/PromotionApprovals/*.md")):
+        if note.is_symlink():
+            continue
+        rel = note.relative_to(master)
+        decider_id = rel.parts[1]
+        try:
+            _validate_owner_id(decider_id)
+        except Exception:
+            continue  # malformed pid folder: leave in place, touch nothing
+        try:
+            promo_id = note.stem
+            if not _ID.fullmatch(promo_id):
+                continue  # malformed id: leave in place for inspection
+            meta, _ = split_frontmatter(note.read_text())
+            if not meta:
+                continue
+            decider = org.people.get(decider_id)
+            name_id = decider.name if decider else decider_id
+            decision = str(meta.get("decision", ""))
+            reason = str(meta.get("reason", ""))
+
+            def consume(status: str, why: str = "",
+                        extra: list[str] | None = None) -> None:
+                note.unlink()
+                _commit(master, [rel.as_posix(), *(extra or [])],
+                        f"promotions: decision {promo_id} {status}",
+                        name_id, f"{decider_id}@brain.local")
+                results.append(PromotionDecisionOutcome(
+                    promo_id, decider_id, decision, status, why))
+
+            if meta.get("owner", decider_id) != decider_id:
+                consume("tampering", "owner mismatch")
+                continue
+
+            try:
+                pending = _find_pending(master, promo_id)
+                promo = _parse(pending)
+            except (PromotionError, KeyError, ValueError):
+                inbox = _promotion_inbox_note(
+                    master, decider_id, _slug(promo_id),
+                    f"Promotion {promo_id} is already decided or unknown.", today)
+                consume("refused", "already decided or unknown", [inbox])
+                continue
+
+            space = space_of_path(promo.target_path, shared)
+            if space == shared:
+                inbox = _promotion_inbox_note(
+                    master, decider_id, _slug(promo_id),
+                    f"Promotion {promo_id} targets {shared}/ — company-wide "
+                    "promotions are decided by an admin at the dashboard.", today)
+                consume("refused", "shared space", [inbox])
+                continue
+
+            if not may_approve(decider, promo.target_path, shared):
+                inbox = _promotion_inbox_note(
+                    master, decider_id, _slug(promo_id),
+                    f"You are not an eligible approver for {promo_id}.", today)
+                consume("refused", "not eligible", [inbox])
+                continue
+
+            if decision not in ("approve", "reject"):
+                inbox = _promotion_inbox_note(
+                    master, decider_id, _slug(promo_id),
+                    f"Decision for {promo_id} must be approve or reject.", today)
+                consume("refused", "bad decision", [inbox])
+                continue
+            if decision == "reject" and not reason.strip():
+                inbox = _promotion_inbox_note(
+                    master, decider_id, _slug(promo_id),
+                    f"Rejecting {promo_id} needs a reason: line.", today)
+                consume("refused", "missing reason", [inbox])
+                continue
+
+            try:
+                if decision == "approve":
+                    approve(master, promo_id, approver=decider_id, date=today,
+                            shared=shared, via="delegated")
+                else:
+                    reject(master, promo_id, reason=reason, date=today,
+                           approver=decider_id, via="delegated")
+            except PromotionError as e:
+                inbox = _promotion_inbox_note(
+                    master, decider_id, _slug(promo_id),
+                    f"Could not apply your decision on {promo_id}: {e}", today)
+                consume("refused", str(e), [inbox])
+                continue
+            consume("applied", decision)
+        except Exception:
+            continue  # unexpected per-note error: leave file in place, touch nothing
+    return results
 
 
 SHARES_NOTE_REL = "People/{person_id}/Shares.md"
