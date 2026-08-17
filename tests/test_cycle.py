@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from brain.cli import main
-from brain.cycle import run_cycle
+from brain.cycle import CycleReport, run_cycle
 from tests.conftest import requires_vectors
 
 from .test_cli import seed_meta  # ORG/SPACES yaml + git init helper
@@ -703,3 +703,93 @@ def test_cycle_survives_triage_crash(master, tmp_path, monkeypatch):
     assert report.triage_unrouted == 0
     # everything before the triage call still ran normally
     assert report.compiled == 2
+
+
+# ---- in-vault promotion decisions ------------------------------------------ #
+
+def _lead_promo_master(tmp_path):
+    """mary leads ops, bob is an ops member; Teams/* rule present so the
+    lead's vault compiles the team space."""
+    import subprocess
+    master = tmp_path / "master"
+    (master / "_meta").mkdir(parents=True)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n"
+        "  admin: {name: Admin, roles: [admin]}\n"
+        "  mary:  {name: Mary, roles: [lead], teams: [ops]}\n"
+        "  bob:   {name: Bob, teams: [ops]}\n")
+    (master / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,      read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "Teams/*",    read: ["team:{name}"],   write: ["team:{name}"]}\n'
+        '  - {path: "People/*",   read: ["person:{name}"], write: ["person:{name}"]}\n')
+    (master / "Company").mkdir()
+    (master / "Company/Home.md").write_text("# Home\n")
+    (master / "Teams/ops").mkdir(parents=True)
+    (master / "Teams/ops/Home.md").write_text("# Ops\n")
+    for p in ("mary", "bob", "admin"):
+        (master / f"People/{p}").mkdir(parents=True)
+        (master / f"People/{p}/Memory.md").write_text(f"# {p}\n")
+    subprocess.run(["git", "-C", str(master), "init", "-b", "main"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "add", "-A"],
+                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t",
+                    "-c", "user.email=t@t", "commit", "-m", "seed"],
+                   check=True, capture_output=True)
+    return master, tmp_path / "out"
+
+
+def test_cycle_applies_lead_promotion_decision_same_cycle_as_draft(tmp_path):
+    """Draft and decision arrive in the same cycle (as one write-back could
+    carry both): the draft sweep must run before the decision sweep."""
+    from brain.promotions import draft_into_space
+
+    master, _ = _lead_promo_master(tmp_path)
+    out = _first_compile(master, tmp_path)
+
+    # bob's agent drafts a Teams/ops promotion INTO MASTER (as writeback would)
+    draft_into_space(master, "bob", "Teams/ops/Escalation.md", "s",
+                     "Restart it.\n", "2026-08-17")
+    # mary's agent records the decision, also directly in master. The pending
+    # queue id sweep() will assign is "<person_id>-<slug(draft stem)>" — mirror
+    # that here rather than guessing, since the point of the test is that a
+    # single cycle handles both the draft sweep and the decision sweep.
+    drafts = list((master / "People/bob/Promotions").glob("*.md"))
+    assert len(drafts) == 1
+    promo_id = f"bob-{drafts[0].stem}"
+    (master / "People/mary/PromotionApprovals").mkdir(parents=True)
+    (master / f"People/mary/PromotionApprovals/{promo_id}.md").write_text(
+        "---\ndecision: approve\nowner: mary\ncreated: 2026-08-17\n---\n")
+
+    report = run_cycle(master, out, "2026-08-17")
+    assert report.ok
+    assert report.promotion_decisions_applied == 1
+    assert report.promotion_decisions_refused == 0
+    assert (master / "Teams/ops/Escalation.md").exists()
+    # the published note reaches bob's compiled vault in this same cycle
+    assert (out / "bob/Teams/ops/Escalation.md").exists()
+
+
+def test_cycle_report_promotion_tampering_flips_ok():
+    r = CycleReport(writebacks=[], swept=0, compiled=0, pending=0,
+                    promotion_tampering=1)
+    assert r.ok is False
+
+
+def test_cycle_lead_shared_space_decision_refused_and_reported(tmp_path):
+    from brain.promotions import draft_promotion
+
+    master, _ = _lead_promo_master(tmp_path)
+    out = _first_compile(master, tmp_path)
+    draft_promotion(master, person_id="bob", target_path="Company/Playbook/SOP.md",
+                    source="s", body="b\n", promo_id="p-co", created="2026-08-17")
+    (master / "People/mary/PromotionApprovals").mkdir(parents=True)
+    (master / "People/mary/PromotionApprovals/p-co.md").write_text(
+        "---\ndecision: approve\nowner: mary\ncreated: 2026-08-17\n---\n")
+    report = run_cycle(master, out, "2026-08-17")
+    assert report.ok  # a refusal is routine, not tampering
+    assert report.promotion_decisions_refused == 1
+    assert not (master / "Company/Playbook/SOP.md").exists()
+    # the refusal reached mary as an inbox note, compiled into her vault
+    assert list((out / "mary/People/mary/Inbox").glob("promotion-*.md"))

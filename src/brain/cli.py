@@ -290,6 +290,9 @@ def cmd_cycle(args) -> int:
         print(f"swept {report.swept} draft(s); "
               f"compiled {report.compiled} vault(s); "
               f"{report.pending} promotion(s) pending")
+        if report.promotion_decisions_applied or report.promotion_decisions_refused:
+            print(f"promotion decisions: {report.promotion_decisions_applied} applied, "
+                  f"{report.promotion_decisions_refused} refused")
         if args.index:
             print(f"indexed {report.indexed} vault(s)")
         for w in report.index_warnings:

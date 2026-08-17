@@ -1,5 +1,5 @@
 """One-shot server cycle: writeback -> materialize clients -> sweep shares ->
-sweep promotions -> compile-all -> triage.
+sweep promotions -> sweep promotion decisions -> compile-all -> triage.
 
 Ordering is load-bearing: writebacks land person edits (including freshly
 synced promotion drafts) in master BEFORE the sweep reads People/*/Promotions,
@@ -46,6 +46,9 @@ class CycleReport:
     shares_tampering: int = 0  # non-owner share/revoke requests — a tamper signal
     share_decisions_applied: int = 0
     share_decisions_refused: int = 0
+    promotion_decisions_applied: int = 0
+    promotion_decisions_refused: int = 0
+    promotion_tampering: int = 0  # forged owner: on an in-vault decision — a tamper signal
     indexed: int = 0
     index_warnings: list[str] = field(default_factory=list)
     triage_findings: int = 0
@@ -64,6 +67,7 @@ class CycleReport:
             all(w.status != "rejected" for w in self.writebacks)
             and self.clients_tampering == 0
             and self.shares_tampering == 0
+            and self.promotion_tampering == 0
         )
 
 
@@ -131,6 +135,13 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     rules = load_spaces(master / "_meta/spaces.yaml")
 
     swept = len(sweep(master, today=today, shared=config.shared))
+    # Decisions can only apply to something already queued, and a lead's
+    # decision file and the draft it decides may land in the same write-back —
+    # so this runs after the draft sweep, before compile.
+    from brain.promotions import sweep_promotion_approvals
+
+    promo_decisions = sweep_promotion_approvals(master, org, today=today,
+                                                shared=config.shared)
     compiled = len(compile_all(master, org, rules, out_root, today=today, config=config))
     pending = len(list_pending(master))
 
@@ -163,6 +174,9 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         + sum(1 for o in decision_outcomes if o.status == "tampering"),
         share_decisions_applied=sum(1 for o in decision_outcomes if o.status == "applied"),
         share_decisions_refused=sum(1 for o in decision_outcomes if o.status == "refused"),
+        promotion_decisions_applied=sum(1 for o in promo_decisions if o.status == "applied"),
+        promotion_decisions_refused=sum(1 for o in promo_decisions if o.status == "refused"),
+        promotion_tampering=sum(1 for o in promo_decisions if o.status == "tampering"),
         indexed=indexed, index_warnings=index_warnings,
         triage_findings=triage.routed,
         triage_digests=triage.digests_written + triage.digests_removed,
