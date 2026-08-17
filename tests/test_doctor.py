@@ -693,6 +693,33 @@ def test_delegated_decisions_surface_as_info(tmp_path):
     assert not any("Clients/B" in x and "delegated" in x for x in msgs)
 
 
+def test_delegated_promotion_decisions_surface_as_info(tmp_path):
+    m = tmp_path / "master"
+    m.mkdir()
+    seed_meta(m)
+    today = _date.today()
+    d = m / "_meta/promotions/approved"
+    d.mkdir(parents=True)
+    (d / "p-ops.md").write_text(
+        f"---\npromotion-id: p-ops\nfrom: bob\ntarget-path: Teams/ops/Escalation.md\n"
+        f"source: s\ncreated: 2026-08-10\napproved-on: {today.isoformat()}\n"
+        f"approved-by: mary\nvia: delegated\n---\nbody\n")
+    r = m / "_meta/promotions/rejected"
+    r.mkdir(parents=True)
+    (r / "p-old.md").write_text(   # stale: outside the window
+        "---\npromotion-id: p-old\ntarget-path: Teams/ops/Old.md\n"
+        "rejected-on: 2020-01-01\nrejected-by: mary\nvia: delegated\n---\n")
+    (d / "p-admin.md").write_text(  # admin-side: no via, no finding
+        "---\npromotion-id: p-admin\ntarget-path: Company/X.md\n"
+        f"approved-on: {today.isoformat()}\napproved-by: admin\n---\n")
+    findings = run_doctor(m)
+    msgs = [f.message for f in findings if f.check == "promotions"]
+    assert any("Teams/ops/Escalation.md" in x and "approved by mary" in x
+               and "delegated" in x for x in msgs)
+    assert not any("Old.md" in x for x in msgs)
+    assert not any("Company/X.md" in x and "delegated" in x for x in msgs)
+
+
 BODY_A = (
     "# Field Notes\n\n"
     "alpha beta gamma delta epsilon zeta eta theta iota kappa "
