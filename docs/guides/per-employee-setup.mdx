@@ -95,7 +95,9 @@ Once [the master is compiled](/getting-started), each employee needs two things:
 - **Sharing:** the agent drafts a promotion; an admin approves it with
   `brain promotions approve <id> --master … --approver admin` — the approver is
   an admin-role identity from `org.yaml` (a dedicated operator account, not an
-  employee); anything else is refused. See [Promotions](/concepts/promotions). A
+  employee). A `Teams/<team>/` target can also be approved by that team's
+  lead instead; anyone else is refused. See
+  [Who approves](/concepts/promotions#who-approves). A
   space's owner can also share or revoke a colleague's access to that space
   directly — a separate, owner-initiated flow from the admin-curated promotions
   gate — via [`brain shares`](/reference/cli#brain-shares); `share` requests
