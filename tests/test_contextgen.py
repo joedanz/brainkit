@@ -43,6 +43,16 @@ def test_root_protocol_mentions_shares_note():
     assert "People/bob/Shares.md" in text
 
 
+def test_protocol_teaches_promotion_decision_path(master):
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+    lead = Person(id="mary", name="Mary", roles=("lead",), teams=("ops",))
+    text = render_root_protocol(lead, [("Teams/ops", True), ("People/mary", True)])
+    assert "Promotions awaiting your decision" in text
+    assert "People/mary/PromotionApprovals/<promo-id>.md" in text
+    assert "never decide on your own" in text
+
+
 def test_root_protocol_routes_third_parties_to_clients():
     from brain.contextgen import render_root_protocol
     from brain.schemas import Person
