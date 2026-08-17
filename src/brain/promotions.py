@@ -107,19 +107,22 @@ def may_approve(person: Person | None, target_path: str,
     """One authority definition for promotion approvals, mirroring
     ``shares.may_decide``. Fail closed: an unknown person approves nothing.
 
-    Today the answer is admins only, for *every* target. A promotion publishes
-    into a space other people read, and unlike a share request the recipient is
-    implicit in ``target_path`` — so there is no consent step to fall back on.
-
-    ``target_path`` and ``shared`` are unused on purpose: team-lead routing for
-    ``Teams/*`` targets is the intended relaxation, and classifying a target
-    needs both (``space_of_path`` cannot name the space without knowing what
-    the shared one is called). Landing the signature now keeps that change a
-    function body rather than a sweep over call sites.
+    Admins approve anything. A ``lead`` on team T approves promotions into
+    ``Teams/T/`` — the promotions counterpart to a lead deciding a
+    ``team:T`` share. Everything else (the shared space, entity spaces) is
+    admin-only: a promotion publishes into a space other people read, and
+    unlike a share request the recipient is implicit in ``target_path``, so
+    there is no consent step to fall back on.
     """
     if person is None:
         return False
-    return person.is_admin
+    if person.is_admin:
+        return True
+    space = space_of_path(target_path, shared)
+    if space is None or not space.startswith("Teams/"):
+        return False
+    team = space.split("/", 1)[1]
+    return "lead" in person.roles and team in person.teams
 
 
 _MODES = ("create", "append", "patch")
@@ -320,7 +323,7 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     if not may_approve(people[approver], promo.target_path, shared):
         raise PromotionError(
             f"{approver!r} may not approve this promotion — the approver must "
-            "be role:admin"
+            "be role:admin, or a lead of the team whose space it targets"
         )
     target = master / promo.target_path
     if promo.mode == "create":

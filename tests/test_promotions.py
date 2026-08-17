@@ -12,6 +12,7 @@ from brain.promotions import (
     may_approve,
     reject,
 )
+from brain.schemas import Person
 
 
 def _hash_of(path: Path) -> str:
@@ -236,6 +237,66 @@ def test_approve_requires_admin_for_every_space_not_just_shared(master: Path):
 
 def test_may_approve_fails_closed_on_unknown_person():
     assert may_approve(None, "Company/Playbook/SOP.md") is False
+
+
+_LEAD_SALES = Person(id="lead_sales", name="Lead Sales", roles=("lead",), teams=("sales",))
+_MEMBER_SALES = Person(id="pat", name="Pat", roles=(), teams=("sales",))
+_ADMIN = Person(id="alice", name="Alice", roles=("admin",))
+
+
+def test_may_approve_lead_on_own_team_space():
+    assert may_approve(_LEAD_SALES, "Teams/sales/Playbook.md") is True
+
+
+def test_may_approve_lead_refused_on_other_team_space():
+    assert may_approve(_LEAD_SALES, "Teams/ops/Runbook.md") is False
+
+
+def test_may_approve_member_without_lead_role_refused():
+    assert may_approve(_MEMBER_SALES, "Teams/sales/Playbook.md") is False
+
+
+@pytest.mark.parametrize("target", [
+    "Company/Playbook/SOP.md",       # shared space: admin only
+    "Clients/acme/Overview.md",      # entity space: admin only (out of scope)
+])
+def test_may_approve_lead_refused_outside_teams(target: str):
+    assert may_approve(_LEAD_SALES, target) is False
+
+
+def test_may_approve_admin_everywhere():
+    for t in ("Company/x.md", "Teams/sales/x.md", "Teams/ops/x.md", "Clients/acme/x.md"):
+        assert may_approve(_ADMIN, t) is True
+
+
+def test_may_approve_honours_custom_shared_name():
+    # A vault whose shared space is called "Wayfarer" — Teams/* still routes.
+    assert may_approve(_LEAD_SALES, "Teams/sales/x.md", shared="Wayfarer") is True
+    assert may_approve(_LEAD_SALES, "Wayfarer/x.md", shared="Wayfarer") is False
+
+
+ORG_YAML_LEADS = """\
+people:
+  alice:      {name: Alice Nguyen, roles: [admin], teams: [sales]}
+  bob:        {name: Bob Rivera, teams: [ops]}
+  lead_ops:   {name: Lead Ops, roles: [lead], teams: [ops]}
+  lead_sales: {name: Lead Sales, roles: [lead], teams: [sales]}
+"""
+
+
+def test_approve_lead_publishes_into_own_team_space(master: Path):
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    draft_promotion(
+        master, person_id="bob",
+        target_path="Teams/ops/Escalation.md",
+        source="People/bob/Sessions/call.md",
+        body="Restart the thing.\n", promo_id="p-lead", created="2026-08-17",
+    )
+    with pytest.raises(PromotionError, match="lead of the team"):
+        approve(master, "p-lead", approver="lead_sales", date="2026-08-17")
+    target = approve(master, "p-lead", approver="lead_ops", date="2026-08-17")
+    assert target.exists()
+    assert "approved-by: lead_ops" in target.read_text()
 
 
 def test_list_pending_skips_malformed_files(master: Path):
