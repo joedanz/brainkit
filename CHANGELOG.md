@@ -11,6 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **Team leads approve promotions into their own team's space, from their
+  own vault.** `may_approve` now routes `Teams/<team>/` targets to anyone with
+  `role: lead` on that team, mirroring how share requests already route.
+  Leads get a **Promotions awaiting your decision** section in `Shares.md`
+  showing what would be published (body, or a diff for `patch`), and decide by
+  writing `People/<lead>/PromotionApprovals/<promo-id>.md`; `brain cycle`
+  applies it after re-checking eligibility. Company-wide promotions are never
+  decidable in-vault — they stay at the dashboard where the diff and audience
+  warning are visible. `brain doctor` surfaces delegated promotion decisions
+  for 30 days. New `brain cycle --json` fields: `promotion_decisions_applied`,
+  `promotion_decisions_refused`, `promotion_tampering`.
+
 ### Fixed
 
 - **Promotion approval now requires `role: admin`.** The docs have always said
@@ -26,11 +40,11 @@ explicitly under **Changed**, with what to do about it.
   is the single place it runs — so the CLI, the dashboard API, and any future
   caller inherit it rather than reimplementing it.
 
-  Admin-only applies to every target, `Teams/<team>/` included. Routing
-  team-space promotions to that team's lead is a deliberate future relaxation;
-  `target_path` is already in the signature so that change stays a function
-  body. The dashboard's approver dropdown now lists only admins, and says so
-  when an org has none.
+  Admin-only applied to every target, `Teams/<team>/` included, when this
+  landed — `target_path` was already in `may_approve`'s signature so the
+  relaxation below stayed a function body. The dashboard's approver dropdown
+  listed only admins at the time, and said so when an org had none; see
+  **Added**, below, for how that has since opened up to team leads.
 
   **Upgrading:** if a non-admin has been approving promotions, give them
   `roles: [admin]` in `_meta/org.yaml` or route their approvals through one.
