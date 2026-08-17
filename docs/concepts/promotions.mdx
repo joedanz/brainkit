@@ -64,9 +64,10 @@ flowchart LR
 
     On approval, the note is written to its target space with provenance
     frontmatter (`promoted-by`, `approved-by`, `source`, `date`). The approver
-    must be a person id from `_meta/org.yaml` — a blank or unknown name is
-    refused, so `approved-by` always points at a real person, the same way
-    `promoted-by` does. Rejections move to `rejected/` with the reason — a
+    must be a person id from `_meta/org.yaml` **who holds `role: admin`** — a
+    blank name, an unknown one, or a real colleague without the role is
+    refused, so `approved-by` always points at someone entitled to publish.
+    Rejections move to `rejected/` with the reason — a
     training signal for what this company considers shareable.
 
     Each decision is also its own git commit in the master — the approval
@@ -75,7 +76,7 @@ flowchart LR
     history alongside every ingest and write-back, whether the decision came
     from the CLI or the dashboard.
 
-    The admin [`brain dashboard`](/reference/cli#brain-dashboard) exposes this same gate as a live surface: the **Promotions** tab renders each pending item with its destination, a warning naming exactly who will be able to read it, a mode badge, and its full body — or, for a `patch`, a live diff against the current target — with **Approve** / **Reject** (reason required) and **Sweep drafts** actions wired to these same primitives. You pick who you are from a dropdown of the org's people (remembered for next time) rather than typing a name, so approvals can't carry a typo. It never bypasses the human gate — it *is* the human gate, with a nicer view.
+    The admin [`brain dashboard`](/reference/cli#brain-dashboard) exposes this same gate as a live surface: the **Promotions** tab renders each pending item with its destination, a warning naming exactly who will be able to read it, a mode badge, and its full body — or, for a `patch`, a live diff against the current target — with **Approve** / **Reject** (reason required) and **Sweep drafts** actions wired to these same primitives. You pick who you are from a dropdown of the org's admins (remembered for next time) rather than typing a name, so approvals can't carry a typo or name someone who isn't entitled to approve. It never bypasses the human gate — it *is* the human gate, with a nicer view.
   </Step>
 </Steps>
 
@@ -97,7 +98,14 @@ The safety story isn't "strictly additive" anymore — it's **never destroys**. 
 
 To resolve a `create` or `append` mismatch, edit the pending file's `target-path` (or its `mode`) and approve again. This is how the [`Company/Intel/` wiki](/guides/getting-things-in#articles-and-links-the-intel-wiki) updates an existing page: the agent promotes with `mode: append` for an additive note, or `mode: patch` carrying the complete revised page, instead of drafting a separate addendum file.
 
-The approver is checked the same way, at every layer: the core `approve` call, the dashboard's API, and the CLI all refuse a blank approver or one that isn't in the org roster. However an approval arrives, the `approved-by` line resolves to a real person.
+The approver is checked the same way, at every layer: the core `approve` call, the dashboard's API, and the CLI all refuse a blank approver, one that isn't in the org roster, and one without `role: admin`. The rule lives in a single function — `may_approve` in `brain/promotions.py`, the promotions counterpart to `may_decide` for [shares](/concepts/spaces-and-permissions#sharing-a-space) — so the surfaces cannot drift apart. However an approval arrives, the `approved-by` line resolves to a real person entitled to publish.
+
+<Callout type="info">
+  Admin-only applies to **every** target, `Teams/<team>/` included. Delegating
+  team-space promotions to that team's lead — the way share requests already
+  route — is a deliberate future relaxation, not today's behavior. Approval
+  starts restrictive and opens on purpose, never by omission.
+</Callout>
 
 ## Where the person sees status
 

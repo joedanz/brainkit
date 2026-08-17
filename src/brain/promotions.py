@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
-from brain.schemas import DEFAULT_SHARED, load_org, master_shared
+from brain.schemas import DEFAULT_SHARED, Person, load_org, master_shared
 
 
 class PromotionError(BrainError, ValueError):
@@ -100,6 +100,26 @@ def _validate_target(target_path: str, shared: str = DEFAULT_SHARED) -> None:
         raise PromotionError("promotions must target a shared space, not People/")
     if len(PurePosixPath(target_path).parts) <= len(space.split("/")):
         raise PromotionError(f"target {target_path!r} names a space root, not a file in it")
+
+
+def may_approve(person: Person | None, target_path: str,
+                shared: str = DEFAULT_SHARED) -> bool:
+    """One authority definition for promotion approvals, mirroring
+    ``shares.may_decide``. Fail closed: an unknown person approves nothing.
+
+    Today the answer is admins only, for *every* target. A promotion publishes
+    into a space other people read, and unlike a share request the recipient is
+    implicit in ``target_path`` — so there is no consent step to fall back on.
+
+    ``target_path`` and ``shared`` are unused on purpose: team-lead routing for
+    ``Teams/*`` targets is the intended relaxation, and classifying a target
+    needs both (``space_of_path`` cannot name the space without knowing what
+    the shared one is called). Landing the signature now keeps that change a
+    function body rather than a sweep over call sites.
+    """
+    if person is None:
+        return False
+    return person.is_admin
 
 
 _MODES = ("create", "append", "patch")
@@ -295,7 +315,13 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     promo = _parse(pending)
     # Pending files sit on disk between draft and approve; re-validate so a
     # hand-edited target can't escape the master root.
-    _validate_target(promo.target_path, master_shared(master, shared))
+    shared = master_shared(master, shared)
+    _validate_target(promo.target_path, shared)
+    if not may_approve(people[approver], promo.target_path, shared):
+        raise PromotionError(
+            f"{approver!r} may not approve this promotion — the approver must "
+            "be role:admin"
+        )
     target = master / promo.target_path
     if promo.mode == "create":
         # Promotions only ever add knowledge. An existing target means approval

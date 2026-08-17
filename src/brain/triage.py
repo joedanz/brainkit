@@ -77,7 +77,7 @@ def route_findings(
     findings that needed one count as unrouted (surfaced in the report,
     never a crash).
     """
-    admins = sorted(p.id for p in org.people.values() if "admin" in p.roles)
+    admins = sorted(p.id for p in org.people.values() if p.is_admin)
     routed: dict[str, list[Finding]] = {}
     unrouted = 0
 
@@ -262,7 +262,7 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
                 removed += 1
                 changed.append(rel)
             continue
-        is_admin = "admin" in person.roles
+        is_admin = person.is_admin
         lines = [(f.check, _display(f, person, rules, is_admin=is_admin,
                                     shared=shared))
                  for f in person_findings]

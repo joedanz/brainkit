@@ -68,11 +68,20 @@ export function renderPromotions(container, ctx) {
   }
   // Each promotion is the ONLY path from a private space to a shared one, and a
   // human gates every one. Review the body + destination before deciding.
-  d.promotions_pending.forEach((p) => container.appendChild(promoCard(p, d.people)));
+  // Only admins may approve one (brain.promotions.may_approve), so the dropdown
+  // offers only them — the server refuses anyone else regardless.
+  const admins = d.people.filter((p) => p.admin);
+  if (!admins.length) {
+    container.appendChild(el("div", "meta",
+      "No one in the org holds role:admin — nothing here can be approved until one does."));
+  }
+  d.promotions_pending.forEach((p) => container.appendChild(promoCard(p, admins)));
 }
 
 // The approver select is the only identity signal on approve, so it is
-// constrained to the org roster; the last choice is remembered per browser.
+// constrained to the roster the caller passes: admins only for promotions,
+// the whole org for shares (recipients and team leads decide those). The last
+// choice is remembered per browser, and ignored if it isn't in that roster.
 const APPROVER_KEY = "brain.approver";
 
 function approverSelect(people) {
