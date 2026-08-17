@@ -113,7 +113,9 @@ The rule lives in one function — `may_approve` in `brain/promotions.py`, the p
 
 ### Deciding from your own vault
 
-A team lead does not need the dashboard. Every compile generates a **Promotions awaiting your decision** section into their `People/<lead>/Shares.md`, listing each pending promotion into a team they lead — with what would be published: the body for `create`/`append`, a live unified diff for `patch`, capped at 4 KB with a notice pointing at `brain promotions show <id>` when truncated. The lead (or their agent, recording a decision the lead made) writes:
+A team lead does not need the dashboard. Every compile generates a **Promotions awaiting your decision** section into their `People/<lead>/Shares.md`, listing each pending promotion into a team they lead — with what would be published: the body for `create`/`append`, a live unified diff for `patch`, capped at 4 KB with a notice pointing at `brain promotions show <id>` when truncated. Each item states who would be able to read it once approved, the same audience the dashboard card warns about.
+
+Leading a team is authority over a path, not access to it: if the rules in `spaces.yaml` say the lead cannot *read* the target space — an exact rule shadowing the `Teams/*` wildcard, say — the item is left out entirely. Nothing is rendered into a vault that the space's own permissions keep it out of; those promotions are decided at the dashboard. The lead (or their agent, recording a decision the lead made) writes:
 
 ```
 People/<lead>/PromotionApprovals/<promo-id>.md
@@ -127,7 +129,7 @@ owner: <lead>
 The next [`brain cycle`](/reference/cli#brain-cycle) applies it — re-checking eligibility server-side, refusing with an Inbox note when the promotion is already decided, targets a team the decider doesn't lead, or a rejection is missing its reason. A forged `owner:` is treated as tampering. Every applied decision is archived with `via: delegated`, committed under the decider's identity, and surfaced by [`brain doctor`](/reference/cli#brain-doctor) for 30 days.
 
 <Callout type="warning">
-  Promotions into the shared space are **never** decidable in-vault — not even by an admin. They stay at the dashboard, where the reviewer sees the full diff and a warning naming exactly who will be able to read the result. That is the whole reason the human gate exists; the seam is scoped to team spaces so it never bypasses it.
+  Promotions into the shared space are **never** decidable in-vault — not even by an admin. They stay at the dashboard. That carve-out is enforced twice: the cycle's sweep refuses the note, and `approve()` itself refuses any delegated decision on a shared-space target, so a pending file edited between the two still cannot publish company-wide. The seam is scoped to team spaces so it never bypasses the human gate.
 </Callout>
 
 ## Where the person sees status

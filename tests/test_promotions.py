@@ -14,7 +14,8 @@ from brain.promotions import (
     reject,
     sweep_promotion_approvals,
 )
-from brain.schemas import Person
+from brain.schemas import Person, SpaceRule
+from tests.conftest import RULES
 
 
 def _hash_of(path: Path) -> str:
@@ -862,13 +863,15 @@ def test_validate_target_rejects_bare_space_custom_shared(bare: str):
 
 
 def test_approve_via_stamps_archive(master: Path):
-    _seed_org(master)
-    draft_promotion(master, person_id="bob", target_path="Company/Playbook/Via.md",
+    # A delegated approval is a lead deciding on their own team's space —
+    # approve() refuses via=delegated for a shared-space target outright.
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Via.md",
                     source="s", body="b\n", promo_id="p-via", created="2026-08-17")
-    approve(master, "p-via", approver="alice", date="2026-08-17", via="delegated")
+    approve(master, "p-via", approver="lead_ops", date="2026-08-17", via="delegated")
     archived = (master / "_meta/promotions/approved/p-via.md").read_text()
     assert "via: delegated" in archived
-    assert "approved-by: alice" in archived
+    assert "approved-by: lead_ops" in archived
 
 
 def test_approve_without_via_has_no_via_line(master: Path):
@@ -992,6 +995,23 @@ def test_seam_shared_space_target_refused_even_for_admin(master: Path):
     assert inbox and "admin" in inbox[0].read_text().lower()
 
 
+def test_approve_delegated_refuses_shared_space_target(master: Path):
+    """The carve-out is re-asserted where the write happens, not only in the
+    sweep. Between the sweep's parse and approve()'s parse the pending file can
+    change under us (the dashboard server writes the same master), so a
+    target-path that flips Teams/ -> Company/ must still be refused for a
+    delegated decision — even an admin's, whose may_approve says yes."""
+    _lead_master(master)
+    with pytest.raises(PromotionError, match="dashboard"):
+        approve(master, "p-co", approver="alice", date="2026-08-17",
+                via="delegated")
+    assert not (master / "Company/Playbook/SOP.md").exists()
+    assert (master / "_meta/promotions/pending/p-co.md").exists()
+    # the dashboard path (no via) is untouched by the carve-out
+    approve(master, "p-co", approver="alice", date="2026-08-17")
+    assert (master / "Company/Playbook/SOP.md").exists()
+
+
 def test_seam_owner_mismatch_is_tampering(master: Path):
     _lead_master(master)
     _decision(master, "lead_ops", "p-ops", "approve", owner="alice")
@@ -1061,12 +1081,14 @@ def test_decider_section_none_for_admin(master: Path):
     """delegated_view strips admin: alice sees nothing in-vault and uses the
     dashboard. Nothing here even though may_approve(alice, ...) is True."""
     _lead_master(master)
-    assert generate_promotion_decider_section(master, "alice", "2026-08-17") is None
+    assert generate_promotion_decider_section(master, "alice", "2026-08-17",
+                                              rules=RULES) is None
 
 
 def test_decider_section_lead_sees_own_team_only(master: Path):
     _lead_master(master)
-    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
     assert text is not None
     assert "## Promotions awaiting your decision" in text
     assert "p-ops" in text and "Teams/ops/Escalation.md" in text
@@ -1074,7 +1096,8 @@ def test_decider_section_lead_sees_own_team_only(master: Path):
     assert "p-co" not in text               # Company/ is never in-vault
     assert "PromotionApprovals/<promo-id>.md" in text
     # the other lead sees nothing — no ops draft is theirs to decide
-    assert generate_promotion_decider_section(master, "lead_sales", "2026-08-17") is None
+    assert generate_promotion_decider_section(master, "lead_sales", "2026-08-17",
+                                                  rules=RULES) is None
 
 
 def test_decider_section_patch_renders_diff(master: Path):
@@ -1083,7 +1106,8 @@ def test_decider_section_patch_renders_diff(master: Path):
     draft_promotion(master, person_id="bob", target_path="Teams/ops/Runbook.md",
                     source="s", body="Ops runbook.\nline two changed\n",
                     promo_id="p-patch", created="2026-08-17", mode="patch")
-    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
     assert "```diff" in text
     assert "-line two" in text and "+line two changed" in text
 
@@ -1094,7 +1118,8 @@ def test_decider_section_truncates_with_notice(master: Path):
     big = "x" * (_REVIEW_CAP + 500) + "\n"
     draft_promotion(master, person_id="bob", target_path="Teams/ops/Big.md",
                     source="s", body=big, promo_id="p-big", created="2026-08-17")
-    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
     assert "truncated" in text.lower()
     assert "brain promotions show p-big" in text
     # rendered content is bounded — the note doesn't balloon
@@ -1103,7 +1128,8 @@ def test_decider_section_truncates_with_notice(master: Path):
 
 def test_decider_section_no_notice_below_cap(master: Path):
     _lead_master(master)
-    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
     assert "truncated" not in text.lower()
 
 
@@ -1115,7 +1141,8 @@ def test_decider_section_body_with_backtick_fence_does_not_leak(master: Path):
     body = "Before.\n```\nnested code\n```\nAfter.\n"
     draft_promotion(master, person_id="bob", target_path="Teams/ops/Fenced.md",
                     source="s", body=body, promo_id="p-fence", created="2026-08-17")
-    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
     assert text is not None
     # a 4-backtick fence safely contains the body's own 3-backtick fence
     assert "````\nBefore.\n```\nnested code\n```\nAfter.\n````" in text
@@ -1132,7 +1159,73 @@ def test_decider_section_body_with_longer_fence_escalates(master: Path):
     body = "Outer.\n````\ninner fenced block\n````\nDone.\n"
     draft_promotion(master, person_id="bob", target_path="Teams/ops/Fenced2.md",
                     source="s", body=body, promo_id="p-fence2", created="2026-08-17")
-    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
     assert text is not None
     assert "`````\nOuter.\n````\ninner fenced block\n````\nDone.\n`````" in text
     assert text.count("decision: approve   # or: reject") == 1
+
+
+# Approving is path-shaped authority; reading is rule-shaped. The two are not
+# the same fact, and the section must satisfy both before it renders anything.
+
+
+def test_decider_section_needs_rules_to_render_anything(master: Path):
+    """Fail closed: with no read authority to check against, show nothing —
+    never everything."""
+    _lead_master(master)
+    assert generate_promotion_decider_section(master, "lead_ops", "2026-08-17") is None
+
+
+def test_decider_section_hidden_when_lead_cannot_read_target_space(master: Path):
+    """An exact `Teams/ops` rule shadows the `Teams/*` wildcard (exact beats
+    wildcard), so lead_ops leads ops but cannot read it. may_approve still
+    says yes — the read check is what must stop the render, body and all."""
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    (master / "Teams/ops/Runbook.md").write_text("current ops bytes\nline two\n")
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Runbook.md",
+                    source="s", body="current ops bytes\nline two changed\n",
+                    promo_id="p-patch", created="2026-08-17", mode="patch")
+    assert may_approve(
+        Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",)),
+        "Teams/ops/Runbook.md")
+    shadowed = (SpaceRule("Teams/ops", read=("person:bob",), write=("person:bob",)),
+                *RULES)
+    assert generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=shadowed) is None
+    # the only thing that changed is read access: under the plain wildcard the
+    # same promotion does render
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
+    assert text is not None and "line two changed" in text
+
+
+def test_decider_section_states_the_audience(master: Path):
+    """The dashboard card warns who will be able to read this once approved;
+    the in-vault reviewer decides from the same fact."""
+    _lead_master(master)
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
+    assert "readable by 2 people: bob, lead_ops" in text
+    assert "`Teams/ops`" in text
+    # ...and it tracks the rules, not the path shape
+    everyone = (SpaceRule("Teams/ops", read=("everyone",), write=("team:{name}",)),
+                *RULES)
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=everyone)
+    assert "readable by everyone in the org (4 people)" in text
+
+
+def test_decider_section_audience_collapses_to_a_count_when_large(master: Path):
+    """A big audience is stated as a number, not dozens of ids."""
+    people = "\n".join(
+        f"  p{n}: {{name: Person {n}, teams: [ops]}}" for n in range(12))
+    (master / "_meta/org.yaml").write_text(
+        f"{ORG_YAML_LEADS}{people}\n")
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Escalation.md",
+                    source="s", body="Restart it.\n", promo_id="p-ops",
+                    created="2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
+    assert "readable by 14 people." in text
+    assert "p11" not in text

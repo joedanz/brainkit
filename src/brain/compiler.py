@@ -261,7 +261,8 @@ def _post_process(
     from brain.promotions import generate_promotion_decider_section
 
     promo_decider = generate_promotion_decider_section(master, person.id, today,
-                                                       shared=config.shared)
+                                                       shared=config.shared,
+                                                       rules=rules)
     if promo_decider is not None:
         if note is None:
             note = ("---\ngenerated: true\n---\n# My Shares\n\n"

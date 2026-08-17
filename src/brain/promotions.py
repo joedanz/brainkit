@@ -11,8 +11,8 @@ from pathlib import Path, PurePosixPath
 
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
-from brain.resolver import space_of_path
-from brain.schemas import DEFAULT_SHARED, Org, Person, load_org, master_shared
+from brain.resolver import can_read, space_of_path
+from brain.schemas import DEFAULT_SHARED, Org, Person, SpaceRule, load_org, master_shared
 
 
 class PromotionError(BrainError, ValueError):
@@ -320,6 +320,18 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     # hand-edited target can't escape the master root.
     shared = master_shared(master, shared)
     _validate_target(promo.target_path, shared)
+    # The shared-space carve-out, re-asserted where the write happens.
+    # sweep_promotion_approvals checks it against its own parse of the pending
+    # file, but the dashboard server writes the same master concurrently: a
+    # target-path that flips Teams/ -> Company/ in between would sail past
+    # may_approve for an *admin* and publish company-wide from a delegated
+    # in-vault note. A delegated decision never publishes into the shared
+    # space, whoever made it.
+    if via == "delegated" and space_of_path(promo.target_path, shared) == shared:
+        raise PromotionError(
+            f"promotions into {shared}/ are decided by an admin at the dashboard, "
+            "not by an in-vault decision"
+        )
     if not may_approve(people[approver], promo.target_path, shared):
         raise PromotionError(
             f"{approver!r} may not approve this promotion — the approver must "
@@ -730,8 +742,33 @@ def _longest_backtick_run(text: str) -> int:
     return longest
 
 
+_AUDIENCE_LIST_CAP = 8  # reader ids named inline before collapsing to a count
+
+
+def _audience_line(space: str, org: Org, rules: tuple[SpaceRule, ...]) -> str:
+    """One line naming who would be able to read this promotion once approved.
+
+    The dashboard's promotion card warns that approving publishes to everyone
+    who can read the target space; the in-vault reviewer decides from the same
+    facts, so they get the resolved reader list — from ``can_read``, the same
+    authority the compiler uses — not just the space name."""
+    readers = sorted(p.id for p in org.people.values() if can_read(space, p, rules))
+    if not readers:
+        who = "no one else yet — the space has no readers under the current rules"
+    elif len(readers) == len(org.people):
+        who = f"everyone in the org ({len(readers)} people)"
+    elif len(readers) > _AUDIENCE_LIST_CAP:
+        who = f"{len(readers)} people"
+    else:
+        who = f"{len(readers)} " + ("person" if len(readers) == 1 else "people")
+        who += ": " + ", ".join(readers)
+    return f"⚠ Approving publishes into `{space}` — readable by {who}."
+
+
 def generate_promotion_decider_section(master: Path, person_id: str, today: str,
-                                       shared: str | None = None) -> str | None:
+                                       shared: str | None = None,
+                                       rules: tuple[SpaceRule, ...] | None = None,
+                                       ) -> str | None:
     """The 'Promotions awaiting your decision' section for one person's
     ``Shares.md``, or ``None`` when nothing is theirs to decide.
 
@@ -739,6 +776,15 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
     stripped — so admins see nothing here and keep using the dashboard, and
     shared-space targets are excluded outright (they are never decidable
     in-vault). This mirrors ``shares.generate_decider_section`` exactly.
+
+    Approval authority is path-shaped (``may_approve``: lead of the team the
+    target names) and says nothing about *reading* that space. An exact rule
+    can shadow the ``Teams/*`` wildcard, leaving a lead who may approve into a
+    space their vault does not contain — and a patch's diff is built from the
+    target's current bytes, so rendering it would put those bytes in a vault
+    the rules keep them out of. ``rules`` closes that: the item must also pass
+    ``can_read``, the same authority the compiler filters the vault with.
+    Without rules there is no read check to run, so nothing is shown.
 
     Because ``_meta/`` never compiles into a vault, this is the only way a
     lead can read what they are approving: the body for create/append, a
@@ -748,6 +794,8 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
 
     from brain.schemas import SchemaError
 
+    if rules is None:
+        return None  # no read authority available: fail closed
     try:
         shared = master_shared(master, shared)
         org = load_org(master / "_meta/org.yaml")
@@ -761,15 +809,20 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
         roles=tuple(r for r in person.roles if r != "admin"),
         teams=person.teams, email=person.email)
     mine = [
-        p for p in list_pending(master)
+        (p, space) for p in list_pending(master)
+        if (space := space_of_path(p.target_path, shared)) is not None
         # Belt-and-suspenders, not live logic today: may_approve already
         # refuses non-Teams/ targets for a non-admin delegated view, so this
         # can never fire yet. Kept explicit so "the shared space is never
         # decidable in-vault" stays visible at this display layer too — a
         # future change to may_approve's Teams/-only rule can't silently
         # start surfacing company-wide promotions into a lead's own vault.
-        if space_of_path(p.target_path, shared) != shared
+        and space != shared
         and may_approve(delegated_view, p.target_path, shared)
+        # Read access is checked on the *real* person, not the delegated view:
+        # the question is what this vault already holds, and the compiler that
+        # built it used the real person too.
+        and can_read(space, person, rules)
     ]
     if not mine:
         return None
@@ -779,9 +832,11 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
         "These promotions target a team you lead. Read what would be published,",
         "then record only a decision your human has explicitly made.", "",
     ]
-    for p in mine:
+    for p, space in mine:
         lines.append(f"### `{p.id}` → `{p.target_path}` ({p.mode}) from {p.person_id}, "
                      f"drafted {p.created}")
+        lines.append("")
+        lines.append(_audience_line(space, org, rules))
         lines.append("")
         if p.mode == "patch":
             rendered = patch_diff(master, p, shared)
