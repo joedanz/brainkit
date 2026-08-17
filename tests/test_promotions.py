@@ -1105,3 +1105,34 @@ def test_decider_section_no_notice_below_cap(master: Path):
     _lead_master(master)
     text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
     assert "truncated" not in text.lower()
+
+
+def test_decider_section_body_with_backtick_fence_does_not_leak(master: Path):
+    """An untrusted body containing its own ``` fence must not terminate the
+    section's fence early and bleed into the decision recipe below — that
+    recipe is structured instructions an agent acts on."""
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    body = "Before.\n```\nnested code\n```\nAfter.\n"
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Fenced.md",
+                    source="s", body=body, promo_id="p-fence", created="2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    assert text is not None
+    # a 4-backtick fence safely contains the body's own 3-backtick fence
+    assert "````\nBefore.\n```\nnested code\n```\nAfter.\n````" in text
+    # structure past the item survives intact — one decision recipe, closed
+    assert text.count("decision: approve   # or: reject") == 1
+    assert "To decide, write" in text
+    assert text.rstrip("\n").endswith("not here.")
+
+
+def test_decider_section_body_with_longer_fence_escalates(master: Path):
+    """A body containing a 4-backtick run needs a 5-backtick outer fence —
+    the fence length must track the content, not a fixed guess."""
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    body = "Outer.\n````\ninner fenced block\n````\nDone.\n"
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Fenced2.md",
+                    source="s", body=body, promo_id="p-fence2", created="2026-08-17")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17")
+    assert text is not None
+    assert "`````\nOuter.\n````\ninner fenced block\n````\nDone.\n`````" in text
+    assert text.count("decision: approve   # or: reject") == 1

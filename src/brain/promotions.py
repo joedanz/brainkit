@@ -720,6 +720,16 @@ def generate_shares_note(master: Path, person_id: str, today: str) -> str | None
 _REVIEW_CAP = 4096  # chars of body/diff rendered per item into Shares.md
 
 
+def _longest_backtick_run(text: str) -> int:
+    """Longest consecutive run of backticks in ``text``, for sizing a
+    CommonMark fence long enough to contain it without closing early."""
+    longest = run = 0
+    for ch in text:
+        run = run + 1 if ch == "`" else 0
+        longest = max(longest, run)
+    return longest
+
+
 def generate_promotion_decider_section(master: Path, person_id: str, today: str,
                                        shared: str | None = None) -> str | None:
     """The 'Promotions awaiting your decision' section for one person's
@@ -738,8 +748,8 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
 
     from brain.schemas import SchemaError
 
-    shared = master_shared(master, shared)
     try:
+        shared = master_shared(master, shared)
         org = load_org(master / "_meta/org.yaml")
     except (SchemaError, OSError, yaml.YAMLError):
         return None
@@ -752,6 +762,12 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
         teams=person.teams, email=person.email)
     mine = [
         p for p in list_pending(master)
+        # Belt-and-suspenders, not live logic today: may_approve already
+        # refuses non-Teams/ targets for a non-admin delegated view, so this
+        # can never fire yet. Kept explicit so "the shared space is never
+        # decidable in-vault" stays visible at this display layer too — a
+        # future change to may_approve's Teams/-only rule can't silently
+        # start surfacing company-wide promotions into a lead's own vault.
         if space_of_path(p.target_path, shared) != shared
         and may_approve(delegated_view, p.target_path, shared)
     ]
@@ -769,18 +785,26 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
         lines.append("")
         if p.mode == "patch":
             rendered = patch_diff(master, p, shared)
-            fence = "diff"
+            lang = "diff"
             if rendered is None:
                 rendered = "(target missing or unchanged — approval would fail closed)"
-                fence = ""
+                lang = ""
         else:
-            rendered, fence = p.body, ""
+            rendered, lang = p.body, ""
         truncated = len(rendered) > _REVIEW_CAP
         if truncated:
             rendered = rendered[:_REVIEW_CAP]
-        lines.append(f"```{fence}")
+        # An untrusted promoter's body/diff is rendered raw inside a fence
+        # that also frames this note's own structural markdown (including
+        # the decision recipe below). A ``` (or longer) run in the content
+        # would close the fence early and let it bleed into — or spoof —
+        # adjacent sections an agent reads as instructions. Size the fence
+        # to the content: CommonMark lets a longer backtick fence safely
+        # contain any shorter run.
+        fence = "`" * max(3, _longest_backtick_run(rendered) + 1)
+        lines.append(f"{fence}{lang}")
         lines.append(rendered.rstrip("\n"))
-        lines.append("```")
+        lines.append(fence)
         if truncated:
             lines.append(f"*Truncated at {_REVIEW_CAP} characters — see the full text with "
                          f"`brain promotions show {p.id}` or in the dashboard.*")
