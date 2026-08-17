@@ -68,20 +68,26 @@ export function renderPromotions(container, ctx) {
   }
   // Each promotion is the ONLY path from a private space to a shared one, and a
   // human gates every one. Review the body + destination before deciding.
-  // Only admins may approve one (brain.promotions.may_approve), so the dropdown
-  // offers only them — the server refuses anyone else regardless.
-  const admins = d.people.filter((p) => p.admin);
-  if (!admins.length) {
+  // Eligibility mirrors brain.promotions.may_approve: admins for anything,
+  // a lead of team T for Teams/T/*. The server enforces; this only shapes the
+  // dropdown so it can't offer someone the server would refuse.
+  const eligibleFor = (p) => d.people.filter((per) => {
+    if (per.admin) return true;
+    const m = /^Teams\/([^/]+)\//.exec(p.target_path);
+    return !!m && per.roles.includes("lead") && per.teams.includes(m[1]);
+  });
+  if (!d.people.some((per) => per.admin)) {
     container.appendChild(el("div", "meta",
-      "No one in the org holds role:admin — nothing here can be approved until one does."));
+      "No one in the org holds role:admin — company-wide promotions cannot be approved until one does."));
   }
-  d.promotions_pending.forEach((p) => container.appendChild(promoCard(p, admins)));
+  d.promotions_pending.forEach((p) => container.appendChild(promoCard(p, eligibleFor(p))));
 }
 
 // The approver select is the only identity signal on approve, so it is
-// constrained to the roster the caller passes: admins only for promotions,
-// the whole org for shares (recipients and team leads decide those). The last
-// choice is remembered per browser, and ignored if it isn't in that roster.
+// constrained to the roster the caller passes: admins and eligible team leads
+// per-item for promotions, the whole org for shares (recipients and team
+// leads decide those). The last choice is remembered per browser, and
+// ignored if it isn't in that roster.
 const APPROVER_KEY = "brain.approver";
 
 function approverSelect(people) {
