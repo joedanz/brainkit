@@ -164,6 +164,10 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     from brain.triage import TriageReport, run_triage
 
+    # `measured` is the one fact the health write below cannot recover from the
+    # report itself: a crashed triage and a genuinely clean brain BOTH arrive
+    # here with empty finding_counts, so `counts == {}` cannot tell them apart.
+    measured = True
     try:
         triage = run_triage(master, out_root, today=today)
     except Exception as e:  # never let triage abort the cycle — mirrors
@@ -171,6 +175,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # this point (writeback, sweeps, compile) already succeeded, so a
         # broken triage run should warn, not throw that work away.
         triage = TriageReport(0, 0, 0, 0, [f"triage failed: {e}"])
+        measured = False
 
     clients_tampering = sum(
         1 for p in provisioned
@@ -184,21 +189,28 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     from brain.health import write_health
 
-    # Best-effort: telemetry must never fail a cycle that already did its
-    # real work, the same posture as indexing and triage above.
-    try:
-        write_health(
-            master,
-            triage.finding_counts,
-            {
-                "clients": clients_tampering,
-                "shares": shares_tampering,
-                "promotions": promotion_tampering,
-            },
-            now=_utc_now_iso(),
-        )
-    except OSError:
-        pass
+    # An unmeasured cycle publishes NOTHING. Writing the crash arm's empty
+    # counts would overwrite a true snapshot with {"ok": true, "counts": {}} —
+    # which Fleet reads as a reporting, finding-free brain, manufacturing the
+    # exact false green this telemetry exists to remove. Leaving the previous
+    # file untouched lets it age into `stale` instead, and "these are the last
+    # findings we could measure" is the honest answer to a triage that died.
+    if measured:
+        # Best-effort: telemetry must never fail a cycle that already did its
+        # real work, the same posture as indexing and triage above.
+        try:
+            write_health(
+                master,
+                triage.finding_counts,
+                {
+                    "clients": clients_tampering,
+                    "shares": shares_tampering,
+                    "promotions": promotion_tampering,
+                },
+                now=_utc_now_iso(),
+            )
+        except OSError:
+            pass
 
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,

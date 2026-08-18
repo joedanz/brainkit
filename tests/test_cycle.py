@@ -835,3 +835,60 @@ def test_cycle_writes_the_health_file(master, tmp_path):
     assert data["schema"] == 1
     assert "counts" in data and "tamper" in data
     assert set(data["tamper"]) == {"clients", "shares", "promotions"}
+
+
+def test_crashed_triage_leaves_the_previous_health_snapshot_alone(master, tmp_path,
+                                                                  monkeypatch):
+    """The one thing this telemetry must never do: manufacture a clean brain.
+
+    A crashed triage reports zero findings because it measured nothing, not
+    because there is nothing to find. Publishing that would overwrite a true
+    snapshot with `{"ok": true, "counts": {}}` — Fleet's "reporting, no
+    findings" — so the write is skipped and the previous file is left to age
+    into `stale`, which is what "we could not measure" honestly looks like.
+    """
+    import brain.triage
+
+    from brain.health import HEALTH_REL
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+    run_cycle(master, out, today="2026-07-07")
+    before = (master / HEALTH_REL).read_bytes()
+    assert json.loads(before)["counts"], "fixture must publish real findings first"
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("triage exploded")
+
+    monkeypatch.setattr(brain.triage, "run_triage", boom)
+    report = run_cycle(master, out, today="2026-07-08")
+
+    assert any("triage failed" in w for w in report.triage_warnings)
+    assert (master / HEALTH_REL).read_bytes() == before
+
+
+def test_a_clean_triage_still_publishes_a_snapshot(master, tmp_path, monkeypatch):
+    """The other half of the pair: empty counts alone must NOT suppress a write.
+
+    A genuinely clean brain reaches the health write with exactly the same
+    empty `finding_counts` as the crash arm above, so the skip is decided by
+    whether triage ran — never by inspecting the counts.
+    """
+    import brain.triage
+    from brain.triage import TriageReport
+
+    from brain.health import HEALTH_REL
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+    monkeypatch.setattr(brain.triage, "run_triage",
+                        lambda *a, **k: TriageReport(0, 0, 0, 0))
+    run_cycle(master, out, today="2026-07-07")
+
+    data = json.loads((master / HEALTH_REL).read_text())
+    assert data["counts"] == {}
+    assert data["ok"] is True
