@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-18
+
 ### Added
 
 - **A health snapshot Fleet can read: `<master>/_meta/cache/health.json`.**
@@ -546,7 +548,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/joedanz/brainkit/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/joedanz/brainkit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/joedanz/brainkit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/joedanz/brainkit/compare/v0.3.6...v0.4.0
