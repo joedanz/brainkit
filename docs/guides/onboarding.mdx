@@ -49,7 +49,7 @@ Running agents server-side instead of on employee devices? Follow the [two-box r
 
     Claude Code users need no install — the vault's `CLAUDE.md` carries the same protocol.
 
-    While you're here, consider scheduling the [decisions nudge](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/cron-prompts/decisions-nudge.md) as a hermes cron prompt so your agent tells you when a decision is waiting on you, instead of you remembering to check `Shares.md`. It stays quiet when nothing is pending.
+    While you're here, consider scheduling the [decisions nudge](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/cron-jobs/brain-decisions-digest.py) as a `hermes cron --no-agent` job so your agent tells you when a decision is waiting on you, instead of you remembering to check `Shares.md`. It prints nothing when nothing is pending, so nothing is delivered.
   </Step>
 
   <Step title="Build the local index and register it as a tool">

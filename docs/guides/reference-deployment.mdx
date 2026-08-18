@@ -475,8 +475,8 @@ Phases 1–3 happen once and take an afternoon. Phase 4 is ~10 minutes per new e
       [Who approves](/concepts/promotions#who-approves).
     - **Knowing there's anything to approve:** the queue is *pull* — nothing tells
       you it has items. Schedule the [admin queue
-      nudge](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/cron-prompts/admin-queue-nudge.md)
-      as a hermes cron prompt in the admin container. It reports depth and age,
+      nudge](https://github.com/joedanz/brainkit/blob/main/deploy/brain-box/brain-queue-digest.sh)
+      from this box's root crontab. It reports depth and age,
       splits the promotion count by who can clear it, and deliberately refuses to
       approve anything — company-wide publishing stays at the dashboard, where you
       see the live diff and the warning naming exactly who will be able to read the
