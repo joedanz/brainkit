@@ -11,10 +11,36 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-18
+
+### Changed
+
+- **Who may approve a promotion is now a permission rule, and it moved twice.**
+  Approval used to accept any person id in `_meta/org.yaml`; it now accepts
+  only someone entitled to approve *that* promotion — an admin for any target,
+  or a `lead` on team T for a `Teams/T/…` target. The shared space and entity
+  spaces stay admin-only. One function, `may_approve` in `brain/promotions.py`,
+  is the whole rule; the CLI, the dashboard API, and the in-vault seam all
+  inherit it.
+
+  **Upgrading:** if a non-admin has been approving promotions, either give them
+  `roles: [admin]` in `_meta/org.yaml`, or — if their approvals were all into
+  one team's space — give them `roles: [lead]` with that team in their `teams`.
+  Already-approved notes are untouched. Nothing changes for an org where an
+  admin has always approved.
+
+- **New vault-layout convention: `People/<pid>/PromotionApprovals/`.** A
+  person's own space gains a second decision folder beside the existing
+  `Approvals/` (which remains shares-only). Promotion ids and share ids are
+  both free-form slugs and can collide, so they get separate folders rather
+  than a shared one with a discriminator key. No migration: the folder is
+  created by whoever first writes a decision into it, and a vault without one
+  behaves exactly as before.
+
 ### Added
 
 - **Team leads approve promotions into their own team's space, from their
-  own vault.** `may_approve` now routes `Teams/<team>/` targets to anyone with
+  own vault.** `may_approve` routes `Teams/<team>/` targets to anyone with
   `role: lead` on that team, mirroring how share requests already route.
   Leads get a **Promotions awaiting your decision** section in `Shares.md`
   showing what would be published (body, or a diff for `patch`), and decide by
@@ -24,6 +50,15 @@ explicitly under **Changed**, with what to do about it.
   warning are visible. `brain doctor` surfaces delegated promotion decisions
   for 30 days. New `brain cycle --json` fields: `promotion_decisions_applied`,
   `promotion_decisions_refused`, `promotion_tampering`.
+
+- **Two ready-made cron prompts for the human gates**, in
+  `deploy/agents-box/cron-prompts/`. Both gates are *pull* — `Shares.md` is
+  always current, but nothing tells anyone to open it. A per-person nudge
+  reports what is waiting and records the decision its human gives; an admin
+  queue nudge reports depth and age and deliberately refuses to decide, so
+  company-wide publishing stays at the dashboard where the diff and audience
+  warning are visible. Both stay silent when nothing is pending. Prompts only —
+  no code, no new authority.
 
 ### Fixed
 
@@ -38,17 +73,31 @@ explicitly under **Changed**, with what to do about it.
   The check now lives in `may_approve(person, target_path, shared)`, the
   promotions counterpart to `shares.may_decide`, and the core `approve()` call
   is the single place it runs — so the CLI, the dashboard API, and any future
-  caller inherit it rather than reimplementing it.
+  caller inherit it rather than reimplementing it. See **Changed**, above, for
+  the resulting rule and what to do about it.
 
-  Admin-only applied to every target, `Teams/<team>/` included, when this
-  landed — `target_path` was already in `may_approve`'s signature so the
-  relaxation below stayed a function body. The dashboard's approver dropdown
-  listed only admins at the time, and said so when an org had none; see
-  **Added**, below, for how that has since opened up to team leads.
+- **The in-vault decider section leaked content from spaces a lead cannot
+  read.** The section listing a lead's decidable promotions filtered on
+  `may_approve` — role and team membership — and never on read access. Where an
+  exact `spaces.yaml` rule shadowed the `Teams/*` wildcard (exact beats
+  wildcard), a lead was shown the current bytes of a file absent from their own
+  compiled vault, carried in by the `patch` diff. Now intersected with
+  `can_read`, failing closed, with a cross-vault regression test. Found in
+  review before release; no shipped version was affected.
 
-  **Upgrading:** if a non-admin has been approving promotions, give them
-  `roles: [admin]` in `_meta/org.yaml` or route their approvals through one.
-  Already-approved notes are untouched.
+- **A promotion body containing a code fence could break out of it.** The body
+  is rendered into the lead's `Shares.md` inside a fenced block; a body
+  carrying its own ``` sequence closed the fence early and bled into the note's
+  structural markdown — including the recipe telling an agent how to record a
+  decision. Fence length is now derived from the content.
+
+- **Docs claimed an approval story the code no longer told.** The HTML
+  explainers described the dashboard's approver dropdown as listing "the
+  company's people," and named the admin as the identity who approves shares —
+  which had already been untrue since share decisions began routing to
+  recipients and team leads. One also promised that an employee's agent tells
+  them when a share goes live; nothing did, and that sentence now describes
+  what the vault actually records.
 
 ## [0.3.6] - 2026-08-14
 
@@ -369,7 +418,14 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/joedanz/brainkit/compare/v0.3.6...v0.4.0
+[0.3.6]: https://github.com/joedanz/brainkit/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/joedanz/brainkit/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/joedanz/brainkit/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/joedanz/brainkit/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/joedanz/brainkit/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/joedanz/brainkit/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/joedanz/brainkit/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/joedanz/brainkit/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/joedanz/brainkit/compare/v0.1.1...v0.2.0
