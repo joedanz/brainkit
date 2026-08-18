@@ -541,6 +541,15 @@ class PromotionDecisionOutcome:
     reason: str = ""
 
 
+# Kept deliberately separate from shares.sweep_approvals rather than folded
+# into one generic queue. The cheap shared parts are already factored out
+# (write_inbox_note, _commit, _slug); what stays duplicated is exactly where
+# the two disagree — eligibility (may_decide vs may_approve, which needs the
+# full person), id shape (_SLUG vs _ID), and the carve-out test ("everyone" vs
+# target-in-shared-space). That last one is a security property, and it reads
+# better spelled out than expressed as configuration. Revisit if a third
+# delegated-decision type lands; two samples are not enough to know which of
+# those is really the varying axis.
 def sweep_promotion_approvals(master: Path, org: Org, today: str,
                               shared: str | None = None,
                               ) -> list[PromotionDecisionOutcome]:

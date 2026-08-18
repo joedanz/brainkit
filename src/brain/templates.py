@@ -113,6 +113,15 @@ When a transcript appears in any `People/<person>/Inbox/`:
      records only what its human explicitly decided. Company-wide shares
      (share-with: everyone, read-only) are decided by an admin with
      `brain shares approve`, never in-vault.
+     Moving a personal note *into* a shared or team space is a promotion,
+     not a share: draft it at `People/<person>/Promotions/<name>.md` with
+     `target-path` and `mode: create|append|patch`, and the server queues it
+     for approval. Team leads see their own "Awaiting your decision" section
+     in Shares.md and decide via
+     `People/<person>/PromotionApprovals/<promo-id>.md` (decision:
+     approve|reject, reason required to reject). Promotions into `@SHARED@/`
+     are decided by an admin at the dashboard, where the diff and the
+     audience are visible — never in-vault, not even by an admin.
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `@SHARED@/Decisions/`
    - Standing processes and standards -> a new file in `@SHARED@/Playbook/`

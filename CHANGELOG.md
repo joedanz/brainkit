@@ -11,6 +11,27 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`npm ci` now works in `docs/`.** The committed lockfile had drifted from
+  `package.json` — `@emnapi/runtime` was pinned where `@emnapi/wasi-threads`
+  was required — so `npm ci` exited `EUSAGE` and only `npm install` could
+  build the docs. That kept the docs out of any lockfile-respecting build.
+  Regenerating preserves every platform-gated dependency (204 Linux-scoped
+  entries before and after); a clean `npm ci && npm run build` now succeeds.
+
+### Changed
+
+- **The scaffolded assistant protocol now describes promotions, not just
+  shares.** A new vault's protocol documented the delegated-decision path for
+  space shares in full while saying nothing about the promotion equivalent
+  added in 0.4.0 — including the rule that promotions into the shared space
+  are decided at the dashboard and never in-vault. Existing vaults are
+  unaffected; the protocol is written once at scaffold time, so this reaches
+  new vaults only. The behaviour it documents was already live: a pending
+  promotion's decision recipe is generated into the decider's `Shares.md`
+  regardless.
+
 ## [0.4.1] - 2026-08-18
 
 ### Changed
