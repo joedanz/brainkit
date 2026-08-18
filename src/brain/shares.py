@@ -25,7 +25,7 @@ import yaml
 from brain.clients import _validate_owner_id
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
-from brain.promotions import _commit, _slug
+from brain.promotions import _commit, _slug, write_inbox_note
 from brain.resolver import can_write_path, space_of_path
 from brain.schemas import (
     DEFAULT_SHARED,
@@ -255,11 +255,7 @@ def _decided_ids(master: Path) -> set[str]:
 
 def _share_inbox_note(master: Path, person_id: str, slug: str, text: str,
                       today: str) -> str:
-    rel = f"People/{person_id}/Inbox/share-{slug}.md"
-    dest = master / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(f"---\ncreated: {today}\n---\n{text}\n")
-    return rel
+    return write_inbox_note(master, person_id, "share", slug, text, today)
 
 
 def list_pending_shares(master: Path) -> list[dict]:

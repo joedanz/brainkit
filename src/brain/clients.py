@@ -21,7 +21,7 @@ from pathlib import Path, PurePosixPath
 
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
-from brain.promotions import _commit, _slug
+from brain.promotions import _commit, _slug, write_inbox_note
 from brain.resolver import can_write_path, space_of_path
 from brain.schemas import Org, VaultConfig, load_config, load_spaces
 
@@ -157,16 +157,13 @@ def _seed_note(body: str, owner: str, source: str, date: str, entity: str = "cli
 def _inbox_note(
     master: Path, person_id: str, name: str, slug: str, today: str, entity: str = "client"
 ) -> str:
-    rel = f"People/{person_id}/Inbox/{entity}-taken-{slug}.md"
-    dest = master / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(
-        f"---\ncreated: {today}\n---\n"
+    return write_inbox_note(
+        master, person_id, f"{entity}-taken", slug,
         f"A {entity} named **{name}** already exists. Add a distinguishing "
         "detail (first name, company, or city) and try again, or ask an admin "
-        "if you believe it should be shared with you.\n"
+        "if you believe it should be shared with you.",
+        today,
     )
-    return rel
 
 
 def materialize_clients(

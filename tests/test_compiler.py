@@ -320,18 +320,23 @@ def test_decider_section_compiles_into_shares_md(master, tmp_path):
     assert "Awaiting your decision" in text
 
 
+# The promotion-decider tests below all start from this rule set: a
+# company-wide shared space, team-scoped Teams/*, person-scoped People/*. One
+# of them appends an exact Teams/ops rule to shadow the wildcard.
+DECIDER_SPACES_YAML = (
+    "spaces:\n"
+    '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
+    '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
+    '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
+)
+
+
 def test_promotion_decider_section_compiles_into_lead_shares_md(master, tmp_path):
     from brain.compiler import compile_vault
     from brain.promotions import draft_promotion
     from brain.schemas import Person, load_spaces
 
-    with (master / "_meta/spaces.yaml").open("w") as fh:
-        fh.write(
-            "spaces:\n"
-            '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
-            '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
-            '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
-        )
+    (master / "_meta/spaces.yaml").write_text(DECIDER_SPACES_YAML)
     (master / "_meta/org.yaml").write_text(
         "people:\n  alice: {name: Alice, roles: [admin]}\n"
         "  bob: {name: Bob, teams: [ops]}\n"
@@ -364,14 +369,10 @@ def test_promotion_decider_section_hidden_when_lead_cannot_read_target(
     from brain.promotions import draft_promotion
     from brain.schemas import Person, load_spaces
 
-    with (master / "_meta/spaces.yaml").open("w") as fh:
-        fh.write(
-            "spaces:\n"
-            '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
-            '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
-            '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
-            '  - {path: "Teams/ops", read: ["person:bob"],    write: ["person:bob"]}\n'
-        )
+    (master / "_meta/spaces.yaml").write_text(
+        DECIDER_SPACES_YAML
+        + '  - {path: "Teams/ops", read: ["person:bob"],    write: ["person:bob"]}\n'
+    )
     (master / "_meta/org.yaml").write_text(
         "people:\n  alice: {name: Alice, roles: [admin]}\n"
         "  bob: {name: Bob, teams: [ops]}\n"
@@ -403,13 +404,7 @@ def test_promotion_body_reaches_only_the_deciding_leads_vault(
     from brain.promotions import draft_promotion
     from brain.schemas import Person, load_spaces
 
-    with (master / "_meta/spaces.yaml").open("w") as fh:
-        fh.write(
-            "spaces:\n"
-            '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
-            '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
-            '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
-        )
+    (master / "_meta/spaces.yaml").write_text(DECIDER_SPACES_YAML)
     (master / "_meta/org.yaml").write_text(
         "people:\n  alice: {name: Alice, roles: [admin], teams: [ops]}\n"
         "  bob: {name: Bob, teams: [ops]}\n"

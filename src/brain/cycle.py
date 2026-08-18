@@ -142,8 +142,13 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     promo_decisions = sweep_promotion_approvals(master, org, today=today,
                                                 shared=config.shared)
-    compiled = len(compile_all(master, org, rules, out_root, today=today, config=config))
-    pending = len(list_pending(master))
+    # The queue is settled only now: sweep() queued this cycle's drafts and
+    # sweep_promotion_approvals() consumed the ones just decided. One parse
+    # from here serves both the fleet compile and the report count.
+    pending_promotions = list_pending(master)
+    compiled = len(compile_all(master, org, rules, out_root, today=today,
+                               config=config, pending=pending_promotions))
+    pending = len(pending_promotions)
 
     indexed = 0
     index_warnings: list[str] = []

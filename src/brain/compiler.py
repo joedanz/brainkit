@@ -25,10 +25,14 @@ import subprocess
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from brain.errors import HANDLED, BrainError, describe
 from brain.resolver import readable_spaces
 from brain.schemas import DEFAULT_SHARED, Org, Person, SpaceRule, VaultConfig, load_config
+
+if TYPE_CHECKING:
+    from brain.promotions import Promotion
 
 MANIFEST_NAME = ".brain-manifest.json"
 
@@ -112,7 +116,17 @@ def compile_vault(
     out: Path,
     today: str | None = None,
     config: VaultConfig | None = None,
+    org: Org | None = None,
+    pending: list[Promotion] | None = None,
 ) -> CompileResult:
+    """Compile one person's vault.
+
+    ``org`` and ``pending`` are the parsed roster and promotion queue when the
+    caller already holds them — a fleet compile parses each once and hands the
+    same objects to every person, instead of each vault re-reading an
+    O(org)-sized org.yaml and re-globbing the whole queue. Both optional: a
+    lone compile leaves them out and they are read where they are needed.
+    """
     today = today or date.today().isoformat()
     config = config or load_config(master)
     spaces = readable_spaces(master, person, rules, shared=config.shared)
@@ -148,7 +162,8 @@ def compile_vault(
                 compiled.append(rel)
 
         generated = _post_process(
-            building, master, person, spaces, rules, compiled, today, config
+            building, master, person, spaces, rules, compiled, today, config,
+            org=org, pending=pending,
         )
 
         # Hash what was actually shipped (post-stubbing); generated files are
@@ -200,6 +215,8 @@ def _post_process(
     compiled: list[str],
     today: str,
     config: VaultConfig,
+    org: Org | None = None,
+    pending: list[Promotion] | None = None,
 ) -> list[str]:
     """Post-process the built vault: stub cross-boundary links, generate the
     AGENTS.md/CLAUDE.md context files, and generate the read-only
@@ -237,38 +254,33 @@ def _post_process(
         generate_map(building, person, spaces_rw, compiled, config))
     generated.append(MAP_NAME)
 
-    from brain.promotions import SHARES_NOTE_REL, generate_shares_note
-
-    note = generate_shares_note(master, person.id, today)
+    from brain.promotions import (
+        SHARES_NOTE_REL,
+        generate_promotion_decider_section,
+        generate_shares_note,
+    )
     from brain.shares import generate_decider_section, generate_space_shares_section
 
-    section = generate_space_shares_section(master, person.id, today)
-    if section is not None:
-        if note is None:
-            note = ("---\ngenerated: true\n---\n# My Shares\n\n"
-                    "Status of what you have proposed to share. This file is\n"
-                    "regenerated on every compile — edits here are discarded.\n")
+    # People/<pid>/Shares.md is assembled from four independent generators, each
+    # of which returns None when it has nothing to say. generate_shares_note
+    # brings its own header; the other three are sections, so they need one only
+    # when they are the reason the file exists at all.
+    note = generate_shares_note(master, person.id, today)
+    sections = [
+        s for s in (
+            generate_space_shares_section(master, person.id, today),
+            generate_decider_section(master, person.id, today),
+            generate_promotion_decider_section(master, person.id, today,
+                                               shared=config.shared, rules=rules,
+                                               org=org, pending=pending),
+        ) if s is not None
+    ]
+    if sections and note is None:
+        note = ("---\ngenerated: true\n---\n# My Shares\n\n"
+                "Status of what you have proposed to share. This file is\n"
+                "regenerated on every compile — edits here are discarded.\n")
+    for section in sections:
         note = note.rstrip("\n") + "\n\n" + section
-
-    decider = generate_decider_section(master, person.id, today)
-    if decider is not None:
-        if note is None:
-            note = ("---\ngenerated: true\n---\n# My Shares\n\n"
-                    "Status of what you have proposed to share. This file is\n"
-                    "regenerated on every compile — edits here are discarded.\n")
-        note = note.rstrip("\n") + "\n\n" + decider
-
-    from brain.promotions import generate_promotion_decider_section
-
-    promo_decider = generate_promotion_decider_section(master, person.id, today,
-                                                       shared=config.shared,
-                                                       rules=rules)
-    if promo_decider is not None:
-        if note is None:
-            note = ("---\ngenerated: true\n---\n# My Shares\n\n"
-                    "Status of what you have proposed to share. This file is\n"
-                    "regenerated on every compile — edits here are discarded.\n")
-        note = note.rstrip("\n") + "\n\n" + promo_decider
     if note is not None:
         # People/<pid>/Shares.md is a reserved generated filename —
         # regenerated from queue truth each compile.
@@ -293,15 +305,24 @@ def compile_all(
     out_root: Path,
     today: str | None = None,
     config: VaultConfig | None = None,
+    pending: list[Promotion] | None = None,
 ) -> list[CompileResult]:
     today = today or date.today().isoformat()
     config = config or load_config(master)
+    if pending is None:
+        # One parse of the promotion queue for the whole fleet — every person's
+        # decider section filters the same list. A caller that already holds it
+        # (brain cycle, which also reports its length) passes it in.
+        from brain.promotions import list_pending
+
+        pending = list_pending(master)
     results: list[CompileResult] = []
     total = len(org.people)
     for person in org.people.values():
         out = out_root / person.id
         try:
-            result = compile_vault(master, person, rules, out, today, config=config)
+            result = compile_vault(master, person, rules, out, today, config=config,
+                                   org=org, pending=pending)
             if not (out / ".git").exists():
                 _git(out, "init", "-b", "main")
             _git(out, "add", "-A")

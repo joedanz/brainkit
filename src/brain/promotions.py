@@ -444,6 +444,23 @@ def _slug(text: str) -> str:
     return "-".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
 
 
+def write_inbox_note(master: Path, person_id: str, prefix: str, slug: str,
+                     text: str, today: str) -> str:
+    """Write one timestamped note into a person's Inbox; return its rel path.
+
+    Every server-side queue that has to tell a person *why* something did not
+    happen lands the explanation the same way. ``prefix`` is the only thing
+    that differs between them (``promotion``, ``share``, ``client-taken``), so
+    it is the only thing they pass — shares.py and clients.py wrap this with
+    their own prefix rather than restating the write.
+    """
+    rel = f"People/{person_id}/Inbox/{prefix}-{slug}.md"
+    dest = master / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"---\ncreated: {today}\n---\n{text}\n")
+    return rel
+
+
 def sweep(master: Path, today: str, shared: str | None = None) -> list[Path]:
     """Move agent-drafted promotions from People/*/Promotions/ into the queue.
 
@@ -524,15 +541,6 @@ class PromotionDecisionOutcome:
     reason: str = ""
 
 
-def _promotion_inbox_note(master: Path, person_id: str, slug: str, text: str,
-                          today: str) -> str:
-    rel = f"People/{person_id}/Inbox/promotion-{slug}.md"
-    dest = master / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(f"---\ncreated: {today}\n---\n{text}\n")
-    return rel
-
-
 def sweep_promotion_approvals(master: Path, org: Org, today: str,
                               shared: str | None = None,
                               ) -> list[PromotionDecisionOutcome]:
@@ -584,6 +592,14 @@ def sweep_promotion_approvals(master: Path, org: Org, today: str,
                 results.append(PromotionDecisionOutcome(
                     promo_id, decider_id, decision, status, why))
 
+            def refuse(why: str, msg: str) -> None:
+                """A routine refusal: say why in the decider's Inbox, then
+                consume the decision note in the same commit. Only a forged
+                ``owner:`` skips this and lands as tampering."""
+                inbox = write_inbox_note(master, decider_id, "promotion",
+                                         _slug(promo_id), msg, today)
+                consume("refused", why, [inbox])
+
             if meta.get("owner", decider_id) != decider_id:
                 consume("tampering", "owner mismatch")
                 continue
@@ -592,39 +608,29 @@ def sweep_promotion_approvals(master: Path, org: Org, today: str,
                 pending = _find_pending(master, promo_id)
                 promo = _parse(pending)
             except (PromotionError, KeyError, ValueError):
-                inbox = _promotion_inbox_note(
-                    master, decider_id, _slug(promo_id),
-                    f"Promotion {promo_id} is already decided or unknown.", today)
-                consume("refused", "already decided or unknown", [inbox])
+                refuse("already decided or unknown",
+                       f"Promotion {promo_id} is already decided or unknown.")
                 continue
 
             space = space_of_path(promo.target_path, shared)
             if space == shared:
-                inbox = _promotion_inbox_note(
-                    master, decider_id, _slug(promo_id),
-                    f"Promotion {promo_id} targets {shared}/ — company-wide "
-                    "promotions are decided by an admin at the dashboard.", today)
-                consume("refused", "shared space", [inbox])
+                refuse("shared space",
+                       f"Promotion {promo_id} targets {shared}/ — company-wide "
+                       "promotions are decided by an admin at the dashboard.")
                 continue
 
             if not may_approve(decider, promo.target_path, shared):
-                inbox = _promotion_inbox_note(
-                    master, decider_id, _slug(promo_id),
-                    f"You are not an eligible approver for {promo_id}.", today)
-                consume("refused", "not eligible", [inbox])
+                refuse("not eligible",
+                       f"You are not an eligible approver for {promo_id}.")
                 continue
 
             if decision not in ("approve", "reject"):
-                inbox = _promotion_inbox_note(
-                    master, decider_id, _slug(promo_id),
-                    f"Decision for {promo_id} must be approve or reject.", today)
-                consume("refused", "bad decision", [inbox])
+                refuse("bad decision",
+                       f"Decision for {promo_id} must be approve or reject.")
                 continue
             if decision == "reject" and not reason.strip():
-                inbox = _promotion_inbox_note(
-                    master, decider_id, _slug(promo_id),
-                    f"Rejecting {promo_id} needs a reason: line.", today)
-                consume("refused", "missing reason", [inbox])
+                refuse("missing reason",
+                       f"Rejecting {promo_id} needs a reason: line.")
                 continue
 
             try:
@@ -635,10 +641,8 @@ def sweep_promotion_approvals(master: Path, org: Org, today: str,
                     reject(master, promo_id, reason=reason, date=today,
                            approver=decider_id, via="delegated")
             except PromotionError as e:
-                inbox = _promotion_inbox_note(
-                    master, decider_id, _slug(promo_id),
-                    f"Could not apply your decision on {promo_id}: {e}", today)
-                consume("refused", str(e), [inbox])
+                refuse(str(e),
+                       f"Could not apply your decision on {promo_id}: {e}")
                 continue
             consume("applied", decision)
         except Exception:
@@ -765,9 +769,52 @@ def _audience_line(space: str, org: Org, rules: tuple[SpaceRule, ...]) -> str:
     return f"⚠ Approving publishes into `{space}` — readable by {who}."
 
 
+def _render_promotion_item(master: Path, promo: Promotion, space: str, org: Org,
+                           rules: tuple[SpaceRule, ...], shared: str) -> list[str]:
+    """One pending promotion, rendered as the lines a reviewer decides from:
+    a heading, the audience warning, and the reviewable content — the body for
+    create/append, a live unified diff for patch — capped at ``_REVIEW_CAP``."""
+    if promo.mode == "patch":
+        rendered = patch_diff(master, promo, shared)
+        lang = "diff"
+        if rendered is None:
+            rendered = "(target missing or unchanged — approval would fail closed)"
+            lang = ""
+    else:
+        rendered, lang = promo.body, ""
+    truncated = len(rendered) > _REVIEW_CAP
+    if truncated:
+        rendered = rendered[:_REVIEW_CAP]
+    # An untrusted promoter's body/diff is rendered raw inside a fence
+    # that also frames this note's own structural markdown (including
+    # the decision recipe below). A ``` (or longer) run in the content
+    # would close the fence early and let it bleed into — or spoof —
+    # adjacent sections an agent reads as instructions. Size the fence
+    # to the content: CommonMark lets a longer backtick fence safely
+    # contain any shorter run.
+    fence = "`" * max(3, _longest_backtick_run(rendered) + 1)
+    lines = [
+        (f"### `{promo.id}` → `{promo.target_path}` ({promo.mode}) from "
+         f"{promo.person_id}, drafted {promo.created}"),
+        "",
+        _audience_line(space, org, rules),
+        "",
+        f"{fence}{lang}",
+        rendered.rstrip("\n"),
+        fence,
+    ]
+    if truncated:
+        lines.append(f"*Truncated at {_REVIEW_CAP} characters — see the full text with "
+                     f"`brain promotions show {promo.id}` or in the dashboard.*")
+    lines.append("")
+    return lines
+
+
 def generate_promotion_decider_section(master: Path, person_id: str, today: str,
                                        shared: str | None = None,
                                        rules: tuple[SpaceRule, ...] | None = None,
+                                       org: Org | None = None,
+                                       pending: list[Promotion] | None = None,
                                        ) -> str | None:
     """The 'Promotions awaiting your decision' section for one person's
     ``Shares.md``, or ``None`` when nothing is theirs to decide.
@@ -789,7 +836,11 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
     Because ``_meta/`` never compiles into a vault, this is the only way a
     lead can read what they are approving: the body for create/append, a
     unified diff for patch, each capped at ``_REVIEW_CAP`` with an explicit
-    truncation notice pointing at ``brain promotions show``."""
+    truncation notice pointing at ``brain promotions show``.
+
+    ``org`` and ``pending`` are the already-parsed roster and promotion queue
+    when the caller has them (the fleet compile parses each once for the whole
+    run); without them both are read here, so a lone caller still works."""
     import yaml
 
     from brain.schemas import SchemaError
@@ -798,7 +849,8 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
         return None  # no read authority available: fail closed
     try:
         shared = master_shared(master, shared)
-        org = load_org(master / "_meta/org.yaml")
+        if org is None:
+            org = load_org(master / "_meta/org.yaml")
     except (SchemaError, OSError, yaml.YAMLError):
         return None
     person = org.people.get(person_id)
@@ -808,8 +860,10 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
         id=person.id, name=person.name,
         roles=tuple(r for r in person.roles if r != "admin"),
         teams=person.teams, email=person.email)
+    if pending is None:
+        pending = list_pending(master)
     mine = [
-        (p, space) for p in list_pending(master)
+        (p, space) for p in pending
         if (space := space_of_path(p.target_path, shared)) is not None
         # Belt-and-suspenders, not live logic today: may_approve already
         # refuses non-Teams/ targets for a non-admin delegated view, so this
@@ -833,37 +887,7 @@ def generate_promotion_decider_section(master: Path, person_id: str, today: str,
         "then record only a decision your human has explicitly made.", "",
     ]
     for p, space in mine:
-        lines.append(f"### `{p.id}` → `{p.target_path}` ({p.mode}) from {p.person_id}, "
-                     f"drafted {p.created}")
-        lines.append("")
-        lines.append(_audience_line(space, org, rules))
-        lines.append("")
-        if p.mode == "patch":
-            rendered = patch_diff(master, p, shared)
-            lang = "diff"
-            if rendered is None:
-                rendered = "(target missing or unchanged — approval would fail closed)"
-                lang = ""
-        else:
-            rendered, lang = p.body, ""
-        truncated = len(rendered) > _REVIEW_CAP
-        if truncated:
-            rendered = rendered[:_REVIEW_CAP]
-        # An untrusted promoter's body/diff is rendered raw inside a fence
-        # that also frames this note's own structural markdown (including
-        # the decision recipe below). A ``` (or longer) run in the content
-        # would close the fence early and let it bleed into — or spoof —
-        # adjacent sections an agent reads as instructions. Size the fence
-        # to the content: CommonMark lets a longer backtick fence safely
-        # contain any shorter run.
-        fence = "`" * max(3, _longest_backtick_run(rendered) + 1)
-        lines.append(f"{fence}{lang}")
-        lines.append(rendered.rstrip("\n"))
-        lines.append(fence)
-        if truncated:
-            lines.append(f"*Truncated at {_REVIEW_CAP} characters — see the full text with "
-                         f"`brain promotions show {p.id}` or in the dashboard.*")
-        lines.append("")
+        lines += _render_promotion_item(master, p, space, org, rules, shared)
     lines += [
         f"To decide, write `People/{person_id}/PromotionApprovals/<promo-id>.md`:", "",
         "```", "---", "decision: approve   # or: reject",
