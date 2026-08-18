@@ -11,6 +11,14 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- `brain cycle --json` and `brain doctor --json` now emit compact,
+  single-line JSON instead of indented output. Both are appended to files
+  named `.jsonl` by the reference deployment's crons, and indented output
+  made those files unparseable line by line. Piping either through `jq .`
+  restores the old readability.
+
 ## [0.4.2] - 2026-08-18
 
 ### Added

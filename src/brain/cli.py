@@ -278,7 +278,7 @@ def cmd_cycle(args) -> int:
     if args.json:
         payload = asdict(report)
         payload["ok"] = report.ok
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(payload))
     else:
         for w in report.writebacks:
             line = f"writeback {w.person_id}: {w.status}"
@@ -309,10 +309,12 @@ def cmd_doctor(args) -> int:
     findings = run_doctor(Path(args.master), out_root, net=args.net)
     errors = [f for f in findings if f.severity == "error"]
     if args.json:
+        # Compact, not pretty: the cron appends this to doctor.jsonl, and a
+        # multi-line object makes a file named .jsonl unparseable by line.
         print(json.dumps({
             "ok": not errors,
             "findings": [asdict(f) for f in findings],
-        }, indent=2))
+        }))
     else:
         for f in findings:
             print(f"[{f.severity.upper():5}] {f.check}: {f.message}")
