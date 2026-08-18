@@ -441,7 +441,7 @@
   <!-- operator -->
   <circle class="num-dot" cx="90" cy="1103" r="9.5"/><text class="t-num" x="90" y="1107" text-anchor="middle">5</text>
   <text class="t-flow-a" x="108" y="1108">the operator (you) — ssh over the tailnet: brain promotions approve · brain doctor · dashboard through a tunnel</text>
-  <text class="t-body" x="108" y="1130">employees never see this side; their agent tells them when something they shared goes live</text>
+  <text class="t-body" x="108" y="1130">employees never see this side; their own vault records when something they shared goes live</text>
 </svg>
 </figure>
 
@@ -469,11 +469,14 @@
   </div>
   <div>
     <h2><span class="n">5</span>The operator is a separate identity</h2>
-    <p>The admin who approves shares is a <strong>dedicated <code>org.yaml</code> identity
-    with no agent container</strong> — not anyone's chat account. It curates the shared space
-    and approves promotions from the dashboard or CLI; everyone who chats with a bot is a
-    plain employee, read-only on the company space, so no one's agent can write shared
-    knowledge directly.</p>
+    <p>The admin is a <strong>dedicated <code>org.yaml</code> identity with no agent
+    container</strong> — not anyone's chat account. It curates the shared space and is the
+    only identity that can publish company-wide, from the dashboard or CLI. Narrower calls
+    are delegated on purpose: a share is decided by its recipient, or by the lead of the
+    team receiving it, and a promotion into a team's own space by that team's lead — each
+    from their own vault, re-checked server-side. Everyone who chats with a bot is a plain
+    employee, read-only on the company space, so no one's agent can write shared knowledge
+    directly.</p>
   </div>
 </section>
 

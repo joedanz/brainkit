@@ -49,6 +49,17 @@ Once [the master is compiled](/getting-started), each employee needs two things:
         profile ships with hermes's built-in memory **disabled** — a native
         memory tool would win every "remember this" over the vault, and facts
         stored there never sync. The vault is the agent's only durable memory.
+
+        **Optional, recommended:** schedule the [decisions
+        nudge](https://github.com/joedanz/brainkit/blob/main/deploy/agents-box/cron-prompts/decisions-nudge.md)
+        as a hermes cron prompt, once or twice a weekday. Both human gates —
+        [promotions](/concepts/promotions) and [space
+        shares](/concepts/spaces-and-permissions#sharing-a-space) — are *pull*:
+        `People/<them>/Shares.md` shows what is waiting, but nothing tells
+        anyone to look. The nudge is the doorbell, and it adds no authority —
+        it reports, and records only a decision the person explicitly makes.
+        It stays silent when nothing is pending, which is what keeps it worth
+        reading.
       </Tab>
     </Tabs>
   </Step>
