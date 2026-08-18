@@ -1,9 +1,13 @@
 name: release
 
-# Tag-driven publishing. Pushing v1.2.3 builds, verifies, publishes to PyPI, and
-# attaches the same two artifacts to a GitHub release. `workflow_dispatch` runs
-# the identical path against TestPyPI so the whole thing can be rehearsed
-# without spending a version number.
+# Tag-driven releases. Pushing v1.2.3 builds, verifies, and attaches the two
+# artifacts to a GitHub release. `workflow_dispatch` publishes: target=testpypi
+# to rehearse without spending a version number, target=pypi to ship for real.
+#
+# Publishing is dispatch-only *for now* because the PyPI name is blocked — see
+# the note on the `pypi` job for why, and for the one-line reversal. The split
+# also means a tag always produces something useful: the GitHub release no
+# longer waits on an upload that may be gated, delayed, or impossible.
 #
 # A PyPI version is single-use forever: you can yank 1.2.3, but you can never
 # re-upload it, and even a deleted file's name stays claimed. Everything here is
@@ -114,9 +118,22 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
 
+  # Dispatch-only while the PyPI name is blocked. `brainkit` collides with
+  # `brain-kit` under Warehouse's ultranormalization, so an upload cannot
+  # succeed no matter who approves it (see CONTRIBUTING.md). Left on a tag push
+  # this job parks on the environment's reviewer gate and waits — v0.3.5 and
+  # v0.3.6 sat in `waiting` for 79 hours before being cancelled by hand, and
+  # every v0.2.x/v0.3.x tag produced a run that published nothing.
+  #
+  # **To restore automatic publishing once the name is free**, put the push
+  # trigger back:
+  #     if: github.event_name == 'push' || inputs.target == 'pypi'
+  # and make `github-release` depend on this job again (see the note there).
+  # Until then, publish deliberately: run the workflow with target=pypi against
+  # the tag you want to ship.
   pypi:
     needs: build
-    if: github.event_name == 'push' || inputs.target == 'pypi'
+    if: inputs.target == 'pypi'
     runs-on: ubuntu-latest
     # Configure this environment with required reviewers to put a human in front
     # of the one step in this file that cannot be undone.
@@ -135,8 +152,19 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@v1.14.2
 
+  # Depends on `build`, not `pypi`. The two are independent outcomes: the build
+  # job carries every check worth gating a release on (the tag-vs-pyproject
+  # guard, the sdist allowlist against a littered tree), and a PyPI upload that
+  # cannot happen should not withhold the artifacts from people reading the
+  # repo. While `pypi` is dispatch-only this dependency would never resolve at
+  # all — which is how six tags came to exist with no release attached.
+  #
+  # When automatic publishing is restored, decide deliberately whether to
+  # re-add `needs: pypi`. Publishing first orders the two so a failed upload
+  # leaves no orphan release; publishing in parallel gets the release out even
+  # when PyPI is having a bad day. This repo has now been bitten by the former.
   github-release:
-    needs: pypi
+    needs: build
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:

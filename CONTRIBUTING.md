@@ -138,8 +138,15 @@ Please don't paste real vault contents into a public issue.
 ## Cutting a release
 
 Releases are tag-driven: pushing `vX.Y.Z` runs `.github/workflows/release.yml`,
-which builds, verifies, publishes to PyPI, and attaches the same two artifacts
-to a GitHub release.
+which builds, verifies, and attaches the two artifacts to a GitHub release.
+
+**Publishing to PyPI is a separate, deliberate step** — run the workflow from
+the Actions tab with `target=pypi` against the tag you want to ship. It is
+split out because the `brainkit` name is currently blocked (see below), and a
+publish that cannot succeed should not hold the GitHub release hostage. Wired
+the other way round, six consecutive tags produced no release at all: the
+publish job parked on its reviewer gate, and the release job waited behind it.
+`target=testpypi` rehearses the same path without spending a version number.
 
 The thing to internalize before touching any of this: **a PyPI version number
 is permanent.** You can yank a release, but you can never re-upload that
