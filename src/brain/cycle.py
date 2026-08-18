@@ -55,6 +55,14 @@ class CycleReport:
     triage_digests: int = 0     # digest notes written or removed
     triage_unrouted: int = 0
     triage_warnings: list[str] = field(default_factory=list)
+    doctor_counts: dict[str, int] = field(default_factory=dict)
+    # Why this cycle published no health snapshot, if it published none.
+    # Empty on a normal run. Same list-of-strings shape as index_warnings and
+    # triage_warnings above, for the same reason: a best-effort step that
+    # failed must still be SAYABLE. Fleet reads a missing or ageing snapshot
+    # as "not reporting"/"stale" and cannot tell an operator why, so the only
+    # place the reason can surface is the cycle's own output.
+    health_warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -69,6 +77,12 @@ class CycleReport:
             and self.shares_tampering == 0
             and self.promotion_tampering == 0
         )
+
+
+def _utc_now_iso() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
@@ -157,6 +171,10 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     from brain.triage import TriageReport, run_triage
 
+    # `measured` is the one fact the health write below cannot recover from the
+    # report itself: a crashed triage and a genuinely clean brain BOTH arrive
+    # here with empty finding_counts, so `counts == {}` cannot tell them apart.
+    measured = True
     try:
         triage = run_triage(master, out_root, today=today)
     except Exception as e:  # never let triage abort the cycle — mirrors
@@ -164,27 +182,76 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # this point (writeback, sweeps, compile) already succeeded, so a
         # broken triage run should warn, not throw that work away.
         triage = TriageReport(0, 0, 0, 0, [f"triage failed: {e}"])
+        measured = False
+
+    clients_tampering = sum(
+        1 for p in provisioned
+        if p.status == "rejected" and p.reason == "owner mismatch"
+    )
+    shares_tampering = (
+        sum(1 for o in share_outcomes if o.status == "tampering")
+        + sum(1 for o in decision_outcomes if o.status == "tampering")
+    )
+    promotion_tampering = sum(1 for o in promo_decisions if o.status == "tampering")
+
+    from brain.health import write_health
+
+    # An unmeasured cycle publishes NOTHING. Writing the crash arm's empty
+    # counts would overwrite a true snapshot with {"ok": true, "counts": {}} —
+    # which Fleet reads as a reporting, finding-free brain, manufacturing the
+    # exact false green this telemetry exists to remove. Leaving the previous
+    # file untouched lets it age into `stale` instead, and "these are the last
+    # findings we could measure" is the honest answer to a triage that died.
+    health_warnings: list[str] = []
+    if not measured:
+        health_warnings.append(
+            "health snapshot not published: triage did not run, so this cycle "
+            "measured no findings"
+        )
+    else:
+        # Best-effort: telemetry must never fail a cycle that already did its
+        # real work, the same posture as indexing and triage above. Silent,
+        # though, is a different thing from harmless — a skip Fleet can only
+        # see as "not reporting" needs a reason SOMEWHERE, and this is the
+        # only output that has one.
+        try:
+            written = write_health(
+                master,
+                triage.finding_counts,
+                {
+                    "clients": clients_tampering,
+                    "shares": shares_tampering,
+                    "promotions": promotion_tampering,
+                },
+                now=_utc_now_iso(),
+            )
+            if not written:
+                health_warnings.append(
+                    "health snapshot not published: master/.gitignore does not "
+                    "cover _meta/cache/ — add that line (brain init writes it) "
+                    "or the snapshot would be committable"
+                )
+        except OSError as e:
+            health_warnings.append(f"health snapshot not written: {e}")
 
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),
         clients_rejected=sum(1 for p in provisioned if p.status == "rejected"),
-        clients_tampering=sum(
-            1 for p in provisioned
-            if p.status == "rejected" and p.reason == "owner mismatch"
-        ),
+        clients_tampering=clients_tampering,
         shares_queued=sum(1 for o in share_outcomes if o.status == "queued"),
         shares_revoked=sum(1 for o in share_outcomes if o.status == "revoked"),
-        shares_tampering=sum(1 for o in share_outcomes if o.status == "tampering")
-        + sum(1 for o in decision_outcomes if o.status == "tampering"),
+        shares_tampering=shares_tampering,
         share_decisions_applied=sum(1 for o in decision_outcomes if o.status == "applied"),
         share_decisions_refused=sum(1 for o in decision_outcomes if o.status == "refused"),
         promotion_decisions_applied=sum(1 for o in promo_decisions if o.status == "applied"),
         promotion_decisions_refused=sum(1 for o in promo_decisions if o.status == "refused"),
-        promotion_tampering=sum(1 for o in promo_decisions if o.status == "tampering"),
+        promotion_tampering=promotion_tampering,
         indexed=indexed, index_warnings=index_warnings,
         triage_findings=triage.routed,
         triage_digests=triage.digests_written + triage.digests_removed,
         triage_unrouted=triage.unrouted,
         triage_warnings=triage.warnings,
+        doctor_counts=triage.finding_counts,
+        health_warnings=health_warnings,
     )

@@ -418,3 +418,20 @@ def test_init_bad_shared_leaves_no_partial_dir(tmp_path: Path, capsys):
                "--shared", "Teams"])
     assert rc == 1
     assert not (tmp_path / "m").exists()   # validated before mkdir
+
+
+def test_json_output_is_one_line_per_command(master, tmp_path, capsys):
+    seed_meta(master)
+    out = tmp_path / "compiled"
+    main(["compile", "--master", str(master), "--out", str(out)])
+    capsys.readouterr()
+
+    main(["doctor", "--master", str(master), "--out", str(out), "--json"])
+    doctor_out = capsys.readouterr().out
+    assert doctor_out.count("\n") == 1, "doctor --json must be one line"
+    json.loads(doctor_out)
+
+    main(["cycle", "--master", str(master), "--out", str(out), "--json"])
+    cycle_out = capsys.readouterr().out
+    assert cycle_out.count("\n") == 1, "cycle --json must be one line"
+    json.loads(cycle_out)

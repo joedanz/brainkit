@@ -59,6 +59,23 @@ TRIAGE_CHECKS = frozenset({
 # reports to the terminal.
 
 
+def count_findings(findings: list[Finding]) -> dict[str, int]:
+    """Findings reduced to `severity:check` -> count.
+
+    The ONLY shape in which finding data leaves this process for the fleet
+    registry. Messages and paths are dropped here, at the source, rather than
+    filtered downstream: `_check_plain_refs` formats restricted client names
+    and file paths straight into `Finding.message`, so a counter that carried
+    the message would export vault content to a hosted registry and invert
+    the compiler guarantee. Counting is the redaction.
+    """
+    counts: dict[str, int] = {}
+    for f in findings:
+        key = f"{f.severity}:{f.check}"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def route_findings(
     findings: list[Finding], org: Org, rules: tuple[SpaceRule, ...],
     shared: str = DEFAULT_SHARED,
@@ -156,6 +173,7 @@ class TriageReport:
     digests_removed: int   # digest notes deleted because nothing remains
     unrouted: int          # findings with no eligible recipient (no admins)
     warnings: list[str] = field(default_factory=list)
+    finding_counts: dict[str, int] = field(default_factory=dict)
 
 
 def _fingerprint(lines: list[tuple[str, str]]) -> str:
@@ -210,13 +228,15 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
     set deletes the file. One commit covers the whole run.
     """
     findings = run_doctor(master, out_root)
+    finding_counts = count_findings(findings)
     try:
         org = load_org(master / "_meta/org.yaml")
         rules = load_spaces(master / "_meta/spaces.yaml")
         shared = load_config(master).shared
     except (SchemaError, OSError, yaml.YAMLError) as e:
         return TriageReport(0, 0, 0, len(findings),
-                            [f"meta unreadable — nothing routed: {e}"])
+                            [f"meta unreadable — nothing routed: {e}"],
+                            finding_counts)
 
     routed, unrouted = route_findings(findings, org, rules, shared)
     delivered = len({f for fs in routed.values() for f in fs})
@@ -305,4 +325,5 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
         except subprocess.CalledProcessError as e:
             warnings.append(f"git commit failed: {e.stderr.strip()}")
 
-    return TriageReport(delivered, written, removed, unrouted, warnings)
+    return TriageReport(delivered, written, removed, unrouted, warnings,
+                        finding_counts)
