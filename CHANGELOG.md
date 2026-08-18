@@ -11,6 +11,58 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-18
+
+### Changed
+
+- **`brain status --master --json` / `/api/stats`: two payload fields removed,
+  one added.** `promotions_pending` entries gain `eligible_approvers` — the
+  person ids `may_approve` admits for *that* item — and `people` entries lose
+  `roles` and `teams`, which existed only to let the dashboard re-derive that
+  same rule in JavaScript and have no remaining consumer.
+
+  **Upgrading:** nothing to do unless you script against those payloads.
+  `roles`/`teams` shipped in 0.4.0 only and were never documented; if you were
+  reading them to work out who may approve something, read
+  `eligible_approvers` instead — it is the answer rather than the inputs.
+  `promotions_pending`'s full field list is now documented in the
+  [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
+
+### Fixed
+
+- **The dashboard no longer keeps its own copy of the approval rule.**
+  `may_approve` was encoded twice — once in Python, once as a regex in
+  `admin.js` — with nothing able to hold the two in sync, and no JavaScript
+  suite in which a divergence could be caught. Eligibility is now resolved
+  server-side per pending item and served in the payload; the dropdown filters
+  on that list. The server always enforced on `approve()`, so a drift would
+  have surfaced as a refused approval the UI had already offered — a
+  confusing way to learn about a bug.
+
+  This also corrects the empty-state message, which asked whether the org had
+  *any* admin. That was the right question when only admins could approve and
+  the wrong one afterwards: an org with leads and no admin can still clear its
+  `Teams/` items, but was told nothing could be approved.
+
+### Added
+
+- **Working cron jobs for both human gates**, replacing the prompt drafts that
+  shipped in 0.4.0. `deploy/agents-box/cron-jobs/brain-decisions-digest.py`
+  runs per person under `hermes cron --no-agent`;
+  `deploy/brain-box/brain-queue-digest.sh` runs on the brain box from host
+  cron. Both print nothing when nothing is pending, so nothing is delivered —
+  silence is mechanical rather than an instruction a model has to remember,
+  which is what stops a daily digest becoming noise people filter.
+
+  The prompts they replace could not have worked as written: the admin one
+  called `brain promotions list --master` from an agent container, and agents
+  hold no master access by design. Verified against a live container,
+  including a real scheduler-driven run; the README's install steps are now
+  the commands that were actually run. Two hermes gotchas are documented
+  there — `--script` resolves `$HOME/scripts/` rather than the
+  `~/.hermes/scripts/` its `--help` claims, and `hermes` is not on `PATH`
+  under `docker exec`.
+
 ## [0.4.0] - 2026-08-18
 
 ### Changed
@@ -418,7 +470,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/joedanz/brainkit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/joedanz/brainkit/compare/v0.3.6...v0.4.0
 [0.3.6]: https://github.com/joedanz/brainkit/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/joedanz/brainkit/compare/v0.3.4...v0.3.5
