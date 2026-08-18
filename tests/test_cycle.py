@@ -793,3 +793,30 @@ def test_cycle_lead_shared_space_decision_refused_and_reported(tmp_path):
     assert not (master / "Company/Playbook/SOP.md").exists()
     # the refusal reached mary as an inbox note, compiled into her vault
     assert list((out / "mary/People/mary/Inbox").glob("promotion-*.md"))
+
+
+def test_cycle_reports_doctor_finding_counts(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    # A fact conflict is a warn-severity finding doctor detects on master:
+    # two open facts about the same subject whose statements diverge.
+    page = master / "Company/Playbook/Status.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(
+        "# Status\n\n"
+        "- Acme is on the enterprise plan [from:: 2026-01-01]\n"
+        "- Acme is on the starter plan [from:: 2026-02-01]\n"
+    )
+
+    report = run_cycle(master, out, today="2026-07-07")
+
+    assert isinstance(report.doctor_counts, dict)
+    # Keys are severity:check, values are integers, and nothing else rides along.
+    for key, value in report.doctor_counts.items():
+        assert key.count(":") == 1, key
+        severity, check = key.split(":")
+        assert severity in ("error", "warn", "info"), key
+        assert check, key
+        assert isinstance(value, int) and value > 0, key
+    assert any(k.startswith("warn:") for k in report.doctor_counts)

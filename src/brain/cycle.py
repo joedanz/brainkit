@@ -55,6 +55,7 @@ class CycleReport:
     triage_digests: int = 0     # digest notes written or removed
     triage_unrouted: int = 0
     triage_warnings: list[str] = field(default_factory=list)
+    doctor_counts: dict[str, int] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -187,4 +188,5 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         triage_digests=triage.digests_written + triage.digests_removed,
         triage_unrouted=triage.unrouted,
         triage_warnings=triage.warnings,
+        doctor_counts=triage.finding_counts,
     )
