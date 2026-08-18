@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-18
+
 ### Added
 
 - **Documented what a revoke does not undo.** Removing someone from a space
@@ -18,9 +20,9 @@ explicitly under **Changed**, with what to do about it.
   notes they could read while granted stay in its history, and a fresh clone
   carries that history. This was true from the start and stated nowhere —
   a gap worth closing precisely because the other limits are spelled out, so
-  "revokes apply immediately" was easy to over-read. Now a
-  [Limitations](README.md#limitations) bullet and a
-  [What a revoke does not undo](docs/concepts/spaces-and-permissions.mdx)
+  "revokes apply immediately" was easy to over-read. Now a Limitations bullet
+  and a
+  [What a revoke does not undo](https://brainkit-docs.vercel.app/concepts/spaces-and-permissions#what-a-revoke-does-not-undo)
   section, both naming the remedy: rotate anything whose value survives being
   read, and purge the server's copy by deleting that person's compiled vault
   and recompiling (the rebuild starts a fresh repo). A clone already on their
@@ -519,7 +521,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/joedanz/brainkit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/joedanz/brainkit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/joedanz/brainkit/compare/v0.3.6...v0.4.0
 [0.3.6]: https://github.com/joedanz/brainkit/compare/v0.3.5...v0.3.6
