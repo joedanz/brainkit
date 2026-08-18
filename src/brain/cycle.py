@@ -56,6 +56,13 @@ class CycleReport:
     triage_unrouted: int = 0
     triage_warnings: list[str] = field(default_factory=list)
     doctor_counts: dict[str, int] = field(default_factory=dict)
+    # Why this cycle published no health snapshot, if it published none.
+    # Empty on a normal run. Same list-of-strings shape as index_warnings and
+    # triage_warnings above, for the same reason: a best-effort step that
+    # failed must still be SAYABLE. Fleet reads a missing or ageing snapshot
+    # as "not reporting"/"stale" and cannot tell an operator why, so the only
+    # place the reason can surface is the cycle's own output.
+    health_warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -195,11 +202,20 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     # exact false green this telemetry exists to remove. Leaving the previous
     # file untouched lets it age into `stale` instead, and "these are the last
     # findings we could measure" is the honest answer to a triage that died.
-    if measured:
+    health_warnings: list[str] = []
+    if not measured:
+        health_warnings.append(
+            "health snapshot not published: triage did not run, so this cycle "
+            "measured no findings"
+        )
+    else:
         # Best-effort: telemetry must never fail a cycle that already did its
-        # real work, the same posture as indexing and triage above.
+        # real work, the same posture as indexing and triage above. Silent,
+        # though, is a different thing from harmless — a skip Fleet can only
+        # see as "not reporting" needs a reason SOMEWHERE, and this is the
+        # only output that has one.
         try:
-            write_health(
+            written = write_health(
                 master,
                 triage.finding_counts,
                 {
@@ -209,8 +225,14 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
                 },
                 now=_utc_now_iso(),
             )
-        except OSError:
-            pass
+            if not written:
+                health_warnings.append(
+                    "health snapshot not published: master/.gitignore does not "
+                    "cover _meta/cache/ — add that line (brain init writes it) "
+                    "or the snapshot would be committable"
+                )
+        except OSError as e:
+            health_warnings.append(f"health snapshot not written: {e}")
 
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
@@ -231,4 +253,5 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         triage_unrouted=triage.unrouted,
         triage_warnings=triage.warnings,
         doctor_counts=triage.finding_counts,
+        health_warnings=health_warnings,
     )

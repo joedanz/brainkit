@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from brain.health import HEALTH_REL, SCHEMA, write_health
 
 

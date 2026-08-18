@@ -848,7 +848,6 @@ def test_crashed_triage_leaves_the_previous_health_snapshot_alone(master, tmp_pa
     into `stale`, which is what "we could not measure" honestly looks like.
     """
     import brain.triage
-
     from brain.health import HEALTH_REL
 
     seed_meta(master)
@@ -877,9 +876,8 @@ def test_a_clean_triage_still_publishes_a_snapshot(master, tmp_path, monkeypatch
     whether triage ran — never by inspecting the counts.
     """
     import brain.triage
-    from brain.triage import TriageReport
-
     from brain.health import HEALTH_REL
+    from brain.triage import TriageReport
 
     seed_meta(master)
     out = _first_compile(master, tmp_path)
@@ -892,3 +890,62 @@ def test_a_clean_triage_still_publishes_a_snapshot(master, tmp_path, monkeypatch
     data = json.loads((master / HEALTH_REL).read_text())
     assert data["counts"] == {}
     assert data["ok"] is True
+
+
+def test_a_skipped_health_write_is_reported_not_swallowed(master, tmp_path):
+    """An older master (no `_meta/cache/` in .gitignore) fails closed — and
+    says so. Fleet can only see the result as "not reporting"; without a
+    warning here nothing anywhere states the reason, so the box looks broken
+    forever with no diagnosis."""
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (master / ".gitignore").write_text("node_modules/\n")
+
+    report = run_cycle(master, out, today="2026-07-07")
+
+    from brain.health import HEALTH_REL
+    assert not (master / HEALTH_REL).exists()
+    assert any("gitignore" in w for w in report.health_warnings)
+    assert report.ok  # telemetry is best-effort; it never fails the cycle
+
+
+def test_a_failed_health_write_is_reported(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+    import brain.health
+
+    def boom(*args, **kwargs):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(brain.health, "write_health", boom)
+    report = run_cycle(master, out, today="2026-07-07")
+
+    assert any("no space left on device" in w for w in report.health_warnings)
+    assert report.ok
+
+
+def test_a_crashed_triage_reports_why_no_snapshot_was_published(master, tmp_path,
+                                                                monkeypatch):
+    import brain.triage
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("triage exploded")
+
+    monkeypatch.setattr(brain.triage, "run_triage", boom)
+    report = run_cycle(master, out, today="2026-07-07")
+
+    assert any("triage did not run" in w for w in report.health_warnings)
+
+
+def test_a_normal_cycle_reports_no_health_warnings(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+    assert run_cycle(master, out, today="2026-07-07").health_warnings == []

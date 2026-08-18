@@ -301,6 +301,8 @@ def cmd_cycle(args) -> int:
               f"{report.triage_digests} digest update(s)")
         for w in report.triage_warnings:
             print(f"  triage warning: {w}", file=sys.stderr)
+        for w in report.health_warnings:
+            print(f"  health warning: {w}", file=sys.stderr)
     return 0 if report.ok else 1
 
 
