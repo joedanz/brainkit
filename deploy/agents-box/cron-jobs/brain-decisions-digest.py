@@ -99,6 +99,13 @@ def main() -> int:
     except OSError as e:
         print(f"cannot read {path}: {e}", file=sys.stderr)
         return 1
+    except UnicodeDecodeError as e:
+        # A generated note that isn't text means the vault is corrupt or a
+        # sync wrote a partial file. Worth alerting on — but as one line an
+        # operator can act on, not a traceback.
+        print(f"{path} is not valid UTF-8 ({e}) — vault may be corrupt or "
+              "mid-sync", file=sys.stderr)
+        return 1
 
     sections = _sections(text)
     today = date.today()
