@@ -11,6 +11,23 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **A health snapshot Fleet can read: `<master>/_meta/cache/health.json`.**
+  Every `brain cycle` now writes this file — `brain doctor`'s findings reduced
+  to `severity:check` counts, plus the cycle's tamper tallies, the brainkit
+  version that produced them, and a UTC timestamp. Counts ONLY: messages and
+  paths are dropped at the source (`triage.count_findings`), because finding
+  text carries restricted client names and file paths. It lives under
+  `_meta/cache/`, which `brain init` gitignores, and a master whose
+  `.gitignore` does not cover that path (one predating the 2026-07-21
+  template) gets NO file rather than a committable one — `brain cycle` now
+  says so in `health_warnings`, as it does for a write that failed or a cycle
+  whose triage crashed. A control plane reading the file's absence should read
+  it as "cannot say", never as "no findings". **This is the release that
+  starts publishing it**: an older brainkit publishes nothing, so a box that
+  reads as not-reporting is answered by upgrading it.
+
 ### Changed
 
 - `brain cycle --json` and `brain doctor --json` now emit compact,
