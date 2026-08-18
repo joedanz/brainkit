@@ -72,6 +72,12 @@ class CycleReport:
         )
 
 
+def _utc_now_iso() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
     from brain.embeddings import EmbeddingCache, provider_from_config
     from brain.indexer import build_index
@@ -166,23 +172,47 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # broken triage run should warn, not throw that work away.
         triage = TriageReport(0, 0, 0, 0, [f"triage failed: {e}"])
 
+    clients_tampering = sum(
+        1 for p in provisioned
+        if p.status == "rejected" and p.reason == "owner mismatch"
+    )
+    shares_tampering = (
+        sum(1 for o in share_outcomes if o.status == "tampering")
+        + sum(1 for o in decision_outcomes if o.status == "tampering")
+    )
+    promotion_tampering = sum(1 for o in promo_decisions if o.status == "tampering")
+
+    from brain.health import write_health
+
+    # Best-effort: telemetry must never fail a cycle that already did its
+    # real work, the same posture as indexing and triage above.
+    try:
+        write_health(
+            master,
+            triage.finding_counts,
+            {
+                "clients": clients_tampering,
+                "shares": shares_tampering,
+                "promotions": promotion_tampering,
+            },
+            now=_utc_now_iso(),
+        )
+    except OSError:
+        pass
+
     return CycleReport(
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),
         clients_rejected=sum(1 for p in provisioned if p.status == "rejected"),
-        clients_tampering=sum(
-            1 for p in provisioned
-            if p.status == "rejected" and p.reason == "owner mismatch"
-        ),
+        clients_tampering=clients_tampering,
         shares_queued=sum(1 for o in share_outcomes if o.status == "queued"),
         shares_revoked=sum(1 for o in share_outcomes if o.status == "revoked"),
-        shares_tampering=sum(1 for o in share_outcomes if o.status == "tampering")
-        + sum(1 for o in decision_outcomes if o.status == "tampering"),
+        shares_tampering=shares_tampering,
         share_decisions_applied=sum(1 for o in decision_outcomes if o.status == "applied"),
         share_decisions_refused=sum(1 for o in decision_outcomes if o.status == "refused"),
         promotion_decisions_applied=sum(1 for o in promo_decisions if o.status == "applied"),
         promotion_decisions_refused=sum(1 for o in promo_decisions if o.status == "refused"),
-        promotion_tampering=sum(1 for o in promo_decisions if o.status == "tampering"),
+        promotion_tampering=promotion_tampering,
         indexed=indexed, index_warnings=index_warnings,
         triage_findings=triage.routed,
         triage_digests=triage.digests_written + triage.digests_removed,

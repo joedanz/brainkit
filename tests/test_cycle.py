@@ -820,3 +820,18 @@ def test_cycle_reports_doctor_finding_counts(master, tmp_path):
         assert check, key
         assert isinstance(value, int) and value > 0, key
     assert any(k.startswith("warn:") for k in report.doctor_counts)
+
+
+def test_cycle_writes_the_health_file(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    # seed_meta git-inits master; brain init's template gitignores _meta/cache/
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+    run_cycle(master, out, today="2026-07-07")
+
+    from brain.health import HEALTH_REL
+    data = json.loads((master / HEALTH_REL).read_text())
+    assert data["schema"] == 1
+    assert "counts" in data and "tamper" in data
+    assert set(data["tamper"]) == {"clients", "shares", "promotions"}
