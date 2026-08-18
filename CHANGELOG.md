@@ -11,7 +11,35 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **Documented what a revoke does not undo.** Removing someone from a space
+  takes it out of their next compile, but each compiled vault is a git repo:
+  notes they could read while granted stay in its history, and a fresh clone
+  carries that history. This was true from the start and stated nowhere —
+  a gap worth closing precisely because the other limits are spelled out, so
+  "revokes apply immediately" was easy to over-read. Now a
+  [Limitations](README.md#limitations) bullet and a
+  [What a revoke does not undo](docs/concepts/spaces-and-permissions.mdx)
+  section, both naming the remedy: rotate anything whose value survives being
+  read, and purge the server's copy by deleting that person's compiled vault
+  and recompiling (the rebuild starts a fresh repo). A clone already on their
+  laptop is beyond reach by construction. Behaviour unchanged; a new test pins
+  both the limit and the remedy.
+
 ### Fixed
+
+- **`brain mcp` now names the argument a caller left out.** A `tools/call`
+  missing a required argument used to run the tool anyway with an empty
+  string, so the client got whatever that produced downstream —
+  `not in index: ` for `brain_links`, `refused: '' is not inside any readable
+  space` for `brain_read` — naming neither the argument nor the mistake. Bad
+  arguments are now refused before dispatch as JSON-RPC `-32602`, the same
+  code an unknown tool already returned, with a message that names the missing
+  argument. The check is derived from the `required` list each tool publishes
+  through `tools/list`, so it cannot drift from the advertised schema and a new
+  tool inherits it. A present-but-blank value is refused the same way; tools
+  that require nothing (`brain_recent`, `brain_facts`) are unaffected.
 
 - **`npm ci` now works in `docs/`.** The committed lockfile had drifted from
   `package.json` — `@emnapi/runtime` was pinned where `@emnapi/wasi-threads`

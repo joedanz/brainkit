@@ -413,3 +413,73 @@ def test_tools_call_graph_bad_direction_reports_message(vault):
     assert resp["result"]["isError"] is True
     assert "direction must be" in resp["result"]["content"][0]["text"]
     assert ping == {"jsonrpc": "2.0", "id": 58, "result": {}}
+
+
+def test_tools_call_missing_required_argument_names_it(vault):
+    # The failure this guards: brain_links with no rel_path used to reach the
+    # store and come back "not in index: " — an empty path, naming neither the
+    # argument nor the mistake. A client that gets the name wrong must be told
+    # which one it owes.
+    (resp, ping) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 61, "method": "tools/call",
+         "params": {"name": "brain_links", "arguments": {"note": "Company/Home.md"}}},
+        {"jsonrpc": "2.0", "id": 62, "method": "ping"},
+    ])
+    assert resp["error"]["code"] == -32602
+    assert "rel_path" in resp["error"]["message"]
+    assert "missing required argument" in resp["error"]["message"]
+    assert ping == {"jsonrpc": "2.0", "id": 62, "result": {}}
+
+
+def test_tools_call_blank_required_argument_is_refused_like_a_missing_one(vault):
+    # A present-but-blank value fails downstream exactly like an absent one, so
+    # it earns the same answer rather than a confusing empty-string miss.
+    (resp,) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 63, "method": "tools/call",
+         "params": {"name": "brain_read", "arguments": {"rel_path": "   "}}},
+    ])
+    assert resp["error"]["code"] == -32602
+    assert "rel_path" in resp["error"]["message"]
+
+
+@pytest.mark.parametrize("name,args", [
+    ("brain_search", {}),
+    ("brain_read", {}),
+    ("brain_links", {}),
+    ("brain_graph", {}),
+])
+def test_every_required_argument_is_enforced(vault, name, args):
+    # Driven by the same _TOOLS schema tools/list publishes: a tool that
+    # declares a required argument must refuse the call that omits it.
+    (resp,) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 64, "method": "tools/call",
+         "params": {"name": name, "arguments": args}},
+    ])
+    assert resp["error"]["code"] == -32602, resp
+
+
+def test_optional_argument_tools_still_accept_empty_arguments(vault):
+    # brain_recent and brain_facts declare nothing required; the new check must
+    # not turn their perfectly valid no-argument call into an error.
+    (recent, facts) = _exchange(vault, [
+        {"jsonrpc": "2.0", "id": 65, "method": "tools/call",
+         "params": {"name": "brain_recent", "arguments": {}}},
+        {"jsonrpc": "2.0", "id": 66, "method": "tools/call",
+         "params": {"name": "brain_facts", "arguments": {}}},
+    ])
+    assert recent["result"]["isError"] is False
+    assert facts["result"]["isError"] is False
+
+
+def test_declared_tools_and_dispatch_agree(vault):
+    # The wiring guard: every tool in _TOOLS must have a dispatch branch, or a
+    # call to it would fall through to the internal-error path.
+    from brain.mcp import _TOOLS
+
+    for tool in _TOOLS:
+        args = dict.fromkeys(tool["inputSchema"].get("required", []), "Company/Home.md")
+        (resp,) = _exchange(vault, [
+            {"jsonrpc": "2.0", "id": 67, "method": "tools/call",
+             "params": {"name": tool["name"], "arguments": args}},
+        ])
+        assert "error" not in resp or resp["error"]["code"] != -32603, tool["name"]
