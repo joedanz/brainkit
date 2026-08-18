@@ -162,12 +162,13 @@ def test_master_stats_full_picture(master, tmp_path):
     assert by_person["bob"].index_built_at is None
     assert by_person["alice"].disk_bytes > 0
     assert by_person["alice"].notes > 0
-    # the dashboard's promotion approver dropdown filters on this flag
     assert by_person["alice"].admin and not by_person["bob"].admin
-    assert by_person["alice"].roles == ("admin",)
-    assert by_person["bob"].teams == ("ops",)
 
     assert [p.id for p in s.promotions_pending] == ["p-1"]
+    # Eligibility is resolved server-side per item, so the dashboard's approver
+    # dropdown filters on this list instead of re-deriving may_approve in JS.
+    # p-1 targets the shared space, so only the admin qualifies.
+    assert s.promotions_pending[0].eligible_approvers == ("alice",)
 
     perms = {p.space: p for p in s.permissions}
     assert "bob" not in perms["Company"].writers  # only role:admin writes
@@ -176,6 +177,33 @@ def test_master_stats_full_picture(master, tmp_path):
 
     # findings come from doctor verbatim, not a reimplementation
     assert s.findings == run_doctor(master, out_root)
+
+
+def test_eligible_approvers_is_per_item_not_per_person(master, tmp_path):
+    """The case that separates the two rules: a Teams/ target admits that
+    team's lead, a shared-space target does not. This is the payload the
+    dashboard dropdown filters on, so getting it per-item is the point."""
+    from brain.promotions import draft_promotion
+    from brain.stats import collect_master_stats
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n"
+        "  alice: {name: Alice, roles: [admin]}\n"
+        "  mary:  {name: Mary, roles: [lead], teams: [ops]}\n"
+        "  sam:   {name: Sam, roles: [lead], teams: [sales]}\n"
+        "  bob:   {name: Bob, teams: [ops]}\n")
+    draft_promotion(master, "bob", "Teams/ops/Escalation.md",
+                    "People/bob/Sessions/x.md", "Body.\n", "p-team", "2026-08-18")
+    draft_promotion(master, "bob", "Company/Playbook/SOP.md",
+                    "People/bob/Sessions/x.md", "Body.\n", "p-co", "2026-08-18")
+
+    by_id = {p.id: p for p in collect_master_stats(master, None).promotions_pending}
+    # the ops lead qualifies on her own team's target; the sales lead and the
+    # plain ops member do not, and the admin qualifies on both
+    assert by_id["p-team"].eligible_approvers == ("alice", "mary")
+    assert by_id["p-co"].eligible_approvers == ("alice",)
 
 
 def test_master_stats_without_out_root(master, tmp_path):

@@ -401,8 +401,6 @@ class PersonVaultStats:
     person_id: str
     name: str
     admin: bool  # role:admin — the only role that may approve a promotion
-    roles: tuple[str, ...]  # for the dashboard's per-item approver dropdown
-    teams: tuple[str, ...]
     compiled: bool
     disk_bytes: int  # content size; .git history is machine-local, excluded
     notes: int
@@ -418,6 +416,12 @@ class PromotionSummary:
     target_path: str
     created: str
     mode: str = "create"
+    # Who may approve THIS item, resolved server-side by brain.promotions
+    # .may_approve — the one definition of the rule. The dashboard's approver
+    # dropdown filters on this list rather than re-deriving the rule in
+    # JavaScript, so the two cannot drift. The server still enforces on
+    # approve(); this only stops the UI offering someone it would refuse.
+    eligible_approvers: tuple[str, ...] = ()
 
 
 @dataclass
@@ -506,7 +510,7 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
     for person in org.people.values():
         entry = PersonVaultStats(
             person_id=person.id, name=person.name,
-            admin=person.is_admin, roles=person.roles, teams=person.teams,
+            admin=person.is_admin,
             compiled=False,
             disk_bytes=0, notes=0, index_built_at=None,
             drift=None, drift_error=None,
@@ -528,10 +532,15 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
                     entry.drift_error = str(e)
         people.append(entry)
 
+    from brain.promotions import may_approve
+
     promotions = [
         PromotionSummary(id=p.id, person_id=p.person_id,
                          target_path=p.target_path, created=p.created,
-                         mode=p.mode)
+                         mode=p.mode,
+                         eligible_approvers=tuple(
+                             sorted(person.id for person in org.people.values()
+                                    if may_approve(person, p.target_path, shared))))
         for p in list_pending(master)
     ]
 

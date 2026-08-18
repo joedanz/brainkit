@@ -68,17 +68,21 @@ export function renderPromotions(container, ctx) {
   }
   // Each promotion is the ONLY path from a private space to a shared one, and a
   // human gates every one. Review the body + destination before deciding.
-  // Eligibility mirrors brain.promotions.may_approve: admins for anything,
-  // a lead of team T for Teams/T/*. The server enforces; this only shapes the
-  // dropdown so it can't offer someone the server would refuse.
-  const eligibleFor = (p) => d.people.filter((per) => {
-    if (per.admin) return true;
-    const m = /^Teams\/([^/]+)\//.exec(p.target_path);
-    return !!m && per.roles.includes("lead") && per.teams.includes(m[1]);
-  });
-  if (!d.people.some((per) => per.admin)) {
+  //
+  // Who may approve a given item is resolved server-side and arrives as
+  // p.eligible_approvers — brain.promotions.may_approve is the single
+  // definition of that rule. Re-deriving it here in JavaScript is how the two
+  // drift; there is no test that could hold them in sync. The server still
+  // enforces on approve(); this only stops the dropdown offering a name it
+  // would refuse.
+  const eligibleFor = (p) => {
+    const ids = new Set(p.eligible_approvers || []);
+    return d.people.filter((per) => ids.has(per.person_id));
+  };
+  if (d.promotions_pending.every((p) => !(p.eligible_approvers || []).length)) {
     container.appendChild(el("div", "meta",
-      "No one in the org holds role:admin — company-wide promotions cannot be approved until one does."));
+      "Nothing here has an eligible approver — check that org.yaml grants role:admin, "
+      + "and role:lead on the owning team for any Teams/ item."));
   }
   d.promotions_pending.forEach((p) => container.appendChild(promoCard(p, eligibleFor(p))));
 }
