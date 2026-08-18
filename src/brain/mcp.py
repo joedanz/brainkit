@@ -152,6 +152,25 @@ _TOOLS = [
 ]
 
 
+# Derived from _TOOLS rather than written out again, so the arguments the
+# server enforces can never drift from the schema tools/list publishes. Doubles
+# as the set of known tool names.
+_REQUIRED_ARGS = {t["name"]: tuple(t["inputSchema"].get("required", ())) for t in _TOOLS}
+
+
+def _missing_args(name: str, args: dict) -> list[str]:
+    """Required arguments the caller omitted — or sent blank, which fails the
+    same way. Without this the omission surfaces as whatever the tool makes of
+    an empty string ("not in index: ", "refused: '' is not inside any readable
+    space"), which names neither the argument nor the mistake."""
+    missing = []
+    for key in _REQUIRED_ARGS.get(name, ()):
+        value = args.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(key)
+    return missing
+
+
 def _result(mid, result) -> dict:
     return {"jsonrpc": "2.0", "id": mid, "result": result}
 
@@ -326,6 +345,22 @@ def _handle(vault: Path, provider, msg: dict, shared: str):
         params = msg.get("params") or {}
         name = params.get("name")
         args = params.get("arguments") or {}
+        # Bad arguments are a protocol error, not a tool outcome: the call never
+        # ran, so there is no result to report. Checked before dispatch so every
+        # tool refuses the same way instead of each inventing its own miss.
+        if name not in _REQUIRED_ARGS:
+            return _error(mid, -32602, f"unknown tool: {name}")
+        missing = _missing_args(name, args)
+        if missing:
+            # Name the full required set only when it says something the
+            # missing list didn't — on a one-argument tool the two are the
+            # same words twice.
+            required = _REQUIRED_ARGS[name]
+            tail = ("" if tuple(missing) == required
+                    else f" (required: {', '.join(required)})")
+            return _error(mid, -32602, (
+                f"{name}: missing required argument(s): "
+                f"{', '.join(missing)}{tail}"))
         try:
             if name == "brain_search":
                 text, is_err = _tool_search(vault, args, provider)
@@ -340,7 +375,11 @@ def _handle(vault: Path, provider, msg: dict, shared: str):
             elif name == "brain_facts":
                 text, is_err = _tool_facts(vault, args)
             else:
-                return _error(mid, -32602, f"unknown tool: {name}")
+                # Unreachable for a client: an unknown name was refused above.
+                # Reached only if _TOOLS gains an entry with no branch here —
+                # a wiring bug on our side, so it reports as one rather than
+                # blaming the caller or falling through to an unbound `text`.
+                return _error(mid, -32603, f"tool declared but not wired: {name}")
         except Exception as e:
             # Malformed arguments or a bug in any one tool (bad types, a
             # crashing store call, ...) must never take down the stdio loop —

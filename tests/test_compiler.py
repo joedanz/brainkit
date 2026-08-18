@@ -542,3 +542,43 @@ def test_manifest_shared_key_only_when_nondefault(master: Path, tmp_path: Path):
     manifest = json.loads((fam_out / MANIFEST_NAME).read_text())
     assert manifest["shared"] == "Family"
     assert (fam_out / "Family/Home.md").exists()
+
+
+def test_revoked_space_stays_in_that_persons_vault_history(master: Path, tmp_path: Path):
+    # A revoke governs the future, not recall: the space leaves the working
+    # tree on the next compile, but the vault is a git repo and the note the
+    # person could legitimately read is still a commit behind them. Documented
+    # at /concepts/spaces-and-permissions#what-a-revoke-does-not-undo and in the
+    # README's Limitations — pinned here so neither the limit nor the remedy it
+    # points at can quietly stop being true.
+    import shutil
+    import subprocess
+
+    from brain.compiler import compile_all
+    from brain.resolver import SpaceRule
+    from tests.conftest import ORG
+
+    revoked = (*RULES[:3],
+               SpaceRule("Clients/*", read=("role:admin",), write=("role:admin",)))
+    out_root = tmp_path / "compiled"
+    bob = out_root / "bob"
+
+    def history() -> str:
+        return subprocess.run(["git", "-C", str(bob), "log", "-p", "--all"],
+                              capture_output=True, text=True, check=True).stdout
+
+    compile_all(master, ORG, RULES, out_root)  # Clients/* readable by everyone
+    assert (bob / "Clients/acme/Overview.md").exists()
+
+    compile_all(master, ORG, revoked, out_root)
+    assert not (bob / "Clients/acme/Overview.md").exists()  # gone from the tree
+    assert "Acme overview." in history()  # but not from the repo he cloned
+
+    # The documented remedy: delete the compiled vault and recompile. The
+    # rebuild starts a fresh repo, so the copy the server hands out no longer
+    # carries it. (A clone already on their laptop is beyond reach — by
+    # construction, not by omission.)
+    shutil.rmtree(bob)
+    compile_all(master, ORG, revoked, out_root)
+    assert not (bob / "Clients/acme/Overview.md").exists()
+    assert "Acme overview." not in history()

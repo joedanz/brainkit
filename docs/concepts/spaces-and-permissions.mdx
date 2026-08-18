@@ -172,6 +172,19 @@ Ownership is re-verified server-side against the live `spaces.yaml` rule, never 
 
 Every pending share, and every decision from the last 30 days, shows up in the requester's own `People/<you>/Shares.md` under a **Space shares** heading — see [Promotions: where the person sees status](/concepts/promotions#where-the-person-sees-status).
 
+## What a revoke does not undo
+
+A revoke takes effect on the next compile: the space is gone from that person's vault, and `brain compile` rebuilds their tree without it. What a revoke *cannot* do is un-deliver what they already had.
+
+Each compiled vault is a git repo, and the compiler commits to it on every change. So a note someone could read while they were granted access stays in **their vault's git history** after the revoke — the removal is a commit on top, not an erasure — and `git log -p` recovers it. A fresh clone carries that history too, because a clone copies history by default.
+
+This is a property of having delivered the file at all, not a hole in the compiler. While the grant was live the note was on their machine, readable, copyable. Revocation is therefore a statement about the future: *from here on, not yours*. It is not recall.
+
+Two consequences worth planning for:
+
+- **Rotate, don't just revoke.** If what leaked was a credential, a key, or anything whose value survives being read, revoking the space does not make it safe again. Rotate it.
+- **To purge server-side, rebuild the vault.** Delete that person's compiled vault (`<out>/<id>`) and run `brain compile`. The next compile builds a fresh repo with a single commit and no prior history, and `brain doctor` stays clean. The person then re-clones. This reaches the copy the server hands out — it cannot reach a clone already on their laptop, and nothing can.
+
 ## Who exists: `org.yaml`
 
 ```yaml
