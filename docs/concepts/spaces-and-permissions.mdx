@@ -155,7 +155,7 @@ created: 2026-07-22
 
 `action` is `share` (grant) or `revoke` (remove); `access` is `read` or `write`. `brain cycle` treats the two very differently, because they change risk in opposite directions:
 
-- **`share` requests queue for human approval.** Adding access is risk-increasing, so the request lands in `_meta/shares/pending/` — the same human-gated posture as [promotions](/concepts/promotions). Unlike promotions, that approval isn't always an admin's call — see below for who decides.
+- **`share` requests queue for human approval.** Adding access is risk-increasing, so the request lands in `_meta/shares/pending/` — the same human-gated posture as [promotions](/concepts/promotions). Like promotions, that approval isn't always an admin's call — see below for who decides, and [Who approves](/concepts/promotions#who-approves) for the promotions table.
 - **`revoke` requests auto-apply, in the same cycle.** Removing access is risk-decreasing, so no approval gate is needed — the grant is amended immediately and the request archived to `_meta/shares/revoked/` for the audit trail.
 
 Who approves depends on who would gain access:

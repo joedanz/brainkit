@@ -82,6 +82,14 @@ writable spaces; the write-back service rejects changes to read-only paths.
   `decision: reject` (rejections need a `reason:`), `owner: {pid}`. Record
   only a decision your human has explicitly made — never decide on your own.
   Company-wide shares (to `everyone`) always need an admin, not you.
+- If your `People/{pid}/Shares.md` has a **Promotions awaiting your decision**
+  section, those promotions target a team you lead. The section shows what
+  would be published (the body, or a diff for `patch`) — read it. Decide by
+  writing `People/{pid}/PromotionApprovals/<promo-id>.md` with
+  `decision: approve` or `decision: reject` (rejections need a `reason:`),
+  `owner: {pid}`. Record only a decision your human has explicitly made —
+  never decide on your own. Promotions into `{shared}/` always need an admin
+  at the dashboard, not you.
 - Decisions of company-wide relevance (a choice made, with its why) -> draft a
   promotion targeting a new file in `{shared}/Decisions/`
 - Standing processes, standards, or how-we-work facts -> draft a promotion

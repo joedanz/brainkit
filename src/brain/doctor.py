@@ -1184,9 +1184,9 @@ def _check_pending_shares(master: Path) -> list[Finding]:
 
 
 def _check_delegated_decisions(master: Path) -> list[Finding]:
-    """Share decisions made in-vault (via: delegated) in the last 30 days,
-    surfaced for admin review — the audit counterweight to delegating the
-    human gate into deciders' vaults."""
+    """Decisions made in-vault (via: delegated) in the last 30 days — shares
+    and promotions alike — surfaced for admin review: the audit counterweight
+    to delegating a human gate into deciders' vaults."""
     from datetime import date as _date
     from datetime import timedelta
 
@@ -1194,31 +1194,38 @@ def _check_delegated_decisions(master: Path) -> list[Finding]:
 
     cutoff = _date.today() - timedelta(days=30)
     findings: list[Finding] = []
-    for state, key, by_key, verb in (
-        ("approved", "approved-on", "approved-by", "approved"),
-        ("rejected", "rejected-on", "rejected-by", "rejected"),
-    ):
-        d = master / "_meta/shares" / state
-        if not d.is_dir():
-            continue
-        for f in sorted(d.glob("*.md")):
-            try:
-                meta, _ = split_frontmatter(f.read_text())
-            except (KeyError, ValueError, UnicodeDecodeError, OSError):
+    # (queue dir, check name, subject-formatter)
+    queues = (
+        ("_meta/shares", "shares",
+         lambda m: f"{m.get('space', '?')} → {m.get('share-with', '?')}"),
+        ("_meta/promotions", "promotions",
+         lambda m: f"{m.get('target-path', '?')} (from {m.get('from', '?')})"),
+    )
+    for base, check, subject in queues:
+        for state, key, by_key, verb in (
+            ("approved", "approved-on", "approved-by", "approved"),
+            ("rejected", "rejected-on", "rejected-by", "rejected"),
+        ):
+            d = master / base / state
+            if not d.is_dir():
                 continue
-            if not meta or meta.get("via") != "delegated":
-                continue
-            try:
-                when = _date.fromisoformat(str(meta.get(key, "")))
-            except ValueError:
-                continue
-            if when < cutoff:
-                continue
-            findings.append(Finding(
-                "info", "shares",
-                f"{meta.get('space', '?')} → {meta.get('share-with', '?')} "
-                f"{verb} by {meta.get(by_key, '?')} on {when.isoformat()} "
-                f"(delegated)"))
+            for f in sorted(d.glob("*.md")):
+                try:
+                    meta, _ = split_frontmatter(f.read_text())
+                except (KeyError, ValueError, UnicodeDecodeError, OSError):
+                    continue
+                if not meta or meta.get("via") != "delegated":
+                    continue
+                try:
+                    when = _date.fromisoformat(str(meta.get(key, "")))
+                except ValueError:
+                    continue
+                if when < cutoff:
+                    continue
+                findings.append(Finding(
+                    "info", check,
+                    f"{subject(meta)} {verb} by {meta.get(by_key, '?')} on "
+                    f"{when.isoformat()} (delegated)"))
     return findings
 
 

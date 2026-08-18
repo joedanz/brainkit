@@ -11,8 +11,8 @@ from pathlib import Path, PurePosixPath
 
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
-from brain.resolver import space_of_path
-from brain.schemas import DEFAULT_SHARED, Person, load_org, master_shared
+from brain.resolver import can_read, space_of_path
+from brain.schemas import DEFAULT_SHARED, Org, Person, SpaceRule, load_org, master_shared
 
 
 class PromotionError(BrainError, ValueError):
@@ -107,19 +107,22 @@ def may_approve(person: Person | None, target_path: str,
     """One authority definition for promotion approvals, mirroring
     ``shares.may_decide``. Fail closed: an unknown person approves nothing.
 
-    Today the answer is admins only, for *every* target. A promotion publishes
-    into a space other people read, and unlike a share request the recipient is
-    implicit in ``target_path`` — so there is no consent step to fall back on.
-
-    ``target_path`` and ``shared`` are unused on purpose: team-lead routing for
-    ``Teams/*`` targets is the intended relaxation, and classifying a target
-    needs both (``space_of_path`` cannot name the space without knowing what
-    the shared one is called). Landing the signature now keeps that change a
-    function body rather than a sweep over call sites.
+    Admins approve anything. A ``lead`` on team T approves promotions into
+    ``Teams/T/`` — the promotions counterpart to a lead deciding a
+    ``team:T`` share. Everything else (the shared space, entity spaces) is
+    admin-only: a promotion publishes into a space other people read, and
+    unlike a share request the recipient is implicit in ``target_path``, so
+    there is no consent step to fall back on.
     """
     if person is None:
         return False
-    return person.is_admin
+    if person.is_admin:
+        return True
+    space = space_of_path(target_path, shared)
+    if space is None or not space.startswith("Teams/"):
+        return False
+    team = space.split("/", 1)[1]
+    return "lead" in person.roles and team in person.teams
 
 
 _MODES = ("create", "append", "patch")
@@ -303,7 +306,7 @@ def _find_pending(master: Path, promo_id: str) -> Path:
 
 
 def approve(master: Path, promo_id: str, approver: str, date: str,
-            shared: str | None = None) -> Path:
+            shared: str | None = None, via: str = "") -> Path:
     # Attribution must be real: approved-by is machine-resolved against the
     # org roster, same as promoted-by.
     if not approver.strip():
@@ -317,10 +320,22 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     # hand-edited target can't escape the master root.
     shared = master_shared(master, shared)
     _validate_target(promo.target_path, shared)
+    # The shared-space carve-out, re-asserted where the write happens.
+    # sweep_promotion_approvals checks it against its own parse of the pending
+    # file, but the dashboard server writes the same master concurrently: a
+    # target-path that flips Teams/ -> Company/ in between would sail past
+    # may_approve for an *admin* and publish company-wide from a delegated
+    # in-vault note. A delegated decision never publishes into the shared
+    # space, whoever made it.
+    if via == "delegated" and space_of_path(promo.target_path, shared) == shared:
+        raise PromotionError(
+            f"promotions into {shared}/ are decided by an admin at the dashboard, "
+            "not by an in-vault decision"
+        )
     if not may_approve(people[approver], promo.target_path, shared):
         raise PromotionError(
             f"{approver!r} may not approve this promotion — the approver must "
-            "be role:admin"
+            "be role:admin, or a lead of the team whose space it targets"
         )
     target = master / promo.target_path
     if promo.mode == "create":
@@ -371,8 +386,9 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     archived = master / "_meta/promotions/approved" / pending.name
     archived.parent.mkdir(parents=True, exist_ok=True)
     _, fm, promo_body = pending.read_text().split("---\n", 2)
+    via_line = f"via: {via}\n" if via else ""
     archived.write_text(
-        f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n---\n{promo_body}"
+        f"---\n{fm}approved-on: {date}\napproved-by: {approver}\n{via_line}---\n{promo_body}"
     )
     pending.unlink()
     # The publish is a commit under the approver's own identity — the moment a
@@ -389,28 +405,60 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
     return target
 
 
-def reject(master: Path, promo_id: str, reason: str, date: str) -> Path:
+def reject(master: Path, promo_id: str, reason: str, date: str,
+           approver: str = "", via: str = "") -> Path:
+    """Move a pending promotion to rejected/ with the reason.
+
+    ``approver`` is optional so the CLI's existing shape (no identity — the
+    commit is ``Brain Promotions``) still works; the in-vault seam passes it
+    so a delegated rejection records who decided and commits as them.
+    ``via`` is stamped verbatim when non-empty (``delegated``)."""
     pending = _find_pending(master, promo_id)
     _, fm, body = pending.read_text().split("---\n", 2)
     rejected = master / "_meta/promotions/rejected" / pending.name
     rejected.parent.mkdir(parents=True, exist_ok=True)
+    by_line = f"rejected-by: {approver}\n" if approver else ""
+    via_line = f"via: {via}\n" if via else ""
     rejected.write_text(
-        f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n---\n{body}"
+        f"---\n{fm}rejected-reason: {reason}\nrejected-on: {date}\n"
+        f"{by_line}{via_line}---\n{body}"
     )
     pending.unlink()
+    if approver:
+        people = load_org(master / "_meta/org.yaml").people
+        name = people[approver].name if approver in people else approver
+        email = f"{approver}@brain.local"
+    else:
+        name, email = "Brain Promotions", "promotions@brain.local"
     _commit(
         master,
         [rejected.relative_to(master).as_posix(),
          pending.relative_to(master).as_posix()],
         f"promotions: reject {promo_id} ({reason})",
-        "Brain Promotions",
-        "promotions@brain.local",
+        name, email,
     )
     return rejected
 
 
 def _slug(text: str) -> str:
     return "-".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
+
+
+def write_inbox_note(master: Path, person_id: str, prefix: str, slug: str,
+                     text: str, today: str) -> str:
+    """Write one timestamped note into a person's Inbox; return its rel path.
+
+    Every server-side queue that has to tell a person *why* something did not
+    happen lands the explanation the same way. ``prefix`` is the only thing
+    that differs between them (``promotion``, ``share``, ``client-taken``), so
+    it is the only thing they pass — shares.py and clients.py wrap this with
+    their own prefix rather than restating the write.
+    """
+    rel = f"People/{person_id}/Inbox/{prefix}-{slug}.md"
+    dest = master / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(f"---\ncreated: {today}\n---\n{text}\n")
+    return rel
 
 
 def sweep(master: Path, today: str, shared: str | None = None) -> list[Path]:
@@ -479,6 +527,129 @@ def sweep(master: Path, today: str, shared: str | None = None) -> list[Path]:
     return moved
 
 
+# ---- in-vault delegated decisions --------------------------------------------
+
+PROMOTION_APPROVALS_REL = "People/{person_id}/PromotionApprovals"
+
+
+@dataclass(frozen=True)
+class PromotionDecisionOutcome:
+    promo_id: str
+    decider: str
+    decision: str
+    status: str  # "applied" | "refused" | "tampering"
+    reason: str = ""
+
+
+def sweep_promotion_approvals(master: Path, org: Org, today: str,
+                              shared: str | None = None,
+                              ) -> list[PromotionDecisionOutcome]:
+    """Apply delegated decisions from People/*/PromotionApprovals/*.md to the
+    pending promotion queue — the promotions counterpart to
+    ``shares.sweep_approvals``, line for line.
+
+    The <pid> path segment is the authoritative decider (write-back already
+    gated the write); the filename stem is the promotion id. Eligibility is
+    re-checked at decision time with the *full* person via ``may_approve``.
+    Targets inside the shared space are never decidable here — that is the
+    dashboard's job, where the diff and audience warning are visible — so
+    even an admin's in-vault decision on a ``Company/`` promotion is refused.
+    Only a forged ``owner:`` is tampering; every other failure is a routine
+    refusal with an inbox note explaining why. Malformed notes are left in
+    place untouched.
+    """
+    from brain.clients import _validate_owner_id
+
+    shared = master_shared(master, shared)
+    results: list[PromotionDecisionOutcome] = []
+    for note in sorted(master.glob("People/*/PromotionApprovals/*.md")):
+        if note.is_symlink():
+            continue
+        rel = note.relative_to(master)
+        decider_id = rel.parts[1]
+        try:
+            _validate_owner_id(decider_id)
+        except Exception:
+            continue  # malformed pid folder: leave in place, touch nothing
+        try:
+            promo_id = note.stem
+            if not _ID.fullmatch(promo_id):
+                continue  # malformed id: leave in place for inspection
+            meta, _ = split_frontmatter(note.read_text())
+            if not meta:
+                continue
+            decider = org.people.get(decider_id)
+            name_id = decider.name if decider else decider_id
+            decision = str(meta.get("decision", ""))
+            reason = str(meta.get("reason", ""))
+
+            def consume(status: str, why: str = "",
+                        extra: list[str] | None = None) -> None:
+                note.unlink()
+                _commit(master, [rel.as_posix(), *(extra or [])],
+                        f"promotions: decision {promo_id} {status}",
+                        name_id, f"{decider_id}@brain.local")
+                results.append(PromotionDecisionOutcome(
+                    promo_id, decider_id, decision, status, why))
+
+            def refuse(why: str, msg: str) -> None:
+                """A routine refusal: say why in the decider's Inbox, then
+                consume the decision note in the same commit. Only a forged
+                ``owner:`` skips this and lands as tampering."""
+                inbox = write_inbox_note(master, decider_id, "promotion",
+                                         _slug(promo_id), msg, today)
+                consume("refused", why, [inbox])
+
+            if meta.get("owner", decider_id) != decider_id:
+                consume("tampering", "owner mismatch")
+                continue
+
+            try:
+                pending = _find_pending(master, promo_id)
+                promo = _parse(pending)
+            except (PromotionError, KeyError, ValueError):
+                refuse("already decided or unknown",
+                       f"Promotion {promo_id} is already decided or unknown.")
+                continue
+
+            space = space_of_path(promo.target_path, shared)
+            if space == shared:
+                refuse("shared space",
+                       f"Promotion {promo_id} targets {shared}/ — company-wide "
+                       "promotions are decided by an admin at the dashboard.")
+                continue
+
+            if not may_approve(decider, promo.target_path, shared):
+                refuse("not eligible",
+                       f"You are not an eligible approver for {promo_id}.")
+                continue
+
+            if decision not in ("approve", "reject"):
+                refuse("bad decision",
+                       f"Decision for {promo_id} must be approve or reject.")
+                continue
+            if decision == "reject" and not reason.strip():
+                refuse("missing reason",
+                       f"Rejecting {promo_id} needs a reason: line.")
+                continue
+
+            try:
+                if decision == "approve":
+                    approve(master, promo_id, approver=decider_id, date=today,
+                            shared=shared, via="delegated")
+                else:
+                    reject(master, promo_id, reason=reason, date=today,
+                           approver=decider_id, via="delegated")
+            except PromotionError as e:
+                refuse(str(e),
+                       f"Could not apply your decision on {promo_id}: {e}")
+                continue
+            consume("applied", decision)
+        except Exception:
+            continue  # unexpected per-note error: leave file in place, touch nothing
+    return results
+
+
 SHARES_NOTE_REL = "People/{person_id}/Shares.md"
 _DECIDED_WINDOW_DAYS = 30
 _DECIDED_CAP = 20
@@ -487,10 +658,11 @@ _DECIDED_CAP = 20
 def generate_shares_note(master: Path, person_id: str, today: str) -> str | None:
     """Render one person's promotion-status note, or ``None`` if empty.
 
-    The only user-visible window into ``_meta/promotions``: everything of
-    theirs still pending, plus decisions from the last 30 days (newest
-    first, max 20). Compiled into the slice as a *generated* file — the
-    queue stays the single source of truth and edits are discarded.
+    The requester's window into ``_meta/promotions``: everything of theirs
+    still pending, plus decisions from the last 30 days (newest first, max
+    20). The decider's window is ``generate_promotion_decider_section``.
+    Compiled into the slice as a *generated* file — the queue stays the
+    single source of truth and edits are discarded.
     """
     from datetime import date as _date
     from datetime import timedelta
@@ -558,4 +730,170 @@ def generate_shares_note(master: Path, person_id: str, today: str) -> str | None
     if decided:
         lines += ["", "## Recently decided", ""]
         lines += [line for _, line in decided]
+    return "\n".join(lines) + "\n"
+
+
+_REVIEW_CAP = 4096  # chars of body/diff rendered per item into Shares.md
+
+
+def _longest_backtick_run(text: str) -> int:
+    """Longest consecutive run of backticks in ``text``, for sizing a
+    CommonMark fence long enough to contain it without closing early."""
+    longest = run = 0
+    for ch in text:
+        run = run + 1 if ch == "`" else 0
+        longest = max(longest, run)
+    return longest
+
+
+_AUDIENCE_LIST_CAP = 8  # reader ids named inline before collapsing to a count
+
+
+def _audience_line(space: str, org: Org, rules: tuple[SpaceRule, ...]) -> str:
+    """One line naming who would be able to read this promotion once approved.
+
+    The dashboard's promotion card warns that approving publishes to everyone
+    who can read the target space; the in-vault reviewer decides from the same
+    facts, so they get the resolved reader list — from ``can_read``, the same
+    authority the compiler uses — not just the space name."""
+    readers = sorted(p.id for p in org.people.values() if can_read(space, p, rules))
+    if not readers:
+        who = "no one else yet — the space has no readers under the current rules"
+    elif len(readers) == len(org.people):
+        who = f"everyone in the org ({len(readers)} people)"
+    elif len(readers) > _AUDIENCE_LIST_CAP:
+        who = f"{len(readers)} people"
+    else:
+        who = f"{len(readers)} " + ("person" if len(readers) == 1 else "people")
+        who += ": " + ", ".join(readers)
+    return f"⚠ Approving publishes into `{space}` — readable by {who}."
+
+
+def _render_promotion_item(master: Path, promo: Promotion, space: str, org: Org,
+                           rules: tuple[SpaceRule, ...], shared: str) -> list[str]:
+    """One pending promotion, rendered as the lines a reviewer decides from:
+    a heading, the audience warning, and the reviewable content — the body for
+    create/append, a live unified diff for patch — capped at ``_REVIEW_CAP``."""
+    if promo.mode == "patch":
+        rendered = patch_diff(master, promo, shared)
+        lang = "diff"
+        if rendered is None:
+            rendered = "(target missing or unchanged — approval would fail closed)"
+            lang = ""
+    else:
+        rendered, lang = promo.body, ""
+    truncated = len(rendered) > _REVIEW_CAP
+    if truncated:
+        rendered = rendered[:_REVIEW_CAP]
+    # An untrusted promoter's body/diff is rendered raw inside a fence
+    # that also frames this note's own structural markdown (including
+    # the decision recipe below). A ``` (or longer) run in the content
+    # would close the fence early and let it bleed into — or spoof —
+    # adjacent sections an agent reads as instructions. Size the fence
+    # to the content: CommonMark lets a longer backtick fence safely
+    # contain any shorter run.
+    fence = "`" * max(3, _longest_backtick_run(rendered) + 1)
+    lines = [
+        (f"### `{promo.id}` → `{promo.target_path}` ({promo.mode}) from "
+         f"{promo.person_id}, drafted {promo.created}"),
+        "",
+        _audience_line(space, org, rules),
+        "",
+        f"{fence}{lang}",
+        rendered.rstrip("\n"),
+        fence,
+    ]
+    if truncated:
+        lines.append(f"*Truncated at {_REVIEW_CAP} characters — see the full text with "
+                     f"`brain promotions show {promo.id}` or in the dashboard.*")
+    lines.append("")
+    return lines
+
+
+def generate_promotion_decider_section(master: Path, person_id: str, today: str,
+                                       shared: str | None = None,
+                                       rules: tuple[SpaceRule, ...] | None = None,
+                                       org: Org | None = None,
+                                       pending: list[Promotion] | None = None,
+                                       ) -> str | None:
+    """The 'Promotions awaiting your decision' section for one person's
+    ``Shares.md``, or ``None`` when nothing is theirs to decide.
+
+    Eligibility is computed on a *delegated view* of the person — admin
+    stripped — so admins see nothing here and keep using the dashboard, and
+    shared-space targets are excluded outright (they are never decidable
+    in-vault). This mirrors ``shares.generate_decider_section`` exactly.
+
+    Approval authority is path-shaped (``may_approve``: lead of the team the
+    target names) and says nothing about *reading* that space. An exact rule
+    can shadow the ``Teams/*`` wildcard, leaving a lead who may approve into a
+    space their vault does not contain — and a patch's diff is built from the
+    target's current bytes, so rendering it would put those bytes in a vault
+    the rules keep them out of. ``rules`` closes that: the item must also pass
+    ``can_read``, the same authority the compiler filters the vault with.
+    Without rules there is no read check to run, so nothing is shown.
+
+    Because ``_meta/`` never compiles into a vault, this is the only way a
+    lead can read what they are approving: the body for create/append, a
+    unified diff for patch, each capped at ``_REVIEW_CAP`` with an explicit
+    truncation notice pointing at ``brain promotions show``.
+
+    ``org`` and ``pending`` are the already-parsed roster and promotion queue
+    when the caller has them (the fleet compile parses each once for the whole
+    run); without them both are read here, so a lone caller still works."""
+    import yaml
+
+    from brain.schemas import SchemaError
+
+    if rules is None:
+        return None  # no read authority available: fail closed
+    try:
+        shared = master_shared(master, shared)
+        if org is None:
+            org = load_org(master / "_meta/org.yaml")
+    except (SchemaError, OSError, yaml.YAMLError):
+        return None
+    person = org.people.get(person_id)
+    if person is None:
+        return None
+    delegated_view = Person(
+        id=person.id, name=person.name,
+        roles=tuple(r for r in person.roles if r != "admin"),
+        teams=person.teams, email=person.email)
+    if pending is None:
+        pending = list_pending(master)
+    mine = [
+        (p, space) for p in pending
+        if (space := space_of_path(p.target_path, shared)) is not None
+        # Belt-and-suspenders, not live logic today: may_approve already
+        # refuses non-Teams/ targets for a non-admin delegated view, so this
+        # can never fire yet. Kept explicit so "the shared space is never
+        # decidable in-vault" stays visible at this display layer too — a
+        # future change to may_approve's Teams/-only rule can't silently
+        # start surfacing company-wide promotions into a lead's own vault.
+        and space != shared
+        and may_approve(delegated_view, p.target_path, shared)
+        # Read access is checked on the *real* person, not the delegated view:
+        # the question is what this vault already holds, and the compiler that
+        # built it used the real person too.
+        and can_read(space, person, rules)
+    ]
+    if not mine:
+        return None
+
+    lines = [
+        "## Promotions awaiting your decision", "",
+        "These promotions target a team you lead. Read what would be published,",
+        "then record only a decision your human has explicitly made.", "",
+    ]
+    for p, space in mine:
+        lines += _render_promotion_item(master, p, space, org, rules, shared)
+    lines += [
+        f"To decide, write `People/{person_id}/PromotionApprovals/<promo-id>.md`:", "",
+        "```", "---", "decision: approve   # or: reject",
+        "reason: required when rejecting", f"owner: {person_id}",
+        f"created: {today}", "---", "```",
+        "",
+        f"Promotions into `{shared}/` are decided by an admin at the dashboard, not here.",
+    ]
     return "\n".join(lines) + "\n"

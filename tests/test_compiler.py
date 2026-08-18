@@ -320,6 +320,126 @@ def test_decider_section_compiles_into_shares_md(master, tmp_path):
     assert "Awaiting your decision" in text
 
 
+# The promotion-decider tests below all start from this rule set: a
+# company-wide shared space, team-scoped Teams/*, person-scoped People/*. One
+# of them appends an exact Teams/ops rule to shadow the wildcard.
+DECIDER_SPACES_YAML = (
+    "spaces:\n"
+    '  - {path: Company,     read: [everyone],        write: ["role:admin"]}\n'
+    '  - {path: "Teams/*",   read: ["team:{name}"],   write: ["team:{name}"]}\n'
+    '  - {path: "People/*",  read: ["person:{name}"], write: ["person:{name}"]}\n'
+)
+
+
+def test_promotion_decider_section_compiles_into_lead_shares_md(master, tmp_path):
+    from brain.compiler import compile_vault
+    from brain.promotions import draft_promotion
+    from brain.schemas import Person, load_spaces
+
+    (master / "_meta/spaces.yaml").write_text(DECIDER_SPACES_YAML)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice, roles: [admin]}\n"
+        "  bob: {name: Bob, teams: [ops]}\n"
+        "  lead_ops: {name: Lead Ops, roles: [lead], teams: [ops]}\n")
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Escalation.md",
+                    source="s", body="Restart it.\n", promo_id="p-ops",
+                    created="2026-08-17")
+    lead = Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",))
+    dest = tmp_path / "lead_ops"
+    compile_vault(master, lead, load_spaces(master / "_meta/spaces.yaml"), dest,
+                  today="2026-08-17")
+    text = (dest / "People/lead_ops/Shares.md").read_text()
+    assert "Promotions awaiting your decision" in text
+    assert "Restart it." in text
+    # and it is a generated file: in the manifest's generated list
+    import json
+    manifest = json.loads((dest / ".brain-manifest.json").read_text())
+    assert "People/lead_ops/Shares.md" in manifest["generated"]
+
+
+def test_promotion_decider_section_hidden_when_lead_cannot_read_target(
+    master: Path, tmp_path: Path
+):
+    """Approval authority is path-shaped; read access is rule-shaped. An exact
+    ``Teams/ops`` rule shadows the ``Teams/*`` wildcard, so mary leads ops but
+    cannot read it — ``Teams/ops`` is (correctly) absent from her vault. The
+    review section must be absent too: a patch promotion renders a diff against
+    the *current* target, which would otherwise carry those bytes into her
+    Shares.md, i.e. into a vault the rules say may not hold them."""
+    from brain.promotions import draft_promotion
+    from brain.schemas import Person, load_spaces
+
+    (master / "_meta/spaces.yaml").write_text(
+        DECIDER_SPACES_YAML
+        + '  - {path: "Teams/ops", read: ["person:bob"],    write: ["person:bob"]}\n'
+    )
+    (master / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice, roles: [admin]}\n"
+        "  bob: {name: Bob, teams: [ops]}\n"
+        "  mary: {name: Mary Ops, roles: [lead], teams: [ops]}\n")
+    (master / "Teams/ops/Runbook.md").write_text("SECRET-OPS-BYTES\nline two\n")
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Runbook.md",
+                    source="s", body="SECRET-OPS-BYTES\nline two changed\n",
+                    promo_id="p-patch", created="2026-08-17", mode="patch")
+    mary = Person(id="mary", name="Mary Ops", roles=("lead",), teams=("ops",))
+    dest = tmp_path / "mary"
+    compile_vault(master, mary, load_spaces(master / "_meta/spaces.yaml"), dest,
+                  today="2026-08-17")
+    assert not (dest / "Teams/ops").exists()
+    note = dest / "People/mary/Shares.md"
+    text = note.read_text() if note.exists() else ""
+    assert "SECRET-OPS-BYTES" not in text
+    assert "Promotions awaiting your decision" not in text
+    # and nowhere else in the vault either
+    assert not [f for f in dest.rglob("*.md") if "SECRET-OPS-BYTES" in f.read_text()]
+
+
+def test_promotion_body_reaches_only_the_deciding_leads_vault(
+    master: Path, tmp_path: Path
+):
+    """The leak property, at the level that matters: compile the whole org and
+    prove the pending body exists in exactly one compiled vault — the lead's.
+    Everyone else, including the requester and an admin who decides at the
+    dashboard, gets nothing of it anywhere in their tree."""
+    from brain.promotions import draft_promotion
+    from brain.schemas import Person, load_spaces
+
+    (master / "_meta/spaces.yaml").write_text(DECIDER_SPACES_YAML)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice, roles: [admin], teams: [ops]}\n"
+        "  bob: {name: Bob, teams: [ops]}\n"
+        "  carol: {name: Carol, teams: [sales]}\n"
+        "  lead_ops: {name: Lead Ops, roles: [lead], teams: [ops]}\n")
+    body = "UNIQUE-PROMOTION-BODY-MARKER\n"
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Escalation.md",
+                    source="s", body=body, promo_id="p-ops", created="2026-08-17")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    people = [
+        Person(id="alice", name="Alice", roles=("admin",), teams=("ops",)),
+        Person(id="bob", name="Bob", teams=("ops",)),
+        Person(id="carol", name="Carol", teams=("sales",)),
+        Person(id="lead_ops", name="Lead Ops", roles=("lead",), teams=("ops",)),
+    ]
+    vaults = {}
+    for person in people:
+        dest = tmp_path / person.id
+        compile_vault(master, person, rules, dest, today="2026-08-17")
+        vaults[person.id] = dest
+
+    lead_note = vaults["lead_ops"] / "People/lead_ops/Shares.md"
+    assert body.strip() in lead_note.read_text()
+    for pid, dest in vaults.items():
+        if pid == "lead_ops":
+            continue
+        hits = [
+            f.relative_to(dest).as_posix()
+            for f in dest.rglob("*")
+            if f.is_file() and ".git" not in f.parts
+            and body.strip() in f.read_text(errors="ignore")
+        ]
+        assert hits == [], f"promotion body leaked into {pid}'s vault: {hits}"
+
+
 def test_map_note_generated_and_in_manifest(master: Path, tmp_path: Path):
     from brain.vaultmap import MAP_NAME
 

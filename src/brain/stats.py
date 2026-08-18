@@ -401,6 +401,8 @@ class PersonVaultStats:
     person_id: str
     name: str
     admin: bool  # role:admin — the only role that may approve a promotion
+    roles: tuple[str, ...]  # for the dashboard's per-item approver dropdown
+    teams: tuple[str, ...]
     compiled: bool
     disk_bytes: int  # content size; .git history is machine-local, excluded
     notes: int
@@ -504,7 +506,8 @@ def collect_master_stats(master: Path, out_root: Path | None = None) -> MasterSt
     for person in org.people.values():
         entry = PersonVaultStats(
             person_id=person.id, name=person.name,
-            admin=person.is_admin, compiled=False,
+            admin=person.is_admin, roles=person.roles, teams=person.teams,
+            compiled=False,
             disk_bytes=0, notes=0, index_built_at=None,
             drift=None, drift_error=None,
         )
