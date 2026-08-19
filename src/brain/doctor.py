@@ -19,6 +19,7 @@ from pathlib import Path
 import yaml
 
 from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
+from brain.corrections import CORRECTIONS_DIR, CORRECTIONS_LIMIT
 from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
@@ -237,7 +238,7 @@ def _check_unlinked_notes(master: Path, shared: str) -> list[Finding]:
         connected.add(src)
         connected.add(dst)
     for rel in sorted(paths - connected):
-        if "Inbox" in Path(rel).parts:
+        if "Inbox" in Path(rel).parts or CORRECTIONS_DIR in Path(rel).parts:
             continue
         findings.append(Finding(
             "warn", "unlinked-notes",
@@ -771,6 +772,102 @@ def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
     return findings
 
 
+def _check_corrections(master: Path) -> list[Finding]:
+    """Corrections that will not reach the agent, and records it cannot use.
+
+    A rule that silently fails to render is worse than no rule at all: the
+    person believes their correction took, and the agent never sees it. Every
+    finding carries the correction's own path so triage delivers it to the one
+    person who can act on it, rather than to the admins.
+
+    Counts and filenames only, never the rule text — a digest that restated
+    every rule would be the protocol block again, in a second place.
+    """
+    from brain.corrections import load_corrections
+
+    findings: list[Finding] = []
+    people_dir = master / "People"
+    if not people_dir.is_dir():
+        return findings
+
+    for person_dir in sorted(p for p in people_dir.iterdir() if p.is_dir()):
+        pid = person_dir.name
+        if not (person_dir / CORRECTIONS_DIR).is_dir():
+            continue
+        cs = load_corrections(master, pid)
+
+        if cs.omitted:
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.omitted)} correction(s) "
+                f"do not fit the protocol budget and never reach the agent — "
+                f"remove the ones that no longer apply",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.omitted
+                )))
+
+        if cs.misfiled:
+            # The one check that would otherwise have caught these is
+            # `unlinked-notes`, and it deliberately exempts Corrections/ so
+            # the digest is not filled with noise about them. Without this,
+            # a misfiled correction produces no finding anywhere at all.
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.misfiled)} file(s) are not "
+                f"loaded as corrections and reach no agent — a correction is a `.md` "
+                f"file directly in {CORRECTIONS_DIR}/, never in a subfolder "
+                f"({', '.join(cs.misfiled)})",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{rel}" for rel in cs.misfiled
+                )))
+
+        if cs.oversized:
+            # Deliberately not the message above: "remove the ones that no
+            # longer apply" is the wrong instruction for a rule that is simply
+            # too long to ever render, and pruning around it changes nothing.
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.oversized)} correction(s) are "
+                f"longer than the whole {CORRECTIONS_LIMIT}-character protocol budget and "
+                f"can never render — shorten each `rule:` to one imperative sentence "
+                f"({', '.join(f'{c.slug}.md' for c in cs.oversized)})",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.oversized
+                )))
+
+        if cs.unusable:
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.unusable)} record(s) have no "
+                f"`rule:` and render nothing — add one imperative sentence, or delete them",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{slug}.md" for slug in cs.unusable
+                )))
+
+        if cs.unreadable:
+            # `_check_unreadable_files` reports the same file as an infra
+            # error, but that escalates to the admins. This one tells the
+            # author their rule is not in force, which only they can fix.
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.unreadable)} record(s) cannot "
+                f"be read and render nothing — fix the file's permissions, or rewrite it",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{slug}.md" for slug in cs.unreadable
+                )))
+
+        if cs.undated:
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.undated)} record(s) have no "
+                f"usable `from:` date — they still render, but after every dated rule",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{slug}.md" for slug in cs.undated
+                )))
+
+    return findings
+
+
 def _check_symlinks(master: Path) -> list[Finding]:
     findings: list[Finding] = []
     for p in sorted(master.rglob("*")):
@@ -1263,6 +1360,7 @@ def run_doctor(
     findings += _check_plain_refs(master, org, rules, shared)
     findings += _check_facts(master, shared)
     findings += _check_fact_conflicts(master, shared)
+    findings += _check_corrections(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master, shared)
     findings += _check_created_clients(master, config)

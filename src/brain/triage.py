@@ -53,7 +53,14 @@ TRIAGE_CHECKS = frozenset({
     "unlinked-notes", "orphan-files", "intel",
     "dup-exact", "dup-near", "stem-collision",
     "fact-dup", "fact-conflict", "citations",
+    "corrections-budget",
 })
+# `corrections-budget` is routed for the same reason it exists: a correction
+# that never reaches the agent is a rule its author believes is in force. Only
+# its author can fix it, and only if told. Routing leaks nothing — the
+# messages are counts and filenames, never rule text (see
+# `doctor._check_corrections`), and every path is inside the recipient's own
+# People/<id> space, so it resolves to that one owner and never escalates.
 # Deliberately absent: link-rot. Triage always runs doctor offline, so it can
 # never see one — `brain doctor --net` is a human-invoked diagnostic that
 # reports to the terminal.

@@ -1130,3 +1130,162 @@ def test_shared_agreement_clean_on_default_and_on_real_family(tmp_path):
     for master in (default, family):
         msgs = [f.message for f in run_doctor(master)]
         assert not any("config.yaml names shared" in m for m in msgs), msgs
+
+
+def test_corrections_over_budget_are_reported_to_their_owner(master):
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    for i in range(80):
+        (d / f"r{i:02d}.md").write_text(
+            f"---\nrule: Rule {i} " + "x" * 60 + "\nfrom: 2026-08-19\n---\nwhy\n"
+        )
+
+    findings = run_doctor(master)
+    budget = [f for f in findings if f.check == "corrections-budget"]
+    assert budget, "an over-budget correction set must be reported"
+    f = budget[0]
+    assert f.severity == "warn"
+    # Routed by path: this has to reach bob, not the admins.
+    assert all(p.startswith("People/bob/Corrections/") for p in f.paths)
+    # Counts, not content — the digest should not restate every rule.
+    assert "Rule 0 " not in f.message
+
+
+def test_a_rule_too_long_to_ever_render_is_reported_as_its_own_problem(master):
+    """"Remove the ones that no longer apply" is the wrong instruction for a
+    single rule that cannot fit an empty budget — pruning around it changes
+    nothing. It gets its own message, and it does not evict the rest."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "essay.md").write_text(
+        "---\nrule: " + "x" * 4200 + "\nfrom: 2026-08-19\n---\nwhy\n")
+    (d / "short.md").write_text(
+        "---\nrule: Keep it direct.\nfrom: 2026-01-01\n---\nwhy\n")
+
+    findings = [f for f in run_doctor(master) if f.check == "corrections-budget"]
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.paths == ("People/bob/Corrections/essay.md",)  # short.md still renders
+    assert "essay.md" in f.message           # named, so it can be found
+    assert "shorten" in f.message
+    assert "no longer apply" not in f.message
+    assert "x" * 20 not in f.message         # the count, never the rule text
+
+
+def test_a_misfiled_correction_is_named_rather_than_lost(master):
+    """Wrong extension or nested in a subfolder: the loader ignores it, and
+    unlinked-notes exempts Corrections/, so without this finding a dropped
+    rule reaches nobody — the exact defect this feature exists to prevent."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    (d / "tone").mkdir(parents=True, exist_ok=True)
+    (d / "tone" / "no-filler.md").write_text(
+        "---\nrule: Never open with filler.\nfrom: 2026-08-19\n---\nwhy\n")
+    (d / "brevity.txt").write_text(
+        "---\nrule: Keep it short.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = [f for f in run_doctor(master) if f.check == "corrections-budget"]
+    assert len(findings) == 1
+    f = findings[0]
+    assert sorted(f.paths) == [
+        "People/bob/Corrections/brevity.txt",
+        "People/bob/Corrections/tone/no-filler.md",
+    ]
+    assert "brevity.txt" in f.message and "tone/no-filler.md" in f.message
+    assert "Never open with filler" not in f.message  # filenames, not rule text
+
+
+def test_a_correction_without_a_rule_is_reported(master):
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "broken.md").write_text("---\nfrom: 2026-08-19\n---\nI meant to write a rule.\n")
+
+    findings = run_doctor(master)
+    assert [f for f in findings if f.check == "corrections-budget"
+            and "broken.md" in "".join(f.paths)]
+
+
+def test_a_healthy_correction_set_reports_nothing(master):
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "voice.md").write_text("---\nrule: Keep it direct.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    assert not [f for f in findings if f.check == "corrections-budget"]
+
+
+def test_a_correction_with_an_unusable_date_is_reported(master):
+    """It renders — a typo must not cost a rule — but it sorts after every
+    dated one, and the person is told so the order is theirs to choose."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "vague.md").write_text(
+        "---\nrule: Keep it direct.\nfrom: last tuesday\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    dated = [f for f in findings if f.check == "corrections-budget"
+             and "from:" in f.message]
+    assert len(dated) == 1
+    assert dated[0].severity == "warn"
+    assert dated[0].paths == ("People/bob/Corrections/vague.md",)
+    assert "still render" in dated[0].message
+
+
+def test_a_non_utf8_correction_does_not_abort_the_doctor_run(master):
+    """A bare read_text() here raised UnicodeDecodeError out of run_doctor, so
+    one pasted smart quote in one person's Corrections/ ended the whole run
+    and every other finding with it."""
+    seed_meta(master)
+    (master / "People/stray.md").write_text("orphan\n")  # an unrelated finding
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "quote.md").write_bytes(
+        b"---\nrule: Never say \x93maybe\x94 to a client.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    assert not [f for f in findings if f.check == "corrections-budget"]
+    assert any(f.check == "orphan-files" for f in findings)  # the run completed
+
+
+@requires_nonroot
+def test_an_unreadable_correction_is_reported_to_its_author(master):
+    """The infra check reports the same file to the admins. The author is the
+    only one who can fix it, and the only one who believes the rule is live."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    locked = d / "locked.md"
+    locked.write_text("---\nrule: Keep it direct.\nfrom: 2026-08-19\n---\nwhy\n")
+    locked.chmod(0o000)
+    try:
+        findings = run_doctor(master)
+    finally:
+        locked.chmod(0o644)
+
+    mine = [f for f in findings if f.check == "corrections-budget"]
+    assert len(mine) == 1
+    assert mine[0].severity == "warn"
+    assert mine[0].paths == ("People/bob/Corrections/locked.md",)
+    assert "cannot be read" in mine[0].message
+
+
+def test_corrections_do_not_trip_the_prose_note_checks(master):
+    seed_meta(master)
+    # A correction has no wikilinks and no facts by construction, and two
+    # people may reasonably both write voice.md. Neither is a defect.
+    for pid in ("alice", "bob"):
+        d = master / f"People/{pid}/Corrections"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "voice.md").write_text(
+            f"---\nrule: Keep {pid} mail direct.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    noisy = [f for f in findings
+             if f.check in ("unlinked-notes", "stem-collision", "dup-exact")
+             and "Corrections/" in "".join(f.paths)]
+    assert not noisy, f"corrections should not trip prose-note checks: {noisy}"

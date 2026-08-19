@@ -11,6 +11,30 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **Standing corrections: `People/<id>/Corrections/`.** When someone tells
+  their agent it got something wrong, the agent writes the correction as a
+  file whose `rule:` is one imperative sentence. Every compile renders those
+  rules into that person's generated `AGENTS.md`/`CLAUDE.md`, above the
+  routing rules, so the agent loads them on every turn instead of having to
+  think to search for them. Corrections are personal — they reach only the
+  vault of the person who made them; one worth sharing goes to
+  `Company/Playbook/` through the existing promotion queue. The rendered
+  block is capped at 4,000 characters and a rule renders whole or not at all.
+  Running out of room cascades — every rule after the first that does not fit
+  is left out too, so what renders depends on the order stated rather than on
+  which rules happen to fit — but a rule longer than the whole budget is left
+  out on its own and reported separately, never taking healthy rules with it.
+  Anything left out, any record missing a `rule:` or a usable `from:` date,
+  any the OS will not hand over, and any file misfiled where the loader will
+  never see it (another extension, or a subfolder) is reported by `brain
+  doctor` as `corrections-budget` and routed to the person who wrote it,
+  because a correction that silently fails to take is worse than one never
+  made. A correction that is not valid UTF-8 — a smart quote pasted out of a
+  document — still renders, with a replacement character where the byte was,
+  rather than failing the compile.
+
 ## [0.4.3] - 2026-08-18
 
 ### Added

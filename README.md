@@ -82,6 +82,7 @@ The brain is a shared platform for people *and* software. Your team works in Obs
 | | |
 |---|---|
 | **Capture** | Email, chat (Telegram), voice, file uploads, and signed webhooks (`brain webhook` — Fathom, Zapier, Composio triggers) all funnel through `brain ingest` — one hardened path that refuses unknown senders and path tricks |
+| **Corrections** | `People/<id>/Corrections/` — when someone tells their agent it got something wrong, the rule becomes part of that person's generated protocol on the next compile, so the agent loads it every turn instead of forgetting it. Personal by default; one worth sharing goes to the team through the same human-approved queue |
 | **Search** | Hybrid search (`brain search`) fusing keyword, semantic, and graph (Personalized PageRank over typed relations and wikilinks) legs, built per-vault so it can only ever surface notes you're allowed to see |
 | **Live user dashboard** | `brain dashboard` in a person's vault — inbox, open actions, notes-by-space, an interactive 2D/3D map of how their notes connect, a Facts tab of time-stamped facts (ask what was true on any date), and search across everything they may see. Updates live over WebSocket; `--html` writes a static snapshot |
 | **Admin dashboard** | `brain dashboard` on the master — every person's vault at a glance, the sharing review queue, a read/write permissions matrix, and live `brain doctor` findings (including the name-leak check) |

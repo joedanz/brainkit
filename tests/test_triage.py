@@ -24,6 +24,18 @@ def test_personal_space_finding_routes_to_owner():
     assert unrouted == 0
 
 
+def test_corrections_budget_finding_routes_to_its_owner():
+    """A correction that never reaches the agent is only fixable by the person
+    who wrote it. Left out of TRIAGE_CHECKS the finding is produced and then
+    discarded, which is the silent drop this feature exists to prevent."""
+    f = Finding("warn", "corrections-budget",
+                "People/bob/Corrections/: 2 correction(s) do not fit the protocol budget",
+                paths=("People/bob/Corrections/a.md", "People/bob/Corrections/b.md"))
+    routed, unrouted = route_findings([f], ORG, RULES)
+    assert routed == {"bob": [f]}
+    assert unrouted == 0
+
+
 def test_shared_space_and_unresolvable_route_to_admins():
     shared = Finding("warn", "intel", "Company/Intel/X.md: stale",
                      paths=("Company/Intel/X.md",))
@@ -116,6 +128,23 @@ def test_run_triage_writes_routes_and_is_idempotent(master, tmp_path):
     again = run_triage(master, today="2026-07-25")
     assert again.digests_written == 0 and again.digests_removed == 0
     assert _commits(master) == before
+
+
+def test_a_correction_that_never_rendered_reaches_its_authors_digest(master, tmp_path):
+    """End to end: doctor finds it, triage delivers it to bob's Inbox. The
+    unit test above proves the routing; this proves the whole path, because
+    the finding was reaching nobody while every layer claimed it did."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "broken.md").write_text("---\nfrom: 2026-08-19\n---\nI meant to write a rule.\n")
+
+    run_triage(master, today="2026-07-24")
+    digest = _digest(master, "bob").read_text()
+    assert "## corrections-budget" in digest
+    assert "People/bob/Corrections/" in digest
+    # It is bob's alone: the admin digest is not where this belongs.
+    assert "corrections-budget" not in _digest(master, "alice").read_text()
 
 
 def test_fixed_finding_disappears_and_empty_digest_is_deleted(master, tmp_path):
