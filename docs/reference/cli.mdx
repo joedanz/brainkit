@@ -321,6 +321,8 @@ brain index --vault <vault> [--full] [--json]
 
 Incremental by default: only files whose manifest sha changed are re-chunked, and only cache-miss chunks are embedded. Embeddings come from the configured provider (see [Configuration](/reference/configuration)); with none set, indexing is **keyword-only** — still fully searchable, just no semantic leg. A model change forces a full rebuild.
 
+**`Sessions/` is excluded.** The processed archive records what was said, and for an agent-driven vault that is a verbatim copy of every conversation its human ever had — the largest body of text in the vault, restating in conversational form what the routing rules already filed as facts, notes and decisions. Indexed, every query competes against it. Excluded, the files stay on disk, stay readable, and stay linkable by path or Obsidian wikilink; they are simply not search results, not backlink sources, and not nodes in the typed-relation graph. A wikilink pointing into `Sessions/` — a fact line's `[source:: [[the note]]]`, for instance — records as unresolved, the same as any other target the index does not hold. Vaults indexed before this change drop their session rows on the next `brain index`; no `--full` needed.
+
 ## `brain search`
 
 Query a compiled vault's index. Fuses keyword (FTS5) and semantic (vector) ranking with reciprocal-rank fusion.

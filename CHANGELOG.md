@@ -41,6 +41,19 @@ explicitly under **Changed**, with what to do about it.
   route what passed") at the point where the assistant turns from reading to
   writing.
 
+- **`Sessions/` is no longer indexed.** The processed archive records what was
+  said, and for a vault fed by an agent that is a verbatim copy of every
+  conversation its human ever had — the largest body of text in the vault, and
+  the one least likely to answer a question, because it restates in
+  conversational form what the routing rules already filed as facts, notes and
+  decisions. Indexed, every query competed against it. The files stay on disk,
+  stay readable, and stay linkable by path or Obsidian wikilink; they stop
+  being search results, backlink sources, and nodes in the typed-relation
+  graph. A wikilink into `Sessions/` — a fact line's `[source:: [[the note]]]`,
+  for instance — now records as unresolved, exactly as any other target the
+  index does not hold. Vaults indexed before this change drop their session
+  rows on the next `brain index`; no `--full` is needed.
+
 - **Session summaries and archived transcripts defer to the gate.** Both were
   unconditional, so a meeting where nothing passed still produced a written
   summary and a verbatim retained transcript — in a space that is indexed and

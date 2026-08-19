@@ -349,3 +349,59 @@ def test_index_tags_custom_shared_space(master, tmp_path):
     # the space column must be the flat "Family", not nested "Family/Playbook"
     assert "Family" in spaces
     assert not any(s.startswith("Family/") for s in spaces)
+
+
+# --- The processed archive stays out of the index ----------------------------
+
+def test_sessions_are_never_indexed(master, tmp_path):
+    """Sessions/ is the verbatim record of what was said. For an agent-driven
+    vault that is every conversation its human ever had, restating in
+    conversational form what routing already filed as facts and notes — so
+    indexed it is the largest body of text in the vault and the least likely
+    to answer anything."""
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    files = _index_files(vault)
+    # the file compiled into the vault...
+    assert (vault / "People/bob/Sessions/Bob Private Note.md").exists()
+    # ...and is readable, linkable, and simply not searchable
+    assert not any("Sessions" in f for f in files)
+    assert "People/bob/Memory.md" in files
+
+
+def test_sessions_already_indexed_are_dropped_on_the_next_build(master, tmp_path,
+                                                               monkeypatch):
+    """The upgrade path: a vault indexed before this exclusion existed carries
+    session rows, and nothing would remove them without a --full rebuild. The
+    manifest diff already handles it — a candidate that disappears is deleted."""
+    import brain.indexer as indexer
+
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+
+    monkeypatch.setattr(indexer, "is_archived", lambda rel: False)
+    build_index(vault, provider=None, cache=None)
+    assert any("Sessions" in f for f in _index_files(vault))
+
+    monkeypatch.undo()
+    report = build_index(vault, provider=None, cache=None)
+    assert not any("Sessions" in f for f in _index_files(vault))
+    assert report.files_removed >= 1
+
+
+def test_a_link_into_the_archive_demotes_rather_than_dangling(master, tmp_path):
+    """A fact line cites the episode that established it. The episode is no
+    longer an index target, so the link resolves to nothing — the same path
+    every un-indexed target already takes, not a new failure mode."""
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Memory.md").write_text(
+        "# Memory\n\n- Bob owns renewals [[Bob Private Note]]\n")
+    build_index(vault, provider=None, cache=None)
+
+    s = IndexStore.open(vault / ".brain/index.db")
+    rows = s.links_from("People/bob/Memory.md")
+    s.close()
+    assert rows, "the link was recorded"
+    assert all(resolved == 0 for _target, resolved in rows), rows
