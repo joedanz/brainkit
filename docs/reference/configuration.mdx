@@ -206,7 +206,8 @@ While it exists, each search appends a line to `<vault>/.brain/retrieval.jsonl`
 holding the query, the mode, and the path and space of each hit. **Note
 snippets are never written.** The file is capped at 5 MB; on reaching the cap
 it stops appending and sets `raw_truncated` rather than dropping lines
-silently.
+silently. That flag reports the current state rather than a permanent mark:
+delete `retrieval.jsonl` and the next search clears it.
 
 This log holds the literal text people typed. `raw_log` and `raw_log_since` in
 the stats file report that it is running and since when, so it cannot be
