@@ -11,6 +11,26 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-08-19
+
+### Added
+- **Retrieval telemetry.** Every search now records what it returned to
+  `<vault>/.brain/retrieval-stats.json`: how many searches ran, how many came
+  back empty, which search mode served them, and whether the vector backend was
+  degraded. Counts only — never the query text and never a path. Fleet reads
+  this to answer a question nothing could answer before: when an agent searches
+  its brain, does it get anything back?
+- **An opt-in raw query log** for retrieval design work. Off by default. Create
+  `<vault>/.brain/retrieval-log.on` to switch it on for one person, and delete
+  it to switch it off. While on, each search appends its query and the paths it
+  matched to `<vault>/.brain/retrieval.jsonl`, capped at 5 MB. The switch's
+  state and age are reported in the stats file so it cannot be left on
+  unnoticed.
+
+### Notes
+- `.brain/` is gitignored in every compiled vault, skipped by write-back, and
+  carried across recompiles, so none of this enters git or a person's vault.
+
 ## [0.4.4] - 2026-08-19
 
 ### Added
