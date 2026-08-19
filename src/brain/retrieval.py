@@ -183,7 +183,12 @@ def record(
 
         payload = {
             "schema": SCHEMA,
-            "person": _person(vault),
+            # Read the manifest only when we have not already recorded who this
+            # vault belongs to. It carries a sha256 per compiled file, so it
+            # grows with the vault — and parsing all of it on every search,
+            # inside the lock, to re-derive a string that cannot change (the
+            # vault directory IS named by person id) is pure waste.
+            "person": data.get("person") or _person(vault),
             "brainkit_version": __version__,
             "updated_at": now,
             "searches": int(data.get("searches", 0) or 0) + 1,

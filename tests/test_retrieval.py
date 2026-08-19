@@ -253,3 +253,17 @@ def test_counters_still_advance_while_the_raw_log_is_capped(tmp_path):
     (vault / ".brain" / RAW_NAME).write_text("x" * RAW_CAP_BYTES)
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
     assert _stats(vault)["searches"] == 1
+
+
+def test_person_is_carried_forward_without_re_reading_the_manifest(tmp_path):
+    """The manifest carries a sha256 per compiled file, so it grows with the
+    vault. Parsing it on every search — inside the lock — to re-derive a string
+    that cannot change is waste. Deleting it after the first search proves the
+    stored value is reused rather than re-read."""
+    vault = _vault(tmp_path)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW)
+    assert _stats(vault)["person"] == "joe"
+
+    (vault / ".brain-manifest.json").unlink()
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW)
+    assert _stats(vault)["person"] == "joe"
