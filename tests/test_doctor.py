@@ -1218,6 +1218,24 @@ def test_a_healthy_correction_set_reports_nothing(master):
     assert not [f for f in findings if f.check == "corrections-budget"]
 
 
+def test_a_correction_with_an_unusable_date_is_reported(master):
+    """It renders — a typo must not cost a rule — but it sorts after every
+    dated one, and the person is told so the order is theirs to choose."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "vague.md").write_text(
+        "---\nrule: Keep it direct.\nfrom: last tuesday\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    dated = [f for f in findings if f.check == "corrections-budget"
+             and "from:" in f.message]
+    assert len(dated) == 1
+    assert dated[0].severity == "warn"
+    assert dated[0].paths == ("People/bob/Corrections/vague.md",)
+    assert "still render" in dated[0].message
+
+
 def test_a_non_utf8_correction_does_not_abort_the_doctor_run(master):
     """A bare read_text() here raised UnicodeDecodeError out of run_doctor, so
     one pasted smart quote in one person's Corrections/ ended the whole run
