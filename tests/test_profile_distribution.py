@@ -64,3 +64,30 @@ def test_profile_skill_has_no_shared_space_literals():
     # config, so the skill must defer to the vault's own AGENTS.md for it.
     text = (ROOT / "skills/brain-protocol/SKILL.md").read_text()
     assert "Company/" not in text
+
+
+def test_profile_teaches_admission_not_only_routing():
+    """The deployed profile must not teach a policy the vault's own AGENTS.md
+    contradicts: both say record only what passes the gate."""
+    soul = (ROOT / "SOUL.md").read_text()
+    skill = (ROOT / "skills/brain-protocol/SKILL.md").read_text()
+
+    assert "writing nothing is the ordinary outcome" in soul.lower()
+    assert "## Admit" in skill
+    for probe in ("**Durable**", "**Relevant**", "**New**", "**Attributable**"):
+        assert probe in skill, probe
+    # Needs-Routing is for the unplaceable, never for the rejected
+    assert "never park what failed admission there" in skill
+    assert "never as a place to put what" in soul
+
+
+def test_profile_does_not_claim_keyword_only_retrieval():
+    """`brain search` is hybrid (FTS5 + vector KNN + a PPR graph leg, fused by
+    RRF — see src/brain/search.py). The skill claimed keyword-only, which both
+    steers agents toward keyword-stuffed titles and invites them to read a
+    search miss as proof the vault holds nothing on the subject — exactly the
+    wrong inference under the 'search before you write' rule."""
+    skill = (ROOT / "skills/brain-protocol/SKILL.md").read_text()
+    assert "retrieval is keyword-based" not in skill
+    assert "retrieval is hybrid" in skill
+    assert "not as proof the vault" in skill

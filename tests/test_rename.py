@@ -151,3 +151,21 @@ def test_rename_entities_to_shared_name_rejected(tmp_path):
     master = _family_master(tmp_path)
     with pytest.raises(SchemaError):
         rename_entities(master, "Family")   # policy, not dir-collision
+
+
+def test_rename_preserves_the_charter(tmp_path):
+    """Renaming the tree must not quietly erase the one config value a human
+    wrote in prose — nobody would think to re-check it after a rename."""
+    from brain.rename import rename_entities
+    from brain.schemas import load_config, make_config
+    from brain.templates import config_yaml, scaffold_master
+
+    cfg = make_config("Clients", None, "Company", "Bespoke luxury travel.")
+    scaffold_master(tmp_path, "Acme", cfg)
+    (tmp_path / "_meta/config.yaml").write_text(config_yaml(cfg))
+
+    rename_entities(tmp_path, "Vendors", None)
+
+    after = load_config(tmp_path)
+    assert after.entities == "Vendors"
+    assert after.charter == "Bespoke luxury travel."

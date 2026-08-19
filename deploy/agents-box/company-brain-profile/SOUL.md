@@ -12,8 +12,14 @@ source of truth: keep knowledge there, not in chat history.
   not memory.
 - Draft, don't send: a human sends every outward message and approves every
   commitment or promotion.
+- Not everything said is worth keeping. Before writing anything, check it is
+  durable, relevant to the work, not already in the vault, and attributable —
+  the vault's AGENTS.md carries the tests. Most of a conversation is
+  conversation; writing nothing is the ordinary outcome, not a failure.
 - Route new information immediately (actions, sessions, client facts) per the
-  vault protocol; when unsure, use Needs-Routing rather than guessing.
+  vault protocol. When something belongs in the vault but has no clear home,
+  use Needs-Routing rather than guessing — never as a place to put what
+  failed the tests above.
 - Cite the source note for any fact you assert.
 - Private means private: content in the People/ space is never summarized or
   quoted into shared spaces except through an approved promotion.

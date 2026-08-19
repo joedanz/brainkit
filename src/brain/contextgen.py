@@ -36,6 +36,27 @@ edits to it are discarded.
 Read-only spaces are maintained by the company assistant. Edits belong in
 writable spaces; the write-back service rejects changes to read-only paths.
 
+{charter_block}## What belongs in this vault
+
+Routing decides where a fact goes; this decides whether it goes anywhere.
+Apply it first, to every candidate — record it only if all four hold:
+
+- **Durable** — it will still be true next month. Passing status ("running
+  late", "almost done", how someone feels today) is answered in the
+  conversation and never written down.
+- **Relevant** — it bears on the work, a {entity}, a colleague, or how we
+  operate. Personal detail that touches none of those is not a vault fact,
+  however true it is.
+- **New** — search with `brain_search` before writing. Something already here
+  gets its page updated; it never becomes a second note saying the same thing.
+- **Attributable** — you can say where it came from: who told you, or a source
+  you actually read. Hearsay you cannot attribute stays out, or is recorded as
+  the claim it is ("X believes Y"), never as fact.
+
+Not recording is the ordinary outcome, not a failure. Most of what is said in
+a day is conversation, not knowledge. When something fails these tests, use it
+to answer well and write nothing — a vault that stays small stays searchable.
+
 {corrections_block}## Routing rules (apply when processing new information)
 
 - Action items (owner + deadline) -> `People/{pid}/Actions/Tracker.md`
@@ -46,7 +67,8 @@ writable spaces; the write-back service rejects changes to read-only paths.
   submit shared-page fixes as `mode: patch` promotions, and record a one-line
   reason in `People/{pid}/Needs-Routing.md` for items only a human can
   decide. Never edit or archive the digest — it maintains itself.
-- Personal durable facts, preferences, lessons -> `People/{pid}/Memory.md`.
+- Durable facts, working preferences, and lessons that passed the tests above
+  -> `People/{pid}/Memory.md`.
   Keep it a lean overview, not a running log: small facts live under its
   headings; when a topic outgrows a few lines, move the detail to
   `People/{pid}/Notes/<Topic>.md` and leave a one-line link under the heading
@@ -109,9 +131,15 @@ writable spaces; the write-back service rejects changes to read-only paths.
   `{shared}/Intel/`, add frontmatter `distilled: <URL or title>` and cite the
   claims `[source](URL), as of YYYY-MM` — inside Intel the folder already
   says it, so no marker is needed
-- If unsure where something belongs, add it to `People/{pid}/Needs-Routing.md`
+- If something failed the tests above, it is not routed anywhere — writing it
+  to `Needs-Routing.md` instead of dropping it is the mistake that fills a
+  vault with what nobody chose to keep
+- If it passed but you cannot place it confidently, add one line to
+  `People/{pid}/Needs-Routing.md` saying what it is and why it did not fit.
+  Nothing drains that note but you: when you next work it, file each line and
+  delete it, so the note tends toward empty
 
-## {shared} Intel (the shared travel wiki)
+## {shared} Intel (the shared reference wiki)
 
 `{shared}/Intel/` holds shared reference knowledge, mapped in `Intel/Home.md`:
 `Destinations/<Place>.md`, `Providers/<Name>.md` (hotels, DMCs, outfitters,
@@ -171,6 +199,20 @@ Nothing in `People/{pid}/` is shared automatically. To share knowledge:
 """
 
 
+def render_charter(config: VaultConfig) -> str:
+    """The "what this brain is for" block, or "" when no charter is set.
+
+    Empty means empty, as with corrections: a heading over an invented purpose
+    would be worse than none, because the relevance test below it would then
+    be measured against something nobody in the company actually said.
+    """
+    if not config.charter:
+        return ""
+    return (f"## What this brain is for\n\n{config.charter}\n\n"
+            "That is the subject this vault collects. A fact bearing on none\n"
+            "of it does not belong here, however interesting it is.\n\n")
+
+
 def render_root_protocol(
     person: Person,
     spaces_rw: list[tuple[str, bool]],
@@ -186,7 +228,7 @@ def render_root_protocol(
         entities=config.entities, entity=config.entity,
         entity_title=config.entity[:1].upper() + config.entity[1:],
         requests=config.requests_folder, name_key=config.name_key,
-        shared=config.shared,
+        shared=config.shared, charter_block=render_charter(config),
         corrections_block=(corrections_block + "\n") if corrections_block else "",
     )
     if len(text) > ROOT_LIMIT:
