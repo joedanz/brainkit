@@ -1130,3 +1130,61 @@ def test_shared_agreement_clean_on_default_and_on_real_family(tmp_path):
     for master in (default, family):
         msgs = [f.message for f in run_doctor(master)]
         assert not any("config.yaml names shared" in m for m in msgs), msgs
+
+
+def test_corrections_over_budget_are_reported_to_their_owner(master):
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    for i in range(80):
+        (d / f"r{i:02d}.md").write_text(
+            f"---\nrule: Rule {i} " + "x" * 60 + "\nfrom: 2026-08-19\n---\nwhy\n"
+        )
+
+    findings = run_doctor(master)
+    budget = [f for f in findings if f.check == "corrections-budget"]
+    assert budget, "an over-budget correction set must be reported"
+    f = budget[0]
+    assert f.severity == "warn"
+    # Routed by path: this has to reach bob, not the admins.
+    assert all(p.startswith("People/bob/Corrections/") for p in f.paths)
+    # Counts, not content — the digest should not restate every rule.
+    assert "Rule 0 " not in f.message
+
+
+def test_a_correction_without_a_rule_is_reported(master):
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "broken.md").write_text("---\nfrom: 2026-08-19\n---\nI meant to write a rule.\n")
+
+    findings = run_doctor(master)
+    assert [f for f in findings if f.check == "corrections-budget"
+            and "broken.md" in "".join(f.paths)]
+
+
+def test_a_healthy_correction_set_reports_nothing(master):
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "voice.md").write_text("---\nrule: Keep it direct.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    assert not [f for f in findings if f.check == "corrections-budget"]
+
+
+def test_corrections_do_not_trip_the_prose_note_checks(master):
+    seed_meta(master)
+    # A correction has no wikilinks and no facts by construction, and two
+    # people may reasonably both write voice.md. Neither is a defect.
+    for pid in ("alice", "bob"):
+        d = master / f"People/{pid}/Corrections"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "voice.md").write_text(
+            f"---\nrule: Keep {pid} mail direct.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    noisy = [f for f in findings
+             if f.check in ("unlinked-notes", "stem-collision", "dup-exact")
+             and "Corrections/" in "".join(f.paths)]
+    assert not noisy, f"corrections should not trip prose-note checks: {noisy}"
