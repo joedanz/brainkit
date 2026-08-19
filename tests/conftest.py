@@ -5,6 +5,7 @@ import pytest
 
 from brain import store
 from brain.schemas import Org, Person, SpaceRule
+from brain.templates import assistant_protocol
 
 
 def _vectors_available() -> bool:
@@ -87,7 +88,10 @@ def master(tmp_path: Path) -> Path:
         "People/bob/Sessions/Bob Private Note.md": "Bob only.\n",
         "Clients/acme/Overview.md": "Acme overview.\n",
         "_meta/org.yaml": "people: {}\n",
-        "AGENTS.md": "# Assistant protocol (server only)\n",
+        # The real shipped protocol, not a stub: doctor now errors on a master
+        # whose admission gate is absent or out of date, and every vault that
+        # went through `brain init` has this file.
+        "AGENTS.md": assistant_protocol(),
     }
     for rel, content in files.items():
         p = m / rel

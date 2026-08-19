@@ -176,6 +176,9 @@ def cmd_init(args) -> int:
     dest.mkdir(parents=True, exist_ok=True)
     created = scaffold_master(dest, args.company, config)
     print(f"initialized {args.company} master vault at {dest} ({len(created)} files)")
+    if not config.charter:
+        print("no charter set — agents will test relevance against this vault's "
+              "spaces. Set one with --charter to say what the company does.")
     return 0
 
 
@@ -192,11 +195,21 @@ def cmd_refresh_protocol(args) -> int:
     if not st.differs:
         print("AGENTS.md is already current")
         return 0
-    what = "missing" if st.missing else "differs from the shipped protocol"
+    if st.missing:
+        what = "missing"
+    elif st.gate_differs:
+        what = "has an out-of-date admission gate"
+    else:
+        what = "differs from the shipped protocol"
     if st.written:
         print(f"rewrote {st.path} (was {what})")
         return 0
     print(f"{st.path} {what}", file=sys.stderr)
+    # The diff is the point of the report-only mode: "differs" alone cannot
+    # tell an admin whether the gate moved or a sentence was reworded, and
+    # those are the two ends of this command's urgency.
+    if st.diff:
+        print(st.diff, file=sys.stderr, end="")
     print("re-run with --write to replace it; any hand edits will be lost",
           file=sys.stderr)
     return 1
@@ -646,9 +659,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="name of the shared top-level space everyone reads "
                         "(default: Company)")
     i.add_argument("--charter", default="",
-                   help="one sentence saying what this brain collects; agents "
-                        "test every fact for relevance against it "
-                        "(default: none — the generic tests still apply)")
+                   help="one sentence naming what this company does — a "
+                        "subject, not a mission statement (e.g. \"Bespoke "
+                        "luxury travel.\"); agents test every fact for "
+                        "relevance against it (default: none — relevance "
+                        "falls back to the vault's spaces)")
     i.set_defaults(func=cmd_init)
 
     rp = sub.add_parser("refresh-protocol",

@@ -1289,3 +1289,23 @@ def test_corrections_do_not_trip_the_prose_note_checks(master):
              if f.check in ("unlinked-notes", "stem-collision", "dup-exact")
              and "Corrections/" in "".join(f.paths)]
     assert not noisy, f"corrections should not trip prose-note checks: {noisy}"
+
+
+def test_charter_unset_is_reported_at_info(tmp_path):
+    """Info, never warn: an unset charter is a deliberate default, and a check
+    that fires on every default install is how doctor output stops being
+    read. It exists to name the lever, once, where an admin is looking."""
+    from brain.doctor import run_doctor
+    from brain.schemas import VaultConfig
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    unset = [f for f in run_doctor(tmp_path) if f.check == "charter-unset"]
+    assert len(unset) == 1
+    assert unset[0].severity == "info"
+    assert "brain init --charter" in unset[0].message
+
+    scaffold_master(tmp_path / "acme2", "Acme",
+                    VaultConfig(charter="Bespoke luxury travel."))
+    assert [f for f in run_doctor(tmp_path / "acme2")
+            if f.check == "charter-unset"] == []

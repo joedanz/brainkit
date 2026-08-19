@@ -11,6 +11,90 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **The admission gate now asks what a fact changes, not who it is about.**
+  The Relevance test read "it bears on the work, a client, a colleague, or how
+  we operate" — a subject list, which any durable fact about any colleague
+  satisfies. "Dana is moving to Portland" passed all four tests and was routed
+  to `Memory.md`. It now reads "it changes how we work: with a client, with a
+  colleague, or as a company", and points at the space list rendered directly
+  above it, so a vault with no charter set still has a subject to test
+  relevance against. The Durable test stopped asserting "it will still be true
+  next month", which rejected exactly the in-flight operational facts a brain
+  exists for — a paused rollout, a slipped deadline — and contradicted the
+  `[until::]` fact grammar further down the same file. And the Attributable
+  test's claim form ("X believes Y") is now scoped to a position someone took
+  on the work, rather than serving as a compliant wrapper for a rumour that
+  the fact grammar then forbids ever deleting. All three changes apply to the
+  per-person protocol, the master assistant protocol, and the agent-box
+  `brain-protocol` skill, so an agent reading any two of them learns one
+  boundary rather than two.
+
+- **The routing rules are a destination table, not a standing order.** The
+  heading read `## Routing rules (apply when processing new information)` — a
+  trigger, meaning always — directly above 5,500 characters of imperative
+  bullets. It now reads `## Routing rules (where a fact that passed goes)`.
+  In the master's transcript pipeline, "Extract decisions, action items, and
+  context updates" became "changes to what the brain already says", and a new
+  step 3 re-invokes the gate ("Admit each item against the tests above, then
+  route what passed") at the point where the assistant turns from reading to
+  writing.
+
+- **Session summaries and archived transcripts defer to the gate.** Both were
+  unconditional, so a meeting where nothing passed still produced a written
+  summary and a verbatim retained transcript — in a space that is indexed and
+  permanently exempt from duplicate detection. A summary now carries what was
+  decided and what passed the tests, not a retelling of the conversation, and
+  the archive is explicitly not a place to file things to be found later.
+  Retention itself is unchanged: the archive is what a fact line's `[source::]`
+  points at.
+
+- **Creating a space needs something to keep in it.** A named third party
+  "you work with or track" mints a space with permissions, an `AGENTS.md`, and
+  a `Map.md` entry — on a mention. Both protocols now say a name that merely
+  came up is not yet a client, and writes into a client space you already own
+  carry the tests too: the page holds what we need in order to work with them,
+  not everything true about them.
+
+- **`brain doctor` reports a stale master protocol at error, not warn, when
+  the admission gate is what drifted** (or when `AGENTS.md` is missing
+  entirely). A reworded sentence elsewhere is still a warn — the fix
+  overwrites a file an admin may have edited, so it stays a human's call — but
+  an out-of-date gate is fail-open, and no other check will ever notice, since
+  doctor reads structure and never subject matter. **This can turn `brain
+  doctor` red on an existing vault that has not run `brain refresh-protocol
+  --write`.** If deploy tooling gates on doctor's exit code, refresh the master
+  protocol before upgrading. Compiled per-person vaults are unaffected: they
+  regenerate on every compile.
+
+- **The master `AGENTS.md` no longer tells a non-client vault that its
+  subjects are paying customers.** `Types in use: family (a paying customer)`
+  rendered for any vault with a configured entity noun. The gloss is gone —
+  the noun is self-describing in context — and the vocabulary now asks for an
+  existing type over a near-synonym, because the relation miner treats each
+  new type as a new group.
+
+- The shared Intel section lost its travel-supplier examples ("hotels, DMCs,
+  outfitters, villas, cruise, aviation, guides"), which sat a thousand
+  characters below the relevance test and were the only concrete subject
+  vocabulary an agent had to calibrate against. The folder names are unchanged.
+
+### Added
+
+- **`brain refresh-protocol` prints the diff** when run without `--write`.
+  "Differs from the shipped protocol" could not tell an admin whether the
+  admission gate had moved or a sentence had been reworded, which are the two
+  ends of this command's urgency.
+
+- **`brain doctor` names the charter lever once, at info level**, when
+  `_meta/config.yaml` sets no charter, and `brain init` prints the same hint
+  on success. Neither is a prompt and neither blocks: `brain init` runs in
+  scripts and container builds, and an unset charter is a deliberate default,
+  not a defect — relevance falls back to the vault's own space list. The
+  `--charter` help text now shows the shape wanted (a subject, not a mission
+  statement).
+
 ## [0.4.5] - 2026-08-19
 
 ### Added
