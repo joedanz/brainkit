@@ -222,7 +222,7 @@ discards the oldest searches. It is not an error, and capture never stops.
 To read the whole window, newest last:
 
 ```bash
-cat $(ls -r <vault>/.brain/retrieval.jsonl.*.gz | xargs -r -I{} echo {}) | gunzip -c; cat <vault>/.brain/retrieval.jsonl
+ls -r <vault>/.brain/retrieval.jsonl.*.gz 2>/dev/null | xargs -r gunzip -c; cat <vault>/.brain/retrieval.jsonl
 ```
 
 This log holds the literal text people typed. `raw_log` and `raw_log_since` in
