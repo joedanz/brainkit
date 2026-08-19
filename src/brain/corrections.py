@@ -41,6 +41,7 @@ class CorrectionSet:
     unusable: tuple[str, ...]          # slugs with no `rule:` — never rendered
     undated: tuple[str, ...]           # slugs whose `from:` did not parse
     unreadable: tuple[str, ...]        # slugs the OS would not hand over
+    misfiled: tuple[str, ...]          # paths under the dir the loader ignores
 
 
 def _read_text(path: Path) -> str | None:
@@ -88,19 +89,28 @@ def load_corrections(
     budget running out cascades: every rule after the first that does not fit
     is omitted too. A rule longer than the entire budget never cascades — it
     is omitted alone, and the rules after it still render.
+
+    Only `*.md` directly in the directory is a correction. Anything else under
+    it — a subfolder, another extension — is `misfiled`: recorded here rather
+    than passed over, because a rule nobody is told about is the silent drop
+    this design exists to prevent. `misfiled` is derived by subtracting the
+    files this function actually read, so the two can never drift apart.
     """
     d = vault / "People" / pid / CORRECTIONS_DIR
     if not d.is_dir():
-        return CorrectionSet((), (), (), (), (), ())
+        return CorrectionSet((), (), (), (), (), (), ())
 
     parsed: list[Correction] = []
     unusable: list[str] = []
     undated: list[str] = []
     unreadable: list[str] = []
 
+    loaded: set[Path] = set()
+
     for f in sorted(d.glob("*.md")):
         if not f.is_file():
             continue
+        loaded.add(f)
         slug = f.stem
         text = _read_text(f)
         if text is None:
@@ -115,6 +125,16 @@ def load_corrections(
         if from_date is None:
             undated.append(slug)
         parsed.append(Correction(slug, rule, from_date))
+
+    # Everything under the directory that was not read above. Dotfiles are
+    # excluded: `.DS_Store` is not a correction someone believes is in force,
+    # and a digest saying so would train people to ignore this finding.
+    misfiled = sorted(
+        p.relative_to(d).as_posix()
+        for p in d.rglob("*")
+        if p.is_file() and p not in loaded
+        and not any(part.startswith(".") for part in p.relative_to(d).parts)
+    )
 
     # Two stable sorts rather than one composite key: dates are strings, so
     # "newest first" cannot be expressed as a single ascending tuple without
@@ -156,6 +176,7 @@ def load_corrections(
         unusable=tuple(unusable),
         undated=tuple(undated),
         unreadable=tuple(unreadable),
+        misfiled=tuple(misfiled),
     )
 
 

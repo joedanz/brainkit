@@ -68,6 +68,33 @@ def test_newest_first_with_slug_breaking_ties(tmp_path):
     assert [c.rule for c in cs.rendered] == ["Rule A.", "Rule B.", "Rule O."]
 
 
+def test_a_correction_the_loader_will_not_pick_up_is_recorded(tmp_path):
+    # A misfiled correction rendered nothing and produced no finding anywhere:
+    # doctor's unlinked-notes check exempts Corrections/ by design, so this is
+    # the only thing that can notice it.
+    _write(tmp_path, "alice", "good", _correction("Keep it direct."))
+    d = tmp_path / "People/alice/Corrections"
+    (d / "tone").mkdir()
+    (d / "tone" / "no-filler.md").write_text(_correction("Never open with filler."))
+    (d / "no-filler.txt").write_text(_correction("Never open with filler."))
+
+    cs = load_corrections(tmp_path, "alice")
+    assert cs.misfiled == ("no-filler.txt", "tone/no-filler.md")
+    assert [c.slug for c in cs.rendered] == ["good"]
+
+
+def test_dotfiles_are_not_reported_as_misfiled_corrections(tmp_path):
+    # .DS_Store is not a rule anyone believes is in force, and a digest line
+    # about it would train people to ignore this finding.
+    _write(tmp_path, "alice", "good", _correction("Keep it direct."))
+    d = tmp_path / "People/alice/Corrections"
+    (d / ".DS_Store").write_bytes(b"\x00\x01")
+    (d / ".obsidian").mkdir()
+    (d / ".obsidian" / "workspace.json").write_text("{}")
+
+    assert load_corrections(tmp_path, "alice").misfiled == ()
+
+
 def test_the_budget_omits_whole_rules_and_never_truncates(tmp_path):
     # Each rule is ~60 chars; a 200-char budget fits some and not others.
     for i in range(10):

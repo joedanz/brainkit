@@ -806,6 +806,21 @@ def _check_corrections(master: Path) -> list[Finding]:
                     f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.omitted
                 )))
 
+        if cs.misfiled:
+            # The one check that would otherwise have caught these is
+            # `unlinked-notes`, and it deliberately exempts Corrections/ so
+            # the digest is not filled with noise about them. Without this,
+            # a misfiled correction produces no finding anywhere at all.
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.misfiled)} file(s) are not "
+                f"loaded as corrections and reach no agent — a correction is a `.md` "
+                f"file directly in {CORRECTIONS_DIR}/, never in a subfolder "
+                f"({', '.join(cs.misfiled)})",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{rel}" for rel in cs.misfiled
+                )))
+
         if cs.oversized:
             # Deliberately not the message above: "remove the ones that no
             # longer apply" is the wrong instruction for a rule that is simply

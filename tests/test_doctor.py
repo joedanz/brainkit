@@ -1174,6 +1174,29 @@ def test_a_rule_too_long_to_ever_render_is_reported_as_its_own_problem(master):
     assert "x" * 20 not in f.message         # the count, never the rule text
 
 
+def test_a_misfiled_correction_is_named_rather_than_lost(master):
+    """Wrong extension or nested in a subfolder: the loader ignores it, and
+    unlinked-notes exempts Corrections/, so without this finding a dropped
+    rule reaches nobody — the exact defect this feature exists to prevent."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    (d / "tone").mkdir(parents=True, exist_ok=True)
+    (d / "tone" / "no-filler.md").write_text(
+        "---\nrule: Never open with filler.\nfrom: 2026-08-19\n---\nwhy\n")
+    (d / "brevity.txt").write_text(
+        "---\nrule: Keep it short.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = [f for f in run_doctor(master) if f.check == "corrections-budget"]
+    assert len(findings) == 1
+    f = findings[0]
+    assert sorted(f.paths) == [
+        "People/bob/Corrections/brevity.txt",
+        "People/bob/Corrections/tone/no-filler.md",
+    ]
+    assert "brevity.txt" in f.message and "tone/no-filler.md" in f.message
+    assert "Never open with filler" not in f.message  # filenames, not rule text
+
+
 def test_a_correction_without_a_rule_is_reported(master):
     seed_meta(master)
     d = master / "People/bob/Corrections"

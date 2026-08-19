@@ -26,13 +26,14 @@ explicitly under **Changed**, with what to do about it.
   is left out too, so what renders depends on the order stated rather than on
   which rules happen to fit — but a rule longer than the whole budget is left
   out on its own and reported separately, never taking healthy rules with it.
-  Anything left out, plus any record missing a `rule:` or a usable
-  `from:` date or that the OS will not hand over, is reported by `brain
-  doctor` as `corrections-budget` and routed to that person, because a
-  correction that silently fails to take is worse than one never made. A
-  correction that is not valid UTF-8 — a smart quote pasted out of a document
-  — still renders, with a replacement character where the byte was, rather
-  than failing the compile.
+  Anything left out, any record missing a `rule:` or a usable `from:` date,
+  any the OS will not hand over, and any file misfiled where the loader will
+  never see it (another extension, or a subfolder) is reported by `brain
+  doctor` as `corrections-budget` and routed to the person who wrote it,
+  because a correction that silently fails to take is worse than one never
+  made. A correction that is not valid UTF-8 — a smart quote pasted out of a
+  document — still renders, with a replacement character where the byte was,
+  rather than failing the compile.
 
 ## [0.4.3] - 2026-08-18
 
