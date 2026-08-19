@@ -161,6 +161,29 @@ access-worthy events), `Trends/<YYYY-MM Topic>.md`. Conventions:
   separate addendum file.
 This vault is your only knowledge base — never build a wiki outside it.
 
+## Fact lines and entity pages
+
+A durable state claim ("X is Y", "X works at Y") is written as a bullet
+carrying its dates and its provenance: the claim itself, then
+`[from:: YYYY-MM]` to open it and `[source:: [[the note]]]` to cite the
+episode that established it. Both are required, and a fact line without a
+source is reported back to you. (Written out here in prose, not shown as a
+bullet, because a literal example would parse as a real fact about a
+company you have never heard of — the same reason applies to your notes.)
+When a newer claim replaces an older one, add `[until:: 2026-06]` to the old
+line and write the new line; never delete the old one, because knowing when
+something stopped being true is the point. Prose keeps the
+`[source](URL), as of YYYY-MM` style instead — fact lines are for queryable
+state, citations are for evidence in text.
+
+A page about a single thing declares what it is, and every other name it goes
+by, so `brain_search` resolves them to this page:
+
+    ---
+    entity: {entity}
+    aliases: [Other Name, ABBR]
+    ---
+
 ## Typed relations
 
 Notes can declare how they relate, in frontmatter — five keys holding
