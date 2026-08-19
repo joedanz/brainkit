@@ -4,7 +4,7 @@ description: The org.yaml and spaces.yaml schema that drives compilation and per
 icon: settings
 ---
 
-Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and who sees what (`spaces.yaml`) — plus an optional third, `webhook.yaml`, when you run the [webhook intake receiver](/guides/getting-things-in#webhooks--automatic-intake-from-other-services). All are plain YAML, validated on load — a malformed file is a clear error, never a silent misconfiguration. Nothing under `_meta/` is ever compiled into a person's vault.
+Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and who sees what (`spaces.yaml`) — plus an optional third, `webhook.yaml`, when you run the [webhook intake receiver](/guides/getting-things-in#webhooks--automatic-intake-from-other-services). All are plain YAML, validated on load — a malformed file is a clear error, never a silent misconfiguration. Nothing under `_meta/` is ever compiled into a person's vault. brainkit also *writes* one file there itself — the [health snapshot](#_metacachehealthjson--the-generated-health-snapshot) every cycle refreshes for a control plane to read.
 
 ## `org.yaml`
 
@@ -128,6 +128,45 @@ sources:
 | `rate_limit` | no | Max accepted deliveries per minute for this source. Default `60`. Excess deliveries get a retryable `429` with a `Retry-After` header — providers redeliver them, so a backfill slows down rather than dropping notes. Raise it before a bulk import; lower it for a source that should stay quiet. |
 
 Validation fails closed: any invalid entry rejects the whole file, and `brain doctor` reports config errors and unset secret variables.
+
+## `_meta/cache/health.json` — the generated health snapshot
+
+Unlike everything above, this one is **written by brainkit, not by you**. Every
+[`brain cycle`](/reference/cli#brain-cycle) overwrites it with what
+[`brain doctor`](/reference/cli#brain-doctor) found, reduced to counts:
+
+```json
+{
+  "schema": 1,
+  "generated_at": "2026-08-19T20:30:00Z",
+  "brainkit_version": "0.4.3",
+  "ok": false,
+  "counts": { "error:symlinks": 1, "warn:fact-conflict": 3 },
+  "tamper": { "clients": 0, "shares": 0, "promotions": 0 }
+}
+```
+
+It exists so a control plane can answer "is this brain healthy?" without an
+operator opening a terminal — `doctor`'s exit code cannot carry that, because
+only `error` severity moves it and most findings are warnings.
+
+**Counts and check ids only — never a finding's message or its paths.** Finding
+text quotes note paths and can name a restricted client, so the reduction
+happens at the source rather than being filtered downstream by whoever reads
+the file.
+
+Three things worth knowing if you consume it:
+
+- **It lives under `_meta/cache/`, which `brain init` gitignores**, so the
+  snapshot never enters git, never compiles into anyone's vault, and never
+  travels to a clone. A master predating that template gets **no file at all**
+  rather than a committable one, and `brain cycle` says so in its
+  `health_warnings`.
+- **Absence means "cannot say", never "no findings".** A box running a brainkit
+  older than 0.4.3 publishes nothing. Reading that as a clean brain is the one
+  mistake this file exists to prevent.
+- **`ok` is derived** — it is false exactly when some `error:` key is present,
+  so it never disagrees with `counts`.
 
 ## Embeddings
 
