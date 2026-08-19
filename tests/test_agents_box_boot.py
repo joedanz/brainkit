@@ -312,3 +312,101 @@ def test_the_scratch_block_does_not_participate_in_the_merge(shell, tmp_path):
     assert "Your name is Stewie." in soul
     assert "Draft, don't send." in soul
     assert "hermes-brain: scratch" not in soul      # re-applied by the caller
+
+
+# --- install_skills: the company's skills repo outranks the image ------------
+#
+# Same extraction discipline as the SOUL block above: the shell is pulled from
+# the script rather than restated, so a drifting script fails at extraction
+# instead of testing a stale copy.
+
+SKILLS_AWK = r'/^COMPANY_SKILLS=/{on=1} on{print} on && /^install_skills\(\)/{f=1} f && /^}$/{exit}'
+
+
+@pytest.fixture(scope="module")
+def skills_shell():
+    """Drive install_skills against a temp image profile and DATA."""
+    if shutil.which("diff") is None:
+        pytest.skip("diff not available")
+    body = _extract(SKILLS_AWK)
+
+    def run(profile: Path, data: Path, company: Path | None) -> str:
+        script = "\n".join([
+            "set -eu",
+            f'DATA="{data}"',
+            f'COMPANY_SKILLS="{company or "/nonexistent"}"',
+            # the script reads the image profile from an absolute path; point
+            # the loop at the fixture's copy without editing the extracted body
+            body.replace("/opt/brain-profile/skills", str(profile)),
+            "install_skills",
+        ])
+        r = subprocess.run(["sh", "-c", script], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        return r.stdout
+
+    return run
+
+
+def _skill(root: Path, name: str, text: str) -> Path:
+    d = root / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text(text)
+    return d
+
+
+def test_image_skills_install_when_no_company_repo(skills_shell, tmp_path):
+    profile, data = tmp_path / "profile", tmp_path / "data"
+    _skill(profile, "brain-protocol", "image version\n")
+    _skill(profile, "note-taking", "notes\n")
+    skills_shell(profile, data, None)
+    assert (data / "skills/brain-protocol/SKILL.md").read_text() == "image version\n"
+    assert (data / "skills/note-taking/SKILL.md").exists()
+
+
+def test_a_company_skill_is_not_seeded_from_the_image(skills_shell, tmp_path):
+    """The whole point: an image copy in DATA shadows the company's, so a push
+    to the skills repo would never take effect."""
+    profile, data, company = tmp_path / "profile", tmp_path / "data", tmp_path / "company"
+    _skill(profile, "brain-protocol", "image version\n")
+    _skill(profile, "note-taking", "notes\n")
+    _skill(company, "brain-protocol", "company version\n")
+
+    out = skills_shell(profile, data, company)
+    assert not (data / "skills/brain-protocol").exists()
+    assert (data / "skills/note-taking/SKILL.md").exists(), "other skills still seed"
+    assert "company-managed" in out
+
+
+def test_a_company_skill_under_a_category_is_recognised(skills_shell, tmp_path):
+    """The repo's layout allows <category>/<skill>/SKILL.md."""
+    profile, data, company = tmp_path / "profile", tmp_path / "data", tmp_path / "company"
+    _skill(profile, "brain-protocol", "image version\n")
+    _skill(company / "ops", "brain-protocol", "company version\n")
+    skills_shell(profile, data, company)
+    assert not (data / "skills/brain-protocol").exists()
+
+
+def test_an_unedited_seeded_copy_is_reclaimed(skills_shell, tmp_path):
+    """The migration path: a copy this script wrote, byte-identical to the
+    image's, is removed so the company's stops being shadowed."""
+    profile, data, company = tmp_path / "profile", tmp_path / "data", tmp_path / "company"
+    _skill(profile, "brain-protocol", "image version\n")
+    _skill(company, "brain-protocol", "company version\n")
+    _skill(data / "skills", "brain-protocol", "image version\n")  # previously seeded
+
+    out = skills_shell(profile, data, company)
+    assert not (data / "skills/brain-protocol").exists()
+    assert "removed the image's copy" in out
+
+
+def test_an_edited_local_skill_is_left_alone(skills_shell, tmp_path):
+    """A locally-authored skill shadowing a company one is documented
+    behaviour; reclaiming it would delete somebody's work."""
+    profile, data, company = tmp_path / "profile", tmp_path / "data", tmp_path / "company"
+    _skill(profile, "brain-protocol", "image version\n")
+    _skill(company, "brain-protocol", "company version\n")
+    _skill(data / "skills", "brain-protocol", "MY OWN EDITS\n")
+
+    out = skills_shell(profile, data, company)
+    assert (data / "skills/brain-protocol/SKILL.md").read_text() == "MY OWN EDITS\n"
+    assert "not seeding" in out

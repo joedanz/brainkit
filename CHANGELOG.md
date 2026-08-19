@@ -11,6 +11,23 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **A company skills repo now outranks the image's copy of a skill.** Agent
+  containers refresh `skills/` from the image on every new build, which meant a
+  skill the image ships won forever: each roll re-copied its version into
+  `/opt/data/skills`, where it shadows anything a company distributes, so a push
+  to a company skills repo would silently never take effect. Mount one
+  read-only at `/opt/company-skills` (override with `COMPANY_SKILLS`), one
+  `<skill>/SKILL.md` or `<category>/<skill>/SKILL.md` per directory, and the
+  image stops seeding any skill it names — `brain-protocol` included. That
+  turns a protocol change from "pull, rebuild, recreate every container" into
+  one push landing on the next pull, with no restart and no dropped
+  conversation. Migration is automatic and conservative: an already-seeded copy
+  is removed only when byte-identical to the image's, which identifies a copy
+  the hook wrote and nobody edited; anything else is somebody's own work and is
+  left in place, still shadowing, as a locally-authored skill is meant to.
+
 ## [0.4.7] - 2026-08-19
 
 ### Changed
