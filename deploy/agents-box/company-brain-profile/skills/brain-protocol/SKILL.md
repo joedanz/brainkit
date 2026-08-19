@@ -14,22 +14,30 @@ Routing decides where a fact goes; admission decides whether it goes anywhere.
 The vault's AGENTS.md carries the authoritative tests — a candidate is
 recorded only if all four hold:
 
-1. **Durable** — still true next month, not passing status.
-2. **Relevant** — bears on the work, a client, a colleague, or how we operate.
+1. **Durable** — it outlasts the conversation, not passing status. Something
+   with an end date still counts.
+2. **Relevant** — changes how we work: with a third party, with a colleague,
+   or as a company. A fact about a person that changes nothing about working
+   with them is not recorded, however true it is.
 3. **New** — search first; an existing page is updated, not restated.
-4. **Attributable** — you can say where it came from.
+4. **Attributable** — you can say where it came from. Recording it as a claim
+   ("X believes Y") is for a position someone took on the work, not a way to
+   keep a rumour about a person.
 
 Not recording is the ordinary outcome. When something fails these tests, use
 it to answer well and write nothing.
 
 ## Ingest (new transcript or note in People/<you>/Inbox/)
 
-1. Summarize the content.
-2. Extract: decisions; action items (owner + deadline); context updates.
+1. Summarize what was decided and what changed, not what was said.
+2. Extract: decisions; action items (owner + deadline); changes to what the
+   vault already says.
 3. Admit each extracted item (above), then route what survives per the vault's
    routing rules (actions -> Actions/Tracker.md, summary -> Sessions/, durable
    facts -> Memory.md).
-4. Archive the processed item into Sessions/. An item that belongs in the
+4. Delete the processed item. It is not archived: the summary from step 3 is
+   what the episode leaves behind, and it is what a fact line cites. Delete it
+   last, so an interrupted routing loses nothing. An item that belongs in the
    vault but has no clear home goes to Needs-Routing.md — never guess, and
    never park what failed admission there.
 

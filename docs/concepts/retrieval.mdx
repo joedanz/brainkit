@@ -29,6 +29,29 @@ move enforcement from the compiler (structural) to a filter (a bug away from a
 leak). A [randomized leak property test](/concepts/the-compiler) proves no
 query for a person ever returns a chunk outside their readable spaces.
 
+## What the index leaves out
+
+Two things in a compiled vault are never indexed. The **generated files** — the
+protocol, `Map.md`, `Shares.md` — because they are regenerated state describing
+the vault rather than knowledge in it. And **`Sessions/`**, the processed
+archive.
+
+That second exclusion is a judgement, so it is worth stating plainly.
+`Sessions/` holds one summary per episode: what was decided, and what passed the
+admission tests. That is a narrative restatement of what the same routing pass
+already filed elsewhere — the facts went to `Memory.md`, the actions to the
+tracker, the decisions to the shared space. Indexed, one episode's content is in
+the index twice, and the two copies double-vote in rank fusion. That is the same
+failure `doctor`'s `dup-near` check exists to name; here it is structural rather
+than accidental, so it is excluded by construction instead of reported.
+
+Excluded, those files stay on disk, stay readable, and stay linkable by path or
+by Obsidian wikilink. What they stop being is search results, backlink sources,
+and nodes in the typed-relation graph. So a wikilink into `Sessions/` — a fact
+line's `[source:: [[the note]]]`, for instance — records as unresolved, exactly
+as any other target the index does not hold. The citation still tells a reader
+which episode established the claim; it just will not resolve to a hit.
+
 ## How a query is answered
 
 Search fuses three independent legs by reciprocal-rank fusion (RRF), and needs

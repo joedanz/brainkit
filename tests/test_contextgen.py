@@ -241,6 +241,9 @@ def test_brain_protocol_skill_is_noun_neutral():
              "deploy/agents-box/company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
     for literal in ("Clients/", "ClientRequests", "client-name"):
         assert literal not in skill, literal
+    # the bare noun leaked past the pins above, in the skill's own copy of the
+    # relevance test — a Families deployment read "bears on ... a client"
+    assert "a client," not in skill
 
 
 def test_root_protocol_custom_noun():
@@ -390,6 +393,58 @@ def test_admission_gate_precedes_routing():
     assert text.index("## What belongs in this vault") < text.index("## Routing rules")
 
 
+def test_relevance_is_a_consequence_test_anchored_to_the_spaces():
+    """The Relevance test used to name its subjects — "the work, a client, a
+    colleague" — which any durable fact about any colleague satisfies. It now
+    asks what the fact CHANGES, and points at the space list rendered directly
+    above it, so a vault with no charter still has a subject to test against.
+    """
+    text = render_root_protocol(BOB, [("People/bob", True), ("Company", False)])
+    assert "it changes how we work" in text
+    assert "The spaces listed above are what this vault is about." in text
+    # the shape that let the old wording through: a subject enumeration
+    assert "it bears on the work" not in text
+
+
+def test_durable_admits_a_fact_with_an_end_date():
+    """"Still true next month" rejected exactly the in-flight operational
+    facts the brain exists for, and contradicted the `[until::]` grammar
+    further down the same file."""
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "it outlasts this conversation" in text
+    assert "Something with an end date still counts" in text
+    assert "it will still be true next month" not in text
+
+
+def test_attributable_does_not_launder_a_rumour():
+    """The claim form is for a position someone took, not a compliant wrapper
+    for gossip — which, once written, the fact grammar forbids deleting."""
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "not a way\n  to keep a rumour about a person" in text
+
+
+def test_session_writes_defer_to_the_gate():
+    """An unconditional "summarize every meeting" is what fills a vault nobody
+    can search. The summary is now bound to the gate, and it is the only thing
+    the episode leaves behind."""
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "not a retelling of the" in text
+    assert "it is what a fact line\n  cites" in text
+
+
+def test_raw_transcripts_are_deleted_not_archived():
+    """The transcript is pure conversation and nothing prunes the vault, so
+    archiving it verbatim grew a permanent record of every exchange that the
+    compiler then re-copied into the vault on every cycle. Deleting last is
+    load-bearing: an interrupted routing must not lose the source."""
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "then delete the transcript" in text
+    assert "It is not archived" in text
+    assert "Delete it last" in text
+    # the instruction it replaced, in every wording it had
+    assert "archived to" not in text
+
+
 def test_needs_routing_is_not_a_holding_pen_for_rejected_items():
     text = render_root_protocol(BOB, [("People/bob", True)])
     # the failure mode this rule exists to stop: an agent that treats
@@ -436,7 +491,16 @@ def test_charter_cannot_forge_protocol_structure():
     # collapsed to one line, the forged heading is inert prose: markdown only
     # opens a section at the start of a line, and the real one is still alone
     headings = [ln for ln in text.splitlines() if ln.startswith("## Routing rules")]
-    assert headings == ["## Routing rules (apply when processing new information)"]
+    assert headings == ["## Routing rules (where a fact that passed goes)"]
+
+
+def test_entity_types_do_not_gloss_the_configured_noun():
+    """A Families vault was told its families are paying customers. The noun
+    is self-describing in context; any gloss the product invents is wrong for
+    somebody."""
+    from brain.templates import assistant_protocol
+    assert "a paying customer" not in assistant_protocol()
+    assert "Types in use: family," in assistant_protocol(FAM)
 
 
 def test_assistant_protocol_carries_the_admission_gate():
@@ -579,11 +643,23 @@ def test_doctor_reports_a_stale_master_protocol(tmp_path):
     scaffold_master(tmp_path, "Acme")
     assert [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"] == []
 
+    # A protocol with no gate at all is fail-open, not untidy: the assistant is
+    # running without admission rules, so this is an error.
     (tmp_path / "AGENTS.md").write_text("# last year's rules\n")
     stale = [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"]
     assert len(stale) == 1
-    assert stale[0].severity == "warn"
+    assert stale[0].severity == "error"
+    assert "admission gate" in stale[0].message
     assert "brain refresh-protocol" in stale[0].message
+
+    # Drift that leaves the gate intact stays a warn — the fix overwrites a
+    # file an admin may have edited, so it stays a human's call.
+    from brain.templates import assistant_protocol
+    (tmp_path / "AGENTS.md").write_text(
+        assistant_protocol() + "\n## House rules\n\nWe also do X.\n")
+    cosmetic = [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"]
+    assert len(cosmetic) == 1
+    assert cosmetic[0].severity == "warn"
 
     refresh_assistant_protocol(tmp_path, write=True)
     assert [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"] == []

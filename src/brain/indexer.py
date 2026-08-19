@@ -10,6 +10,17 @@ common embeds exactly once.
 Indexing reads only the compiled vault (never master), so the index inherits the
 compiler's structural boundary: a per-person index can only ever contain content
 that person may read.
+
+`Sessions/` is excluded. It holds one summary per episode — what was decided and
+what passed the admission tests — which is a narrative restatement of what the
+routing rules filed the same pass: the facts went to Memory.md, the actions to
+the tracker, the decisions to the shared space. Indexed, one episode's content
+is in the index twice, and the two copies double-vote in rank fusion, which is
+the same failure doctor's `dup-near` check exists to name. Excluding it costs
+the ability to *search* an episode; the file stays on disk, stays readable, and
+stays linkable by path or by Obsidian wikilink. Links pointing into it demote to
+unresolved on the next build, which is the same path any un-indexed target
+already takes.
 """
 
 from __future__ import annotations
@@ -28,6 +39,16 @@ from brain.frontmatter import split_frontmatter
 from brain.resolver import space_of_path
 from brain.store import IndexStore
 from brain.writeback import _load_manifest, shared_of
+
+# Path segment holding episode summaries. One name, checked as a segment rather
+# than a prefix, because a Sessions folder can sit under any space —
+# `People/<id>/Sessions/` today, and wherever a future layout puts it.
+SESSIONS_SEGMENT = "Sessions"
+
+
+def is_session(rel: str) -> bool:
+    """Whether `rel` is an episode summary, and so out of the index."""
+    return SESSIONS_SEGMENT in Path(rel).parts
 
 
 @dataclass
@@ -96,7 +117,7 @@ def build_index(
     candidates = {
         rel: sha
         for rel, sha in manifest["compiled"].items()
-        if rel.endswith(".md") and rel not in generated
+        if rel.endswith(".md") and rel not in generated and not is_session(rel)
     }
 
     report = IndexReport()

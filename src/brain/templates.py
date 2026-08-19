@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,25 +88,32 @@ access. Personal agents see only their compiled slice; you maintain the whole.
 Routing decides where a fact goes; this decides whether it goes anywhere.
 Apply it to every candidate before routing — record it only if all four hold:
 
-- **Durable** — it will still be true next month. Passing status is answered
-  in the conversation and never written down.
-- **Relevant** — it bears on the work, a @ENTITY@, a colleague, or how we
-  operate. Personal detail touching none of those is not a brain fact.
-- **New** — search before writing. Something already here gets its page
-  updated; it never becomes a second note saying the same thing.
+- **Durable** — it outlasts the conversation. Passing status ("running late",
+  "almost done", how someone feels today) is answered there and never written
+  down. Something with an end date still counts: a decision, a deadline, a
+  commitment is worth keeping until it is met.
+- **Relevant** — it changes how we work: with a @ENTITY@, with a colleague, or
+  as a company. A fact about a person that changes nothing about working with
+  them is not a brain fact, however true it is.
+- **New** — search with `brain_search` before writing. Something already here
+  gets its page updated; it never becomes a second note saying the same thing.
 - **Attributable** — you can say where it came from. Hearsay you cannot
-  attribute stays out, or is recorded as the claim it is, never as fact.
+  attribute stays out. Recording it as a claim ("X believes Y") is for a
+  position someone took on the work, not a way to keep a rumour about a person.
 
 Not recording is the ordinary outcome, not a failure. You process everyone's
 transcripts, so what you let through compounds: most of a transcript is
-conversation, and only some of it is knowledge.
+conversation, and only some of it is knowledge, and a brain that stays small
+stays searchable.
 
 ## Transcript pipeline
 
 When a transcript appears in any `People/<person>/Inbox/`:
-1. Summarize it.
-2. Extract decisions, action items (owner + deadline), and context updates.
-3. Route:
+1. Summarize what was decided and what changed, not what was said.
+2. Extract decisions, action items (owner + deadline), and changes to what the
+   brain already says. `Inbox/doctor-digest.md` (`source: doctor`) is a
+   generated integrity report, not a capture: never edit or archive it.
+3. Admit each item against the tests above, then route what passed:
    - Action items -> that person's `People/<person>/Actions/Tracker.md`
    - Durable personal facts that passed the tests above -> that person's
      `People/<person>/Memory.md`,
@@ -117,9 +125,11 @@ When a transcript appears in any `People/<person>/Inbox/`:
      one via `People/<person>/@REQUESTS@/` (server provisions it); you, with
      full access, may create `@ENTITIES@/<@ENTITY@>/` directly. Prefer the fullest
      reasonable identifier; when a name is ambiguous, ask before creating.
-     A single mention can split into two homes — a @ENTITY@ note in
+     One item can split into two homes — a @ENTITY@ note in
      `@ENTITIES@/<@ENTITY@>/` and, for a dated occurrence, a
-     `@SHARED@/Intel/Events/<Name>.md` page — cross-linked.
+     `@SHARED@/Intel/Events/<Name>.md` page — cross-linked. Create a
+     @ENTITY@ space for someone the work actually involves; a name that came
+     up once is a mention, not a @ENTITY@.
      Owners share or revoke access to their spaces via
      `People/<person>/ShareRequests/` (`space`/`share-with`/`access`/`action`
      frontmatter); shares wait for their decider's approval — the recipient
@@ -157,11 +167,15 @@ When a transcript appears in any `People/<person>/Inbox/`:
      `@SHARED@/Intel/` instead — an entity page, a personal note — mark it
      `distilled: <URL or title>` in frontmatter and cite it the same way; the
      original never enters the vault, so the citation is the only route back
-   - Session summary -> `People/<person>/Sessions/`
+   - Session summary -> `People/<person>/Sessions/`, carrying what was
+     decided and what passed the tests above, not a retelling — it is the
+     record of the episode, so it is what a fact line cites
    - General insights that passed the tests above and bear on the whole
      company -> fold into `@SHARED@/Memory.md`, which stays a lean overview
      linking out to detail notes — not a running log
-4. Archive the processed transcript into `People/<person>/Sessions/`.
+4. Delete the processed transcript. It is not archived: the summary from step 3
+   is what the episode leaves behind. Delete it last, so an interrupted routing
+   loses nothing.
 
 An item that failed the tests above is not routed anywhere: drop it. Writing
 it to `Needs-Routing.md` instead is how a brain fills with what nobody chose
@@ -190,10 +204,11 @@ Pages about a single thing get entity frontmatter:
     aliases: [Other Name, ABBR]
     ---
 
-Types in use: @ENTITY@ (a paying customer), person (someone we work with),
-provider (a vendor or service), destination (a place we cover), event
-(a dated occurrence), tool (software or equipment we use). Add a new type
-when none fits — lowercase, singular — and use it consistently.
+Types in use: @ENTITY@, person (someone we work with), provider (a vendor or
+service), destination (a place we cover), event (a dated occurrence), tool
+(software or equipment we use). Add a new type when none fits — lowercase,
+singular — and use it consistently; prefer an existing type to a near-synonym,
+because the relation miner treats each new type as a new group.
 
 ## Typed relations
 
@@ -327,11 +342,37 @@ def _intel_home_md() -> str:
 
 @dataclass(frozen=True)
 class ProtocolStatus:
-    """What `refresh_assistant_protocol` found, and what it did about it."""
+    """What `refresh_assistant_protocol` found, and what it did about it.
+
+    `gate_differs` separates the one kind of drift that is not cosmetic. An
+    out-of-date wording elsewhere in the protocol is untidy; an out-of-date
+    admission gate is fail-open — the assistant is admitting things this
+    version of brainkit decided do not belong — so doctor reports the two at
+    different severities. `diff` is carried here rather than recomputed by the
+    caller for the same reason the write lives in this function: two places
+    deciding what "current" means is two places that can disagree.
+    """
     path: Path
     missing: bool
     differs: bool
     written: bool
+    gate_differs: bool = False
+    diff: str = ""
+
+
+_GATE_HEADING = "## What belongs in the brain"
+
+
+def _gate_section(text: str | None) -> str:
+    """The admission gate alone, or "" when the file has no gate at all.
+
+    A master written before the gate existed returns "" here, which differs
+    from the shipped section and so reports as the fail-open condition it is.
+    """
+    if not text or _GATE_HEADING not in text:
+        return ""
+    body = text.split(_GATE_HEADING, 1)[1]
+    return body.split("\n## ", 1)[0]
 
 
 def refresh_assistant_protocol(master: Path, config: VaultConfig | None = None,
@@ -359,11 +400,16 @@ def refresh_assistant_protocol(master: Path, config: VaultConfig | None = None,
         current = None
 
     differs = current != expected
+    diff = "".join(difflib.unified_diff(
+        (current or "").splitlines(keepends=True), expected.splitlines(keepends=True),
+        fromfile=f"{path} (current)", tofile="shipped protocol")) if differs else ""
     if differs and write:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(expected)
     return ProtocolStatus(path=path, missing=current is None,
-                          differs=differs, written=differs and write)
+                          differs=differs, written=differs and write,
+                          gate_differs=_gate_section(current) != _gate_section(expected),
+                          diff=diff)
 
 
 def scaffold_master(dest: Path, company: str,

@@ -726,19 +726,45 @@ def _check_protocol(master: Path, config: VaultConfig) -> list[Finding]:
     stale — it is written once at `brain init` and never again. A vault whose
     assistant is running last year's rules looks identical to one running this
     year's, which is exactly the kind of silent drift doctor exists to name.
-    Warn, not error: an out-of-date protocol still works, and the fix
-    (`brain refresh-protocol --write`) overwrites a file an admin may have
-    edited, so it stays a human's call.
+    Severity splits on what drifted. Wording elsewhere in the protocol is warn:
+    an out-of-date phrasing still works, and the fix (`brain refresh-protocol
+    --write`) overwrites a file an admin may have edited, so it stays a
+    human's call. A missing file or a drifted admission gate is an error,
+    because that is fail-open: the assistant is admitting into the brain what
+    this version decided does not belong, and no other check will ever notice
+    — doctor reads structure, never subject matter.
     """
     from brain.templates import refresh_assistant_protocol
 
     st = refresh_assistant_protocol(master, config)
     if not st.differs:
         return []
-    what = "is missing" if st.missing else "differs from the shipped protocol"
-    return [Finding("warn", "protocol-stale",
+    if st.missing:
+        what, level = "is missing", "error"
+    elif st.gate_differs:
+        what, level = "has an out-of-date admission gate", "error"
+    else:
+        what, level = "differs from the shipped protocol", "warn"
+    return [Finding(level, "protocol-stale",
                     f"AGENTS.md {what} — run `brain refresh-protocol "
                     f"--master {master} --write`", paths=("AGENTS.md",))]
+
+
+def _check_charter(config: VaultConfig) -> list[Finding]:
+    """Name the relevance lever once, where an admin is already looking.
+
+    Info, deliberately, and never warn: an unset charter is not a defect. The
+    relevance test degrades to the vault's own space list, which is a real
+    subject — narrower than a stated one, but nobody invented it. A warn here
+    would fire on every default install, and a check that fires on a
+    deliberate default is how doctor output starts being ignored.
+    """
+    if config.charter:
+        return []
+    return [Finding("info", "charter-unset",
+                    "no charter set — the relevance test falls back to the "
+                    "vault's spaces; set one with `brain init --charter`",
+                    paths=("_meta/config.yaml",))]
 
 
 def _check_fact_sources(master: Path, shared: str) -> list[Finding]:
@@ -1406,6 +1432,7 @@ def run_doctor(
     findings += _check_facts(master, shared)
     if config_ok:
         findings += _check_protocol(master, config)
+        findings += _check_charter(config)
     findings += _check_fact_sources(master, shared)
     findings += _check_fact_conflicts(master, shared)
     findings += _check_corrections(master)
