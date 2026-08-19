@@ -168,6 +168,55 @@ Three things worth knowing if you consume it:
 - **`ok` is derived** — it is false exactly when some `error:` key is present,
   so it never disagrees with `counts`.
 
+## `.brain/retrieval-stats.json` — the generated retrieval snapshot
+
+Written by every search into each vault's `.brain/` directory. It answers one
+question that nothing else in brainkit answers: **is search returning
+anything?**
+
+```json
+{"schema":1,"person":"joe","brainkit_version":"0.4.5","updated_at":"2026-08-19T14:02:11Z","searches":412,"zero_hit":157,"by_mode":{"hybrid":380,"no-index":2},"warn":{"vector-degraded":8},"raw_log":false,"raw_log_since":null,"raw_truncated":false}
+```
+
+Counters are cumulative and only ever increase. A recompile does **not**
+reset them — `.brain/` is carried across the compiler's two-phase swap, the
+same way `.git` is. The only thing that resets them is a new container
+volume. The useful reading is the ratio `zero_hit / searches` rather than
+either number alone.
+
+`by_mode` keys are the search modes: `hybrid`, `hybrid+graph`, `keyword-only`,
+`keyword-only+graph`, and `no-index` for a search that ran before
+`brain index` had built anything. `warn` counts categories, never messages —
+warning text can contain a filesystem path, and this file never carries one.
+
+The file is compact single-line JSON because it is read by line-oriented
+tooling. `jq .` makes it readable.
+
+`.brain/` is gitignored (see the vault `.gitignore` every compile writes), so
+this never enters git history or a compiled vault.
+
+### The raw query log
+
+Off by default. Create the sentinel to switch it on for one person. `.brain/`
+does not exist until the first search runs, so create it first if needed:
+
+```bash
+mkdir -p <vault>/.brain
+touch <vault>/.brain/retrieval-log.on      # on
+rm <vault>/.brain/retrieval-log.on         # off
+```
+
+While it exists, each search appends a line to `<vault>/.brain/retrieval.jsonl`
+holding the query, the mode, and the path and space of each hit. **Note
+snippets are never written.** The file is capped at 5 MB; on reaching the cap
+it stops appending and sets `raw_truncated` rather than dropping lines
+silently. That flag reports the current state rather than a permanent mark:
+delete `retrieval.jsonl` and the next search clears it.
+
+This log holds the literal text people typed. `raw_log` and `raw_log_since` in
+the stats file report that it is running and since when, so it cannot be
+switched on and forgotten.
+
 ## Embeddings
 
 Retrieval's semantic leg needs an embedding provider. Without one, `brain index` and `brain search` still work in **keyword-only** mode — configure a provider to add the vector leg. Any OpenAI-compatible `/embeddings` endpoint works (OpenAI, Together, a company proxy, a local `llama-server`).

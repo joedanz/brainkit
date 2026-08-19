@@ -216,3 +216,41 @@ def test_index_output_unchanged_by_this_slice(master, tmp_path):
         conn.close()
         dumps.append(rows)
     assert dumps[0] == dumps[1]
+
+
+def test_searching_records_retrieval_stats(indexed_alice):
+    """The whole point: going through the real entry point counts."""
+    import json as _json
+
+    from brain.retrieval import STATS_NAME
+
+    search_index(indexed_alice, "anything")
+    stats = _json.loads((indexed_alice / ".brain" / STATS_NAME).read_text())
+    assert stats["searches"] == 1
+
+
+def test_a_search_with_no_index_is_still_counted(tmp_path):
+    import json as _json
+
+    from brain.retrieval import STATS_NAME
+
+    vault = tmp_path / "bare"
+    vault.mkdir()
+    report = search_index(vault, "anything")
+    assert report.hits == []
+    stats = _json.loads((vault / ".brain" / STATS_NAME).read_text())
+    assert stats["searches"] == 1
+    assert stats["by_mode"] == {"no-index": 1}
+    assert stats["zero_hit"] == 1
+
+
+def test_a_failing_recorder_never_breaks_the_search(monkeypatch, indexed_alice):
+    """Instrumentation must not break the thing it measures."""
+    import brain.retrieval as retrieval
+
+    def boom(*a, **k):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(retrieval, "record", boom)
+    report = search_index(indexed_alice, "anything")
+    assert isinstance(report.mode, str)      # the search still returned normally

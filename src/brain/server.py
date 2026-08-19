@@ -3,9 +3,15 @@ dashboard renders, pushed over a WebSocket as the brain changes.
 
 Design constraints inherited from the rest of brainkit:
 
-* **Read-only.** Every handler observes; none mutates a vault or its index.
-  Stats/search/graph run in a worker thread (`asyncio.to_thread`) because the
-  collectors do blocking sqlite + subprocess work.
+* **Read-only, with one counter.** Every handler observes; none mutates a
+  vault or its index. The one exception is ``handle_search``, which — via
+  ``search_index`` — increments the same retrieval counters
+  (``.brain/retrieval-stats.json``) an agent's own searches do; that file
+  holds counts only. If the vault's raw-log sentinel is on, the same search
+  also appends its query text to ``.brain/retrieval.jsonl``, same as any
+  other caller — this handler is not exempt. Stats/search/graph run in a
+  worker thread (`asyncio.to_thread`) because the collectors do blocking
+  sqlite + subprocess work.
 * **Lens-scoped.** The user lens serves exactly one compiled vault — by
   construction only what that person may read. The admin lens serves master
   overview data, and (for the graph/query tabs) a *named* person's compiled
