@@ -410,3 +410,64 @@ def test_an_edited_local_skill_is_left_alone(skills_shell, tmp_path):
     out = skills_shell(profile, data, company)
     assert (data / "skills/brain-protocol/SKILL.md").read_text() == "MY OWN EDITS\n"
     assert "not seeding" in out
+
+
+# --- the provisioning script that hands the skill over -----------------------
+
+INSTALLER = DEPLOY / "install-brain-skill.sh"
+
+
+def test_installer_places_the_skill_and_excludes_it(tmp_path):
+    """Provisioned, not committed: the pull job runs fetch + reset --hard and
+    never git clean, so an untracked directory survives every pull. Excluding
+    it locally keeps it out of `git status` so nobody reads it as a stray
+    edit."""
+    repo = tmp_path / "company-skills"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+
+    r = subprocess.run(["sh", str(INSTALLER), str(repo)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    skill = repo / "brain-protocol/SKILL.md"
+    assert skill.exists()
+    assert skill.read_text() == (
+        DEPLOY / "company-brain-profile/skills/brain-protocol/SKILL.md").read_text()
+
+    status = subprocess.run(["git", "-C", str(repo), "status", "--short"],
+                            capture_output=True, text=True).stdout
+    assert status.strip() == "", f"should be excluded, got: {status!r}"
+
+
+def test_installer_is_idempotent(tmp_path):
+    """Re-run after every brainkit upgrade, so running twice must not double
+    the exclude line or fail."""
+    repo = tmp_path / "company-skills"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    for _ in range(2):
+        r = subprocess.run(["sh", str(INSTALLER), str(repo)],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    exclude = (repo / ".git/info/exclude").read_text().splitlines()
+    assert exclude.count("brain-protocol/") == 1
+
+
+def test_installer_works_without_git(tmp_path):
+    """A plain directory is a fine destination; only the exclude step needs a
+    checkout, so its absence must not be an error."""
+    dest = tmp_path / "skills"
+    dest.mkdir()
+    r = subprocess.run(["sh", str(INSTALLER), str(dest)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert (dest / "brain-protocol/SKILL.md").exists()
+
+
+def test_installer_refuses_a_missing_destination(tmp_path):
+    """A typo'd path must fail loudly rather than silently creating a skills
+    repo nothing is mounted from."""
+    r = subprocess.run(["sh", str(INSTALLER), str(tmp_path / "nope")],
+                       capture_output=True, text=True)
+    assert r.returncode != 0
+    assert "does not exist" in r.stderr

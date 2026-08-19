@@ -11,6 +11,21 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **`deploy/agents-box/install-brain-skill.sh`** — provisions the
+  `brain-protocol` skill into a company skills repo checkout, which is what
+  makes 0.4.8's deferral usable. The skill is brainkit's, so it is deployed
+  *from* brainkit rather than hand-maintained in the company's repo: the script
+  copies it in and adds `brain-protocol/` to the checkout's
+  `.git/info/exclude`. Provisioned, not committed — the pull job runs `fetch`
+  and `reset --hard` and never `git clean`, so an untracked directory survives
+  every pull, and the exclude keeps `git status` clean so nobody reads it as a
+  stray edit. Re-run after upgrading brainkit on the box, then recreate the
+  containers once so the boot hook drops the copies it had seeded. The payoff:
+  a protocol change becomes a file write that every running agent sees at once,
+  with no image rebuild and no restart.
+
 ## [0.4.8] - 2026-08-19
 
 ### Changed
