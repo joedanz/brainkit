@@ -353,6 +353,49 @@ def test_an_orphan_rotating_file_is_recovered_not_overwritten(tmp_path):
     assert not (brain / ROTATING_NAME).exists()
 
 
+import shutil
+
+
+def test_a_failed_compression_leaves_the_existing_segments_intact(tmp_path):
+    """gzip.open(path, "wb") creates its destination eagerly, so a write that
+    fails partway still leaves a well-formed (but corrupt/empty) gzip file
+    behind. If that landed directly in slot 1, the NEXT rotation would shift
+    it into slot 2, then 3 — walking every real segment out of the set over
+    repeated failures, while the segment COUNT stays at RAW_SEGMENTS the
+    whole time and `_has_wrapped()` keeps reporting a healthy, full set.
+    Assert on segment CONTENTS, not the count: the count is exactly what the
+    bug preserves, so a count-based assertion passes against broken code."""
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    brain = vault / ".brain"
+    brain.mkdir(parents=True, exist_ok=True)
+
+    original = {}
+    for n in range(1, RAW_SEGMENTS + 1):
+        with gzip.open(segment_path(brain, n), "wb") as fh:
+            fh.write(f"segment-{n}-marker\n".encode())
+        original[n] = segment_path(brain, n).read_bytes()
+
+    rotating = brain / ROTATING_NAME
+    rotating.write_text("orphan-marker\n")
+
+    def boom(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    real_copyfileobj = shutil.copyfileobj
+    shutil.copyfileobj = boom
+    try:
+        for _ in range(RAW_SEGMENTS + 1):
+            retrieval_module._compress_rotated(brain, rotating)
+    finally:
+        shutil.copyfileobj = real_copyfileobj
+
+    for n in range(1, RAW_SEGMENTS + 1):
+        assert segment_path(brain, n).read_bytes() == original[n], f"segment {n} was disturbed"
+    assert rotating.is_file()
+    assert rotating.read_text() == "orphan-marker\n"
+
+
 def test_the_lock_is_released_before_compression(tmp_path):
     """Structural: compression must not happen inside the lock, because this
     runs on every search in the product. Asserted by checking that the lock

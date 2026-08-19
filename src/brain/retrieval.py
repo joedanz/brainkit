@@ -129,25 +129,43 @@ def _has_wrapped(brain_dir: Path) -> bool:
 
 
 def _compress_rotated(brain_dir: Path, rotated: Path) -> None:
-    """Shift the segments and compress `rotated` into slot 1.
+    """Compress `rotated`, then shift the segments and install it in slot 1.
 
     Runs OUTSIDE the lock. Gzipping 2.5 MB takes ~100 ms and `record()` is on
     the path every search in the product takes; holding the lock through that
     would stall every concurrent search. Safe outside it because `rotated` was
     renamed out of the way and no appender can reach it.
+
+    The gzip write happens into a TEMP file, in the same directory as the
+    segments, before anything in the segment set moves. `gzip.open(path,
+    "wb")` creates its destination eagerly, so writing straight into slot 1
+    and failing partway (disk full, etc.) would still leave a well-formed
+    ~12-byte gzip header there — a corrupt-but-present segment that looks
+    like a real one to the next rotation, which would promote it into slot 2,
+    then 3, and so on, walking every real segment out of the set over
+    RAW_SEGMENTS retries while `_has_wrapped()` kept reporting a full, healthy
+    set throughout. Compressing to a temp file first means the only fallible
+    step happens before any existing segment is touched: on failure nothing
+    in the segment set has moved, the orphan `rotated` is untouched, and the
+    next search retries from unchanged state.
     """
+    tmp = brain_dir / (RAW_NAME + ".gz.tmp")
     try:
+        with open(rotated, "rb") as fin, gzip.open(tmp, "wb") as fout:
+            shutil.copyfileobj(fin, fout)
         segment_path(brain_dir, RAW_SEGMENTS).unlink(missing_ok=True)
         for n in range(RAW_SEGMENTS - 1, 0, -1):
             src = segment_path(brain_dir, n)
             if src.is_file():
                 src.rename(segment_path(brain_dir, n + 1))
-        with open(rotated, "rb") as fin, gzip.open(segment_path(brain_dir, 1), "wb") as fout:
-            shutil.copyfileobj(fin, fout)
+        os.replace(tmp, segment_path(brain_dir, 1))
         rotated.unlink(missing_ok=True)
     except OSError:
-        # Leave the rotated file in place; the next rotation recovers it.
-        pass
+        # The fallible step (the gzip write) ran first, so nothing in the
+        # segment set has moved yet. Drop the temp file so it can't
+        # accumulate or be mistaken for a segment, and leave `rotated` in
+        # place; the next rotation recovers it.
+        tmp.unlink(missing_ok=True)
 
 
 def _append_raw(
