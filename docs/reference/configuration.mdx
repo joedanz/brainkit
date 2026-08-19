@@ -4,7 +4,7 @@ description: The org.yaml and spaces.yaml schema that drives compilation and per
 icon: settings
 ---
 
-Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and who sees what (`spaces.yaml`) — plus an optional third, `webhook.yaml`, when you run the [webhook intake receiver](/guides/getting-things-in#webhooks--automatic-intake-from-other-services). All are plain YAML, validated on load — a malformed file is a clear error, never a silent misconfiguration. Nothing under `_meta/` is ever compiled into a person's vault. brainkit also *writes* one file there itself — the [health snapshot](#_metacachehealthjson--the-generated-health-snapshot) every cycle refreshes for a control plane to read.
+Two files under `_meta/` describe the whole company: who exists (`org.yaml`) and who sees what (`spaces.yaml`) — plus an optional third, `webhook.yaml`, when you run the [webhook intake receiver](/guides/getting-things-in#webhooks--automatic-intake-from-other-services). All are plain YAML, validated on load — a malformed file is a clear error, never a silent misconfiguration. Nothing under `_meta/` is ever compiled into a person's vault. brainkit also *writes* one file there itself — the health snapshot every cycle refreshes for a control plane to read, documented at the end of this page.
 
 ## `org.yaml`
 
