@@ -208,10 +208,22 @@ rm <vault>/.brain/retrieval-log.on         # off
 
 While it exists, each search appends a line to `<vault>/.brain/retrieval.jsonl`
 holding the query, the mode, and the path and space of each hit. **Note
-snippets are never written.** The file is capped at 5 MB; on reaching the cap
-it stops appending and sets `raw_truncated` rather than dropping lines
-silently. That flag reports the current state rather than a permanent mark:
-delete `retrieval.jsonl` and the next search clears it.
+snippets are never written.**
+
+The log rotates rather than filling up, so it always holds the most recent
+searches. At 2.5 MB the live file is compressed into `retrieval.jsonl.1.gz` and
+a fresh one starts; existing segments shift up, and the oldest of seven is
+discarded. That keeps roughly four times the history of the old fixed cap in
+less disk, and bounds it without anyone having to prune.
+
+`raw_truncated` reports that the segment set is full — the next rotation
+discards the oldest searches. It is not an error, and capture never stops.
+
+To read the whole window, newest last:
+
+```bash
+cat $(ls -r <vault>/.brain/retrieval.jsonl.*.gz | xargs -r -I{} echo {}) | gunzip -c; cat <vault>/.brain/retrieval.jsonl
+```
 
 This log holds the literal text people typed. `raw_log` and `raw_log_since` in
 the stats file report that it is running and since when, so it cannot be
