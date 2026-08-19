@@ -719,6 +719,51 @@ def _check_facts(master: Path, shared: str) -> list[Finding]:
     return findings
 
 
+def _check_protocol(master: Path, config: VaultConfig) -> list[Finding]:
+    """The master's own AGENTS.md, left behind by protocol improvements.
+
+    Compiled slices regenerate theirs every cycle, so only the master can go
+    stale — it is written once at `brain init` and never again. A vault whose
+    assistant is running last year's rules looks identical to one running this
+    year's, which is exactly the kind of silent drift doctor exists to name.
+    Warn, not error: an out-of-date protocol still works, and the fix
+    (`brain refresh-protocol --write`) overwrites a file an admin may have
+    edited, so it stays a human's call.
+    """
+    from brain.templates import refresh_assistant_protocol
+
+    st = refresh_assistant_protocol(master, config)
+    if not st.differs:
+        return []
+    what = "is missing" if st.missing else "differs from the shipped protocol"
+    return [Finding("warn", "protocol-stale",
+                    f"AGENTS.md {what} — run `brain refresh-protocol "
+                    f"--master {master} --write`", paths=("AGENTS.md",))]
+
+
+def _check_fact_sources(master: Path, shared: str) -> list[Finding]:
+    """Fact lines standing without a `[source::]`.
+
+    The protocol states that a fact carries both `[from::]` and a
+    `[source::]` pointing at the episode that established it, but until this
+    check nothing enforced the second half: `lint_facts` verifies only that
+    the dates parse. Provenance outside prose was the one signal-quality rule
+    the protocol asserted most confidently and never tested. `_check_citations`
+    covers the same concern for prose, and only inside Intel and `distilled:`
+    pages; this covers fact lines everywhere.
+    """
+    from brain.facts import lint_uncited_facts
+
+    findings: list[Finding] = []
+    for rel in _content_files(master, shared):
+        text = _read_text(master / rel)
+        if text is None:
+            continue
+        for line, msg in lint_uncited_facts(text):
+            findings.append(Finding("warn", "fact-uncited", f"{rel}:{line}: {msg}"))
+    return findings
+
+
 def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
     """Two open facts about the same entity that duplicate or contradict each
     other — a double-landed ingest or a forgotten [until::]. Either way
@@ -1359,6 +1404,9 @@ def run_doctor(
     findings += _check_cross_space_refs(master, org, rules, shared)
     findings += _check_plain_refs(master, org, rules, shared)
     findings += _check_facts(master, shared)
+    if config_ok:
+        findings += _check_protocol(master, config)
+    findings += _check_fact_sources(master, shared)
     findings += _check_fact_conflicts(master, shared)
     findings += _check_corrections(master)
     findings += _check_symlinks(master)

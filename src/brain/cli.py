@@ -179,6 +179,29 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_refresh_protocol(args) -> int:
+    from brain.schemas import SchemaError
+    from brain.templates import refresh_assistant_protocol
+
+    try:
+        st = refresh_assistant_protocol(Path(args.master), write=args.write)
+    except SchemaError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    if not st.differs:
+        print("AGENTS.md is already current")
+        return 0
+    what = "missing" if st.missing else "differs from the shipped protocol"
+    if st.written:
+        print(f"rewrote {st.path} (was {what})")
+        return 0
+    print(f"{st.path} {what}", file=sys.stderr)
+    print("re-run with --write to replace it; any hand edits will be lost",
+          file=sys.stderr)
+    return 1
+
+
 def cmd_rename_entities(args) -> int:
     from brain.rename import RenameError, rename_entities
     from brain.schemas import SchemaError
@@ -627,6 +650,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "test every fact for relevance against it "
                         "(default: none — the generic tests still apply)")
     i.set_defaults(func=cmd_init)
+
+    rp = sub.add_parser("refresh-protocol",
+                        help="rewrite the master's AGENTS.md from the shipped "
+                             "assistant protocol")
+    rp.add_argument("--master", required=True)
+    rp.add_argument("--write", action="store_true",
+                    help="apply the rewrite (without it, only report drift)")
+    rp.set_defaults(func=cmd_refresh_protocol)
 
     rn = sub.add_parser("rename-entities",
                         help="rename the third-party tree (e.g. Clients -> Vendors)")
