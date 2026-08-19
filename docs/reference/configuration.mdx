@@ -178,9 +178,11 @@ anything?**
 {"schema":1,"person":"joe","brainkit_version":"0.4.5","updated_at":"2026-08-19T14:02:11Z","searches":412,"zero_hit":157,"by_mode":{"hybrid":380,"no-index":2},"warn":{"vector-degraded":8},"raw_log":false,"raw_log_since":null,"raw_truncated":false}
 ```
 
-Counters are cumulative and only ever increase. They restart at zero if the
-vault is rebuilt, which is why the useful reading is the ratio
-`zero_hit / searches` rather than either number alone.
+Counters are cumulative and only ever increase. A recompile does **not**
+reset them — `.brain/` is carried across the compiler's two-phase swap, the
+same way `.git` is. The only thing that resets them is a new container
+volume. The useful reading is the ratio `zero_hit / searches` rather than
+either number alone.
 
 `by_mode` keys are the search modes: `hybrid`, `hybrid+graph`, `keyword-only`,
 `keyword-only+graph`, and `no-index` for a search that ran before
@@ -195,9 +197,11 @@ this never enters git history or a compiled vault.
 
 ### The raw query log
 
-Off by default. Create the sentinel to switch it on for one person:
+Off by default. Create the sentinel to switch it on for one person. `.brain/`
+does not exist until the first search runs, so create it first if needed:
 
 ```bash
+mkdir -p <vault>/.brain
 touch <vault>/.brain/retrieval-log.on      # on
 rm <vault>/.brain/retrieval-log.on         # off
 ```
