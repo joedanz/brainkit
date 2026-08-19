@@ -19,6 +19,7 @@ import json
 import os
 from collections.abc import Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.version import __version__
@@ -92,6 +93,55 @@ def _mode_key(mode: str) -> str:
     return NO_INDEX if mode == "" else mode
 
 
+def _sentinel_since(sentinel: Path) -> str | None:
+    """When raw logging was switched on, from the sentinel's mtime.
+
+    Not derived from the injected `now`: this is a filesystem fact, and it is
+    what lets fleet escalate a switch that has been left on.
+    """
+    try:
+        ts = sentinel.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _append_raw(
+    brain_dir: Path,
+    *,
+    query: str,
+    mode: str,
+    hit_locations: Sequence[tuple[str, str]],
+    now: str,
+) -> bool:
+    """Append one line. True means the cap stopped it.
+
+    The cap is checked BEFORE appending, so the file never exceeds it. Hitting
+    it is reported through `raw_truncated` rather than silently dropping the
+    line — the rule the corrections budget already follows.
+
+    Only rel_path and space per hit. A snippet is note content.
+    """
+    raw = brain_dir / RAW_NAME
+    try:
+        if raw.is_file() and raw.stat().st_size >= RAW_CAP_BYTES:
+            return True
+        line = json.dumps(
+            {
+                "at": now,
+                "query": query,
+                "mode": mode,
+                "hits": [{"rel_path": r, "space": s} for r, s in hit_locations],
+            },
+            sort_keys=True,
+        )
+        with open(raw, "a") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        return False
+    return False
+
+
 def record(
     vault: Path,
     *,
@@ -117,6 +167,15 @@ def record(
         for wk in _warn_keys(mode, warnings):
             warn[wk] = int(warn.get(wk, 0) or 0) + 1
 
+        sentinel = brain_dir / SENTINEL_NAME
+        raw_on = sentinel.is_file()
+        truncated = bool(data.get("raw_truncated", False))
+        if raw_on and query is not None:
+            truncated = _append_raw(
+                brain_dir, query=query, mode=mode,
+                hit_locations=hit_locations, now=now,
+            ) or truncated
+
         payload = {
             "schema": SCHEMA,
             "person": _person(vault),
@@ -126,9 +185,9 @@ def record(
             "zero_hit": int(data.get("zero_hit", 0) or 0) + (1 if hits == 0 else 0),
             "by_mode": by_mode,
             "warn": warn,
-            "raw_log": False,
-            "raw_log_since": None,
-            "raw_truncated": False,
+            "raw_log": raw_on,
+            "raw_log_since": _sentinel_since(sentinel) if raw_on else None,
+            "raw_truncated": truncated,
         }
 
         tmp = stats_path.with_suffix(".json.tmp")

@@ -140,3 +140,103 @@ def test_never_leaves_a_temp_file_behind(tmp_path):
     vault = _vault(tmp_path)
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW)
     assert list((vault / ".brain").glob("*.tmp")) == []
+
+
+import os
+import time
+
+from brain.retrieval import RAW_CAP_BYTES, RAW_NAME, SENTINEL_NAME
+
+
+def _switch_on(vault: Path) -> Path:
+    brain_dir = vault / ".brain"
+    brain_dir.mkdir(parents=True, exist_ok=True)
+    sentinel = brain_dir / SENTINEL_NAME
+    sentinel.touch()
+    return sentinel
+
+
+def _raw_lines(vault: Path) -> list[dict]:
+    raw = vault / ".brain" / RAW_NAME
+    if not raw.is_file():
+        return []
+    return [json.loads(line) for line in raw.read_text().splitlines() if line.strip()]
+
+
+def test_no_raw_log_is_written_without_the_sentinel(tmp_path):
+    vault = _vault(tmp_path)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW,
+           query="what is our refund policy", hit_locations=[("Company/Policy.md", "Company")])
+    assert _raw_lines(vault) == []
+    assert _stats(vault)["raw_log"] is False
+
+
+def test_the_sentinel_switches_the_raw_log_on(tmp_path):
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW,
+           query="what is our refund policy", hit_locations=[("Company/Policy.md", "Company")])
+    lines = _raw_lines(vault)
+    assert len(lines) == 1
+    assert lines[0]["query"] == "what is our refund policy"
+    assert lines[0]["mode"] == "hybrid"
+    assert lines[0]["hits"] == [{"rel_path": "Company/Policy.md", "space": "Company"}]
+    assert lines[0]["at"] == NOW
+    assert _stats(vault)["raw_log"] is True
+
+
+def test_snippets_are_never_written_to_the_raw_log(tmp_path):
+    """Structural: hit_locations carries only (rel_path, space) by design."""
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW,
+           query="q", hit_locations=[("Company/Policy.md", "Company")])
+    assert "snippet" not in (vault / ".brain" / RAW_NAME).read_text()
+
+
+def test_raw_log_since_reports_the_sentinel_mtime(tmp_path):
+    vault = _vault(tmp_path)
+    sentinel = _switch_on(vault)
+    backdated = time.time() - (10 * 86400)
+    os.utime(sentinel, (backdated, backdated))
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    since = _stats(vault)["raw_log_since"]
+    assert since is not None
+    assert since.endswith("Z")
+    # 10 days ago, not the injected NOW
+    assert since < NOW
+
+
+def test_raw_log_since_is_null_when_switched_off(tmp_path):
+    vault = _vault(tmp_path)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    assert _stats(vault)["raw_log_since"] is None
+
+
+def test_the_cap_stops_appending_and_says_so(tmp_path):
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    raw = vault / ".brain" / RAW_NAME
+    raw.write_text("x" * RAW_CAP_BYTES)
+    before = raw.stat().st_size
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    assert raw.stat().st_size == before, "cap is checked BEFORE the append"
+    assert _stats(vault)["raw_truncated"] is True
+
+
+def test_raw_truncated_persists_once_set(tmp_path):
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    (vault / ".brain" / RAW_NAME).write_text("x" * RAW_CAP_BYTES)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    (vault / ".brain" / RAW_NAME).unlink()
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    assert _stats(vault)["raw_truncated"] is True
+
+
+def test_counters_still_advance_while_the_raw_log_is_capped(tmp_path):
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    (vault / ".brain" / RAW_NAME).write_text("x" * RAW_CAP_BYTES)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    assert _stats(vault)["searches"] == 1
