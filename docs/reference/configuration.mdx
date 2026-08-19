@@ -230,13 +230,22 @@ the stats file report that it is running and since when, so it cannot be
 switched on and forgotten.
 
 Removing the sentinel stops **future** capture only — it does not erase what
-was already captured. Up to roughly 4.25 MB of query text can remain on disk
-indefinitely, spread across the live file and up to seven gzipped segments.
-To delete it:
+was already captured, and it does not change whether the switch is on or off
+going forward: delete the data while the sentinel is still present and
+capture resumes accumulating immediately. Up to roughly 4.25 MB of query text
+can remain on disk indefinitely, spread across the live file and up to seven
+gzipped segments. To delete it, remove the sentinel first, then:
 
 ```bash
-rm -f <vault>/.brain/retrieval.jsonl <vault>/.brain/retrieval.jsonl.*.gz <vault>/.brain/retrieval.jsonl.rotating
+rm -f <vault>/.brain/retrieval.jsonl*
 ```
+
+One glob, not a list of exact names: it also catches
+`retrieval.jsonl.rotating` and any `retrieval.jsonl.<pid>.gz.tmp` left by an
+interrupted rotation, and — unlike listing `retrieval.jsonl.*.gz` as its own
+argument — it still matches when no segments exist yet, so it can't hit zsh's
+`nomatch` and abort the whole command silently. It leaves
+`retrieval-stats.json` and `retrieval-log.on` alone; neither is query text.
 
 ## Embeddings
 
