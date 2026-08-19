@@ -127,6 +127,22 @@ identifies a copy this hook wrote and nobody has edited. Anything else is
 somebody's own work: it stays, and it goes on shadowing the company's copy,
 which is the documented behaviour for a locally-authored skill.
 
+Provisioning it is one command, and it is the intended path — `brain-protocol`
+is brainkit's skill, so it is deployed from brainkit rather than hand-maintained
+in the company's repo:
+
+```sh
+./install-brain-skill.sh [/opt/company-skills]   # then recreate the containers once
+```
+
+It copies the skill in and adds `brain-protocol/` to the checkout's
+`.git/info/exclude`. Provisioned, not committed: the pull job runs `fetch` and
+`reset --hard` and never `git clean`, so an untracked directory survives every
+pull, and excluding it keeps `git status` clean so nobody reads it as a stray
+edit. Ownership stays honest — the file belongs to brainkit and is
+re-provisioned from brainkit, while the repo stays the company's own. Re-run it
+after every brainkit upgrade on the box.
+
 Keeping the repo's copy of `brain-protocol` current is then a sync step, not a
 guess — the file in `company-brain-profile/skills/brain-protocol/SKILL.md` stays
 the source of truth, and a deployment copies it across when it changes.
