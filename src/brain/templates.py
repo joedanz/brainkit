@@ -156,10 +156,12 @@ When a transcript appears in any `People/<person>/Inbox/`:
    - Company-wide decisions (a choice made, with its why) -> a new file in
      `@SHARED@/Decisions/`
    - Standing processes and standards -> a new file in `@SHARED@/Playbook/`
-   - Destination, provider, event, or trend intel from articles, posts,
-     PDFs, or screenshots -> distill into `@SHARED@/Intel/` (never archive the
-     full text or file): a new page per entity (`mode: create`), or update an
-     existing page with `mode: append` / `mode: patch`. Cite every claim
+   - Knowledge read from articles, posts, PDFs, or screenshots -> distill
+     into `@SHARED@/Intel/` (never archive the full text or file): a new page
+     per subject (`mode: create`), or update an existing page with
+     `mode: append` / `mode: patch`. What someone knows from working with a
+     thing is not Intel — that cites the episode, not a URL, and belongs in
+     the space this company names for it. Cite every claim
      `[source](URL), as of YYYY-MM`: source is the URL or the
      publication/title (or uploaded filename); use the source's date, or
      `captured YYYY-MM` (today) when it shows none. Keep `Intel/Home.md`
@@ -301,14 +303,20 @@ def _home_md(company: str, config: VaultConfig) -> str:
     return (
         f"# {company} — Home\n\n"
         "The company's live priority dashboard, kept current by the assistant.\n"
-        "See [[Memory]] for the company overview and where knowledge lives, and\n"
+        # Path form here for the same reason as the Intel link below, and more
+        # urgently: EVERY person's space holds a Memory.md, so a bare
+        # [[Memory]] resolves first-match-wins in every compiled vault — the
+        # scaffold was shipping the exact stem collision doctor warns about.
+        f"See [[{config.shared}/Memory]] for the company overview and where\n"
+        "knowledge lives, and"
         # Path form, not [[Home]]: this vault has two landing pages named Home
         # (the per-space convention doctor exempts from stem-collision), so a
         # bare stem would resolve to whichever sorts first. The link is also
         # what makes Intel reachable — the protocol connects Intel by links
         # rather than folder structure, and until something points at it the
         # wiki's own index is an island no graph walk can enter.
-        f"[[{config.shared}/Intel/Home|Intel]] for the shared reference wiki.\n\n"
+        f" [[{config.shared}/Intel/Home|Intel]] for knowledge\n"
+        "distilled from outside sources.\n\n"
         "## Priorities\n\n_What needs attention now._\n\n"
         "## Open actions by owner\n\n_Outstanding action items, grouped by owner._\n\n"
         "## Pending promotions\n\n_Drafts awaiting approval._\n\n"
@@ -321,22 +329,40 @@ def _memory_md(company: str, config: VaultConfig) -> str:
         f"# {company} — {config.shared} Memory\n\n"
         "Business overview, positioning, offers, team structure. Maintained by\n"
         "the company assistant; substantive changes arrive via promotions or\n"
-        "admin edits.\n"
+        "admin edits.\n\n"
+        "## Where knowledge lives\n\n"
+        "_Name the spaces this company files knowledge in, and what belongs in\n"
+        "each. The routing rules in AGENTS.md are generic on purpose; this is\n"
+        "where a deployment records its own taxonomy, so an agent reads one map\n"
+        "instead of inferring one. Leave it empty until there are spaces worth\n"
+        "naming._\n"
     )
 
 
 def _intel_home_md() -> str:
+    """The Intel map, flat and in nobody's industry vocabulary.
+
+    This used to scaffold Destinations/Providers/Events/Trends folders and
+    headings, which shipped one company's taxonomy to every company — and put
+    a worked subject list a thousand characters below the protocol's relevance
+    test, where it was the only concrete vocabulary an agent had to calibrate
+    against. A company's own subjects are its own to name.
+    """
     return (
-        "# Intel — the shared reference wiki\n\n"
-        "A lean map: every Intel page is linked from here. Pages are distilled\n"
-        "from articles, posts, and advisor knowledge — see the routing rules in\n"
-        "AGENTS.md. Every claim cites `[source](URL), as of YYYY-MM` — a URL, or\n"
-        "the publication/title when there is no link; use the source's date, or\n"
-        "`captured YYYY-MM` (today's date) when it shows none.\n\n"
-        "## Destinations\n\n(none yet)\n\n"
-        "## Providers\n\n(none yet)\n\n"
-        "## Events\n\n(none yet)\n\n"
-        "## Trends\n\n(none yet)\n"
+        "# Intel — knowledge distilled from outside sources\n\n"
+        "Every Intel page is linked from here.\n\n"
+        "Intel is what we read about the world: articles, posts, reports, PDFs.\n"
+        "The source itself never enters the vault, so the citation is the only\n"
+        "route back to it. Every claim cites `[source](URL), as of YYYY-MM` — a\n"
+        "URL, or the publication/title when there is no link; use the source's\n"
+        "date, or `captured YYYY-MM` (today's date) when it shows none.\n\n"
+        "What we know from actually working with someone or something is not\n"
+        "Intel. That is first-party knowledge: it cites the episode that\n"
+        "established it rather than a URL, and it belongs in a space this\n"
+        "company names for it.\n\n"
+        "This page is flat on purpose. Add a folder when one subject outgrows\n"
+        "this map, the same way a page splits when a section outgrows it.\n\n"
+        "## Pages\n\n(none yet)\n"
     )
 
 
@@ -426,10 +452,6 @@ def scaffold_master(dest: Path, company: str,
         f"{config.shared}/Playbook/.gitkeep": "",
         f"{config.shared}/Templates/.gitkeep": "",
         f"{config.shared}/Intel/Home.md": _intel_home_md(),
-        f"{config.shared}/Intel/Destinations/.gitkeep": "",
-        f"{config.shared}/Intel/Providers/.gitkeep": "",
-        f"{config.shared}/Intel/Events/.gitkeep": "",
-        f"{config.shared}/Intel/Trends/.gitkeep": "",
         "Teams/.gitkeep": "",
         "People/.gitkeep": "",
         f"{config.entities}/.gitkeep": "",

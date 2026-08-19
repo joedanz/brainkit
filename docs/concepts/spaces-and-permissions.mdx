@@ -16,7 +16,7 @@ master/
     Decisions/            # decision log with reasoning
     Playbook/             # SOPs, standards, workflows
     Templates/            # reusable formats
-    Intel/                # shared reference wiki, mapped in Intel/Home.md
+    Intel/                # knowledge distilled from outside sources, mapped in Intel/Home.md
       Destinations/  Providers/  Events/  Trends/
   Teams/<team>/           # visible to members of that team
   People/<person>/        # visible to that person only
@@ -39,7 +39,7 @@ These docs use the defaults throughout.
 
 Every `Memory.md` — company and personal — follows the same convention: **a lean overview that links out, never a running log**. Company detail lives in atomic notes under `Decisions/`, `Playbook/`, and `Intel/`; when a personal topic outgrows a few lines in `People/<person>/Memory.md`, the detail moves to `People/<person>/Notes/<Topic>.md` with a one-line link left under the heading.
 
-`Company/Intel/` is the shared reference wiki — one page per destination, provider, event, or trend, distilled from articles, posts, PDFs, screenshots, and advisor knowledge, each claim cited with its source and date: `[source](URL), as of YYYY-MM`, where the source is a URL or the publication/title when there's no link, and the date is the source's own or `captured YYYY-MM` (today's) when it shows none. It's an ordinary part of the `Company` space: everyone reads it, agents feed it through [promotions](/concepts/promotions), and no extra `spaces.yaml` rule is needed. See [Getting Things In](/guides/getting-things-in#articles-and-links-the-intel-wiki) for the ingest flow.
+`Company/Intel/` holds knowledge distilled from outside the company — articles, posts, PDFs, screenshots — one flat page per subject, each claim cited with its source and date: `[source](URL), as of YYYY-MM`, where the source is a URL or the publication/title when there's no link, and the date is the source's own or `captured YYYY-MM` (today's) when it shows none. It's an ordinary part of the `Company` space: everyone reads it, agents feed it through [promotions](/concepts/promotions), and no extra `spaces.yaml` rule is needed. What someone knows from *working with* a thing is not Intel — that is first-party knowledge, it cites the episode that established it rather than a URL, and it belongs in whichever space the company names for it. `brain init` scaffolds `Intel/` flat and empty on purpose: a company's own subjects are its own to name. See [Getting Things In](/guides/getting-things-in#articles-and-links-the-intel-wiki) for the ingest flow.
 
 ## Who sees what: `spaces.yaml`
 

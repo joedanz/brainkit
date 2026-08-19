@@ -152,21 +152,24 @@ If you are unsure whether something passes, it does not.
   Nothing drains that note but you: when you next work it, file each line and
   delete it, so the note tends toward empty
 
-## {shared} Intel (the shared reference wiki)
+## {shared} Intel (knowledge distilled from outside sources)
 
-`{shared}/Intel/` holds shared reference knowledge, mapped in `Intel/Home.md`:
-`Destinations/<Place>.md`, `Providers/<Name>.md`, `Events/<Name>.md`,
-`Trends/<YYYY-MM Topic>.md`. Only what the company needs in order to work
-belongs here. Conventions:
-- First line of a page is a one-sentence summary; provider pages add
-  `**Type:** ... · **Where:** [[Destination]]`.
+`{shared}/Intel/` holds what we have read about the world — articles, posts,
+reports — distilled on the way in and mapped from `Intel/Home.md`. It is flat:
+one page per subject. Only what the company needs in order to work belongs
+here. Conventions:
+- First line of a page is a one-sentence summary.
 - Every claim cites its provenance: `[source](URL), as of YYYY-MM`. The
   source is the URL, or the publication/title (or uploaded filename) when
   there is no link. Use the source's own date; when it shows none, use
   today's date and write `captured YYYY-MM` instead.
 - Link related pages both ways; every page is linked from `Intel/Home.md`.
-- Intel starts on the country page; when a city outgrows a few lines it
-  becomes its own page with a one-line link left behind.
+- A page starts broad; when one part outgrows a few lines it becomes its own
+  page with a one-line link left behind, and a folder appears only when a
+  subject outgrows the map.
+- What you know from working with someone or something is **not** Intel. That
+  is first-party knowledge: it cites the episode that established it rather
+  than a URL, and it belongs in whichever space this company names for it.
 - New entity -> promote a new page (`mode: create`, the default). Page
   already exists -> promote with `mode: append` (your update is added under
   a divider) or `mode: patch` (body is the complete revised page; approval
