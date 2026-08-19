@@ -1152,6 +1152,28 @@ def test_corrections_over_budget_are_reported_to_their_owner(master):
     assert "Rule 0 " not in f.message
 
 
+def test_a_rule_too_long_to_ever_render_is_reported_as_its_own_problem(master):
+    """"Remove the ones that no longer apply" is the wrong instruction for a
+    single rule that cannot fit an empty budget — pruning around it changes
+    nothing. It gets its own message, and it does not evict the rest."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "essay.md").write_text(
+        "---\nrule: " + "x" * 4200 + "\nfrom: 2026-08-19\n---\nwhy\n")
+    (d / "short.md").write_text(
+        "---\nrule: Keep it direct.\nfrom: 2026-01-01\n---\nwhy\n")
+
+    findings = [f for f in run_doctor(master) if f.check == "corrections-budget"]
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.paths == ("People/bob/Corrections/essay.md",)  # short.md still renders
+    assert "essay.md" in f.message           # named, so it can be found
+    assert "shorten" in f.message
+    assert "no longer apply" not in f.message
+    assert "x" * 20 not in f.message         # the count, never the rule text
+
+
 def test_a_correction_without_a_rule_is_reported(master):
     seed_meta(master)
     d = master / "People/bob/Corrections"

@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
-from brain.corrections import CORRECTIONS_DIR
+from brain.corrections import CORRECTIONS_DIR, CORRECTIONS_LIMIT
 from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
 from brain.promotions import PromotionError, _parse, _pending_dir, _validate_mode, _validate_target
@@ -804,6 +804,20 @@ def _check_corrections(master: Path) -> list[Finding]:
                 f"remove the ones that no longer apply",
                 paths=tuple(
                     f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.omitted
+                )))
+
+        if cs.oversized:
+            # Deliberately not the message above: "remove the ones that no
+            # longer apply" is the wrong instruction for a rule that is simply
+            # too long to ever render, and pruning around it changes nothing.
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.oversized)} correction(s) are "
+                f"longer than the whole {CORRECTIONS_LIMIT}-character protocol budget and "
+                f"can never render — shorten each `rule:` to one imperative sentence "
+                f"({', '.join(f'{c.slug}.md' for c in cs.oversized)})",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.oversized
                 )))
 
         if cs.unusable:

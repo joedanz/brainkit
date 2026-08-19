@@ -85,6 +85,50 @@ def test_the_budget_omits_whole_rules_and_never_truncates(tmp_path):
         assert c.rule not in block
 
 
+def test_a_rule_too_long_to_ever_fit_does_not_evict_the_healthy_ones(tmp_path):
+    # Newest-first ordering sorts the over-long rule to the front, so a
+    # cascade there took every other rule with it: 40 healthy rules rendered
+    # 0 and omitted 41. The whole standing-corrections block disappeared.
+    for i in range(40):
+        _write(tmp_path, "alice", f"r{i:02d}", _correction(f"Rule number {i}.", "2026-01-01"))
+    _write(tmp_path, "alice", "essay", _correction("x" * 4200, "2026-08-19"))
+
+    cs = load_corrections(tmp_path, "alice")
+    assert [c.slug for c in cs.oversized] == ["essay"]
+    assert len(cs.rendered) == 40
+    assert cs.omitted == ()
+    block = render_corrections(cs)
+    assert len(block) <= CORRECTIONS_LIMIT
+    assert "Rule number 0." in block and "xxxx" not in block
+
+
+def test_running_out_of_room_still_cascades_in_stated_order(tmp_path):
+    # The cascade is deliberate: the rendered set depends on the stated order,
+    # not on which rules happen to fit. A short rule after a rule that did not
+    # fit stays omitted rather than jumping the queue.
+    _write(tmp_path, "alice", "a-long", _correction("L" * 120, "2026-08-19"))
+    _write(tmp_path, "alice", "b-long", _correction("M" * 120, "2026-08-19"))
+    _write(tmp_path, "alice", "c-short", _correction("Short.", "2026-08-19"))
+
+    cs = load_corrections(tmp_path, "alice", limit=200)
+    assert cs.oversized == ()  # each one fits on its own
+    assert [c.slug for c in cs.rendered] == ["a-long"]
+    assert [c.slug for c in cs.omitted] == ["b-long", "c-short"]
+    assert "Short." not in render_corrections(cs)
+
+
+def test_oversized_and_omitted_are_separate_buckets(tmp_path):
+    # One run producing both: the person needs two different instructions.
+    _write(tmp_path, "alice", "a-essay", _correction("x" * 300, "2026-08-19"))
+    _write(tmp_path, "alice", "b-long", _correction("L" * 120, "2026-08-19"))
+    _write(tmp_path, "alice", "c-long", _correction("M" * 120, "2026-08-19"))
+
+    cs = load_corrections(tmp_path, "alice", limit=200)
+    assert [c.slug for c in cs.oversized] == ["a-essay"]
+    assert [c.slug for c in cs.rendered] == ["b-long"]
+    assert [c.slug for c in cs.omitted] == ["c-long"]
+
+
 def test_render_is_empty_when_there_is_nothing_to_say(tmp_path):
     cs = load_corrections(tmp_path, "alice")
     assert render_corrections(cs) == ""

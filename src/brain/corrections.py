@@ -36,10 +36,11 @@ class Correction:
 @dataclass(frozen=True)
 class CorrectionSet:
     rendered: tuple[Correction, ...]   # fit the budget, in render order
-    omitted: tuple[Correction, ...]    # well-formed, but over budget
+    omitted: tuple[Correction, ...]    # well-formed, but the budget ran out
+    oversized: tuple[Correction, ...]  # longer than the whole budget — never fit
     unusable: tuple[str, ...]          # slugs with no `rule:` — never rendered
     undated: tuple[str, ...]           # slugs whose `from:` did not parse
-    unreadable: tuple[str, ...] = ()   # slugs the OS would not hand over
+    unreadable: tuple[str, ...]        # slugs the OS would not hand over
 
 
 def _read_text(path: Path) -> str | None:
@@ -82,10 +83,15 @@ def load_corrections(
     exactly the silent drop this design exists to prevent — but sorts after
     every well-formed one, so a typo can never push a real rule out of the
     budget.
+
+    Two ways a rule fails to render, kept apart because the fix differs. The
+    budget running out cascades: every rule after the first that does not fit
+    is omitted too. A rule longer than the entire budget never cascades — it
+    is omitted alone, and the rules after it still render.
     """
     d = vault / "People" / pid / CORRECTIONS_DIR
     if not d.is_dir():
-        return CorrectionSet((), (), (), (), ())
+        return CorrectionSet((), (), (), (), (), ())
 
     parsed: list[Correction] = []
     unusable: list[str] = []
@@ -120,20 +126,37 @@ def load_corrections(
 
     rendered: list[Correction] = []
     omitted: list[Correction] = []
+    oversized: list[Correction] = []
     used = len(_HEADING)
+    full = False
     for c in ordered:
         cost = len(_bullet(c))
-        if omitted or used + cost > limit:
-            # Once one rule is omitted every later rule is too: keeping the
-            # order stable matters more than squeezing a short rule into the
-            # gap a long one left.
+        if len(_HEADING) + cost > limit:
+            # This one cannot fit even an empty budget, so nothing anyone
+            # prunes around it will ever render it. That is a defect in one
+            # rule, not a full block — and because order is newest-first, a
+            # single over-long rule sorts to the front, so letting it cascade
+            # would delete the person's whole standing-corrections block.
+            oversized.append(c)
+            continue
+        if full or used + cost > limit:
+            # Ordinary running out of room, which does cascade: once one rule
+            # is omitted every later rule is too, so the rendered set depends
+            # on the stated order rather than on which rules happen to fit.
+            full = True
             omitted.append(c)
             continue
         rendered.append(c)
         used += cost
 
-    return CorrectionSet(tuple(rendered), tuple(omitted), tuple(unusable),
-                         tuple(undated), tuple(unreadable))
+    return CorrectionSet(
+        rendered=tuple(rendered),
+        omitted=tuple(omitted),
+        oversized=tuple(oversized),
+        unusable=tuple(unusable),
+        undated=tuple(undated),
+        unreadable=tuple(unreadable),
+    )
 
 
 def render_corrections(cs: CorrectionSet) -> str:
