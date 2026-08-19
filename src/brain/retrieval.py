@@ -29,6 +29,9 @@ from brain.version import __version__
 SCHEMA = 1
 STATS_NAME = "retrieval-stats.json"
 LOCK_NAME = "retrieval-stats.lock"
+# Separate from LOCK_NAME on purpose — see _compress_rotated. It serialises
+# compression itself, which runs outside the stats lock.
+ROTATE_LOCK_NAME = "retrieval-rotate.lock"
 SENTINEL_NAME = "retrieval-log.on"
 RAW_NAME = "retrieval.jsonl"
 
@@ -131,10 +134,26 @@ def _has_wrapped(brain_dir: Path) -> bool:
 def _compress_rotated(brain_dir: Path, rotated: Path) -> None:
     """Compress `rotated`, then shift the segments and install it in slot 1.
 
-    Runs OUTSIDE the lock. Gzipping 2.5 MB takes ~100 ms and `record()` is on
-    the path every search in the product takes; holding the lock through that
-    would stall every concurrent search. Safe outside it because `rotated` was
-    renamed out of the way and no appender can reach it.
+    Runs OUTSIDE the stats lock. Gzipping 2.5 MB takes ~100 ms and `record()`
+    is on the path every search in the product takes; holding the stats lock
+    through that would stall every concurrent search. Safe with respect to
+    THAT lock because `rotated` was renamed out of the way and no appender
+    can reach it.
+
+    But nothing about being outside the stats lock serialises compression
+    against a SECOND process compressing the very same file. `_append_raw`'s
+    orphan-recovery branch (meant for a crash between rename and compress)
+    fires just as readily on an ordinary in-progress rotation: while process A
+    is here compressing, a concurrent `record()` in process B sees `rotated`
+    still on disk, treats it as an orphan, and hands the identical path back
+    as its own `pending` — so a second `_compress_rotated` call starts on the
+    same source file. Without serialising, both would shift the segment set
+    (two shifts for one rotation, silently evicting a real segment) and both
+    would write the same temp path (interleaved bytes, a corrupt segment).
+    The exclusive, non-blocking `ROTATE_LOCK_NAME` lock below closes that:
+    whichever process loses the race returns immediately rather than
+    duplicate the work — the winner is already doing it, so nothing is lost.
+    A pid-suffixed temp filename is belt-and-braces on top of the lock.
 
     The gzip write happens into a TEMP file, in the same directory as the
     segments, before anything in the segment set moves. `gzip.open(path,
@@ -149,23 +168,33 @@ def _compress_rotated(brain_dir: Path, rotated: Path) -> None:
     in the segment set has moved, the orphan `rotated` is untouched, and the
     next search retries from unchanged state.
     """
-    tmp = brain_dir / (RAW_NAME + ".gz.tmp")
-    try:
-        with open(rotated, "rb") as fin, gzip.open(tmp, "wb") as fout:
-            shutil.copyfileobj(fin, fout)
-        segment_path(brain_dir, RAW_SEGMENTS).unlink(missing_ok=True)
-        for n in range(RAW_SEGMENTS - 1, 0, -1):
-            src = segment_path(brain_dir, n)
-            if src.is_file():
-                src.rename(segment_path(brain_dir, n + 1))
-        os.replace(tmp, segment_path(brain_dir, 1))
-        rotated.unlink(missing_ok=True)
-    except OSError:
-        # The fallible step (the gzip write) ran first, so nothing in the
-        # segment set has moved yet. Drop the temp file so it can't
-        # accumulate or be mistaken for a segment, and leave `rotated` in
-        # place; the next rotation recovers it.
-        tmp.unlink(missing_ok=True)
+    with open(brain_dir / ROTATE_LOCK_NAME, "a+") as lock_fh:
+        try:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            # Another process is already compressing this exact file. The
+            # work is being done, not lost — nothing to do here.
+            return
+        try:
+            tmp = brain_dir / f"{RAW_NAME}.{os.getpid()}.gz.tmp"
+            try:
+                with open(rotated, "rb") as fin, gzip.open(tmp, "wb") as fout:
+                    shutil.copyfileobj(fin, fout)
+                segment_path(brain_dir, RAW_SEGMENTS).unlink(missing_ok=True)
+                for n in range(RAW_SEGMENTS - 1, 0, -1):
+                    src = segment_path(brain_dir, n)
+                    if src.is_file():
+                        src.rename(segment_path(brain_dir, n + 1))
+                os.replace(tmp, segment_path(brain_dir, 1))
+                rotated.unlink(missing_ok=True)
+            except OSError:
+                # The fallible step (the gzip write) ran first, so nothing in
+                # the segment set has moved yet. Drop the temp file so it
+                # can't accumulate or be mistaken for a segment, and leave
+                # `rotated` in place; the next rotation recovers it.
+                tmp.unlink(missing_ok=True)
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 def _append_raw(

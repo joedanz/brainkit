@@ -396,6 +396,62 @@ def test_a_failed_compression_leaves_the_existing_segments_intact(tmp_path):
     assert rotating.read_text() == "orphan-marker\n"
 
 
+def _rotate_concurrently(brain_dir_str: str, rotated_str: str) -> None:
+    """MODULE level, deliberately: macOS starts multiprocessing with `spawn`,
+    which pickles the target. A function defined inside the test body cannot
+    be pickled, and the test would ERROR rather than exercise the race."""
+    retrieval_module._compress_rotated(Path(brain_dir_str), Path(rotated_str))
+
+
+def test_concurrent_compression_does_not_corrupt_or_double_shift(tmp_path):
+    """Two real PROCESSES race to compress the SAME rotated file — exactly
+    the shape `_append_raw`'s orphan-recovery branch creates for real during
+    the ~100ms live-rotation window (it can't distinguish an in-progress
+    rotation from a crash orphan), not a contrived setup. Without the rotate
+    lock this interleaves writes to a shared temp path — a corrupt segment —
+    and shifts the segment set TWICE for one rotation, silently evicting a
+    real one, all while the segment COUNT and `_has_wrapped()` stay healthy.
+    """
+    import multiprocessing as mp
+
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    brain = vault / ".brain"
+    brain.mkdir(parents=True, exist_ok=True)
+
+    # Leave slot RAW_SEGMENTS empty so a double shift is visible: one correct
+    # rotation shifts 1..(RAW_SEGMENTS-1) up into 2..RAW_SEGMENTS, landing
+    # something in the previously-empty top slot. A double shift instead
+    # pushes a real segment out of the set entirely.
+    for n in range(1, RAW_SEGMENTS):
+        with gzip.open(segment_path(brain, n), "wb") as fh:
+            fh.write(f"segment-{n}-marker\n".encode())
+
+    rotated = brain / ROTATING_NAME
+    rotated.write_text("rotated-marker\n" + "x" * ROTATE_AT_BYTES)
+
+    procs = [
+        mp.Process(target=_rotate_concurrently, args=(str(brain), str(rotated)))
+        for _ in range(4)
+    ]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join()
+
+    # Exactly one rotation happened, and every segment gunzips cleanly.
+    with gzip.open(segment_path(brain, 1), "rt") as fh:
+        assert fh.readline().strip() == "rotated-marker"
+    for n in range(2, RAW_SEGMENTS + 1):
+        seg = segment_path(brain, n)
+        assert seg.is_file(), f"segment {n} missing — a real segment was evicted"
+        with gzip.open(seg, "rt") as fh:
+            assert fh.readline().strip() == f"segment-{n - 1}-marker"
+
+    assert not rotated.exists()
+    assert list(brain.glob("*.tmp")) == [], "a losing process left a temp file behind"
+
+
 def test_the_lock_is_released_before_compression(tmp_path):
     """Structural: compression must not happen inside the lock, because this
     runs on every search in the product. Asserted by checking that the lock
