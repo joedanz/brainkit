@@ -220,7 +220,16 @@ def test_raw_log_since_is_null_when_switched_off(tmp_path):
 
 
 def test_raw_truncated_is_false_while_raw_logging_is_off(tmp_path):
+    """The case that matters is a FULL segment set left behind by a capture
+    that has since been switched off — not an empty vault, which passes
+    trivially and proves nothing about the guard this test exists for."""
     vault = _vault(tmp_path)
+    brain = vault / ".brain"
+    brain.mkdir(parents=True, exist_ok=True)
+    for n in range(1, RAW_SEGMENTS + 1):
+        with gzip.open(segment_path(brain, n), "wb") as fh:
+            fh.write(f"segment-{n}-marker\n".encode())
+
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
     assert _stats(vault)["raw_truncated"] is False
 

@@ -277,7 +277,12 @@ def record(
             )
         # Reports that the segment set is full, so the next rotation discards
         # the oldest — NOT that capture stopped, which is what the old cap did.
-        truncated = _has_wrapped(brain_dir)
+        # Gated on raw_on: segments left behind by a PAST capture must not
+        # pin this true forever once the sentinel is removed — "a badge that
+        # can never clear stops being information" (the deleted cap-era
+        # comment's own argument, reintroduced here by a different route if
+        # this were unconditional).
+        truncated = raw_on and _has_wrapped(brain_dir)
 
         payload = {
             "schema": SCHEMA,
