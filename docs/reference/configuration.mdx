@@ -229,6 +229,15 @@ This log holds the literal text people typed. `raw_log` and `raw_log_since` in
 the stats file report that it is running and since when, so it cannot be
 switched on and forgotten.
 
+Removing the sentinel stops **future** capture only — it does not erase what
+was already captured. Up to roughly 4.25 MB of query text can remain on disk
+indefinitely, spread across the live file and up to seven gzipped segments.
+To delete it:
+
+```bash
+rm -f <vault>/.brain/retrieval.jsonl <vault>/.brain/retrieval.jsonl.*.gz <vault>/.brain/retrieval.jsonl.rotating
+```
+
 ## Embeddings
 
 Retrieval's semantic leg needs an embedding provider. Without one, `brain index` and `brain search` still work in **keyword-only** mode — configure a provider to add the vector leg. Any OpenAI-compatible `/embeddings` endpoint works (OpenAI, Together, a company proxy, a local `llama-server`).
