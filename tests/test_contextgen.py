@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_vault
-from brain.contextgen import ROOT_LIMIT, SPACE_LIMIT, render_root_protocol
+from brain.contextgen import (
+    ROOT_LIMIT,
+    SPACE_LIMIT,
+    generate_context_files,
+    render_root_protocol,
+)
 from brain.schemas import Person, VaultConfig
 from tests.conftest import BOB, RULES
 
@@ -312,3 +317,53 @@ def test_root_protocol_names_custom_shared():
         person, [("Family", False), ("People/kid1", True)], cfg)
     assert "Family/Decisions/" in text and "Family/Intel/" in text
     assert "Company/" not in text
+
+
+def test_standing_corrections_render_above_the_routing_rules():
+    block = "## Standing corrections\n\n- Never open with filler.\n"
+    text = render_root_protocol(
+        BOB, [("People/bob", True)], corrections_block=block
+    )
+    assert "Never open with filler." in text
+    # Constraints on behaviour must not sit below operational detail, where
+    # they get skimmed.
+    assert text.index("Standing corrections") < text.index("Routing rules")
+
+
+def test_no_corrections_means_no_heading():
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "Standing corrections" not in text
+
+
+def test_the_protocol_still_fits_with_a_full_budget_of_corrections():
+    from brain.corrections import CORRECTIONS_LIMIT
+
+    block = "## Standing corrections\n\n" + ("- " + "x" * 78 + "\n") * 49
+    assert len(block) <= CORRECTIONS_LIMIT
+    text = render_root_protocol(
+        BOB,
+        [("Company", False), ("Teams/ops", True), ("People/bob", True)],
+        corrections_block=block,
+    )
+    assert len(text) <= ROOT_LIMIT
+
+
+def test_the_protocol_teaches_the_agent_to_record_a_correction():
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "Corrections/" in text
+    # An agent that writes its own rules is an agent editing its own prompt.
+    assert "never infer one" in text
+
+
+def test_generated_vault_protocol_carries_that_person_s_corrections(tmp_path):
+    vault = tmp_path / "vault"
+    d = vault / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "voice.md").write_text(
+        "---\nrule: Keep client mail direct.\nfrom: 2026-08-19\n---\nSENTINELBODY\n")
+
+    generate_context_files(vault, BOB, [("People/bob", True)])
+
+    text = (vault / "CLAUDE.md").read_text()
+    assert "Keep client mail direct." in text
+    assert "SENTINELBODY" not in text  # the body never ships

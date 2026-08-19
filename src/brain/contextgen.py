@@ -36,7 +36,7 @@ edits to it are discarded.
 Read-only spaces are maintained by the company assistant. Edits belong in
 writable spaces; the write-back service rejects changes to read-only paths.
 
-## Routing rules (apply when processing new information)
+{corrections_block}## Routing rules (apply when processing new information)
 
 - Action items (owner + deadline) -> `People/{pid}/Actions/Tracker.md`
 - Session/meeting summaries -> `People/{pid}/Sessions/`
@@ -50,6 +50,12 @@ writable spaces; the write-back service rejects changes to read-only paths.
   Keep it a lean overview, not a running log: small facts live under its
   headings; when a topic outgrows a few lines, move the detail to
   `People/{pid}/Notes/<Topic>.md` and leave a one-line link under the heading
+- When your human tells you an answer was wrong, write the correction to
+  `People/{pid}/Corrections/<short-slug>.md` with frontmatter `rule:` (ONE
+  imperative sentence — it is rendered into this protocol verbatim on the next
+  compile) and `from:` (today, YYYY-MM-DD). Put what went wrong in the body;
+  the body is never rendered, it is there for whoever reads the rule months
+  later. Record only a correction your human actually made — never infer one.
 - A **named third party** (a person, family, or company you work with or track)
   is a {entity}/contact, not you — capture it as a {entity}, never in
   `People/{pid}/`. You are {pid}: a third party who happens to share your
@@ -169,6 +175,7 @@ def render_root_protocol(
     person: Person,
     spaces_rw: list[tuple[str, bool]],
     config: VaultConfig = VaultConfig(),
+    corrections_block: str = "",
 ) -> str:
     space_lines = "\n".join(
         f"- `{space}/` — {'writable' if writable else 'read-only'}"
@@ -180,6 +187,7 @@ def render_root_protocol(
         entity_title=config.entity[:1].upper() + config.entity[1:],
         requests=config.requests_folder, name_key=config.name_key,
         shared=config.shared,
+        corrections_block=(corrections_block + "\n") if corrections_block else "",
     )
     if len(text) > ROOT_LIMIT:
         raise ValueError(f"root protocol exceeds {ROOT_LIMIT} chars")
@@ -229,7 +237,12 @@ def generate_context_files(
 ) -> list[str]:
     written: list[str] = []
 
-    root_text = render_root_protocol(person, spaces_rw, config)
+    from brain.corrections import load_corrections, render_corrections
+
+    # The compiler has already copied this person's spaces into `vault`
+    # (compiler.py) before calling us, so their Corrections/ are on disk here.
+    block = render_corrections(load_corrections(vault, person.id))
+    root_text = render_root_protocol(person, spaces_rw, config, corrections_block=block)
     for fname in ("AGENTS.md", "CLAUDE.md"):
         (vault / fname).write_text(root_text)
         written.append(fname)
