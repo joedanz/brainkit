@@ -815,6 +815,18 @@ def _check_corrections(master: Path) -> list[Finding]:
                     f"People/{pid}/{CORRECTIONS_DIR}/{slug}.md" for slug in cs.unusable
                 )))
 
+        if cs.unreadable:
+            # `_check_unreadable_files` reports the same file as an infra
+            # error, but that escalates to the admins. This one tells the
+            # author their rule is not in force, which only they can fix.
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.unreadable)} record(s) cannot "
+                f"be read and render nothing — fix the file's permissions, or rewrite it",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{slug}.md" for slug in cs.unreadable
+                )))
+
         if cs.undated:
             findings.append(Finding(
                 "warn", "corrections-budget",

@@ -23,9 +23,12 @@ explicitly under **Changed**, with what to do about it.
   `Company/Playbook/` through the existing promotion queue. The rendered
   block is capped at 4,000 characters and a rule renders whole or not at all;
   anything that does not fit, plus any record missing a `rule:` or a usable
-  `from:` date, is reported by `brain doctor` as `corrections-budget` and
-  routed to that person, because a correction that silently fails to take is
-  worse than one never made.
+  `from:` date or that the OS will not hand over, is reported by `brain
+  doctor` as `corrections-budget` and routed to that person, because a
+  correction that silently fails to take is worse than one never made. A
+  correction that is not valid UTF-8 — a smart quote pasted out of a document
+  — still renders, with a replacement character where the byte was, rather
+  than failing the compile.
 
 ## [0.4.3] - 2026-08-18
 

@@ -39,6 +39,24 @@ class CorrectionSet:
     omitted: tuple[Correction, ...]    # well-formed, but over budget
     unusable: tuple[str, ...]          # slugs with no `rule:` — never rendered
     undated: tuple[str, ...]           # slugs whose `from:` did not parse
+    unreadable: tuple[str, ...] = ()   # slugs the OS would not hand over
+
+
+def _read_text(path: Path) -> str | None:
+    """A correction's text, or None if the OS refuses to hand the file over.
+
+    `errors="replace"`, exactly as `doctor._read_text` reads every other note:
+    one Windows-1252 smart quote pasted out of a document must not raise
+    UnicodeDecodeError up through `generate_context_files` and abort the whole
+    compile for that person — or, from `doctor`, abort the whole run. The rule
+    still renders, with a replacement character where the byte was, which is a
+    visible blemish rather than a silent drop. A file that cannot be read at
+    all becomes `CorrectionSet.unreadable`: reported, never fatal.
+    """
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
 
 
 def _parse_date(raw: str | None) -> str | None:
@@ -67,17 +85,22 @@ def load_corrections(
     """
     d = vault / "People" / pid / CORRECTIONS_DIR
     if not d.is_dir():
-        return CorrectionSet((), (), (), ())
+        return CorrectionSet((), (), (), (), ())
 
     parsed: list[Correction] = []
     unusable: list[str] = []
     undated: list[str] = []
+    unreadable: list[str] = []
 
     for f in sorted(d.glob("*.md")):
         if not f.is_file():
             continue
         slug = f.stem
-        fm, _body = split_frontmatter(f.read_text())
+        text = _read_text(f)
+        if text is None:
+            unreadable.append(slug)
+            continue
+        fm, _body = split_frontmatter(text)
         rule = (fm.get("rule") or "").strip()
         if not rule:
             unusable.append(slug)
@@ -109,7 +132,8 @@ def load_corrections(
         rendered.append(c)
         used += cost
 
-    return CorrectionSet(tuple(rendered), tuple(omitted), tuple(unusable), tuple(undated))
+    return CorrectionSet(tuple(rendered), tuple(omitted), tuple(unusable),
+                         tuple(undated), tuple(unreadable))
 
 
 def render_corrections(cs: CorrectionSet) -> str:

@@ -1173,6 +1173,44 @@ def test_a_healthy_correction_set_reports_nothing(master):
     assert not [f for f in findings if f.check == "corrections-budget"]
 
 
+def test_a_non_utf8_correction_does_not_abort_the_doctor_run(master):
+    """A bare read_text() here raised UnicodeDecodeError out of run_doctor, so
+    one pasted smart quote in one person's Corrections/ ended the whole run
+    and every other finding with it."""
+    seed_meta(master)
+    (master / "People/stray.md").write_text("orphan\n")  # an unrelated finding
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "quote.md").write_bytes(
+        b"---\nrule: Never say \x93maybe\x94 to a client.\nfrom: 2026-08-19\n---\nwhy\n")
+
+    findings = run_doctor(master)
+    assert not [f for f in findings if f.check == "corrections-budget"]
+    assert any(f.check == "orphan-files" for f in findings)  # the run completed
+
+
+@requires_nonroot
+def test_an_unreadable_correction_is_reported_to_its_author(master):
+    """The infra check reports the same file to the admins. The author is the
+    only one who can fix it, and the only one who believes the rule is live."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    locked = d / "locked.md"
+    locked.write_text("---\nrule: Keep it direct.\nfrom: 2026-08-19\n---\nwhy\n")
+    locked.chmod(0o000)
+    try:
+        findings = run_doctor(master)
+    finally:
+        locked.chmod(0o644)
+
+    mine = [f for f in findings if f.check == "corrections-budget"]
+    assert len(mine) == 1
+    assert mine[0].severity == "warn"
+    assert mine[0].paths == ("People/bob/Corrections/locked.md",)
+    assert "cannot be read" in mine[0].message
+
+
 def test_corrections_do_not_trip_the_prose_note_checks(master):
     seed_meta(master)
     # A correction has no wikilinks and no facts by construction, and two

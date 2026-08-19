@@ -1,4 +1,7 @@
+import os
 from pathlib import Path
+
+import pytest
 
 from brain.corrections import (
     CORRECTIONS_LIMIT,
@@ -96,6 +99,42 @@ def test_the_body_never_reaches_the_rendered_block(tmp_path):
     assert "Keep client mail direct." in block
     assert "SECRETBODY" not in block
     assert "Acme" not in block
+
+
+requires_nonroot = pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root bypasses file permissions, so an unreadable file can't be staged")
+
+
+def test_a_byte_that_is_not_utf8_still_renders_and_never_raises(tmp_path):
+    # A Windows-1252 smart quote pasted out of a document. Bare read_text()
+    # raised UnicodeDecodeError here, which aborted the whole compile for this
+    # person — one bad byte taking down every rule they ever wrote.
+    d = tmp_path / "People/alice/Corrections"
+    d.mkdir(parents=True)
+    (d / "quote.md").write_bytes(
+        b"---\nrule: Never say \x93maybe\x94 to a client.\nfrom: 2026-08-19\n---\nwhy\n")
+    cs = load_corrections(tmp_path, "alice")
+    assert len(cs.rendered) == 1
+    assert cs.unreadable == () and cs.unusable == ()
+    # The rule survives around the undecodable byte rather than vanishing.
+    assert "Never say" in cs.rendered[0].rule and "to a client." in cs.rendered[0].rule
+    assert "Never say" in render_corrections(cs)
+
+
+@requires_nonroot
+def test_a_record_the_os_refuses_is_reported_not_fatal(tmp_path):
+    _write(tmp_path, "alice", "good", _correction("Keep it direct."))
+    _write(tmp_path, "alice", "locked", _correction("Never do that."))
+    locked = tmp_path / "People/alice/Corrections/locked.md"
+    locked.chmod(0o000)
+    try:
+        cs = load_corrections(tmp_path, "alice")
+    finally:
+        locked.chmod(0o644)
+    assert cs.unreadable == ("locked",)
+    # The readable rule is unaffected: one bad file drops one rule, not all.
+    assert [c.rule for c in cs.rendered] == ["Keep it direct."]
 
 
 def test_default_limit_is_the_documented_one():
