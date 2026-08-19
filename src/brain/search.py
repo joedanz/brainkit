@@ -17,6 +17,7 @@ treatment, no weight knob. Unlike the old BFS center boost, the graph leg may
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.embeddings import EmbeddingProvider, pack_vector
@@ -57,7 +58,47 @@ def rrf(rankings: list[list[int]], *, c: int = _RRF_C) -> dict[int, float]:
     return scores
 
 
+def _utc_now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def search_index(
+    vault: Path,
+    query: str,
+    *,
+    k: int = 8,
+    provider: EmbeddingProvider | None = None,
+    keyword_only: bool = False,
+    center: str | None = None,
+) -> SearchReport:
+    """Search, and record that the search happened.
+
+    The recorder is wrapped: telemetry must never break the thing it measures.
+    A recorder that stops writing shows up as a stats file whose `updated_at`
+    stops advancing, which fleet renders as its own state rather than as zero.
+    """
+    report = _run_search(
+        vault, query, k=k, provider=provider,
+        keyword_only=keyword_only, center=center,
+    )
+    try:
+        from brain.retrieval import record
+
+        record(
+            Path(vault),
+            mode=report.mode,
+            hits=len(report.hits),
+            warnings=report.warnings,
+            now=_utc_now(),
+            query=query,
+            hit_locations=[(h.rel_path, h.space) for h in report.hits],
+        )
+    except Exception:  # see docstring; never break a search
+        pass
+    return report
+
+
+def _run_search(
     vault: Path,
     query: str,
     *,
