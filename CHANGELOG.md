@@ -11,6 +11,44 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **`brain init` scaffolds `Intel/` flat, and ships no industry taxonomy.** The
+  scaffold created `Intel/Destinations/`, `Intel/Providers/`, `Intel/Events/`
+  and `Intel/Trends/`, and `Intel/Home.md` carried a heading for each — one
+  company's subjects installed into every company's vault. Worse, that list sat
+  about a thousand characters below the protocol's relevance test and was the
+  only concrete subject vocabulary an agent had to calibrate "what belongs
+  here" against, so a vault with no charter set inherited a stranger's
+  business. `Intel/` is now a single flat page per subject, mapped from
+  `Intel/Home.md`, and a folder appears only when a subject outgrows the map.
+  **Existing vaults are unaffected** — nothing is moved or deleted, the
+  subfolders keep working, and `doctor` still walks the whole tree.
+
+- **The protocols name what is *not* Intel.** Intel is what the company has
+  read about the world: distilled on the way in, the source never entering the
+  vault, so every claim cites a URL and a date. What someone knows from
+  actually working with a supplier, a place, or a partner has no URL — it is
+  first-party knowledge, it cites the episode that established it
+  (`[source:: [[the note]]]`), and it belongs in whichever space the company
+  names for it. Without that distinction "Intel" reads as "all shared
+  knowledge", and the citation rule quietly filters out the knowledge a company
+  cannot look up anywhere else.
+
+### Fixed
+
+- **The scaffolded `Company/Home.md` shipped a stem collision.** It linked the
+  company overview as a bare `[[Memory]]`, but every person's space holds a
+  `Memory.md`, so in every compiled vault that link resolved first-match-wins —
+  the exact ambiguity `doctor`'s `stem-collision` check exists to report. It
+  now links by full path, as the neighbouring `Intel/Home` link already did.
+
+### Added
+
+- `Company/Memory.md` scaffolds a **"Where knowledge lives"** heading, inviting
+  a deployment to record its own taxonomy in one place an agent will read. The
+  routing rules in `AGENTS.md` stay generic; this is where the specifics go.
+
 ## [0.4.6] - 2026-08-19
 
 ### Changed

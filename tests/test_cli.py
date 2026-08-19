@@ -169,9 +169,10 @@ def test_init_scaffolds_master(tmp_path: Path):
     protocol = (dest / "AGENTS.md").read_text()
     assert "assistant" in protocol.lower()
     assert "Needs-Routing" in protocol
-    # shared travel wiki scaffolded and wired into the assistant protocol
+    # Intel scaffolded and wired into the assistant protocol — flat, and in
+    # nobody's industry vocabulary: a company names its own subjects
     assert (dest / "Company/Intel/Home.md").exists()
-    assert (dest / "Company/Intel/Destinations/.gitkeep").exists()
+    assert not list((dest / "Company/Intel").glob("*/")), "Intel ships flat"
     assert "Company/Intel/" in protocol
     assert "as of YYYY-MM" in protocol
     assert "captured YYYY-MM" in protocol    # today's-date fallback when source undated

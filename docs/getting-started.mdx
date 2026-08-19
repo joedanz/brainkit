@@ -36,7 +36,7 @@ uv tool install git+https://github.com/joedanz/brainkit
     brain init /srv/brain/master --company "Acme Co"
     ```
     This creates the space layout (`Company/`, `Teams/`, `People/`, `Clients/`) —
-    including the seeded [`Company/Intel/` reference wiki](/guides/getting-things-in#articles-and-links-the-intel-wiki) —
+    including the seeded [`Company/Intel/` wiki](/guides/getting-things-in#articles-and-links-the-intel-wiki) —
     seeds `_meta/org.yaml` and `_meta/spaces.yaml` (plus a commented
     `_meta/webhook.yaml.example` for when you want services
     [pushing notes in](/guides/getting-things-in#webhooks--automatic-intake-from-other-services)),
@@ -119,7 +119,7 @@ uv tool install git+https://github.com/joedanz/brainkit
 ```
 /srv/brain/
   master/                 # the single source of truth (one git repo)
-    Company/              # Decisions/ Playbook/ Templates/ Intel/ (shared travel wiki)
+    Company/              # Decisions/ Playbook/ Templates/ Intel/ (distilled outside knowledge)
     Teams/ People/ Clients/
     _meta/                # org.yaml, spaces.yaml, promotions/ — never compiled out
     AGENTS.md             # server assistant protocol (master only)

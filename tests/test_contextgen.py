@@ -663,3 +663,62 @@ def test_doctor_reports_a_stale_master_protocol(tmp_path):
 
     refresh_assistant_protocol(tmp_path, write=True)
     assert [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"] == []
+
+
+# --- The scaffold ships a shape, not a taxonomy ------------------------------
+
+def test_scaffold_ships_no_industry_taxonomy(tmp_path):
+    """Destinations/Providers/Events/Trends were one company's subjects
+    scaffolded into every company's vault — and the folder names sat a
+    thousand characters below the relevance test as the only concrete
+    vocabulary an agent had to calibrate against."""
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    intel = tmp_path / "Company/Intel"
+    assert (intel / "Home.md").exists()
+    assert [d for d in intel.iterdir() if d.is_dir()] == [], "Intel ships flat"
+    home = (intel / "Home.md").read_text()
+    for noun in ("Destinations", "Providers", "Trends", "advisor"):
+        assert noun not in home, noun
+
+
+def test_intel_home_states_what_is_not_intel(tmp_path):
+    """The split the flattening exists to make: Intel is what we read about
+    the world, cited to a URL; what we know from working with something cites
+    the episode instead. Without this line "Intel" reads as "all shared
+    knowledge" and first-party knowledge gets a citation it cannot have."""
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    home = (tmp_path / "Company/Intel/Home.md").read_text()
+    assert "first-party knowledge" in home
+    assert "cites the episode" in home
+
+
+def test_home_links_memory_by_full_path(tmp_path):
+    """Every person's space holds a Memory.md, so the scaffold's bare
+    [[Memory]] resolved first-match-wins in every compiled vault — shipping
+    the exact stem collision doctor warns about."""
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    home = (tmp_path / "Company/Home.md").read_text()
+    assert "[[Company/Memory]]" in home
+    assert "[[Memory]]" not in home
+    # and Intel stays reachable: nothing else points at its map
+    assert "[[Company/Intel/Home|Intel]]" in home
+
+
+def test_scaffolded_master_is_clean_under_doctor(tmp_path):
+    """A vault straight out of `brain init` should have nothing to report but
+    its own unset charter — including no unlinked Intel map, which is what a
+    missing Home link produces."""
+    from brain.doctor import run_doctor
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    findings = run_doctor(tmp_path)
+    assert [f for f in findings if f.severity == "error"] == []
+    assert [f for f in findings if f.check == "unlinked-notes"] == []
+    assert [f.check for f in findings if f.severity == "info"] == ["charter-unset"]
