@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-08-19
+
 ### Changed
 
 - **`brain init` scaffolds `Intel/` flat, and ships no industry taxonomy.** The
@@ -744,7 +746,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/joedanz/brainkit/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/joedanz/brainkit/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/joedanz/brainkit/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/joedanz/brainkit/compare/v0.4.3...v0.4.4
