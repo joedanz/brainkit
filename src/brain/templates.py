@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from brain.contextgen import render_charter
-from brain.schemas import DEFAULT_SHARED, VaultConfig
+from brain.schemas import DEFAULT_SHARED, VaultConfig, load_config
 
 _ORG_YAML_T = """\
 people:
@@ -322,6 +323,47 @@ def _intel_home_md() -> str:
         "## Events\n\n(none yet)\n\n"
         "## Trends\n\n(none yet)\n"
     )
+
+
+@dataclass(frozen=True)
+class ProtocolStatus:
+    """What `refresh_assistant_protocol` found, and what it did about it."""
+    path: Path
+    missing: bool
+    differs: bool
+    written: bool
+
+
+def refresh_assistant_protocol(master: Path, config: VaultConfig | None = None,
+                               *, write: bool = False) -> ProtocolStatus:
+    """Bring a master vault's AGENTS.md back in line with the shipped protocol.
+
+    `scaffold_master` writes this file once, at `brain init`, and nothing has
+    ever rewritten it — so every improvement to the assistant protocol reached
+    new vaults only, and a master deployed a year ago still instructs its
+    assistant with the rules of a year ago. Compiled per-person vaults have no
+    such problem: `generate_context_files` regenerates theirs on every cycle.
+
+    Reporting and writing are one function so they cannot disagree about what
+    "current" means, but `write` defaults to False: this file is generated
+    content an admin may nonetheless have edited by hand, and the honest
+    sequence is to say it differs and let a human decide, rather than to
+    silently discard the edit the way a compile discards edits to a slice.
+    """
+    config = config or load_config(master)
+    path = master / "AGENTS.md"
+    expected = assistant_protocol(config)
+    try:
+        current = path.read_text()
+    except FileNotFoundError:
+        current = None
+
+    differs = current != expected
+    if differs and write:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(expected)
+    return ProtocolStatus(path=path, missing=current is None,
+                          differs=differs, written=differs and write)
 
 
 def scaffold_master(dest: Path, company: str,

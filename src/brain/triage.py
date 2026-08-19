@@ -52,7 +52,7 @@ from brain.schemas import (
 TRIAGE_CHECKS = frozenset({
     "unlinked-notes", "orphan-files", "intel",
     "dup-exact", "dup-near", "stem-collision",
-    "fact-dup", "fact-conflict", "citations",
+    "fact-dup", "fact-conflict", "fact-uncited", "citations",
     "corrections-budget",
 })
 # `corrections-budget` is routed for the same reason it exists: a correction

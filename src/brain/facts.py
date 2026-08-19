@@ -120,6 +120,22 @@ def parse_facts(text: str) -> list[Fact]:
     return facts
 
 
+def lint_uncited_facts(text: str) -> list[tuple[int, str]]:
+    """Well-formed facts carrying no ``[source::]``.
+
+    Kept apart from `lint_facts` because the two say different things. There,
+    a bullet tried to be a fact and failed — the line is broken. Here the line
+    parses fine and is missing its provenance, so the claim stands in the
+    vault with nothing behind it. Conflating them would file "broken" and
+    "unattributable" under one message and make neither countable.
+
+    Only lines `parse_facts` accepts are considered, so a malformed date is
+    reported once, by `lint_facts`, rather than twice by both.
+    """
+    return [(f.line, "fact has no [source::]")
+            for f in parse_facts(text) if not f.sources]
+
+
 def lint_facts(text: str) -> list[tuple[int, str]]:
     """Problems that keep a bullet from being a fact. Warn-only material."""
     problems: list[tuple[int, str]] = []

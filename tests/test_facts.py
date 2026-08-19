@@ -366,3 +366,33 @@ def test_equals_marker_needs_only_one_preceding_token():
     a = _entry("a.md", 3, "renewal = 2026-03", {"Clients/Acme.md"})
     b = _entry("b.md", 8, "renewal = 2027-03", {"Clients/Acme.md"})
     assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+
+
+def test_uncited_fact_is_reported_separately_from_malformed_ones():
+    """The protocol says a fact carries [from::] and a [source::]; only the
+    dates were ever checked."""
+    from brain.facts import lint_facts, lint_uncited_facts
+
+    text = (
+        "- Acme moved to Berlin [from:: 2026-01]\n"
+        "- Acme uses Stripe [from:: 2026-02] [source:: [[2026-02 Kickoff]]]\n"
+    )
+    assert lint_uncited_facts(text) == [(1, "fact has no [source::]")]
+    # the malformed-line lint stays exactly as it was
+    assert lint_facts(text) == []
+
+
+def test_a_malformed_line_is_not_also_reported_as_uncited():
+    """One defect, one message: a bullet whose date does not parse is not a
+    fact at all, so it is `lint_facts`' finding and never counted twice."""
+    from brain.facts import lint_facts, lint_uncited_facts
+
+    text = "- Acme moved [from:: not-a-date]\n"
+    assert lint_uncited_facts(text) == []
+    assert [m for _, m in lint_facts(text)] == ["unparseable from date: 'not-a-date'"]
+
+
+def test_closed_facts_still_need_a_source():
+    from brain.facts import lint_uncited_facts
+    text = "- Acme was in Munich [from:: 2025-01] [until:: 2026-01]\n"
+    assert lint_uncited_facts(text) == [(1, "fact has no [source::]")]

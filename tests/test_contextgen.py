@@ -487,3 +487,103 @@ def test_protocol_fits_at_every_budget_maxed_at_once():
     text = render_root_protocol(BOB, spaces, config=cfg, corrections_block=block)
 
     assert len(text) <= ROOT_LIMIT
+
+
+def test_protocol_copy_never_parses_as_real_facts():
+    """The protocol teaches fact-line syntax, and `[from::]` in a bullet IS a
+    fact line — `query_facts_at` parses every .md in the vault's git tree,
+    generated files included. A literal example bullet therefore lands in
+    `brain facts` as a claim about a company nobody has heard of. Teach the
+    grammar inline in backticks; never render a specimen bullet."""
+    from brain.facts import parse_facts
+    from brain.templates import ASSISTANT_PROTOCOL
+
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert parse_facts(text) == []
+    assert parse_facts(ASSISTANT_PROTOCOL) == []
+
+
+def test_root_protocol_teaches_the_fact_grammar_it_is_judged_by():
+    """`[until::]` and `aliases:` were instructed elsewhere — the doctor digest
+    and SKILL.md tell agents to use them — but defined only in the master
+    protocol, which no personal agent ever reads."""
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "[from:: YYYY-MM]" in text
+    assert "[source::" in text
+    assert "[until::" in text
+    assert "aliases:" in text
+    # the uncited-fact check now reports these back, so say so
+    assert "reported back to you" in text
+
+
+# --- Refreshing a master's own protocol -------------------------------------
+
+def test_master_protocol_can_be_brought_up_to_date(tmp_path):
+    """scaffold_master writes AGENTS.md once at `brain init` and nothing ever
+    rewrote it, so protocol improvements reached new vaults only."""
+    from brain.templates import (
+        assistant_protocol,
+        refresh_assistant_protocol,
+        scaffold_master,
+    )
+
+    scaffold_master(tmp_path, "Acme")
+    assert refresh_assistant_protocol(tmp_path).differs is False
+
+    (tmp_path / "AGENTS.md").write_text("# stale protocol from last year\n")
+
+    # reporting does not mutate: an admin may have edited this file by hand
+    st = refresh_assistant_protocol(tmp_path)
+    assert st.differs and not st.written and not st.missing
+    assert (tmp_path / "AGENTS.md").read_text() == "# stale protocol from last year\n"
+
+    st = refresh_assistant_protocol(tmp_path, write=True)
+    assert st.written
+    assert (tmp_path / "AGENTS.md").read_text() == assistant_protocol()
+    assert refresh_assistant_protocol(tmp_path).differs is False
+
+
+def test_refresh_reports_a_missing_protocol_distinctly(tmp_path):
+    from brain.templates import refresh_assistant_protocol, scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    (tmp_path / "AGENTS.md").unlink()
+
+    st = refresh_assistant_protocol(tmp_path)
+    assert st.missing and st.differs and not st.written
+
+
+def test_refresh_respects_the_vaults_own_config(tmp_path):
+    """The rewrite must render under the vault's nouns, not the defaults, or
+    refreshing a Families vault would hand it a Clients protocol."""
+    from brain.schemas import make_config
+    from brain.templates import refresh_assistant_protocol, scaffold_master
+
+    # explicit singular: derive_entity("Families") is the naive "familie"
+    cfg = make_config("Families", "family", "Company", "Bespoke luxury travel.")
+    scaffold_master(tmp_path, "Acme", cfg)
+    (tmp_path / "AGENTS.md").write_text("stale\n")
+
+    refresh_assistant_protocol(tmp_path, write=True)
+
+    text = (tmp_path / "AGENTS.md").read_text()
+    assert "FamilyRequests" in text
+    assert "Clients/" not in text
+    assert "Bespoke luxury travel." in text
+
+
+def test_doctor_reports_a_stale_master_protocol(tmp_path):
+    from brain.doctor import run_doctor
+    from brain.templates import refresh_assistant_protocol, scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    assert [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"] == []
+
+    (tmp_path / "AGENTS.md").write_text("# last year's rules\n")
+    stale = [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"]
+    assert len(stale) == 1
+    assert stale[0].severity == "warn"
+    assert "brain refresh-protocol" in stale[0].message
+
+    refresh_assistant_protocol(tmp_path, write=True)
+    assert [f for f in run_doctor(tmp_path) if f.check == "protocol-stale"] == []
