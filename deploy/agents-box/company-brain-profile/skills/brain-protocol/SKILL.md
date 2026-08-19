@@ -35,8 +35,9 @@ it to answer well and write nothing.
 3. Admit each extracted item (above), then route what survives per the vault's
    routing rules (actions -> Actions/Tracker.md, summary -> Sessions/, durable
    facts -> Memory.md).
-4. Archive the processed item into Sessions/. The archive records what was
-   said; it is not somewhere to file things to be found later. An item that belongs in the
+4. Delete the processed item. It is not archived: the summary from step 3 is
+   what the episode leaves behind, and it is what a fact line cites. Delete it
+   last, so an interrupted routing loses nothing. An item that belongs in the
    vault but has no clear home goes to Needs-Routing.md — never guess, and
    never park what failed admission there.
 

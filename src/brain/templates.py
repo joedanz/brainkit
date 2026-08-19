@@ -167,13 +167,15 @@ When a transcript appears in any `People/<person>/Inbox/`:
      `@SHARED@/Intel/` instead — an entity page, a personal note — mark it
      `distilled: <URL or title>` in frontmatter and cite it the same way; the
      original never enters the vault, so the citation is the only route back
-   - Session summary -> `People/<person>/Sessions/`
+   - Session summary -> `People/<person>/Sessions/`, carrying what was
+     decided and what passed the tests above, not a retelling — it is the
+     record of the episode, so it is what a fact line cites
    - General insights that passed the tests above and bear on the whole
      company -> fold into `@SHARED@/Memory.md`, which stays a lean overview
      linking out to detail notes — not a running log
-4. Archive the processed transcript into `People/<person>/Sessions/`. The
-   archive records what was said; it is not somewhere to file things to be
-   found later.
+4. Delete the processed transcript. It is not archived: the summary from step 3
+   is what the episode leaves behind. Delete it last, so an interrupted routing
+   loses nothing.
 
 An item that failed the tests above is not routed anywhere: drop it. Writing
 it to `Needs-Routing.md` instead is how a brain fills with what nobody chose

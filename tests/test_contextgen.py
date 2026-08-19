@@ -424,12 +424,25 @@ def test_attributable_does_not_launder_a_rumour():
 
 
 def test_session_writes_defer_to_the_gate():
-    """Sessions/ is the largest byte producer in the vault, is indexed, and is
-    permanently dedup-exempt (doctor `_dup_exempt`), so an unconditional
-    "summarize every meeting" is what fills a vault nobody can search."""
+    """An unconditional "summarize every meeting" is what fills a vault nobody
+    can search. The summary is now bound to the gate, and it is the only thing
+    the episode leaves behind."""
     text = render_root_protocol(BOB, [("People/bob", True)])
     assert "not a retelling of the" in text
-    assert "is not somewhere to file things to be found later" in text
+    assert "it is what a fact line\n  cites" in text
+
+
+def test_raw_transcripts_are_deleted_not_archived():
+    """The transcript is pure conversation and nothing prunes the vault, so
+    archiving it verbatim grew a permanent record of every exchange that the
+    compiler then re-copied into the vault on every cycle. Deleting last is
+    load-bearing: an interrupted routing must not lose the source."""
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "then delete the transcript" in text
+    assert "It is not archived" in text
+    assert "Delete it last" in text
+    # the instruction it replaced, in every wording it had
+    assert "archived to" not in text
 
 
 def test_needs_routing_is_not_a_holding_pen_for_rejected_items():

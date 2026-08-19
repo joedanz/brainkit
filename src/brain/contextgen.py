@@ -66,11 +66,12 @@ If you are unsure whether something passes, it does not.
 - Action items (owner + deadline) -> `People/{pid}/Actions/Tracker.md`
 - Session/meeting summaries -> `People/{pid}/Sessions/`. A summary carries
   what was decided and what passed the tests above, not a retelling of the
-  conversation
-- Raw transcripts land in `People/{pid}/Inbox/` and are processed, then
-  archived to `People/{pid}/Sessions/`. The archive records what was said; it
-  is not somewhere to file things to be found later. If it is worth finding,
-  it has a home above
+  conversation. It is the record of the episode, so it is what a fact line
+  cites
+- Raw transcripts land in `People/{pid}/Inbox/`. Process one, write its
+  summary, route what passed — then delete the transcript. It is not archived:
+  the summary is what the episode leaves behind. Delete it last, so an
+  interrupted routing loses nothing
 - `People/{pid}/Inbox/doctor-digest.md` (`source: doctor`) is a generated
   integrity report, not a capture: fix what you can in writable spaces,
   submit shared-page fixes as `mode: patch` promotions, and record a one-line
@@ -277,8 +278,8 @@ def render_space_note(space: str, writable: bool, owner: bool) -> str:
             f"# {space} — private space\n\n"
             "Everything here is private to the vault owner. Nothing leaves this\n"
             "space without an approved promotion. Keep Memory.md a lean overview\n"
-            "that links out to Notes/ for anything topic-sized; archive processed\n"
-            "Inbox items into Sessions/.\n"
+            "that links out to Notes/ for anything topic-sized; a processed Inbox\n"
+            "item leaves its summary in Sessions/ and is then deleted.\n"
         )
     else:
         mode = "writable" if writable else "read-only"

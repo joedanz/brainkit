@@ -41,12 +41,25 @@ explicitly under **Changed**, with what to do about it.
   route what passed") at the point where the assistant turns from reading to
   writing.
 
-- **`Sessions/` is no longer indexed.** The processed archive records what was
-  said, and for a vault fed by an agent that is a verbatim copy of every
-  conversation its human ever had — the largest body of text in the vault, and
-  the one least likely to answer a question, because it restates in
-  conversational form what the routing rules already filed as facts, notes and
-  decisions. Indexed, every query competed against it. The files stay on disk,
+- **Raw transcripts are deleted after processing, not archived.** Both
+  protocols told the agent to move each processed transcript into
+  `People/<id>/Sessions/`. Nothing in brainkit ever prunes a vault, and the
+  compiler does a full rebuild every cycle, so an agent-fed vault accumulated a
+  verbatim record of every exchange its human ever had and re-copied all of it
+  into the compiled vault on every run — growing with total conversation
+  history, permanently. What the episode leaves behind is now its summary
+  alone, which is bound to the admission tests (what was decided and what
+  passed, not a retelling) and is what a fact line's `[source::]` cites, so
+  attributability is unchanged. The transcript is deleted last, so an
+  interrupted routing loses nothing. No code writes or deletes these files —
+  the agent does, and `brain writeback` permission-checks a delete exactly as
+  it does an edit.
+
+- **`Sessions/` is no longer indexed.** It holds one summary per episode, which
+  restates in narrative form what the same routing pass already filed as facts,
+  actions and decisions — so indexed, one episode's content sits in the index
+  twice, and the two copies double-vote in rank fusion, the failure `doctor`'s
+  `dup-near` check exists to name. The files stay on disk,
   stay readable, and stay linkable by path or Obsidian wikilink; they stop
   being search results, backlink sources, and nodes in the typed-relation
   graph. A wikilink into `Sessions/` — a fact line's `[source:: [[the note]]]`,

@@ -354,11 +354,10 @@ def test_index_tags_custom_shared_space(master, tmp_path):
 # --- The processed archive stays out of the index ----------------------------
 
 def test_sessions_are_never_indexed(master, tmp_path):
-    """Sessions/ is the verbatim record of what was said. For an agent-driven
-    vault that is every conversation its human ever had, restating in
-    conversational form what routing already filed as facts and notes — so
-    indexed it is the largest body of text in the vault and the least likely
-    to answer anything."""
+    """A session summary restates what the same routing pass already filed as
+    facts, actions and decisions, so indexing it puts one episode into the
+    index twice — two copies double-voting in rank fusion, the failure
+    doctor's dup-near check exists to name."""
     vault = tmp_path / "bob"
     compile_vault(master, BOB, RULES, vault)
     build_index(vault, provider=None, cache=None)
@@ -380,7 +379,7 @@ def test_sessions_already_indexed_are_dropped_on_the_next_build(master, tmp_path
     vault = tmp_path / "bob"
     compile_vault(master, BOB, RULES, vault)
 
-    monkeypatch.setattr(indexer, "is_archived", lambda rel: False)
+    monkeypatch.setattr(indexer, "is_session", lambda rel: False)
     build_index(vault, provider=None, cache=None)
     assert any("Sessions" in f for f in _index_files(vault))
 
@@ -390,7 +389,7 @@ def test_sessions_already_indexed_are_dropped_on_the_next_build(master, tmp_path
     assert report.files_removed >= 1
 
 
-def test_a_link_into_the_archive_demotes_rather_than_dangling(master, tmp_path):
+def test_a_link_into_a_session_demotes_rather_than_dangling(master, tmp_path):
     """A fact line cites the episode that established it. The episode is no
     longer an index target, so the link resolves to nothing — the same path
     every un-indexed target already takes, not a new failure mode."""
