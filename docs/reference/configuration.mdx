@@ -243,9 +243,13 @@ rm -f <vault>/.brain/retrieval.jsonl*
 One glob, not a list of exact names: it also catches
 `retrieval.jsonl.rotating` and any `retrieval.jsonl.<pid>.gz.tmp` left by an
 interrupted rotation, and — unlike listing `retrieval.jsonl.*.gz` as its own
-argument — it still matches when no segments exist yet, so it can't hit zsh's
-`nomatch` and abort the whole command silently. It leaves
-`retrieval-stats.json` and `retrieval-log.on` alone; neither is query text.
+argument — it still matches on a log that has captured searches but has not
+rotated yet. That case matters: under zsh a pattern matching nothing aborts the
+whole command, so listing the segments separately would leave the live file of
+query text in place while appearing to have deleted it. (With nothing captured
+at all the glob matches nothing and zsh will say so — there is nothing to
+delete in that state.) It leaves `retrieval-stats.json` and `retrieval-log.on`
+alone; neither is query text.
 
 ## Embeddings
 
