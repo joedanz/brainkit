@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-08-19
+
 ### Added
 
 - **Standing corrections: `People/<id>/Corrections/`.** When someone tells
@@ -572,7 +574,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/joedanz/brainkit/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/joedanz/brainkit/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/joedanz/brainkit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/joedanz/brainkit/compare/v0.4.0...v0.4.1
