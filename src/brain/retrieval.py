@@ -169,12 +169,17 @@ def record(
 
         sentinel = brain_dir / SENTINEL_NAME
         raw_on = sentinel.is_file()
-        truncated = bool(data.get("raw_truncated", False))
+        # NOT carried forward from the previous payload. `raw_truncated` reports
+        # whether THIS append was refused, so deleting the raw log clears it —
+        # the spec's "stays true until the raw log is deleted". Carrying it
+        # forward would pin the fleet card's "capped" badge on permanently, and
+        # a badge that can never clear stops being information.
+        truncated = False
         if raw_on and query is not None:
             truncated = _append_raw(
                 brain_dir, query=query, mode=mode,
                 hit_locations=hit_locations, now=now,
-            ) or truncated
+            )
 
         payload = {
             "schema": SCHEMA,

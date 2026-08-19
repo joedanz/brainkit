@@ -224,14 +224,27 @@ def test_the_cap_stops_appending_and_says_so(tmp_path):
     assert _stats(vault)["raw_truncated"] is True
 
 
-def test_raw_truncated_persists_once_set(tmp_path):
+def test_raw_truncated_clears_when_the_raw_log_is_deleted(tmp_path):
+    """It reports the CURRENT state, not a historical fact.
+
+    Fleet renders this as a "capped" badge. A flag that can never clear would
+    pin that badge on a healthy log forever.
+    """
     vault = _vault(tmp_path)
     _switch_on(vault)
     (vault / ".brain" / RAW_NAME).write_text("x" * RAW_CAP_BYTES)
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    assert _stats(vault)["raw_truncated"] is True
+
     (vault / ".brain" / RAW_NAME).unlink()
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
-    assert _stats(vault)["raw_truncated"] is True
+    assert _stats(vault)["raw_truncated"] is False
+
+
+def test_raw_truncated_is_false_while_raw_logging_is_off(tmp_path):
+    vault = _vault(tmp_path)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    assert _stats(vault)["raw_truncated"] is False
 
 
 def test_counters_still_advance_while_the_raw_log_is_capped(tmp_path):
