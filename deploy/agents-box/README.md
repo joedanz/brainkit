@@ -103,9 +103,33 @@ What re-syncs is deliberately narrow:
 
 | | on a new build | why |
 |---|---|---|
-| `skills/` | refreshed | additive, and the image is the source of truth |
+| `skills/` | refreshed, except what the company's own skills repo names | additive, and the image is the source of truth — unless a company skills repo is mounted and names the same skill, in which case the image defers (see below) |
 | `SOUL.md` | only if untouched since we wrote it | the hash we shipped is recorded; equal means safe to advance, different means someone meant it, so it is left alone and the refusal logged |
 | `config.yaml` | never regenerated; one key healed | hermes rewrites it at runtime — model, `_config_version`, plugins, approvals. Regenerating it would discard live settings, including the model an operator chose |
+
+### Handing a skill to a company skills repo
+
+Mount a read-only git repo of company skills at `/opt/company-skills` (override
+with `COMPANY_SKILLS`), laid out one `<skill>/SKILL.md` or
+`<category>/<skill>/SKILL.md` per directory, and pull it on a timer. Any skill
+it names, the image stops seeding — including `brain-protocol`.
+
+That inversion is the point. Skills otherwise refresh from the image, so a
+skill the image ships wins forever: every image roll re-copies its version into
+`/opt/data/skills`, where it shadows the company's, and a push to the skills
+repo would silently never take effect. Deferring turns a protocol change from
+"pull, rebuild, recreate every container" into one push that lands on the next
+timer — no restart, no dropped conversation.
+
+The migration is automatic and conservative. A copy already in `/opt/data/skills`
+is removed only when it is byte-identical to the image's, which is what
+identifies a copy this hook wrote and nobody has edited. Anything else is
+somebody's own work: it stays, and it goes on shadowing the company's copy,
+which is the documented behaviour for a locally-authored skill.
+
+Keeping the repo's copy of `brain-protocol` current is then a sync step, not a
+guess — the file in `company-brain-profile/skills/brain-protocol/SKILL.md` stays
+the source of truth, and a deployment copies it across when it changes.
 
 The single exception is `<platform>.gateway_restart_notification`, set to `false`
 **only when unset**, on every boot, via `hermes config set` — a real YAML merge,

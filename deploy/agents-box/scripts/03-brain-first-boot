@@ -29,6 +29,8 @@ fi
 #
 # What re-syncs and what does not is the whole design:
 #   skills/      refreshed — additive, and the image is the source of truth
+#                EXCEPT for a skill the company's own skills repo names,
+#                which the image defers to (see install_skills)
 #   SOUL.md      only when untouched since we wrote it (hash recorded at install)
 #   config.yaml  NEVER — hermes rewrites it at runtime (model, _config_version,
 #                plugins, approvals…). Regenerating from the template would
@@ -70,7 +72,48 @@ sentinel_field() {
     sed -n "s/^$1=//p" "$SENTINEL" | tail -1
 }
 file_md5() { md5sum "$1" 2>/dev/null | cut -d' ' -f1; }
-install_skills() { mkdir -p "$DATA/skills"; cp -R /opt/brain-profile/skills/. "$DATA/skills/"; }
+# A company that distributes skills of its own -- a repo mounted read-only,
+# one `<skill>/SKILL.md` or `<category>/<skill>/SKILL.md` per directory -- owns
+# any skill it names. The image keeps shipping its defaults, but it stops
+# seeding one the company has taken over. Without this the image wins forever:
+# every image roll re-copies its version into $DATA/skills, which shadows the
+# company's copy, so a push to the skills repo would silently never take effect
+# and the only way to ship a protocol change would stay "rebuild and recreate".
+COMPANY_SKILLS=${COMPANY_SKILLS:-/opt/company-skills}
+
+company_provides() {
+    [ -d "$COMPANY_SKILLS" ] || return 1
+    [ -f "$COMPANY_SKILLS/$1/SKILL.md" ] && return 0
+    for cand in "$COMPANY_SKILLS"/*/"$1"/SKILL.md; do
+        [ -f "$cand" ] && return 0
+    done
+    return 1
+}
+
+# An already-seeded copy is reclaimed only when it is byte-identical to the
+# image's, which is what identifies a copy this script wrote and nobody has
+# since edited. Anything else is somebody's own work: it is left in place, and
+# it goes on shadowing the company's copy, which is the documented behaviour
+# for a locally-authored skill. A missing `diff` fails the comparison and so
+# fails safe, toward keeping the file.
+install_skills() {
+    mkdir -p "$DATA/skills"
+    for src in /opt/brain-profile/skills/*/; do
+        [ -d "$src" ] || continue
+        name=${src%/}; name=${name##*/}
+        if company_provides "$name"; then
+            if [ -d "$DATA/skills/$name" ] \
+               && diff -r "${src%/}" "$DATA/skills/$name" >/dev/null 2>&1; then
+                rm -rf "$DATA/skills/$name"
+                echo "[brain] skill '$name' is company-managed — removed the image's copy"
+            else
+                echo "[brain] skill '$name' is company-managed — not seeding the image copy"
+            fi
+            continue
+        fi
+        cp -R "${src%/}" "$DATA/skills/"
+    done
+}
 
 # The scratch-path block this script maintains at the end of SOUL.md — see the
 # section that applies it, below the re-sync. Declared up here because the
