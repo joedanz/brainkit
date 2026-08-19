@@ -76,7 +76,12 @@ def rename_entities(master: Path, entities: str,
     # Carry the shared name across: it is not what is being renamed, and
     # rebuilding the config without it would silently rename the shared
     # top back to the default on the next load.
-    new = make_config(entities, entity, old.shared)  # raises SchemaError on bad names
+    # Every field the rename does not change is carried over, or renaming the
+    # tree would quietly erase the vault's charter — the one config value a
+    # human wrote in prose, and the one nobody would think to re-check after
+    # a rename.
+    new = make_config(entities, entity, old.shared,  # raises SchemaError on bad names
+                      old.charter)
     if (old.entities, old.entity) == (new.entities, new.entity):
         return RenameReport(old, new, False, 0, 0, 0, 0, False)
 

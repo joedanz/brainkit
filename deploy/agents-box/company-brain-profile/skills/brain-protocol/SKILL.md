@@ -8,14 +8,30 @@ description: Operate the company brain vault — ingest, route, and promote know
 Your working directory is a compiled brain vault. The root AGENTS.md defines
 your spaces and permissions — read it before acting.
 
+## Admit (before anything is written)
+
+Routing decides where a fact goes; admission decides whether it goes anywhere.
+The vault's AGENTS.md carries the authoritative tests — a candidate is
+recorded only if all four hold:
+
+1. **Durable** — still true next month, not passing status.
+2. **Relevant** — bears on the work, a client, a colleague, or how we operate.
+3. **New** — search first; an existing page is updated, not restated.
+4. **Attributable** — you can say where it came from.
+
+Not recording is the ordinary outcome. When something fails these tests, use
+it to answer well and write nothing.
+
 ## Ingest (new transcript or note in People/<you>/Inbox/)
 
 1. Summarize the content.
 2. Extract: decisions; action items (owner + deadline); context updates.
-3. Route per the vault's routing rules (actions -> Actions/Tracker.md,
-   summary -> Sessions/, durable facts -> Memory.md).
-4. Archive the processed item into Sessions/. Unplaceable items go to
-   Needs-Routing.md — never guess.
+3. Admit each extracted item (above), then route what survives per the vault's
+   routing rules (actions -> Actions/Tracker.md, summary -> Sessions/, durable
+   facts -> Memory.md).
+4. Archive the processed item into Sessions/. An item that belongs in the
+   vault but has no clear home goes to Needs-Routing.md — never guess, and
+   never park what failed admission there.
 
 ## Promote (share knowledge with the team)
 
@@ -114,7 +130,12 @@ edge.
 - Keep People/<you>/Memory.md a lean overview, not a running log: file small
   facts under its headings; when a topic outgrows a few lines, move the
   detail to People/<you>/Notes/<Topic>.md and leave a one-line link under
-  the heading. Give notes searchable titles — retrieval is keyword-based.
+  the heading. Give notes plain, specific titles: retrieval is hybrid —
+  keyword, meaning, and graph proximity fused — so a title that names the
+  thing beats one stuffed with keywords. It falls back to keyword-only when
+  no embedding provider is configured, and says so when it does; treat a
+  search that found nothing as possibly incomplete, not as proof the vault
+  is empty on that subject.
 - Surface stale actions and unprocessed Inbox items when asked for status.
 - A doctor digest (`People/<you>/Inbox/doctor-digest.md`, `source: doctor`)
   lists integrity findings routed to you. Fix what you can in writable

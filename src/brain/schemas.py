@@ -26,6 +26,7 @@ _RESERVED_TOPS = ("company", "teams", "people", "_meta")
 _RESERVED_SHARED = ("teams", "people", "_meta")
 DEFAULT_SHARED = "Company"
 _MAX_CONFIG_WORD = 64
+_MAX_CHARTER = 400
 
 
 def _config_word(value: object, key: str) -> str:
@@ -35,6 +36,28 @@ def _config_word(value: object, key: str) -> str:
             or len(value) > _MAX_CONFIG_WORD):
         raise SchemaError(f"config.yaml: invalid {key} {value!r}")
     return value
+
+
+def _config_prose(value: object, key: str, limit: int = _MAX_CHARTER) -> str:
+    """One line of free prose, safe to paste into generated markdown.
+
+    Unlike a config word this is a sentence a human wrote, so it cannot be
+    charset-restricted. Two things are enforced instead. Every whitespace run
+    collapses to a single space: a charter is rendered into AGENTS.md as a
+    paragraph, and a value carrying its own newlines could open a heading or a
+    list there — forging protocol structure in the very file that tells the
+    agent what its rules are. And the length is capped, because the rendered
+    protocol has a hard ROOT_LIMIT and an unbounded charter would blow it for
+    every person in the vault at once, failing the compile rather than the
+    edit that caused it.
+    """
+    if not isinstance(value, str):
+        raise SchemaError(f"config.yaml: {key} must be a string")
+    text = " ".join(value.split())
+    if len(text) > limit:
+        raise SchemaError(
+            f"config.yaml: {key} is {len(text)} chars, limit is {limit}")
+    return text
 
 
 @dataclass(frozen=True)
@@ -49,15 +72,27 @@ class VaultConfig:
     every construction path (not just make_config/load_config) is safe to
     write into frontmatter unescaped. Reserved-name rejection is vault policy,
     not type validity, and stays in make_config.
+
+    `charter` is the one non-naming field: a sentence saying what this brain is
+    for, so the admission rules in the generated protocol have a subject to
+    test relevance against. Empty is the honest default — a vault whose owner
+    has not said what it collects gets the domain-agnostic tests alone, never
+    an invented purpose.
     """
     entities: str = "Clients"   # TitleCase tree/folder name (plural)
     entity: str = "client"      # lowercase singular: prose + frontmatter key
     shared: str = DEFAULT_SHARED  # TitleCase name of the shared top-level space
+    charter: str = ""           # one sentence: what this brain collects
 
     def __post_init__(self) -> None:
         _config_word(self.entities, "entities")
         _config_word(self.entity, "entity")
         _config_word(self.shared, "shared")
+        # Normalize in place, exactly as the charset rules above are enforced
+        # here rather than in make_config: the safety of the rendered protocol
+        # must not depend on which construction path was taken, and a test or
+        # a caller building VaultConfig(charter=...) directly is a path.
+        object.__setattr__(self, "charter", _config_prose(self.charter, "charter"))
 
     @property
     def requests_folder(self) -> str:
@@ -76,7 +111,7 @@ def derive_entity(entities: str) -> str:
 
 
 def make_config(entities: str, entity: str | None = None,
-                shared: str = DEFAULT_SHARED) -> VaultConfig:
+                shared: str = DEFAULT_SHARED, charter: str = "") -> VaultConfig:
     entities = _config_word(entities, "entities")
     if entities.lower() in _RESERVED_TOPS:
         raise SchemaError(f"config.yaml: entities {entities!r} is a reserved name")
@@ -88,7 +123,8 @@ def make_config(entities: str, entity: str | None = None,
             f"config.yaml: shared {shared!r} collides with entities {entities!r}")
     entity = _config_word(entity if entity is not None else derive_entity(entities),
                           "entity")
-    return VaultConfig(entities=entities, entity=entity, shared=shared)
+    return VaultConfig(entities=entities, entity=entity, shared=shared,
+                       charter=charter)
 
 
 def load_config(master: Path) -> VaultConfig:
@@ -108,7 +144,8 @@ def load_config(master: Path) -> VaultConfig:
     if not isinstance(data, dict):
         raise SchemaError("config.yaml must be a mapping")
     return make_config(data.get("entities", "Clients"), data.get("entity"),
-                       data.get("shared", DEFAULT_SHARED))
+                       data.get("shared", DEFAULT_SHARED),
+                       data.get("charter", "") or "")
 
 
 def master_shared(master: Path, shared: str | None = None) -> str:

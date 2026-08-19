@@ -224,3 +224,57 @@ def test_entities_company_still_reserved_under_custom_shared():
 def test_positional_construction_unchanged():
     cfg = VaultConfig("Clients", "client")
     assert cfg.shared == "Company"
+
+
+# --- charter: the one free-prose config value -------------------------------
+
+def test_charter_collapses_whitespace_on_every_construction_path():
+    """Not just make_config: the rendered protocol's safety must not depend on
+    which path built the config."""
+    from brain.schemas import VaultConfig, make_config
+    assert VaultConfig(charter="a\n\nb\t c").charter == "a b c"
+    assert make_config("Clients", None, "Company", " a \n b ").charter == "a b"
+
+
+def test_charter_is_length_capped():
+    """An unbounded charter would blow ROOT_LIMIT for every person at once,
+    failing the compile rather than the edit that caused it."""
+    import pytest
+
+    from brain.schemas import SchemaError, make_config
+    with pytest.raises(SchemaError, match="charter"):
+        make_config("Clients", None, "Company", "x" * 401)
+    assert make_config("Clients", None, "Company", "x" * 400).charter
+
+
+def test_charter_defaults_to_empty_not_a_guess():
+    from brain.schemas import VaultConfig
+    assert VaultConfig().charter == ""
+
+
+def test_charter_round_trips_through_config_yaml(tmp_path):
+    """A charter is a sentence, so it can contain the characters that make
+    bare YAML scalars misparse: a colon, a quote, a leading `yes`."""
+    from brain.schemas import load_config, make_config
+    from brain.templates import config_yaml
+
+    tricky = 'yes: we cover "luxury" travel: rail, air & sea'
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text(
+        config_yaml(make_config("Clients", None, "Company", tricky)))
+    assert load_config(tmp_path).charter == tricky
+
+
+def test_config_yaml_without_charter_is_unchanged(tmp_path):
+    """Existing vaults' config.yaml must stay byte-identical, as when the
+    `shared:` key was added."""
+    from brain.schemas import VaultConfig
+    from brain.templates import config_yaml
+    assert config_yaml(VaultConfig()) == "entities: Clients\nentity: client\n"
+
+
+def test_absent_and_null_charter_both_load_as_empty(tmp_path):
+    from brain.schemas import load_config
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/config.yaml").write_text("entities: Clients\ncharter:\n")
+    assert load_config(tmp_path).charter == ""

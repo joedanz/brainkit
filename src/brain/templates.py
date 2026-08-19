@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from brain.contextgen import render_charter
 from brain.schemas import DEFAULT_SHARED, VaultConfig
 
 _ORG_YAML_T = """\
@@ -80,6 +81,24 @@ _ASSISTANT_PROTOCOL_T = """\
 This is the master vault. You are the company assistant with full
 access. Personal agents see only their compiled slice; you maintain the whole.
 
+@CHARTER_BLOCK@## What belongs in the brain
+
+Routing decides where a fact goes; this decides whether it goes anywhere.
+Apply it to every candidate before routing — record it only if all four hold:
+
+- **Durable** — it will still be true next month. Passing status is answered
+  in the conversation and never written down.
+- **Relevant** — it bears on the work, a @ENTITY@, a colleague, or how we
+  operate. Personal detail touching none of those is not a brain fact.
+- **New** — search before writing. Something already here gets its page
+  updated; it never becomes a second note saying the same thing.
+- **Attributable** — you can say where it came from. Hearsay you cannot
+  attribute stays out, or is recorded as the claim it is, never as fact.
+
+Not recording is the ordinary outcome, not a failure. You process everyone's
+transcripts, so what you let through compounds: most of a transcript is
+conversation, and only some of it is knowledge.
+
 ## Transcript pipeline
 
 When a transcript appears in any `People/<person>/Inbox/`:
@@ -87,7 +106,8 @@ When a transcript appears in any `People/<person>/Inbox/`:
 2. Extract decisions, action items (owner + deadline), and context updates.
 3. Route:
    - Action items -> that person's `People/<person>/Actions/Tracker.md`
-   - Personal durable facts -> that person's `People/<person>/Memory.md`,
+   - Durable personal facts that passed the tests above -> that person's
+     `People/<person>/Memory.md`,
      kept as a lean overview: topic-sized detail goes to
      `People/<person>/Notes/<Topic>.md` with a one-line link under the heading
    - @ENTITY_TITLE@ facts -> the matching `@ENTITIES@/<@ENTITY@>/` file. A named third party
@@ -137,12 +157,17 @@ When a transcript appears in any `People/<person>/Inbox/`:
      `distilled: <URL or title>` in frontmatter and cite it the same way; the
      original never enters the vault, so the citation is the only route back
    - Session summary -> `People/<person>/Sessions/`
-   - General insights worth keeping -> fold into `@SHARED@/Memory.md`, which
-     stays a lean overview linking out to detail notes — not a running log
+   - General insights that passed the tests above and bear on the whole
+     company -> fold into `@SHARED@/Memory.md`, which stays a lean overview
+     linking out to detail notes — not a running log
 4. Archive the processed transcript into `People/<person>/Sessions/`.
 
-If you cannot place an item confidently, add it to `@SHARED@/Needs-Routing.md`
-instead of guessing. Doing nothing is always safer than routing wrongly.
+An item that failed the tests above is not routed anywhere: drop it. Writing
+it to `Needs-Routing.md` instead is how a brain fills with what nobody chose
+to keep. Only an item that belongs here but has no confident home goes to
+`@SHARED@/Needs-Routing.md`, one line saying what it is and why it did not
+fit — then work that note down as homes become clear. Doing nothing is always
+safer than routing wrongly.
 
 ## Facts and entities
 
@@ -210,6 +235,7 @@ def _render(template: str, config: VaultConfig) -> str:
     # the single trailing space.
     field = (config.shared + ", ").ljust(13)
     return (template
+            .replace("@CHARTER_BLOCK@", render_charter(config))
             .replace("@SHARED_FIELD@", field)
             .replace("@SHARED@", config.shared)
             .replace("@ENTITIES@", config.entities)
@@ -236,12 +262,22 @@ ASSISTANT_PROTOCOL = assistant_protocol()
 
 
 def config_yaml(config: VaultConfig) -> str:
-    """The `shared:` key is written only when it is not the default, so a
-    default vault's config.yaml is byte-identical to what shipped before the
-    key existed."""
+    """The `shared:` and `charter:` keys are written only when set, so a
+    default vault's config.yaml is byte-identical to what shipped before
+    either key existed.
+
+    The charter is the one value here a human wrote as a sentence, so it is
+    emitted as a quoted scalar rather than bare: an unquoted `charter: yes` is
+    a bool to YAML, and one containing a colon would not round-trip at all.
+    VaultConfig has already collapsed its whitespace, so escaping the two
+    characters a double-quoted YAML scalar reserves is sufficient.
+    """
     text = f"entities: {config.entities}\nentity: {config.entity}\n"
     if config.shared != DEFAULT_SHARED:
         text += f"shared: {config.shared}\n"
+    if config.charter:
+        escaped = config.charter.replace("\\", "\\\\").replace('"', '\\"')
+        text += f'charter: "{escaped}"\n'
     return text
 
 
@@ -275,7 +311,7 @@ def _memory_md(company: str, config: VaultConfig) -> str:
 
 def _intel_home_md() -> str:
     return (
-        "# Intel — the shared travel wiki\n\n"
+        "# Intel — the shared reference wiki\n\n"
         "A lean map: every Intel page is linked from here. Pages are distilled\n"
         "from articles, posts, and advisor knowledge — see the routing rules in\n"
         "AGENTS.md. Every claim cites `[source](URL), as of YYYY-MM` — a URL, or\n"
