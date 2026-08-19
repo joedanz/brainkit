@@ -15,8 +15,10 @@ stored. Fleet re-filters on read; two independent redactions, as with health.
 from __future__ import annotations
 
 import fcntl
+import gzip
 import json
 import os
+import shutil
 from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -29,7 +31,16 @@ STATS_NAME = "retrieval-stats.json"
 LOCK_NAME = "retrieval-stats.lock"
 SENTINEL_NAME = "retrieval-log.on"
 RAW_NAME = "retrieval.jsonl"
-RAW_CAP_BYTES = 5 * 1024 * 1024
+
+# Rotate rather than stop: the useful window is the NEWEST searches, and
+# stopping at a cap keeps the oldest. Seven gzipped segments plus the live file
+# hold roughly four times what the old 5 MB cap did, in less disk — query logs
+# compress about 10x, so compression buys space while the segment count sets
+# retention. The set is bounded on purpose; an unbounded archive of everything
+# anyone typed at their brain is a different product decision.
+ROTATE_AT_BYTES = 2_500_000
+RAW_SEGMENTS = 7
+ROTATING_NAME = "retrieval.jsonl.rotating"
 
 NO_INDEX = "no-index"
 VECTOR_DEGRADED = "vector-degraded"
@@ -106,6 +117,39 @@ def _sentinel_since(sentinel: Path) -> str | None:
     return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def segment_path(brain_dir: Path, n: int) -> Path:
+    """Gzipped segment n. 1 is the most recent; RAW_SEGMENTS is the oldest."""
+    return brain_dir / f"{RAW_NAME}.{n}.gz"
+
+
+def _has_wrapped(brain_dir: Path) -> bool:
+    """True once the segment set is full — the next rotation discards the
+    oldest. This is what `raw_truncated` now reports."""
+    return segment_path(brain_dir, RAW_SEGMENTS).is_file()
+
+
+def _compress_rotated(brain_dir: Path, rotated: Path) -> None:
+    """Shift the segments and compress `rotated` into slot 1.
+
+    Runs OUTSIDE the lock. Gzipping 2.5 MB takes ~100 ms and `record()` is on
+    the path every search in the product takes; holding the lock through that
+    would stall every concurrent search. Safe outside it because `rotated` was
+    renamed out of the way and no appender can reach it.
+    """
+    try:
+        segment_path(brain_dir, RAW_SEGMENTS).unlink(missing_ok=True)
+        for n in range(RAW_SEGMENTS - 1, 0, -1):
+            src = segment_path(brain_dir, n)
+            if src.is_file():
+                src.rename(segment_path(brain_dir, n + 1))
+        with open(rotated, "rb") as fin, gzip.open(segment_path(brain_dir, 1), "wb") as fout:
+            shutil.copyfileobj(fin, fout)
+        rotated.unlink(missing_ok=True)
+    except OSError:
+        # Leave the rotated file in place; the next rotation recovers it.
+        pass
+
+
 def _append_raw(
     brain_dir: Path,
     *,
@@ -113,19 +157,28 @@ def _append_raw(
     mode: str,
     hit_locations: Sequence[tuple[str, str]],
     now: str,
-) -> bool:
-    """Append one line. True means the cap stopped it.
+) -> Path | None:
+    """Append one line, rotating first when the live log is full.
 
-    The cap is checked BEFORE appending, so the file never exceeds it. Hitting
-    it is reported through `raw_truncated` rather than silently dropping the
-    line — the rule the corrections budget already follows.
+    Returns a file awaiting compression, or None. Rotation here is a RENAME
+    only — O(1), microseconds — because this runs inside the exclusive lock.
+    `record()` compresses after releasing it.
 
     Only rel_path and space per hit. A snippet is note content.
     """
     raw = brain_dir / RAW_NAME
+    rotating = brain_dir / ROTATING_NAME
+    pending: Path | None = None
     try:
-        if raw.is_file() and raw.stat().st_size >= RAW_CAP_BYTES:
-            return True
+        if rotating.is_file():
+            # An orphan from a crash between the rename and the compression. It
+            # holds real searches, so hand it back to be compressed and skip
+            # this round's rotation rather than clobbering it; the live log
+            # rotates next time.
+            pending = rotating
+        elif raw.is_file() and raw.stat().st_size >= ROTATE_AT_BYTES:
+            os.replace(raw, rotating)
+            pending = rotating
         line = json.dumps(
             {
                 "at": now,
@@ -138,8 +191,8 @@ def _append_raw(
         with open(raw, "a") as fh:
             fh.write(line + "\n")
     except OSError:
-        return False
-    return False
+        return pending
+    return pending
 
 
 def record(
@@ -155,6 +208,7 @@ def record(
     """Count one search. `now` is injected so tests are not clock-dependent."""
     vault = Path(vault)
     brain_dir = _brain_dir(vault)
+    pending_rotation: Path | None = None
     with _locked(brain_dir):
         stats_path = brain_dir / STATS_NAME
         data = _load(stats_path)
@@ -169,17 +223,14 @@ def record(
 
         sentinel = brain_dir / SENTINEL_NAME
         raw_on = sentinel.is_file()
-        # NOT carried forward from the previous payload. `raw_truncated` reports
-        # whether THIS append was refused, so deleting the raw log clears it —
-        # the spec's "stays true until the raw log is deleted". Carrying it
-        # forward would pin the fleet card's "capped" badge on permanently, and
-        # a badge that can never clear stops being information.
-        truncated = False
         if raw_on and query is not None:
-            truncated = _append_raw(
+            pending_rotation = _append_raw(
                 brain_dir, query=query, mode=mode,
                 hit_locations=hit_locations, now=now,
             )
+        # Reports that the segment set is full, so the next rotation discards
+        # the oldest — NOT that capture stopped, which is what the old cap did.
+        truncated = _has_wrapped(brain_dir)
 
         payload = {
             "schema": SCHEMA,
@@ -206,3 +257,7 @@ def record(
         # parser as a lone "{".
         tmp.write_text(json.dumps(payload, sort_keys=True) + "\n")
         os.replace(tmp, stats_path)
+
+    # Outside the lock, deliberately: see _compress_rotated.
+    if pending_rotation is not None:
+        _compress_rotated(brain_dir, pending_rotation)
