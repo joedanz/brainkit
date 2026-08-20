@@ -17,6 +17,12 @@ let S = null; // active graph state; module-level so onLive() can reach it
 // and the tick handler's label y-offset so the three never drift apart.
 function rOf(d) { return (4 + 2.5 * Math.sqrt(d.degree)) * S.settings.nodeSize; }
 
+// Where a label sits above its node. The radius is in layout units and should
+// scale with the node, but the clearance above it is a screen distance — at the
+// zoom a fitted vault opens on, a fixed 11 renders as three pixels and puts
+// every name on top of its own node.
+function labelY(d) { return d.y + rOf(d) + 11 / (S.transform.k || 1); }
+
 // The drawn extent of the settled nodes, radii included. A node the simulation
 // has not placed yet has no coordinates at all, and one that has gone
 // non-finite would drag the bounds out and blank the whole view, so both are
@@ -32,18 +38,24 @@ function boundsOf(nodes) {
   return b;
 }
 
-// The transform that puts those bounds inside a w x h frame with pad clear on
-// every side. forceCenter only moves the centroid to the middle and says
-// nothing about how far the graph spreads: measured on a real 300-note vault,
-// the layout settled to 1482x1514 inside an 810x558 frame and 120 of the 300
-// notes simply sat outside the edges.
-function fitTransform(b, w, h, pad, minK, maxK) {
+// The transform that puts those bounds inside the USABLE part of a w x h frame.
+// forceCenter only moves the centroid to the middle and says nothing about how
+// far the graph spreads: measured on a real 300-note vault, the layout settled
+// to 1482x1514 inside an 810x558 frame and 120 of the 300 notes simply sat
+// outside the edges.
+//
+// `inset` is per-side rather than one padding because the controls overlay
+// floats above the canvas: centring on the whole frame puts the densest part of
+// the graph — and therefore the labelled landmarks — underneath it.
+function fitTransform(b, w, h, inset, minK, maxK) {
+  const availW = w - inset.left - inset.right;
+  const availH = h - inset.top - inset.bottom;
   const spanX = b.maxX - b.minX, spanY = b.maxY - b.minY;
   // An axis with no span does not constrain the scale, which is what Infinity
   // says exactly. Both without a span means there is nothing to fit — one note,
   // or every note still stacked on the same spot on the first tick.
-  const kx = spanX > 0 ? (w - pad * 2) / spanX : Infinity;
-  const ky = spanY > 0 ? (h - pad * 2) / spanY : Infinity;
+  const kx = spanX > 0 ? availW / spanX : Infinity;
+  const ky = spanY > 0 ? availH / spanY : Infinity;
   let k = Math.min(kx, ky);
   if (k === Infinity) k = 1;
   // Negated comparisons, so bounds that are not numbers land on a limit rather
@@ -53,7 +65,21 @@ function fitTransform(b, w, h, pad, minK, maxK) {
   let cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   if (!Number.isFinite(cx)) cx = 0;
   if (!Number.isFinite(cy)) cy = 0;
-  return d3.zoomIdentity.translate(w / 2 - k * cx, h / 2 - k * cy).scale(k);
+  return d3.zoomIdentity
+    .translate(inset.left + availW / 2 - k * cx, inset.top + availH / 2 - k * cy)
+    .scale(k);
+}
+
+// What the controls overlay actually covers right now, measured rather than
+// assumed: collapsing it gives the space straight back on the next fit.
+function fitInset(host) {
+  const pad = 24;
+  const box = host.querySelector(".graph-controls");
+  if (!box) return { top: pad, right: pad, bottom: pad, left: pad };
+  const h = host.getBoundingClientRect(), c = box.getBoundingClientRect();
+  // Only the width it takes off the left edge; it never spans the full height,
+  // and reserving its height too would waste most of the canvas.
+  return { top: pad, right: pad, bottom: pad, left: Math.max(pad, c.right - h.left + 12) };
 }
 
 export function render(container, ctx) {
@@ -245,7 +271,9 @@ function draw(g, preserveView) {
   // selection is rebuilt on every redraw and the order must not shift with it.
   [...nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0))
             .forEach((n, i) => { n.rank = i; });
-  const label = gWrap.append("g").selectAll("text").data(nodes).join("text")
+  const labelGroup = gWrap.append("g");
+  S._labelGroup = labelGroup;
+  const label = labelGroup.selectAll("text").data(nodes).join("text")
     .attr("class", "graph-label")
     .text((d) => d.title);
   const node = gWrap.append("g").selectAll("circle").data(nodes).join("circle")
@@ -270,8 +298,7 @@ function draw(g, preserveView) {
       link.attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y)
           .attr("x2", (d) => d.target.x).attr("y2", (d) => d.target.y);
       node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
-      label.attr("x", (d) => d.x)
-           .attr("y", (d) => d.y + rOf(d) + 11);
+      label.attr("x", (d) => d.x).attr("y", labelY);
       nodes.forEach((n) => S.pos.set(n.rel_path, { x: n.x, y: n.y }));
       // Re-fitting each tick makes the graph look like it holds still while it
       // organises itself, instead of growing past the edges of its own frame.
@@ -301,9 +328,21 @@ function draw(g, preserveView) {
   svg.call(zoom);
 
   S.fitNow = (animate) => {
-    const t = fitTransform(boundsOf(nodes), W, H, 24, 0.1, 8);
+    const t = fitTransform(boundsOf(nodes), W, H, fitInset(S.host), 0.1, 8);
     zoom.transform(animate ? svg.transition().duration(220) : svg, t);
   };
+
+  // Collapsing or opening the overlay changes how much canvas there is, and by
+  // then the simulation has usually stopped ticking, so nothing else would
+  // re-fit. Only while the view still belongs to the page.
+  if (window.ResizeObserver) {
+    const box = S.host.querySelector(".graph-controls");
+    if (box) {
+      S._fitWatch?.disconnect();
+      S._fitWatch = new ResizeObserver(() => { if (S.autoFit && S.fitNow) S.fitNow(true); });
+      S._fitWatch.observe(box);
+    }
+  }
 
   // A view carried over from the previous draw is where the person left it, so
   // it counts as their choice and the fit must not overrule it.
@@ -415,6 +454,11 @@ const LANDMARKS = 12;
 function updateLabels() {
   if (!S || !S._label) return;
   const k = S.transform.k;
+  // Counter-scaled through an inherited custom property rather than per label:
+  // this runs on every tick of the settle, and 300 inline styles a tick to say
+  // one number is work the browser does not need to do. The .graph-label rule
+  // reads it, so the CSS keeps owning how a label looks.
+  if (S._labelGroup) S._labelGroup.style("--graph-label-size", (10 / k) + "px");
   // textFade keeps its meaning: turning it up brings the names in sooner.
   const need = LABEL_ROOM_PX / (S.settings.textFade || 1);
   const room = S.gap > 0 ? (k * S.gap) / need : 0;
@@ -432,7 +476,7 @@ function applyDisplay() {
   if (!S || !S._node) return;
   S._node.attr("r", rOf);
   S._link.style("stroke-width", S.settings.linkWidth);
-  S._label.attr("y", (d) => d.y + rOf(d) + 11);
+  S._label.attr("y", labelY);
   updateLabels();
 }
 

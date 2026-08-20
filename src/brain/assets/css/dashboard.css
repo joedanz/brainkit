@@ -248,9 +248,14 @@ select { cursor: pointer; }
 svg.no-glow .node { filter: none; } /* glow is per-node paint; too costly past ~800 nodes */
 .link { stroke: oklch(0.75 0.012 80 / 0.22); stroke-width: 1; transition: opacity .15s; }
 .node.faded, .link.faded, .graph-label.faded { opacity: 0.08; }
-.graph-label { fill: oklch(0.88 0.010 82); font: 10px var(--body); text-anchor: middle;
+/* The size is a variable so the graph can hold it constant on screen: this is
+   world-space text inside a zoomed group, so a fixed 10px renders at 3px once
+   the view fits a 300-note vault. The halo is in em so it tracks whatever the
+   size ends up being. */
+.graph-label { fill: oklch(0.88 0.010 82); text-anchor: middle;
+               font: var(--graph-label-size, 10px) var(--body);
                pointer-events: none; user-select: none;
-               paint-order: stroke; stroke: oklch(0.145 0.008 80 / 0.85); stroke-width: 3px; }
+               paint-order: stroke; stroke: oklch(0.145 0.008 80 / 0.85); stroke-width: 0.3em; }
 .link.hot { stroke: var(--accent); stroke-width: 1.6; }
 @keyframes pulse-ring {
   0%   { stroke: var(--accent); stroke-width: 5; opacity: 0.7; }

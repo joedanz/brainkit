@@ -25,7 +25,15 @@ explicitly under **Changed**, with what to do about it.
   centroid to the middle and says nothing about spread, so 120 of 300 notes sat
   outside the edges with no way to see them but scrolling blind. The view now
   fits itself to the drawn extent, hands control back the moment you scroll or
-  drag, and a new **Fit** button takes it back.
+  drag, and a new **Fit** button takes it back. The fit measures the controls
+  overlay and settles the graph clear of it, so the densest part of a vault no
+  longer lands underneath the panel; collapsing the panel gives the space back
+  on the next fit.
+- **Labels rendered at three pixels.** They are world-space text inside a
+  zoomed group, so a fixed 10px shrank with the view; once the graph fits
+  itself they were technically drawn and completely unreadable. The size is now
+  a CSS variable the graph holds constant on screen, and the clearance above a
+  node is counter-scaled with it rather than sitting at three pixels.
 - **Every label drew at once**, overlapping into unreadable text. Names now
   appear as notes spread apart ON SCREEN rather than past a fixed zoom, with
   the busiest dozen always labelled. The threshold was previously absolute
