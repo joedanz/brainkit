@@ -1,4 +1,4 @@
-import { el, clear, colorFor, latest } from "../dom.js";
+import { el, clear, colorFor, latest, medianNearestGap } from "../dom.js";
 import { api } from "../api.js";
 import { loadSettings, saveSettings, mountControls } from "./graph-controls.js";
 
@@ -17,6 +17,77 @@ let S = null; // active graph state; module-level so onLive() can reach it
 // and the tick handler's label y-offset so the three never drift apart.
 function rOf(d) { return (4 + 2.5 * Math.sqrt(d.degree)) * S.settings.nodeSize; }
 
+// Where a label sits above its node. The radius is in layout units and should
+// scale with the node, but the clearance above it is a screen distance — at the
+// zoom a fitted vault opens on, a fixed 11 renders as three pixels and puts
+// every name on top of its own node.
+function labelY(d) { return d.y + rOf(d) + 11 / S.transform.k; }
+
+// The drawn extent of the settled nodes, radii included. A node the simulation
+// has not placed yet has no coordinates at all, and one that has gone
+// non-finite would drag the bounds out and blank the whole view, so both are
+// skipped rather than allowed to decide the frame.
+function boundsOf(nodes) {
+  const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  for (const n of nodes) {
+    if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
+    const r = rOf(n);
+    b.minX = Math.min(b.minX, n.x - r); b.maxX = Math.max(b.maxX, n.x + r);
+    b.minY = Math.min(b.minY, n.y - r); b.maxY = Math.max(b.maxY, n.y + r);
+  }
+  return b;
+}
+
+const FIT_PAD = 24;   // clear space kept on every edge
+
+// The transform that puts those bounds inside the USABLE part of a w x h frame.
+// forceCenter only moves the centroid to the middle and says nothing about how
+// far the graph spreads: measured on a real 300-note vault, the layout settled
+// to 1482x1514 inside an 810x558 frame and 120 of the 300 notes simply sat
+// outside the edges.
+//
+// `left` is separate from the other edges because the controls overlay floats
+// above the canvas: centring on the whole frame puts the densest part of the
+// graph — and therefore the labelled landmarks — underneath it.
+function fitTransform(b, w, h, left, minK, maxK) {
+  const availW = w - left - FIT_PAD;
+  const availH = h - FIT_PAD * 2;
+  const spanX = b.maxX - b.minX, spanY = b.maxY - b.minY;
+  // An axis with no span does not constrain the scale, which is what Infinity
+  // says exactly. Both without a span means there is nothing to fit — one note,
+  // or every note still stacked on the same spot on the first tick.
+  const kx = spanX > 0 ? availW / spanX : Infinity;
+  const ky = spanY > 0 ? availH / spanY : Infinity;
+  let k = Math.min(kx, ky);
+  if (k === Infinity) k = 1;
+  // Negated comparisons, so bounds that are not numbers land on a limit rather
+  // than propagating a NaN into the transform and blanking the view.
+  if (!(k > minK)) k = minK;
+  if (!(k < maxK)) k = maxK;
+  let cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+  if (!Number.isFinite(cx)) cx = 0;
+  if (!Number.isFinite(cy)) cy = 0;
+  return d3.zoomIdentity
+    .translate(left + availW / 2 - k * cx, FIT_PAD + availH / 2 - k * cy)
+    .scale(k);
+}
+
+// How much of the left edge the controls overlay covers. Only the left edge:
+// the overlay never spans the full height, and reserving its height as well
+// would waste most of the canvas.
+//
+// Measured once per draw rather than per fit. Two getBoundingClientRect calls
+// inside a tick handler force a synchronous layout in the middle of the frame
+// that just wrote 300 node positions — the textbook thrash — and the answer
+// cannot change between ticks anyway: the CSS pins the overlay's width, and
+// collapsing it changes only its height. The observer below re-measures if
+// that ever stops being true.
+function fitInset(host, box) {
+  if (!box) return FIT_PAD;
+  const h = host.getBoundingClientRect(), c = box.getBoundingClientRect();
+  return Math.max(FIT_PAD, c.right - h.left + 12);
+}
+
 export function render(container, ctx) {
   clear(container);
   S = {
@@ -28,6 +99,10 @@ export function render(container, ctx) {
     pos: new Map(),           // rel_path -> {x, y}, persisted across reloads
     prev: new Set(),          // rel_paths from the previous load
     transform: d3.zoomIdentity,
+    autoFit: true,            // until a real gesture takes the view
+    fitNow: null,             // set by draw(); the Fit button calls it
+    inset: 0,                 // left edge covered by the controls overlay
+    gap: 0,                   // median node spacing, measured once the layout settles
     threeD: false,
     loads: latest(),          // guards out-of-order graph fetches
     factLoads: latest(),      // guards out-of-order node-panel facts fetches
@@ -78,6 +153,16 @@ function buildChrome() {
   d3d.addEventListener("click", () => toggle3D(d3d));
   bar.appendChild(d3d);
 
+  // Auto-fit hands the view back to whoever is looking the moment they scroll
+  // or drag, so this is how they get it back.
+  const fit = el("button", null, "Fit");
+  fit.setAttribute("aria-label", "Fit the whole graph");
+  fit.addEventListener("click", () => {
+    S.autoFit = true;
+    S.fitNow?.(true);
+  });
+  bar.appendChild(fit);
+
   S.container.appendChild(bar);
 
   const wrap = el("div", "graph-wrap");
@@ -104,6 +189,22 @@ function buildChrome() {
     onForces: () => { persist(); applyForces(); },
     onPersist: persist,
   });
+
+  // The overlay is mounted once and outlives every draw, so its footprint is
+  // measured here and only re-measured if it actually changes size. The
+  // simulation has usually stopped ticking by the time anything does, so
+  // nothing else would re-fit.
+  S.inset = fitInset(S.host, S.controls.element);
+  if (window.ResizeObserver) {
+    S._fitWatch = new ResizeObserver(() => {
+      if (!S) return;                     // the tab was disposed under us
+      const next = fitInset(S.host, S.controls.element);
+      if (next === S.inset) return;       // observe() always fires once; ignore the no-op
+      S.inset = next;
+      if (S.autoFit) S.fitNow?.(true);
+    });
+    S._fitWatch.observe(S.controls.element);
+  }
 }
 
 async function toggle3D(button) {
@@ -188,8 +289,14 @@ function draw(g, preserveView) {
 
   const link = gWrap.append("g").selectAll("line").data(links).join("line").attr("class", "link")
     .style("stroke-width", S.settings.linkWidth);
+  // Busiest first, so the label rule can always name the landmarks whatever the
+  // zoom. Written onto the node rather than derived at draw time because the
+  // selection is rebuilt on every redraw and the order must not shift with it.
+  [...nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0))
+            .forEach((n, i) => { n.rank = i; });
   const label = gWrap.append("g").selectAll("text").data(nodes).join("text")
     .attr("class", "graph-label")
+    .classed("landmark", (d) => d.rank < LANDMARKS)
     .text((d) => d.title);
   const node = gWrap.append("g").selectAll("circle").data(nodes).join("circle")
     .attr("class", "node")
@@ -213,22 +320,53 @@ function draw(g, preserveView) {
       link.attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y)
           .attr("x2", (d) => d.target.x).attr("y2", (d) => d.target.y);
       node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
-      label.attr("x", (d) => d.x)
-           .attr("y", (d) => d.y + rOf(d) + 11);
+      (S._labelShown || label).attr("x", (d) => d.x).attr("y", labelY);
       nodes.forEach((n) => S.pos.set(n.rel_path, { x: n.x, y: n.y }));
+      // Re-fitting each tick makes the graph look like it holds still while it
+      // organises itself, instead of growing past the edges of its own frame.
+      if (S.autoFit) S.fitNow(false);
+    })
+    // The moment the layout stops moving, the on-screen spacing is worth
+    // measuring — it is what decides how many names there is room for.
+    .on("end", () => {
+      S.gap = medianNearestGap(nodes);
+      updateLabels();
     });
   S.sim = sim;
 
   S._node = node; S._link = link;
   S._label = label;
+  // A new layout has a new spacing, and "Full graph" swaps 300 notes for 2000
+  // without reheating the old sim — so the previous graph's gap must not decide
+  // this one's labels until its own sim settles.
+  S.gap = 0;
+  S._labelShown = label;
+  S._labelsQuiet = null;
+  label.classed("unmatched", (d) => !matches(d));
 
   const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", (ev) => {
     S.transform = ev.transform;
     gWrap.attr("transform", ev.transform);
+    // d3 leaves sourceEvent null for a transform the page applied to itself and
+    // carries the wheel or drag event for one a person made. That is the only
+    // thing separating "the layout moved" from "they went looking" — without
+    // it the auto-fit would yank the view back on the very next tick.
+    if (ev.sourceEvent) S.autoFit = false;
     updateLabels();
   });
   svg.call(zoom);
+
+  S.fitNow = (animate) => {
+    const t = fitTransform(boundsOf(nodes), W, H, S.inset, 0.1, 8);
+    zoom.transform(animate ? svg.transition().duration(220) : svg, t);
+  };
+
+
+
+  // A view carried over from the previous draw is where the person left it, so
+  // it counts as their choice and the fit must not overrule it.
   if (preserveView && S.transform !== d3.zoomIdentity) {
+    S.autoFit = false;
     svg.call(zoom.transform, S.transform);
   }
 
@@ -292,21 +430,50 @@ function refreshVisibility() {
   S._node.classed("dim", (d) => !matches(d));
   S._link.style("display", (d) =>
     (matches(d.source) && matches(d.target)) ? null : "none");
+  // Which labels are filtered out is per-node and changes only here, so it is a
+  // class rather than something updateLabels re-derives on every tick.
+  S._label.classed("unmatched", (d) => !matches(d));
   updateLabels();
   if (S.threeD) refresh3D();
 }
 
-// Labels are world-space text that fades in past a zoom threshold — hidden on
-// the far-out constellation, readable when you fly in (Obsidian's behavior).
+// Labels are world-space text that fades in as notes spread apart on screen —
+// hidden on the far-out constellation, readable when you fly in (Obsidian's
+// behavior). The busiest handful are always named: they are the landmarks a
+// person steers by, and they are worth an overlap.
+//
+// The threshold is on-screen SPACING, not zoom alone. It used to be a fixed
+// zoom (1.4 / textFade), which was wrong at both ends — and became actively
+// wrong once the view fits itself to the frame, because fitting a 300-note
+// vault lands at about k=0.5, below the old fade-in floor, so every name would
+// have disappeared the moment the graph became visible.
+const LABEL_ROOM_PX = 44;   // spacing between node centres, chosen by eye; not a text width
+const LANDMARKS = 12;
 function updateLabels() {
   if (!S || !S._label) return;
   const k = S.transform.k;
-  const t1 = 1.4 / (S.settings.textFade || 1); // fully visible at this zoom level
-  const t0 = 0.55 * t1;              // starts appearing here
-  const o = Math.max(0, Math.min(1, (k - t0) / (t1 - t0)));
-  S._label
-    .style("opacity", o)
-    .style("display", (d) => (o < 0.02 || !matches(d)) ? "none" : null);
+  // textFade keeps its meaning: turning it up brings the names in sooner.
+  const need = LABEL_ROOM_PX / (S.settings.textFade || 1);
+  const room = S.gap > 0 ? (k * S.gap) / need : 0;
+  const o = Math.max(0, Math.min(1, (room - 0.55) / 0.45));
+  // Three writes on one element, not three passes over every label. Both the
+  // size and the opacity are a single number for the whole selection, and this
+  // runs on every tick of a settle; which labels are landmarks and which are
+  // filtered out is per-node, but neither changes as the view moves, so both
+  // are classes set where they actually change. The CSS keeps owning how a
+  // label looks.
+  const canvas = S.canvas.style;
+  canvas.setProperty("--graph-label-size", (10 / k) + "px");
+  canvas.setProperty("--graph-label-opacity", o);
+  S.canvas.classList.toggle("labels-quiet", o < 0.02);
+  // The tick only positions what is drawn, so newly revealed names need placing
+  // once — by then the simulation has usually stopped ticking.
+  const quiet = o < 0.02;
+  if (quiet !== S._labelsQuiet) {
+    S._labelsQuiet = quiet;
+    S._labelShown = quiet ? S._label.filter((d) => d.rank < LANDMARKS) : S._label;
+    S._labelShown.attr("x", (d) => d.x).attr("y", labelY);
+  }
 }
 
 // Display changes restyle in place — no sim reheat, the layout must not jump.
@@ -314,7 +481,7 @@ function applyDisplay() {
   if (!S || !S._node) return;
   S._node.attr("r", rOf);
   S._link.style("stroke-width", S.settings.linkWidth);
-  S._label.attr("y", (d) => d.y + rOf(d) + 11);
+  S._label.attr("y", labelY);
   updateLabels();
 }
 

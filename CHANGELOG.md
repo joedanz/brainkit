@@ -11,6 +11,39 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The 3D graph rendered an empty frame on any vault past ~160 notes.** The
+  layout integrator placed no limit on how far a node may travel in one pass,
+  so it ran away: measured against a real 300-note vault, reach reached 1.2e47.
+  Every value stayed FINITE, so `layout()`'s own non-finite guard never fired
+  and nothing appeared in the console — but three.js narrows positions to
+  float32 for the GPU, where anything past 3.4e38 becomes `Infinity`, and 850
+  of 900 coordinates did. A per-pass displacement cap now bounds the layout by
+  construction, whatever the graph and whatever the forces.
+- **The 2D graph settled outside its own frame.** `forceCenter` moves the
+  centroid to the middle and says nothing about spread, so 120 of 300 notes sat
+  outside the edges with no way to see them but scrolling blind. The view now
+  fits itself to the drawn extent, hands control back the moment you scroll or
+  drag, and a new **Fit** button takes it back. The fit measures the controls
+  overlay and settles the graph clear of it, so the densest part of a vault no
+  longer lands underneath the panel.
+- **Labels rendered at three pixels.** They are world-space text inside a
+  zoomed group, so a fixed 10px shrank with the view; once the graph fits
+  itself they were technically drawn and completely unreadable. The size is now
+  a CSS variable the graph holds constant on screen, and the clearance above a
+  node is counter-scaled with it rather than sitting at three pixels.
+- **Every label drew at once**, overlapping into unreadable text. Names now
+  appear as notes spread apart ON SCREEN rather than past a fixed zoom, with
+  the busiest dozen always labelled. The threshold was previously absolute
+  zoom, which the fit above would have turned into "no labels at all" — a
+  fitted 300-note vault lands below the old fade-in floor.
+- **3D nodes merged into one mass.** Radius came from the camera distance,
+  which says nothing about whether two spheres touch; it now comes from the
+  median distance between neighbours. The camera also sat further back than it
+  needed to (2.4x the extent where 2.0x is the geometric minimum at a 60
+  degree field of view), leaving the graph filling barely a third of the frame.
+
 ## [0.4.9] - 2026-08-19
 
 ### Added

@@ -184,5 +184,8 @@ export function mountControls(host, opts) {
   sliderGroup("Forces", SLIDERS.forces, opts.onForces);
 
   host.appendChild(box);
-  return { updateSpaces, updateEntities };
+  // The element goes out so the graph can measure what the overlay covers and
+  // fit clear of it. The inset policy stays in graph.js — the controls know
+  // their own box, not what the graph wants to do about it.
+  return { element: box, updateSpaces, updateEntities };
 }
