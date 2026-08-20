@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-08-20
+
 ### Fixed
 
 - **The 3D graph rendered an empty frame on any vault past ~160 notes.** The
@@ -827,6 +829,7 @@ answer "what's in here?".
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
 [Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.9...HEAD
+[0.4.10]: https://github.com/joedanz/brainkit/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/joedanz/brainkit/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/joedanz/brainkit/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/joedanz/brainkit/compare/v0.4.6...v0.4.7

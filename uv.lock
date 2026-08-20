@@ -135,7 +135,7 @@ wheels = [
 
 [[package]]
 name = "brainkit"
-version = "0.4.9"
+version = "0.4.10"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
