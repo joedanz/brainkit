@@ -2,14 +2,15 @@
 
 This is the one browser asset with a numerical failure mode, and it had one:
 the integrator placed no limit on how far a node may travel in a single pass,
-so the layout ran away. Measured against a real 300-note vault, reach grew to
+so the layout ran away. Measured against a real 300-note vault, reach reached
 1.2e47 — every value FINITE, so `layout()`'s own non-finite guard never fired.
-three.js then narrows positions to float32 for the GPU (Float32BufferAttribute),
-where anything past 3.4e38 becomes Infinity; 850 of 900 coordinates did, and the
-3D tab rendered an empty frame with nothing in the console.
+three.js then narrows positions to float32 for the GPU
+(Float32BufferAttribute), where anything past 3.4e38 becomes Infinity; 850 of
+900 coordinates did, and the 3D tab rendered an empty frame with nothing in the
+console.
 
-Testing it needs a JS engine, and this repo has no JS runner — so the shipped
-function is extracted verbatim and run under node, which asserts against the
+Testing it needs a JS engine, and this repo has no JS runner — so node imports
+the shipped module and calls the shipped function, which asserts against the
 code that actually ships rather than a Python re-implementation of it. Node is
 preinstalled on GitHub's ubuntu-latest runners, so this gate runs in CI rather
 than quietly skipping there.
@@ -19,43 +20,50 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from pathlib import Path
+from functools import cache
 
 import pytest
 
-GRAPH3D = Path(__file__).resolve().parents[1] / "src" / "brain" / "assets" / "js" / "tabs" / "graph3d.js"
+from tests.conftest import ASSETS
+
+GRAPH3D = ASSETS / "js" / "tabs" / "graph3d.js"
 FLOAT32_MAX = 3.4028235e38
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the shipped JS")
 
 
-def _reach(n: int, hub: bool = True) -> float:
-    """Settle an n-node graph with the SHIPPED layout() and return its extent."""
-    src = GRAPH3D.read_text(encoding="utf-8")
-    start = src.index("function layout(graph)")
-    end = src.index("\n}\n", src.index("return pos;", start)) + 2
-    body = src[start:end]
+def _run(n: int, *, spokes: bool, report: str) -> dict:
+    """Settle an n-node graph with the shipped layout() and report on it.
 
+    `report` is a JS object literal evaluated with `pos` and `reach` in scope,
+    so each test asks its own question of the same run.
+    """
     driver = f"""
-{body}
+const {{ layout }} = await import({json.dumps(GRAPH3D.as_uri())});
 const n = {n};
 const nodes = Array.from({{length: n}}, (_, i) => ({{id: i, degree: 0}}));
 const edges = [];
-// A hub with spokes, which is what a real vault looks like: the busiest note
-// in embark's carried 192 of 892 links. Uniform synthetic degrees never
-// reproduced the runaway, which is why nothing caught it.
-{"for (let i = 1; i < n; i++) edges.push({source: 0, target: i});" if hub else ""}
-for (let i = 2; i < n; i++) edges.push({{source: i, target: i % 7}});
+// A hub with spokes, which is what a real vault looks like: the busiest note in
+// embark's carries 192 of 892 links. Uniform synthetic degrees never reproduced
+// the runaway, which is why nothing caught it.
+for (let i = 1; i < n; i++) edges.push({{source: 0, target: i}});
+{"for (let i = 2; i < n; i++) edges.push({source: i, target: i % 7});" if spokes else ""}
 const pos = layout({{nodes, edges}});
-let reach = 0;
-for (const p of pos) reach = Math.max(reach, Math.hypot(p.x, p.y, p.z));
-console.log(JSON.stringify({{reach, count: pos.length}}));
+const reach = pos.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y, p.z)), 0);
+console.log(JSON.stringify({report}));
 """
     out = subprocess.run(
         ["node", "--input-type=module", "-e", driver],
-        capture_output=True, text=True, check=True, timeout=120,
+        capture_output=True, text=True, check=True, timeout=180,
     )
-    result = json.loads(out.stdout.strip().splitlines()[-1])
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+@cache
+def _reach(n: int) -> float:
+    """The layout is deterministic (the seed is Math.sin, no RNG), so the two
+    tests below asking about the same size are one node run, not two."""
+    result = _run(n, spokes=True, report="{reach, count: pos.length}")
     assert result["count"] == n
     return float(result["reach"])
 
@@ -73,25 +81,13 @@ def test_layout_is_bounded_by_construction(n: int) -> None:
 
     Every node starts inside the seed spread (about 200 from the origin) and may
     move at most a capped step per pass, so reach is bounded by the iteration
-    count whatever the graph. Anything near the ceiling would mean the cap had
-    been removed and the layout was merely getting lucky.
+    count whatever the graph. A value anywhere near the ceiling would mean the
+    cap had been removed and the layout was merely getting lucky.
     """
     assert _reach(n) < 1e5
 
 
 def test_layout_still_produces_a_shape() -> None:
     """A bound that collapsed every node onto one point would pass the above."""
-    src = GRAPH3D.read_text(encoding="utf-8")
-    start = src.index("function layout(graph)")
-    end = src.index("\n}\n", src.index("return pos;", start)) + 2
-    driver = src[start:end] + """
-const n = 60;
-const nodes = Array.from({length: n}, (_, i) => ({id: i, degree: 0}));
-const edges = [];
-for (let i = 1; i < n; i++) edges.push({source: 0, target: i});
-const pos = layout({nodes, edges});
-console.log(JSON.stringify({distinct: new Set(pos.map(p => p.x.toFixed(3))).size}));
-"""
-    out = subprocess.run(["node", "--input-type=module", "-e", driver],
-                         capture_output=True, text=True, check=True, timeout=120)
-    assert json.loads(out.stdout.strip().splitlines()[-1])["distinct"] > 1
+    result = _run(60, spokes=False, report="{distinct: new Set(pos.map(p => p.x.toFixed(3))).size}")
+    assert result["distinct"] > 1

@@ -6,9 +6,12 @@
 
 import * as THREE from "../../vendor/three.module.min.js";
 import { OrbitControls } from "../../vendor/OrbitControls.js";
-import { colorFor } from "../dom.js";
+import { colorFor, medianNearestGap } from "../dom.js";
 
-function layout(graph) {
+// Exported so a test can import and run the SHIPPED function rather than a
+// re-implementation of it — see tests/test_graph_layout_js.py. Nothing else
+// imports it.
+export function layout(graph) {
   const n = graph.nodes.length;
   const pos = graph.nodes.map((_, i) => ({
     // deterministic spread so the same graph settles the same way each toggle
@@ -92,31 +95,6 @@ function layout(graph) {
   return pos;
 }
 
-// How far a node sits from its nearest neighbour, typically — what a node's
-// radius should be built on, since it is the only quantity that says whether
-// two spheres will overlap. A median rather than a mean: one note parked far
-// off on its own would otherwise inflate the gap and shrink every node to a
-// speck. Sampled past a few hundred nodes, where the answer is a median anyway.
-function medianNeighbourGap(pos) {
-  const n = pos.length;
-  if (n < 2) return 0;
-  const step = Math.ceil(n / 400);
-  const gaps = [];
-  for (let i = 0; i < n; i += step) {
-    let best = Infinity;
-    for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y, dz = pos[i].z - pos[j].z;
-      const d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 < best) best = d2;
-    }
-    if (best < Infinity) gaps.push(Math.sqrt(best));
-  }
-  if (!gaps.length) return 0;
-  gaps.sort((a, b) => a - b);
-  return gaps[Math.floor(gaps.length / 2)];
-}
-
 // Soft radial sprite drawn on a throwaway canvas — no image asset, stays
 // offline. Additive-blended points behind the spheres read as glow.
 function haloTexture() {
@@ -190,7 +168,7 @@ export function mount(host, graph, onNodeClick) {
   // a single mass. A typical node is now a bit over a quarter of the distance
   // to its nearest neighbour, which reads as a node. The fallback covers a
   // graph with no gap to measure: one note, or every note on the same spot.
-  const gap = medianNeighbourGap(pos);
+  const gap = medianNearestGap(pos);
   const baseR = gap > 0 ? gap * 0.14 : camDist * 0.014;
   graph.nodes.forEach((node, i) => {
     dummy.position.set(pos[i].x, pos[i].y, pos[i].z);

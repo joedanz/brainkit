@@ -247,15 +247,26 @@ select { cursor: pointer; }
 .node.dim { opacity: 0.14; }
 svg.no-glow .node { filter: none; } /* glow is per-node paint; too costly past ~800 nodes */
 .link { stroke: oklch(0.75 0.012 80 / 0.22); stroke-width: 1; transition: opacity .15s; }
-.node.faded, .link.faded, .graph-label.faded { opacity: 0.08; }
-/* The size is a variable so the graph can hold it constant on screen: this is
-   world-space text inside a zoomed group, so a fixed 10px renders at 3px once
-   the view fits a 300-note vault. The halo is in em so it tracks whatever the
-   size ends up being. */
+
+/* Size and opacity are variables the graph sets ONCE per zoom, on an ancestor,
+   rather than as inline styles on every label: both answers are one number for
+   the whole selection, and writing 600 of them a tick is work the browser does
+   not need to do. The size has to be a variable at all because this is
+   world-space text inside a zoomed group — a fixed 10px renders at 3px once
+   the view fits a 300-note vault. The halo is in em so it tracks the size.
+   Whoever changes the 10 here must change the 10 in graph.js's updateLabels. */
 .graph-label { fill: oklch(0.88 0.010 82); text-anchor: middle;
                font: var(--graph-label-size, 10px) var(--body);
+               opacity: var(--graph-label-opacity, 1);
                pointer-events: none; user-select: none;
                paint-order: stroke; stroke: oklch(0.145 0.008 80 / 0.85); stroke-width: 0.3em; }
+/* The busiest few stay legible however far out the view is: they are the
+   landmarks a person steers by, and they are worth an overlap. */
+.graph-label.landmark { opacity: max(var(--graph-label-opacity, 1), 0.75); }
+/* Filtered out by search, or too crowded to draw at this zoom. */
+.graph-label.unmatched, .labels-quiet .graph-label:not(.landmark) { display: none; }
+/* After .landmark, so hovering still recedes a landmark's neighbours. */
+.node.faded, .link.faded, .graph-label.faded { opacity: 0.08; }
 .link.hot { stroke: var(--accent); stroke-width: 1.6; }
 @keyframes pulse-ring {
   0%   { stroke: var(--accent); stroke-width: 5; opacity: 0.7; }

@@ -7,6 +7,8 @@ from brain import store
 from brain.schemas import Org, Person, SpaceRule
 from brain.templates import assistant_protocol
 
+ASSETS = Path(__file__).resolve().parents[1] / "src" / "brain" / "assets"
+
 
 def _vectors_available() -> bool:
     """True iff sqlite-vec actually loads on this interpreter. On a Python built

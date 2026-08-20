@@ -27,8 +27,7 @@ explicitly under **Changed**, with what to do about it.
   fits itself to the drawn extent, hands control back the moment you scroll or
   drag, and a new **Fit** button takes it back. The fit measures the controls
   overlay and settles the graph clear of it, so the densest part of a vault no
-  longer lands underneath the panel; collapsing the panel gives the space back
-  on the next fit.
+  longer lands underneath the panel.
 - **Labels rendered at three pixels.** They are world-space text inside a
   zoomed group, so a fixed 10px shrank with the view; once the graph fits
   itself they were technically drawn and completely unreadable. The size is now

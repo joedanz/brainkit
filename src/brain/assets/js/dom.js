@@ -130,3 +130,33 @@ export function snippet(text) {
   });
   return span;
 }
+
+// The typical distance from a point to its nearest neighbour. Multiplied by the
+// zoom it gives the spacing ON SCREEN, which is what decides whether labels
+// collide; in 3D it decides whether two spheres touch. A median rather than a
+// mean, so one note parked far off on its own cannot speak for the rest.
+//
+// Shared by the 2D and 3D graphs for the same reason colorFor is: two copies of
+// a numerically fiddly median are exactly the thing that drifts. The z term
+// defaults to zero, so 2D points with only x and y get the right answer from
+// the same code.
+export function medianNearestGap(points) {
+  const p = points.filter((q) => Number.isFinite(q.x) && Number.isFinite(q.y));
+  const n = p.length;
+  if (n < 2) return 0;
+  const step = Math.ceil(n / 400);   // past a few hundred, sample: it is a median anyway
+  const gaps = [];
+  for (let i = 0; i < n; i += step) {
+    let best = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const dx = p[i].x - p[j].x, dy = p[i].y - p[j].y, dz = (p[i].z || 0) - (p[j].z || 0);
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) best = d2;
+    }
+    if (best < Infinity) gaps.push(Math.sqrt(best));
+  }
+  if (!gaps.length) return 0;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
+}
