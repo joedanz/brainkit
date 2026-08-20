@@ -44,11 +44,39 @@ function layout(graph) {
       pos[a].vx += dx * f; pos[a].vy += dy * f; pos[a].vz += dz * f;
       pos[b].vx -= dx * f; pos[b].vy -= dy * f; pos[b].vz -= dz * f;
     });
+    // How far any one node may travel in a single pass, cooling with alpha.
+    // This is the ONLY bound in the integrator, and without it the layout runs
+    // away: measured against a real 300-note vault, reach grew 9.8e2 at 100
+    // nodes, 6.7e34 at 146, 1.2e47 at 300 — all FINITE, so the guard below
+    // never fired and nothing looked wrong. three.js then narrows positions to
+    // float32 for the GPU, where anything past 3.4e38 becomes Infinity; 850 of
+    // 900 coordinates did, and the tab drew an empty frame.
+    //
+    // It is NOT the repulsion running away, which is the natural guess.
+    // Deleting that loop outright still diverges (7.6e61 at 200 nodes),
+    // softening it by six orders of magnitude changes nothing, and above 700
+    // nodes it never runs at all yet the layout still explodes. A pair sitting
+    // exactly on top of each other in fact receives ZERO repulsion: the
+    // direction is 0/0.1, so the large magnitude multiplies by nothing. The
+    // driver is the linear spring summed over a high-degree hub — forward
+    // Euler at an effective stiffness of degree * 0.05 leaves its stable
+    // region, and the spring is linear in a distance that is itself growing.
+    //
+    // Which is the argument for capping displacement rather than any one
+    // force: reach becomes bounded by construction — the seed spread plus
+    // iterations times the step — and it holds for forces nobody has written
+    // yet. Taming the spring instead only moves the number.
+    const step = 50 * alpha + 1;
     for (let i = 0; i < n; i++) {
       pos[i].vx += -pos[i].x * 0.002 * alpha;
       pos[i].vy += -pos[i].y * 0.002 * alpha;
       pos[i].vz += -pos[i].z * 0.002 * alpha;
       pos[i].vx *= 0.85; pos[i].vy *= 0.85; pos[i].vz *= 0.85;
+      const speed = Math.sqrt(pos[i].vx ** 2 + pos[i].vy ** 2 + pos[i].vz ** 2);
+      if (speed > step) {
+        const brake = step / speed;
+        pos[i].vx *= brake; pos[i].vy *= brake; pos[i].vz *= brake;
+      }
       pos[i].x += pos[i].vx; pos[i].y += pos[i].vy; pos[i].z += pos[i].vz;
     }
   }
@@ -62,6 +90,31 @@ function layout(graph) {
     }));
   }
   return pos;
+}
+
+// How far a node sits from its nearest neighbour, typically — what a node's
+// radius should be built on, since it is the only quantity that says whether
+// two spheres will overlap. A median rather than a mean: one note parked far
+// off on its own would otherwise inflate the gap and shrink every node to a
+// speck. Sampled past a few hundred nodes, where the answer is a median anyway.
+function medianNeighbourGap(pos) {
+  const n = pos.length;
+  if (n < 2) return 0;
+  const step = Math.ceil(n / 400);
+  const gaps = [];
+  for (let i = 0; i < n; i += step) {
+    let best = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y, dz = pos[i].z - pos[j].z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < best) best = d2;
+    }
+    if (best < Infinity) gaps.push(Math.sqrt(best));
+  }
+  if (!gaps.length) return 0;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
 }
 
 // Soft radial sprite drawn on a throwaway canvas — no image asset, stays
@@ -90,7 +143,14 @@ export function mount(host, graph, onNodeClick) {
   pos.forEach((p) => {
     extent = Math.max(extent, Math.hypot(p.x, p.y, p.z));
   });
-  const camDist = Math.max(160, extent * 2.4);
+  // The node that decides the framing is not the one directly behind the origin
+  // but the one off to the side, so this is a sphere problem rather than a flat
+  // one: over a sphere of the graph's own extent, viewed from d times that
+  // extent, the largest projected angle is 1/sqrt(d*d - 1). Setting that equal
+  // to tan(30) — half of the 60 degree vertical field of view — gives exactly
+  // d = 2, below which the widest node falls outside the frustum. 2.1 keeps a
+  // little margin; 2.4 left the graph filling barely a third of the frame.
+  const camDist = Math.max(160, extent * 2.1);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x14110d); // warm near-black, matches the 2D canvas
@@ -124,10 +184,20 @@ export function mount(host, graph, onNodeClick) {
   const mesh = new THREE.InstancedMesh(geom, mat, graph.nodes.length);
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
-  const baseR = camDist * 0.014; // ~constant on-screen size whatever the extent
+  // Size from the gap between neighbours, not from the camera distance. camDist
+  // measures the whole cloud, which says nothing about whether two spheres will
+  // touch — and on a 300-note vault every one of them did, so the graph drew as
+  // a single mass. A typical node is now a bit over a quarter of the distance
+  // to its nearest neighbour, which reads as a node. The fallback covers a
+  // graph with no gap to measure: one note, or every note on the same spot.
+  const gap = medianNeighbourGap(pos);
+  const baseR = gap > 0 ? gap * 0.14 : camDist * 0.014;
   graph.nodes.forEach((node, i) => {
     dummy.position.set(pos[i].x, pos[i].y, pos[i].z);
-    const r = baseR * (1 + 0.5 * Math.sqrt(node.degree));
+    // Damped and capped: the old curve let a degree-192 hub reach five and a
+    // half times the base and swallow its own neighbourhood. A hub is now
+    // three times a leaf and still smaller than the gap.
+    const r = baseR * Math.min(3, 1 + 0.35 * Math.sqrt(node.degree));
     dummy.scale.setScalar(r);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);

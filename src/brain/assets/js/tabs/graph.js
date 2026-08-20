@@ -17,6 +17,45 @@ let S = null; // active graph state; module-level so onLive() can reach it
 // and the tick handler's label y-offset so the three never drift apart.
 function rOf(d) { return (4 + 2.5 * Math.sqrt(d.degree)) * S.settings.nodeSize; }
 
+// The drawn extent of the settled nodes, radii included. A node the simulation
+// has not placed yet has no coordinates at all, and one that has gone
+// non-finite would drag the bounds out and blank the whole view, so both are
+// skipped rather than allowed to decide the frame.
+function boundsOf(nodes) {
+  const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
+  for (const n of nodes) {
+    if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) continue;
+    const r = rOf(n);
+    b.minX = Math.min(b.minX, n.x - r); b.maxX = Math.max(b.maxX, n.x + r);
+    b.minY = Math.min(b.minY, n.y - r); b.maxY = Math.max(b.maxY, n.y + r);
+  }
+  return b;
+}
+
+// The transform that puts those bounds inside a w x h frame with pad clear on
+// every side. forceCenter only moves the centroid to the middle and says
+// nothing about how far the graph spreads: measured on a real 300-note vault,
+// the layout settled to 1482x1514 inside an 810x558 frame and 120 of the 300
+// notes simply sat outside the edges.
+function fitTransform(b, w, h, pad, minK, maxK) {
+  const spanX = b.maxX - b.minX, spanY = b.maxY - b.minY;
+  // An axis with no span does not constrain the scale, which is what Infinity
+  // says exactly. Both without a span means there is nothing to fit — one note,
+  // or every note still stacked on the same spot on the first tick.
+  const kx = spanX > 0 ? (w - pad * 2) / spanX : Infinity;
+  const ky = spanY > 0 ? (h - pad * 2) / spanY : Infinity;
+  let k = Math.min(kx, ky);
+  if (k === Infinity) k = 1;
+  // Negated comparisons, so bounds that are not numbers land on a limit rather
+  // than propagating a NaN into the transform and blanking the view.
+  if (!(k > minK)) k = minK;
+  if (!(k < maxK)) k = maxK;
+  let cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+  if (!Number.isFinite(cx)) cx = 0;
+  if (!Number.isFinite(cy)) cy = 0;
+  return d3.zoomIdentity.translate(w / 2 - k * cx, h / 2 - k * cy).scale(k);
+}
+
 export function render(container, ctx) {
   clear(container);
   S = {
@@ -28,6 +67,9 @@ export function render(container, ctx) {
     pos: new Map(),           // rel_path -> {x, y}, persisted across reloads
     prev: new Set(),          // rel_paths from the previous load
     transform: d3.zoomIdentity,
+    autoFit: true,            // until a real gesture takes the view
+    fitNow: null,             // set by draw(); the Fit button calls it
+    gap: 0,                   // median on-screen spacing, measured once settled
     threeD: false,
     loads: latest(),          // guards out-of-order graph fetches
     factLoads: latest(),      // guards out-of-order node-panel facts fetches
@@ -77,6 +119,16 @@ function buildChrome() {
   const d3d = el("button", null, "3D view");
   d3d.addEventListener("click", () => toggle3D(d3d));
   bar.appendChild(d3d);
+
+  // Auto-fit hands the view back to whoever is looking the moment they scroll
+  // or drag, so this is how they get it back.
+  const fit = el("button", null, "Fit");
+  fit.setAttribute("aria-label", "Fit the whole graph");
+  fit.addEventListener("click", () => {
+    S.autoFit = true;
+    if (S.fitNow) S.fitNow(true);
+  });
+  bar.appendChild(fit);
 
   S.container.appendChild(bar);
 
@@ -188,6 +240,11 @@ function draw(g, preserveView) {
 
   const link = gWrap.append("g").selectAll("line").data(links).join("line").attr("class", "link")
     .style("stroke-width", S.settings.linkWidth);
+  // Busiest first, so the label rule can always name the landmarks whatever the
+  // zoom. Written onto the node rather than derived at draw time because the
+  // selection is rebuilt on every redraw and the order must not shift with it.
+  [...nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0))
+            .forEach((n, i) => { n.rank = i; });
   const label = gWrap.append("g").selectAll("text").data(nodes).join("text")
     .attr("class", "graph-label")
     .text((d) => d.title);
@@ -216,6 +273,15 @@ function draw(g, preserveView) {
       label.attr("x", (d) => d.x)
            .attr("y", (d) => d.y + rOf(d) + 11);
       nodes.forEach((n) => S.pos.set(n.rel_path, { x: n.x, y: n.y }));
+      // Re-fitting each tick makes the graph look like it holds still while it
+      // organises itself, instead of growing past the edges of its own frame.
+      if (S.autoFit) S.fitNow(false);
+    })
+    // The moment the layout stops moving, the on-screen spacing is worth
+    // measuring — it is what decides how many names there is room for.
+    .on("end", () => {
+      S.gap = medianGap(nodes);
+      updateLabels();
     });
   S.sim = sim;
 
@@ -225,10 +291,24 @@ function draw(g, preserveView) {
   const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", (ev) => {
     S.transform = ev.transform;
     gWrap.attr("transform", ev.transform);
+    // d3 leaves sourceEvent null for a transform the page applied to itself and
+    // carries the wheel or drag event for one a person made. That is the only
+    // thing separating "the layout moved" from "they went looking" — without
+    // it the auto-fit would yank the view back on the very next tick.
+    if (ev.sourceEvent) S.autoFit = false;
     updateLabels();
   });
   svg.call(zoom);
+
+  S.fitNow = (animate) => {
+    const t = fitTransform(boundsOf(nodes), W, H, 24, 0.1, 8);
+    zoom.transform(animate ? svg.transition().duration(220) : svg, t);
+  };
+
+  // A view carried over from the previous draw is where the person left it, so
+  // it counts as their choice and the fit must not overrule it.
   if (preserveView && S.transform !== d3.zoomIdentity) {
+    S.autoFit = false;
     svg.call(zoom.transform, S.transform);
   }
 
@@ -296,17 +376,55 @@ function refreshVisibility() {
   if (S.threeD) refresh3D();
 }
 
-// Labels are world-space text that fades in past a zoom threshold — hidden on
-// the far-out constellation, readable when you fly in (Obsidian's behavior).
+// The typical distance from a note to its nearest neighbour, in layout units.
+// Multiplied by the zoom it gives the spacing ON SCREEN, which is what actually
+// decides whether names collide. A median rather than a mean, so one note
+// parked far off on its own cannot speak for the rest.
+function medianGap(nodes) {
+  const placed = nodes.filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y));
+  const n = placed.length;
+  if (n < 2) return 0;
+  const step = Math.ceil(n / 400);   // past a few hundred, sample: it is a median anyway
+  const gaps = [];
+  for (let i = 0; i < n; i += step) {
+    let best = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const dx = placed[i].x - placed[j].x, dy = placed[i].y - placed[j].y;
+      best = Math.min(best, dx * dx + dy * dy);
+    }
+    if (best < Infinity) gaps.push(Math.sqrt(best));
+  }
+  if (!gaps.length) return 0;
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
+}
+
+// Labels are world-space text that fades in as notes spread apart on screen —
+// hidden on the far-out constellation, readable when you fly in (Obsidian's
+// behavior). The busiest handful are always named: they are the landmarks a
+// person steers by, and they are worth an overlap.
+//
+// The threshold is on-screen SPACING, not zoom alone. It used to be a fixed
+// zoom (1.4 / textFade), which was wrong at both ends — and became actively
+// wrong once the view fits itself to the frame, because fitting a 300-note
+// vault lands at about k=0.5, below the old fade-in floor, so every name would
+// have disappeared the moment the graph became visible.
+const LABEL_ROOM_PX = 44;   // spacing between node centres, chosen by eye; not a text width
+const LANDMARKS = 12;
 function updateLabels() {
   if (!S || !S._label) return;
   const k = S.transform.k;
-  const t1 = 1.4 / (S.settings.textFade || 1); // fully visible at this zoom level
-  const t0 = 0.55 * t1;              // starts appearing here
-  const o = Math.max(0, Math.min(1, (k - t0) / (t1 - t0)));
+  // textFade keeps its meaning: turning it up brings the names in sooner.
+  const need = LABEL_ROOM_PX / (S.settings.textFade || 1);
+  const room = S.gap > 0 ? (k * S.gap) / need : 0;
+  const o = Math.max(0, Math.min(1, (room - 0.55) / 0.45));
   S._label
-    .style("opacity", o)
-    .style("display", (d) => (o < 0.02 || !matches(d)) ? "none" : null);
+    .style("opacity", (d) => (d.rank < LANDMARKS ? Math.max(o, 0.75) : o))
+    .style("display", (d) => {
+      if (!matches(d)) return "none";
+      return (d.rank < LANDMARKS || o >= 0.02) ? null : "none";
+    });
 }
 
 // Display changes restyle in place — no sim reheat, the layout must not jump.
