@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-08-19
+
 ### Added
 
 - **`deploy/agents-box/install-brain-skill.sh`** — provisions the
@@ -25,6 +27,17 @@ explicitly under **Changed**, with what to do about it.
   containers once so the boot hook drops the copies it had seeded. The payoff:
   a protocol change becomes a file write that every running agent sees at once,
   with no image rebuild and no restart.
+
+### Changed
+
+- **The retrieval raw log now keeps the newest searches, not the oldest.** It
+  used to stop appending at a 5 MB cap, which meant a long-running capture held
+  only its opening window — the least useful part for understanding how
+  retrieval is being used. It now rotates into seven gzipped segments, holding
+  roughly four times as many searches in less disk than the old cap consumed.
+- **`raw_truncated` now means "the log has wrapped"** — the segment set is full
+  and the next rotation discards the oldest — rather than "capture stopped".
+  Capture no longer stops.
 
 ## [0.4.8] - 2026-08-19
 
@@ -780,7 +793,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.8...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.9...HEAD
+[0.4.9]: https://github.com/joedanz/brainkit/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/joedanz/brainkit/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/joedanz/brainkit/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/joedanz/brainkit/compare/v0.4.5...v0.4.6

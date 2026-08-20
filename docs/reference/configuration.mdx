@@ -208,14 +208,48 @@ rm <vault>/.brain/retrieval-log.on         # off
 
 While it exists, each search appends a line to `<vault>/.brain/retrieval.jsonl`
 holding the query, the mode, and the path and space of each hit. **Note
-snippets are never written.** The file is capped at 5 MB; on reaching the cap
-it stops appending and sets `raw_truncated` rather than dropping lines
-silently. That flag reports the current state rather than a permanent mark:
-delete `retrieval.jsonl` and the next search clears it.
+snippets are never written.**
+
+The log rotates rather than filling up, so it always holds the most recent
+searches. At 2.5 MB the live file is compressed into `retrieval.jsonl.1.gz` and
+a fresh one starts; existing segments shift up, and the oldest of seven is
+discarded. That keeps roughly four times the history of the old fixed cap in
+less disk, and bounds it without anyone having to prune.
+
+`raw_truncated` reports that the segment set is full — the next rotation
+discards the oldest searches. It is not an error, and capture never stops.
+
+To read the whole window, newest last:
+
+```bash
+ls -r <vault>/.brain/retrieval.jsonl.*.gz 2>/dev/null | xargs -r gunzip -c; cat <vault>/.brain/retrieval.jsonl
+```
 
 This log holds the literal text people typed. `raw_log` and `raw_log_since` in
 the stats file report that it is running and since when, so it cannot be
 switched on and forgotten.
+
+Removing the sentinel stops **future** capture only — it does not erase what
+was already captured, and it does not change whether the switch is on or off
+going forward: delete the data while the sentinel is still present and
+capture resumes accumulating immediately. Up to roughly 4.25 MB of query text
+can remain on disk indefinitely, spread across the live file and up to seven
+gzipped segments. To delete it, remove the sentinel first, then:
+
+```bash
+rm -f <vault>/.brain/retrieval.jsonl*
+```
+
+One glob, not a list of exact names: it also catches
+`retrieval.jsonl.rotating` and any `retrieval.jsonl.<pid>.gz.tmp` left by an
+interrupted rotation, and — unlike listing `retrieval.jsonl.*.gz` as its own
+argument — it still matches on a log that has captured searches but has not
+rotated yet. That case matters: under zsh a pattern matching nothing aborts the
+whole command, so listing the segments separately would leave the live file of
+query text in place while appearing to have deleted it. (With nothing captured
+at all the glob matches nothing and zsh will say so — there is nothing to
+delete in that state.) It leaves `retrieval-stats.json` and `retrieval-log.on`
+alone; neither is query text.
 
 ## Embeddings
 
