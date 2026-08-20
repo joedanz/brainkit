@@ -175,24 +175,23 @@ def _compress_rotated(brain_dir: Path, rotated: Path) -> None:
             # Another process is already compressing this exact file. The
             # work is being done, not lost — nothing to do here.
             return
+        tmp = brain_dir / f"{RAW_NAME}.{os.getpid()}.gz.tmp"
         try:
-            tmp = brain_dir / f"{RAW_NAME}.{os.getpid()}.gz.tmp"
-            try:
-                with open(rotated, "rb") as fin, gzip.open(tmp, "wb") as fout:
-                    shutil.copyfileobj(fin, fout)
-                segment_path(brain_dir, RAW_SEGMENTS).unlink(missing_ok=True)
-                for n in range(RAW_SEGMENTS - 1, 0, -1):
-                    src = segment_path(brain_dir, n)
-                    if src.is_file():
-                        src.rename(segment_path(brain_dir, n + 1))
-                os.replace(tmp, segment_path(brain_dir, 1))
-                rotated.unlink(missing_ok=True)
-            except OSError:
-                # The fallible step (the gzip write) ran first, so nothing in
-                # the segment set has moved yet. Drop the temp file so it
-                # can't accumulate or be mistaken for a segment, and leave
-                # `rotated` in place; the next rotation recovers it.
-                tmp.unlink(missing_ok=True)
+            with open(rotated, "rb") as fin, gzip.open(tmp, "wb") as fout:
+                shutil.copyfileobj(fin, fout)
+            segment_path(brain_dir, RAW_SEGMENTS).unlink(missing_ok=True)
+            for n in range(RAW_SEGMENTS - 1, 0, -1):
+                src = segment_path(brain_dir, n)
+                if src.is_file():
+                    src.rename(segment_path(brain_dir, n + 1))
+            os.replace(tmp, segment_path(brain_dir, 1))
+            rotated.unlink(missing_ok=True)
+        except OSError:
+            # The fallible step (the gzip write) ran first, so nothing in the
+            # segment set has moved yet. Drop the temp file so it can't
+            # accumulate or be mistaken for a segment, and leave `rotated` in
+            # place; the next rotation recovers it.
+            tmp.unlink(missing_ok=True)
         finally:
             fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
@@ -238,7 +237,7 @@ def _append_raw(
         with open(raw, "a") as fh:
             fh.write(line + "\n")
     except OSError:
-        return pending
+        pass
     return pending
 
 
