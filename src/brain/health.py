@@ -43,6 +43,7 @@ def write_health(
     tamper: dict[str, int],
     *,
     now: str,
+    duration_ms: int | None = None,
 ) -> bool:
     """Write the health snapshot. True if written, False if skipped.
 
@@ -62,6 +63,18 @@ def write_health(
         "counts": counts,
         "tamper": tamper,
     }
+    # How long the cycle that wrote this took, in milliseconds.
+    #
+    # It rides in the snapshot rather than only in the cycle's stdout because
+    # the snapshot is the file Fleet already reads off the box — stdout goes to
+    # a log nobody parses. A cycle outgrowing its own cron interval is a slow
+    # failure (13m, then 20m, then 30m26s as an index outgrew the box's RAM)
+    # and it was visible nowhere until runs began overlapping.
+    #
+    # Omitted rather than zeroed when unknown: a reader must be able to tell
+    # "this cycle did not time itself" from "this cycle took no time".
+    if duration_ms is not None:
+        payload["duration_ms"] = duration_ms
 
     target = master / HEALTH_REL
     target.parent.mkdir(parents=True, exist_ok=True)

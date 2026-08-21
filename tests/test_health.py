@@ -81,3 +81,24 @@ def test_carries_no_message_or_path_content(tmp_path):
         assert severity in ("error", "warn", "info")
         assert check and "/" not in check and " " not in check
         assert isinstance(value, int)
+
+def test_snapshot_carries_cycle_duration_when_measured(tmp_path):
+    """Duration rides in the snapshot because that is the file Fleet reads.
+
+    The cycle's stdout goes to a log nobody parses; this file is fetched off
+    the box every sweep. A cycle outgrowing its own cron interval is a slow
+    failure — 13m, then 20m, then 30m26s — and it was visible nowhere.
+    """
+    master = _master(tmp_path)
+    assert write_health(master, {}, {}, now="2026-08-21T00:00:00Z", duration_ms=220_000)
+    payload = json.loads((master / HEALTH_REL).read_text())
+    assert payload["duration_ms"] == 220_000
+
+
+def test_snapshot_omits_duration_when_unknown(tmp_path):
+    """Omitted, not zeroed: "did not time itself" and "took no time" are
+    different claims, and a zero would read as an impossibly fast cycle."""
+    master = _master(tmp_path)
+    assert write_health(master, {}, {}, now="2026-08-21T00:00:00Z")
+    payload = json.loads((master / HEALTH_REL).read_text())
+    assert "duration_ms" not in payload
