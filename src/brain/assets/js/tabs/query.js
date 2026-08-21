@@ -1,6 +1,7 @@
 import { el, clear, snippet, latest, clickable } from "../dom.js";
 import { renderMarkdown } from "../md.js";
 import { api } from "../api.js";
+import { noteHash } from "../hash.js";
 
 // Query tab: free-text hybrid search plus structured filter chips. A text query
 // hits /api/search; chips-only browse hits /api/notes; both run search then keep
@@ -40,7 +41,7 @@ function onKey(ev) {
   if (!S) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
   if (ev.key === "/" && !typing) { ev.preventDefault(); S.q.focus(); S.q.select(); return; }
-  if (ev.key === "Escape") { if (S.noteHost.firstChild) { clear(S.noteHost); return; } }
+  if (ev.key === "Escape") { if (S.noteHost.firstChild) { closeNote(); return; } }
   if (typing && document.activeElement !== S.q) return;
   if (ev.key === "ArrowDown") { ev.preventDefault(); moveSel(1); }
   else if (ev.key === "ArrowUp") { ev.preventDefault(); moveSel(-1); }
@@ -216,13 +217,23 @@ function renderNotes(notes) {
   });
 }
 
+// Closing a note returns the hash to the bare tab so a copied URL no longer
+// names a note that is not on screen.
+function closeNote() {
+  clear(S.noteHost);
+  history.replaceState(null, "", "#query");
+}
+
 async function showNote(path) {
   const token = S.noteLoads.begin();
+  // Make the open note addressable (copy the URL, cite it) without pushing a
+  // history entry per click or re-triggering the app's hashchange handler.
+  history.replaceState(null, "", noteHash(path));
   clear(S.noteHost);
   const view = el("div", "note-view");
   const toolbar = el("div", "toolbar");
   const close = el("button", "btn close", "close");
-  close.addEventListener("click", () => clear(S.noteHost));
+  close.addEventListener("click", closeNote);
   const rawToggle = el("button", "btn", "view raw");
   toolbar.appendChild(el("h3", null, path));
   view.appendChild(close);

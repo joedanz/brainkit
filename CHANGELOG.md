@@ -11,6 +11,24 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-08-21
+
+### Added
+
+- **Note deep links in the dashboard.** `#note=<url-encoded rel_path>` opens
+  that note on the Query tab, and opening a note writes the same hash, so a
+  note's URL can be copied, bookmarked, or cited. The tab grammar (`#query`,
+  `#graph`, …) is unchanged.
+- **Agents cite their vault sources with links.** When the agent container
+  has `BRAIN_VAULT_PUBLIC_URL` set (the URL its person's dashboard is published
+  at — the fleet running the box owns the domain), `03-brain-first-boot`
+  maintains a `## Sources` block in SOUL.md: a reply that drew on vault notes
+  ends with a `Sources:` line of `[title](<url>/#note=<rel_path>)` links, and
+  a reply that read no note carries nothing. The block is withdrawn when the
+  variable goes away. It rides the same managed-block machinery as the
+  scratch-path block (stripped from the SOUL fingerprint and the image merge),
+  now generalised so both blocks are re-applied in one pass.
+
 ## [0.5.1] - 2026-08-21
 
 ### Added
