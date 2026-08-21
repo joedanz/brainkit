@@ -103,6 +103,7 @@ def test_raw_fields_are_present_and_off_by_default(tmp_path):
     assert d["raw_log"] is False
     assert d["raw_log_since"] is None
     assert d["raw_truncated"] is False
+    assert d["raw_log_wrapped"] is False
 
 
 def test_a_corrupt_stats_file_does_not_raise(tmp_path):
@@ -343,6 +344,29 @@ def test_raw_truncated_is_true_once_the_set_is_full(tmp_path):
         _fill_raw(vault, ROTATE_AT_BYTES)
         record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query=f"q{i}")
     assert _stats(vault)["raw_truncated"] is True
+
+
+def test_raw_log_wrapped_matches_raw_truncated_while_not_wrapped(tmp_path):
+    """`raw_log_wrapped` is the unambiguously-named twin of `raw_truncated` —
+    same value, computed once, so the two can never disagree."""
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    _fill_raw(vault, ROTATE_AT_BYTES)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    d = _stats(vault)
+    assert d["raw_log_wrapped"] is False
+    assert d["raw_log_wrapped"] == d["raw_truncated"]
+
+
+def test_raw_log_wrapped_matches_raw_truncated_once_wrapped(tmp_path):
+    vault = _vault(tmp_path)
+    _switch_on(vault)
+    for i in range(RAW_SEGMENTS + 1):
+        _fill_raw(vault, ROTATE_AT_BYTES)
+        record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query=f"q{i}")
+    d = _stats(vault)
+    assert d["raw_log_wrapped"] is True
+    assert d["raw_log_wrapped"] == d["raw_truncated"]
 
 
 def test_an_orphan_rotating_file_is_recovered_not_overwritten(tmp_path):
