@@ -11,6 +11,39 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-21
+
+### Changed
+
+- **A shared `entity:` type no longer links every page of that type to every
+  other.** `entity_edges` built an all-pairs clique, which is quadratic in the
+  size of a type. That was harmless while a type held a handful of pages, which
+  is what the relation was designed for.
+
+  In a vault with 2,148 `provider` pages the clique was **2,439,781 pairs**, and
+  with their mirrors those edges were **4.88M of the index's 4.89M rows** —
+  1,354 MB of a 1,649 MB `index.db`, against 60 MB of actual vectors. The index
+  stopped fitting in the host's RAM, so every compile fell to disk: **30m26s**
+  for a cycle with nothing changed, at 47% CPU, peaking at 1.04 GB on a 1.6 GB
+  box. Two cycles could not coexist, so a five-minute cron drove it into swap.
+
+  The edges bought nothing for that cost. A page whose `same` neighbours are the
+  other 2,147 providers has learnt only that it is a provider, which its own
+  frontmatter already says, and no reader can browse a list that long.
+
+  Groups larger than `MAX_ENTITY_GROUP` (25) now contribute no pairs. Smaller
+  groups are unchanged. **If you rely on `same` edges between more than 25 pages
+  of one type, they are gone** — and an existing `index.db` keeps its old size
+  until it is `VACUUM`ed, because SQLite frees the pages without shrinking the
+  file.
+
+### Added
+
+- **`entity_groups`**, reporting a type's membership whether or not the pairs
+  are materialised. `doctor`'s unlinked-notes check reads it instead of the
+  edges, so a capped group does not turn every one of its pages into an
+  `unlinked-notes` warning.
+
 ## [0.4.11] - 2026-08-21
 
 ### Added
@@ -843,7 +876,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.11...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/joedanz/brainkit/compare/v0.4.11...v0.5.0
 [0.4.11]: https://github.com/joedanz/brainkit/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/joedanz/brainkit/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/joedanz/brainkit/compare/v0.4.8...v0.4.9
