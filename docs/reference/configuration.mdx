@@ -175,7 +175,7 @@ question that nothing else in brainkit answers: **is search returning
 anything?**
 
 ```json
-{"schema":1,"person":"joe","brainkit_version":"0.4.5","updated_at":"2026-08-19T14:02:11Z","searches":412,"zero_hit":157,"by_mode":{"hybrid":380,"no-index":2},"warn":{"vector-degraded":8},"raw_log":false,"raw_log_since":null,"raw_truncated":false}
+{"schema":1,"person":"joe","brainkit_version":"0.4.11","updated_at":"2026-08-19T14:02:11Z","searches":412,"zero_hit":157,"by_mode":{"hybrid":380,"no-index":2},"warn":{"vector-degraded":8},"raw_log":false,"raw_log_since":null,"raw_truncated":false,"raw_log_wrapped":false}
 ```
 
 Counters are cumulative and only ever increase. A recompile does **not**
@@ -218,6 +218,17 @@ less disk, and bounds it without anyone having to prune.
 
 `raw_truncated` reports that the segment set is full — the next rotation
 discards the oldest searches. It is not an error, and capture never stops.
+
+This meaning changed between releases: on brainkit 0.4.5-0.4.8 the same field
+name meant "the raw log hit a fixed cap and capture stopped" — the opposite
+operational meaning. A consumer that could see both eras had to parse
+`brainkit_version` to know which meaning it was holding. `raw_log_wrapped`
+(0.4.11+) carries the exact same value under an unambiguous name, so its mere
+presence in the file tells a consumer it is reading 0.4.9-or-later semantics
+without looking at the version at all; its absence means the box predates the
+meaning change (or predates 0.4.11, before the key existed). `raw_truncated`
+is retained only for old fleet consumers already reading it, and should be
+considered deprecated and removable once nothing on the fleet reads it.
 
 To read the whole window, newest last:
 

@@ -11,6 +11,21 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-08-21
+
+### Added
+
+- **`raw_log_wrapped` in `.brain/retrieval-stats.json`.** `raw_truncated`
+  changed meaning between releases: on 0.4.5-0.4.8 it meant "the raw log hit a
+  5 MB cap and capture stopped," and from 0.4.9 it means "the segment set is
+  full, the next rotation discards the oldest — capture continues." Same field
+  name, opposite operational meaning, so a consumer had to parse
+  `brainkit_version` to know which one it was reading. `raw_log_wrapped`
+  carries the same value under an unambiguous name: its presence alone says
+  "0.4.9-or-later semantics," no version parsing required. `raw_truncated` is
+  unchanged and kept for old fleet consumers still reading it; it is
+  deprecated and removable once nothing on the fleet reads it.
+
 ## [0.4.10] - 2026-08-20
 
 ### Fixed
@@ -828,7 +843,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.9...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.4.11...HEAD
+[0.4.11]: https://github.com/joedanz/brainkit/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/joedanz/brainkit/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/joedanz/brainkit/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/joedanz/brainkit/compare/v0.4.7...v0.4.8
