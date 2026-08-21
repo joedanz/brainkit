@@ -11,6 +11,31 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-08-21
+
+### Fixed
+
+- **`install-brain-skill.sh` no longer destroys a local edit without saying
+  so.** It was a bare `cp -R`. The destination sits in a directory named
+  `company-skills`, so the file reads as the company's own and sooner or later
+  somebody edits it there; the next run replaced it with no warning and no copy
+  kept. That is a footgun today and an automatic one the moment a fleet job
+  calls this after every image roll.
+
+  Each install now records an md5 per installed file beside the skill. A later
+  run recomputes it: unchanged means the copy is still ours and may be
+  replaced, changed means a human edited a brainkit-owned file and the script
+  **refuses** (exit 2), naming the diverged, added and deleted files and both
+  ways out — commit it to the repo and take ownership, or `--force`. Either
+  path keeps a timestamped backup, as does the first guarded run on an
+  already-provisioned box, where no record exists yet and nothing can tell a
+  stock copy from an edited one.
+
+  Detection rather than the 3-way merge SOUL.md gets: SOUL.md is genuinely
+  co-authored (the fleet writes a name declaration into every agent's copy), so
+  merging there is routine. Nothing is supposed to co-author this file, so the
+  honest answer to a local edit is to stop and say so.
+
 ## [0.5.2] - 2026-08-21
 
 ### Added

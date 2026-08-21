@@ -524,3 +524,150 @@ def test_installer_refuses_a_missing_destination(tmp_path):
                        capture_output=True, text=True)
     assert r.returncode != 0
     assert "does not exist" in r.stderr
+
+
+# --- installer: the anti-clobber guard ---------------------------------------
+# The destination sits in a directory called `company-skills`, so it reads as
+# the company's own file and sooner or later somebody edits it there. The
+# installer used to be a bare `cp -R`, which meant that edit died silently.
+# These pin the guard that replaced it: an edited copy is refused, not
+# overwritten, and nothing is ever destroyed without a backup.
+
+def _install(repo, *args):
+    return subprocess.run(["sh", str(INSTALLER), str(repo), *args],
+                          capture_output=True, text=True)
+
+
+def _git_repo(tmp_path):
+    repo = tmp_path / "company-skills"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    return repo
+
+
+def test_a_local_edit_is_refused_and_survives(tmp_path):
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    skill = repo / "brain-protocol/SKILL.md"
+    skill.write_text(skill.read_text() + "\n## Embark addition\nour own rule\n")
+
+    r = _install(repo)
+    assert r.returncode == 2, r.stdout
+    assert "REFUSING" in r.stderr
+    assert "SKILL.md" in r.stderr
+    # The whole point: the edit is still there.
+    assert "## Embark addition" in skill.read_text()
+
+
+def test_the_refusal_names_added_and_deleted_files_too(tmp_path):
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    (repo / "brain-protocol/EXTRA.md").write_text("local\n")
+
+    r = _install(repo)
+    assert r.returncode == 2
+    assert "EXTRA.md (added)" in r.stderr
+    assert (repo / "brain-protocol/EXTRA.md").exists()
+
+    (repo / "brain-protocol/EXTRA.md").unlink()
+    (repo / "brain-protocol/SKILL.md").unlink()
+    r = _install(repo)
+    assert r.returncode == 2
+    assert "SKILL.md (deleted)" in r.stderr
+
+
+def test_force_overwrites_but_keeps_a_backup(tmp_path):
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    skill = repo / "brain-protocol/SKILL.md"
+    skill.write_text("MINE\n")
+
+    r = _install(repo, "--force")
+    assert r.returncode == 0, r.stderr
+    assert skill.read_text() != "MINE\n"           # brainkit's copy is back
+    backups = list(repo.glob(".brain-protocol.bak-*"))
+    assert len(backups) == 1, backups
+    assert (backups[0] / "SKILL.md").read_text() == "MINE\n"   # nothing lost
+
+
+def test_a_legacy_copy_with_no_manifest_is_backed_up_not_lost(tmp_path):
+    """Every already-provisioned box is in this state: a copy that predates the
+    manifest, which nothing can classify as stock or edited. Back it up."""
+    repo = _git_repo(tmp_path)
+    (repo / "brain-protocol").mkdir()
+    (repo / "brain-protocol/SKILL.md").write_text("PRE-EXISTING\n")
+
+    r = _install(repo)
+    assert r.returncode == 0, r.stderr
+    assert "previous copy saved to" in r.stdout
+    backups = list(repo.glob(".brain-protocol.bak-*"))
+    assert (backups[0] / "SKILL.md").read_text() == "PRE-EXISTING\n"
+
+
+def test_a_legacy_copy_that_is_already_current_needs_no_backup(tmp_path):
+    """The common upgrade case must stay quiet — a backup per run would litter
+    the checkout with identical copies."""
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    (repo / ".brain-protocol.manifest").unlink()       # simulate a legacy box
+
+    r = _install(repo)
+    assert r.returncode == 0, r.stderr
+    assert list(repo.glob(".brain-protocol.bak-*")) == []
+
+
+def test_reinstall_after_a_brainkit_change_is_allowed_and_silent(tmp_path):
+    """An untouched copy is ours to replace: that is the whole delivery path."""
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    (repo / "brain-protocol/SKILL.md").write_text(
+        (DEPLOY / "company-brain-profile/skills/brain-protocol/SKILL.md").read_text())
+    subprocess.run(["sh", "-c", f"cd {repo}/brain-protocol && ls"], check=True, capture_output=True)
+
+    r = _install(repo)
+    assert r.returncode == 0, r.stderr
+    assert "already current" in r.stdout
+    assert list(repo.glob(".brain-protocol.bak-*")) == []
+
+
+def test_the_manifest_and_backups_are_excluded_from_git_status(tmp_path):
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    (repo / "brain-protocol/SKILL.md").write_text("MINE\n")
+    assert _install(repo, "--force").returncode == 0
+
+    status = subprocess.run(["git", "-C", str(repo), "status", "--short"],
+                            capture_output=True, text=True).stdout
+    assert status.strip() == "", f"manifest/backup leaked into git status: {status!r}"
+
+
+def test_the_manifest_records_what_was_installed(tmp_path):
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    manifest = (repo / ".brain-protocol.manifest").read_text()
+    assert "SKILL.md" in manifest
+    # Beside the skill, not inside it — a record the install wipes records
+    # nothing.
+    assert not (repo / "brain-protocol/.brain-protocol.manifest").exists()
+
+
+def test_a_file_brainkit_no_longer_ships_does_not_linger(tmp_path):
+    repo = _git_repo(tmp_path)
+    assert _install(repo).returncode == 0
+    stale = repo / "brain-protocol/OLD.md"
+    stale.write_text("from an older brainkit\n")
+    # Recorded as ours, so this is a reinstall and not a local edit.
+    subprocess.run(["sh", "-c",
+                    f"cd {repo}/brain-protocol && find . -type f ! -name '.*' | LC_ALL=C sort | "
+                    f"while IFS= read -r f; do printf '%s  %s\\n' \"$(md5sum \"$f\" | cut -d' ' -f1)\" \"${{f#./}}\"; done "
+                    f"> {repo}/.brain-protocol.manifest"], check=True)
+
+    assert _install(repo).returncode == 0
+    assert not stale.exists()
+
+
+def test_an_unknown_option_is_rejected(tmp_path):
+    repo = _git_repo(tmp_path)
+    r = _install(repo, "--yolo")
+    assert r.returncode == 1
+    assert "unknown option" in r.stderr
