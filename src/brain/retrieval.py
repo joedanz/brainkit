@@ -299,7 +299,18 @@ def record(
             "warn": warn,
             "raw_log": raw_on,
             "raw_log_since": _sentinel_since(sentinel) if raw_on else None,
+            # Two keys, one value, by design. `raw_truncated` meant "capture
+            # stopped" on 0.4.5-0.4.8 and means "the segment set is full, the
+            # next rotation discards the oldest" from 0.4.9 on — same field
+            # name, opposite operational meaning, so a consumer had to parse
+            # brainkit_version to know which one it was reading. `raw_log_wrapped`
+            # exists so presence alone answers that: absent means pre-0.4.9
+            # semantics (or pre-0.4.11, before this key existed), present means
+            # the unambiguous "wrapped" meaning. `raw_truncated` is kept only for
+            # old fleet consumers already reading it and should be considered
+            # deprecated and removable once nothing on the fleet reads it.
             "raw_truncated": truncated,
+            "raw_log_wrapped": truncated,
         }
 
         tmp = stats_path.with_suffix(".json.tmp")
