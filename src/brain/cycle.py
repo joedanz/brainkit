@@ -16,7 +16,6 @@ reported and flips CycleReport.ok so cron alerts.
 from __future__ import annotations
 
 import time
-
 from dataclasses import dataclass, field
 from pathlib import Path
 
