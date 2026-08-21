@@ -11,6 +11,36 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-21
+
+### Added
+
+- **`duration_ms` in the health snapshot and `CycleReport`.** A cycle
+  outgrowing its own cron interval is a slow failure: one fleet's went 13m,
+  then 20m, then 30m26s as its index outgrew the box's RAM, and the first
+  anyone knew was five overlapping `*/5` runs and the box in 1.8 GB of swap.
+  None of that climb was recorded anywhere.
+
+  It rides in the snapshot rather than only in the cycle's JSON stdout because
+  the snapshot is the file a fleet already fetches off the box; stdout goes to
+  a log nobody parses. Monotonic, so a clock adjustment mid-cycle cannot yield
+  a negative duration for a value that gets compared against a cron interval.
+  Omitted rather than zeroed when unmeasured.
+
+### Fixed
+
+- **`doctor` no longer reports a compile in flight as a crashed one.** A cycle
+  creates one `.<id>.building` per person as it works, each alive 20-60
+  seconds, so doctor running on a `*/5` box saw them most of the time and
+  raised an **error** — which sets `ok: false` in the health snapshot and makes
+  a healthy brain render red for the length of its own compile.
+
+  A young tomb now says nothing, because both explanations are live. One
+  untouched for `TOMB_GRACE_SEC` (15 minutes, several cron intervals) is still
+  an error, and now says how long it has been untouched — the recovery its own
+  message promises is evidently not happening, which is when a human should
+  look.
+
 ## [0.5.0] - 2026-08-21
 
 ### Changed
@@ -876,7 +906,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/joedanz/brainkit/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/joedanz/brainkit/compare/v0.4.11...v0.5.0
 [0.4.11]: https://github.com/joedanz/brainkit/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/joedanz/brainkit/compare/v0.4.9...v0.4.10
