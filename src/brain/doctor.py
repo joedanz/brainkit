@@ -12,6 +12,7 @@ import hashlib
 import itertools
 import json
 import re
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -1044,16 +1045,42 @@ def _check_webhook(master: Path, org: Org) -> list[Finding]:
     return findings
 
 
+# A compile in flight looks exactly like a crashed one: both leave a
+# `.<id>.building` beside the vault. The only thing separating them is time.
+#
+# A cycle creates and removes one of these per person as it works — each lives
+# 20-60 seconds — so doctor running while a cycle runs will see them, and on a
+# */5 cron that is most of the time. Reporting those as errors sets `ok: false`
+# in the health snapshot, which is the signal Fleet renders: a healthy brain
+# goes red for the duration of its own compile.
+#
+# The honest reading is that a young tomb says nothing. What is worth an error
+# is one that has SURVIVED compiles, because the recovery the message promises
+# is evidently not happening. Several cron intervals of grace, so a slow cycle
+# or a queued one cannot be mistaken for a crash.
+TOMB_GRACE_SEC = 15 * 60
+
+
 def _check_compiled(master: Path, org, out_root: Path) -> list[Finding]:
     findings: list[Finding] = []
+    now = time.time()
     for person in org.people.values():
         vault = out_root / person.id
         for tomb in (out_root / f".{person.id}.old", out_root / f".{person.id}.building"):
-            if tomb.exists():
-                findings.append(Finding(
-                    "error", "compiled",
-                    f"{tomb.name}: leftover from a crashed compile — "
-                    "next compile will attempt recovery; investigate first"))
+            if not tomb.exists():
+                continue
+            try:
+                age = now - tomb.stat().st_mtime
+            except OSError:
+                # Vanished between exists() and stat() — which is precisely
+                # what a live compile does, and not something to report.
+                continue
+            if age < TOMB_GRACE_SEC:
+                continue
+            findings.append(Finding(
+                "error", "compiled",
+                f"{tomb.name}: leftover from a crashed compile, untouched for "
+                f"{int(age // 60)}m — recovery has not happened; investigate"))
         if not vault.is_dir():
             findings.append(Finding(
                 "warn", "compiled", f"{person.id}: no compiled vault yet"))
