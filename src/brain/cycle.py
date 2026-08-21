@@ -15,6 +15,8 @@ reported and flips CycleReport.ok so cron alerts.
 
 from __future__ import annotations
 
+import time
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -63,6 +65,17 @@ class CycleReport:
     # as "not reporting"/"stale" and cannot tell an operator why, so the only
     # place the reason can surface is the cycle's own output.
     health_warnings: list[str] = field(default_factory=list)
+    # Wall time for the whole cycle, in milliseconds.
+    #
+    # A cycle that outgrows its own cron interval is the failure mode this
+    # measures, and it arrives gradually: one fleet's went 13m, 20m, 30m26s as
+    # its index outgrew the box's RAM, and nothing recorded any of it. The
+    # first anyone knew was five overlapping runs and a box in swap.
+    #
+    # Monotonic, so a clock adjustment mid-cycle cannot produce a negative or
+    # wildly large duration — this number gets compared against a cron
+    # interval, where a wrong value is worse than none.
+    duration_ms: int = 0
 
     @property
     def ok(self) -> bool:
@@ -108,6 +121,9 @@ def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]
 
 
 def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) -> CycleReport:
+    # First statement, so the measurement covers the whole run rather than
+    # whatever part of it someone remembers to include.
+    _started = time.monotonic()
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     config = load_config(master)
@@ -196,6 +212,11 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     from brain.health import write_health
 
+    # Stopped here, before the snapshot write, so the number the snapshot
+    # carries is the cycle's real work rather than a value that also includes
+    # the write it appears in.
+    duration_ms = int((time.monotonic() - _started) * 1000)
+
     # An unmeasured cycle publishes NOTHING. Writing the crash arm's empty
     # counts would overwrite a true snapshot with {"ok": true, "counts": {}} —
     # which Fleet reads as a reporting, finding-free brain, manufacturing the
@@ -224,6 +245,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
                     "promotions": promotion_tampering,
                 },
                 now=_utc_now_iso(),
+                duration_ms=duration_ms,
             )
             if not written:
                 health_warnings.append(
@@ -235,6 +257,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             health_warnings.append(f"health snapshot not written: {e}")
 
     return CycleReport(
+        duration_ms=duration_ms,
         writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),
         clients_rejected=sum(1 for p in provisioned if p.status == "rejected"),

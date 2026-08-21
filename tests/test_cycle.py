@@ -24,6 +24,29 @@ def _add_carol_to_org(master: Path) -> None:
     (master / "_meta/org.yaml").write_text(org_yaml)
 
 
+def test_cycle_reports_its_own_duration(master, tmp_path, monkeypatch):
+    """A cycle that outgrows its cron interval is the failure this measures.
+
+    It arrives gradually — one fleet's went 13m, then 20m, then 30m26s as its
+    index outgrew the box's RAM — and nothing recorded any of it, so the first
+    anyone knew was five overlapping runs and a box in swap.
+
+    monotonic, not wall clock: this number is compared against a cron interval
+    to decide whether runs can overlap, and a clock adjustment mid-cycle
+    producing a negative duration there is worse than reporting none.
+    """
+    import brain.cycle as cyc
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    ticks = iter([100.0, 100.25])
+    monkeypatch.setattr(cyc.time, "monotonic", lambda: next(ticks))
+
+    report = cyc.run_cycle(master, out, today="2026-07-07")
+
+    assert report.duration_ms == 250
+
+
 def test_cycle_applies_writebacks_sweeps_and_recompiles(master, tmp_path):
     seed_meta(master)
     out = _first_compile(master, tmp_path)
