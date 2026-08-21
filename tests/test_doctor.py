@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import date as _date
 
 import pytest
@@ -197,9 +198,17 @@ def test_meta_inside_vault_is_security_error(master, tmp_path):
 
 
 def test_crashed_compile_tombstone_is_error(master, tmp_path):
+    # Aged past the grace window: a FRESH tomb is now indistinguishable from a
+    # compile in flight, and reporting those turned a healthy brain red for the
+    # length of its own cycle. What still earns an error is one that survived.
+    from brain.doctor import TOMB_GRACE_SEC
+
     seed_meta(master)
     out = _compile(master, tmp_path)
-    (out / ".bob.old").mkdir()
+    tomb = out / ".bob.old"
+    tomb.mkdir()
+    stale = time.time() - (TOMB_GRACE_SEC + 600)
+    os.utime(tomb, (stale, stale))
     findings = run_doctor(master, out)
     assert "error" in _severities(findings, "compiled")
 
@@ -1309,3 +1318,41 @@ def test_charter_unset_is_reported_at_info(tmp_path):
                     VaultConfig(charter="Bespoke luxury travel."))
     assert [f for f in run_doctor(tmp_path / "acme2")
             if f.check == "charter-unset"] == []
+
+def test_a_live_compile_is_not_reported_as_a_crash(master, tmp_path):
+    """A compile in flight looks exactly like a crashed one on disk.
+
+    A cycle creates and removes one `.<id>.building` per person as it works —
+    each lives 20-60 seconds — so doctor running on a */5 box sees them most of
+    the time. Reporting those sets ok:false in the health snapshot, and Fleet
+    renders a healthy brain red for the duration of its own compile.
+    """
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    (out / ".bob.building").mkdir(parents=True, exist_ok=True)
+
+    findings = run_doctor(master, out)
+
+    assert not [f for f in findings if "crashed compile" in f.message]
+
+
+def test_a_tomb_that_survived_compiles_is_still_an_error(master, tmp_path):
+    """The error is worth keeping — it just has to mean something.
+
+    A tomb untouched for several cron intervals says the recovery its own
+    message promises is not happening, which is exactly when a human should
+    look.
+    """
+    from brain.doctor import TOMB_GRACE_SEC
+
+    seed_meta(master)
+    out = _compile(master, tmp_path)
+    tomb = out / ".bob.building"
+    tomb.mkdir(parents=True, exist_ok=True)
+    stale = time.time() - (TOMB_GRACE_SEC + 600)
+    os.utime(tomb, (stale, stale))
+
+    findings = run_doctor(master, out)
+
+    crashed = [f for f in findings if "crashed compile" in f.message]
+    assert len(crashed) == 1 and crashed[0].severity == "error"
