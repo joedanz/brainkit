@@ -115,17 +115,19 @@ install_skills() {
     done
 }
 
-# The scratch-path block this script maintains at the end of SOUL.md — see the
-# section that applies it, below the re-sync. Declared up here because the
-# re-sync's own hash comparison has to be able to ignore it.
+# The managed blocks this script maintains at the end of SOUL.md — see the
+# section that applies them, below the re-sync. Declared up here because the
+# re-sync's own hash comparison has to be able to ignore them.
 SCRATCH_BEGIN='<!-- hermes-brain: scratch (managed — replaced on every boot) -->'
 SCRATCH_END='<!-- /hermes-brain: scratch -->'
+SOURCES_BEGIN='<!-- hermes-brain: sources (managed — replaced on every boot) -->'
+SOURCES_END='<!-- /hermes-brain: sources -->'
 
-# SOUL.md as it would be WITHOUT our block, plus any trailing blank lines the
-# block was separated by. Stripping is what makes appending idempotent: the
-# next boot removes exactly what the last one added before comparing.
-strip_scratch_block() {
-    awk -v b="$SCRATCH_BEGIN" -v e="$SCRATCH_END" '
+# strip_managed_block FILE BEGIN END — FILE without that one block, plus any
+# trailing blank lines the block was separated by. "-" reads stdin so the
+# strips chain.
+strip_managed_block() {
+    awk -v b="$2" -v e="$3" '
         $0 == b { skip = 1 }
         skip == 0 { line[++n] = $0 }
         $0 == e { skip = 0 }
@@ -134,6 +136,15 @@ strip_scratch_block() {
             for (i = 1; i <= n; i++) print line[i]
         }
     ' "$1"
+}
+
+# SOUL.md as it would be WITHOUT any of our blocks. Stripping is what makes
+# appending idempotent: the next boot removes exactly what the last one added
+# before comparing. Every block goes through here, so a block this script
+# stops rendering (its env var withdrawn) is removed, not orphaned.
+strip_managed_blocks() {
+    strip_managed_block "$1" "$SCRATCH_BEGIN" "$SCRATCH_END" \
+        | strip_managed_block - "$SOURCES_BEGIN" "$SOURCES_END"
 }
 
 # The hash the sentinel records, and the ONLY one it may record.
@@ -150,7 +161,7 @@ strip_scratch_block() {
 # return the hash of the empty string and turn "gone" into "edited".
 soul_fingerprint() {
     [ -f "$1" ] || return 0
-    strip_scratch_block "$1" 2>/dev/null | md5sum | cut -d' ' -f1
+    strip_managed_blocks "$1" 2>/dev/null | md5sum | cut -d' ' -f1
 }
 
 # Three-way merge SOUL.md: $1 live, $2 base (image's last), $3 incoming (image's
@@ -162,7 +173,7 @@ soul_fingerprint() {
 #   conflict   both changed the SAME lines; LIVE IS KEPT, nothing is discarded
 #   nobase     no recorded base (first upgrade after this shipped, or legacy)
 #
-# The scratch block is stripped from the live side before merging and re-applied
+# The managed blocks are stripped from the live side before merging and re-applied
 # afterwards by the managed-block section below. Merging with it present would
 # make our own append look like a local edit to be reconciled, and a conflict in
 # a block we rewrite every boot anyway is noise.
@@ -177,7 +188,7 @@ merge_soul() {
     if cmp -s "$_base" "$_new"; then echo unchanged; return 0; fi
 
     _mine=$(mktemp); _out=$(mktemp)
-    strip_scratch_block "$_live" > "$_mine" 2>/dev/null || cp "$_live" "$_mine"
+    strip_managed_blocks "$_live" > "$_mine" 2>/dev/null || cp "$_live" "$_mine"
 
     if cmp -s "$_mine" "$_base"; then
         cp "$_new" "$_live"; rm -f "$_mine" "$_out"; echo fastfwd; return 0
@@ -316,37 +327,48 @@ if [ ! -f "$DATA/SOUL.md" ]; then
     echo "[brain] SOUL.md was missing — restored from the image"
 fi
 
-# --- SOUL.md: where scratch files go (managed block, every boot) -------------
-# TMPDIR (set in the Dockerfile) covers everything that asks the OS for a temp
-# path — tempfile, subprocesses, shell redirection. It does NOT cover the model
-# deciding on its own to `write_file` into /tmp, which is the case that actually
-# bites: the write is denied by HERMES_WRITE_SAFE_ROOT, and the agent finds out
-# only from the file-mutation verifier footer, after it has already told the
-# user it wrote the file.
+# --- SOUL.md: managed blocks (re-applied every boot) -------------------------
+# Two blocks this script owns at the end of SOUL.md — where scratch files go,
+# and how to cite vault sources. Both are re-rendered and re-applied on every
+# boot, in one pass: strip every block we own, append every block we render,
+# then compare. One pass and not one per block, because stripping and
+# re-appending blocks one at a time would rotate their order on every boot and
+# the "did anything change" comparison would never be quiet.
 #
-# So the path has to be in the prompt too. SOUL.md and not a skill, because
-# SOUL.md is the stable tier of the system prompt and is present on every turn,
-# while a skill body enters context only once its description matches the task
-# — and the moment this matters (a capture script, a one-off probe) never
+# Why SOUL.md and not a skill: SOUL.md is the stable tier of the system prompt
+# and is present on every turn, while a skill body enters context only once
+# its description matches the task — and the moment these matter (a capture
+# script, a one-off probe; a reply that quietly drew on three notes) never
 # mentions the brain protocol.
 #
-# A marked block re-applied on every boot, not a template edit, for the reason
-# the restart-ping loop below gives: the template reaches only volumes that do
-# not exist yet. The re-sync above applies the image's SOUL.md only to an
-# untouched file, and no agent's is untouched — the portal writes a name
-# declaration into it during onboarding. A template-only change would reach
-# precisely the agents nobody is waiting for.
+# Why a marked block re-applied on every boot, not a template edit: the
+# template reaches only volumes that do not exist yet. The re-sync above
+# applies the image's SOUL.md only to an untouched file, and no agent's is
+# untouched — the portal writes a name declaration into it during onboarding.
+# A template-only change would reach precisely the agents nobody is waiting
+# for.
+#
+# Scratch: TMPDIR (set in the Dockerfile) covers everything that asks the OS
+# for a temp path. It does NOT cover the model deciding on its own to
+# `write_file` into /tmp, which is the case that actually bites: the write is
+# denied by HERMES_WRITE_SAFE_ROOT, and the agent finds out only from the
+# file-mutation verifier footer, after it has already told the user it wrote
+# the file. So the path has to be in the prompt too.
+#
+# Sources: rendered only when BRAIN_VAULT_PUBLIC_URL is set — the URL the
+# person's vault dashboard is published at (the fleet that runs this box owns
+# the domain; this image only needs to know a URL exists). With it set, a
+# reply that drew on vault notes ends with a link per note, using the
+# dashboard's `#note=<rel_path>` deep link. Without it there is nothing to
+# link to, and the block is withdrawn rather than left pointing nowhere.
 #
 # The sentinel is deliberately NOT rewritten here: soul_fingerprint already
-# hides this block from it, so the human-edit detector keeps working.
+# hides these blocks from it, so the human-edit detector keeps working.
 #
-# Guarded end to end — a scratch-path hint is never worth failing a boot over.
-if [ -f "$DATA/SOUL.md" ]; then
-    soul_tmp="$DATA/.SOUL.md.scratch-tmp"
-    if {
-        strip_scratch_block "$DATA/SOUL.md"
-        printf '\n%s\n' "$SCRATCH_BEGIN"
-        cat <<EOF
+# Guarded end to end — a prompt hint is never worth failing a boot over.
+render_managed_blocks() {
+    printf '\n%s\n' "$SCRATCH_BEGIN"
+    cat <<EOF
 ## Scratch files
 
 Throwaway files — probe scripts, captures, downloads, anything you are not
@@ -355,7 +377,33 @@ this container's write guard, so writing there fails and you are told only
 after the fact. Nothing under \`.cache/\` is backed up; anything worth keeping
 belongs in the vault.
 EOF
-        printf '%s\n' "$SCRATCH_END"
+    printf '%s\n' "$SCRATCH_END"
+    if [ -n "${BRAIN_VAULT_PUBLIC_URL:-}" ]; then
+        _vault_url="${BRAIN_VAULT_PUBLIC_URL%/}"
+        printf '\n%s\n' "$SOURCES_BEGIN"
+        cat <<EOF
+## Sources
+
+Your vault is published at $_vault_url. When a reply draws on vault notes,
+end it with a line \`Sources:\` followed by one link per note you read, one
+per line:
+
+    [<note title>]($_vault_url/#note=<rel_path>)
+
+where <rel_path> is the note's path exactly as brain_search / brain_read
+report it, URL-encoded (a space is %20; \`/\` stays as is). Omit the whole
+\`Sources:\` line when you read no vault note — do not write "none". Never
+link a People/ note into a shared space.
+EOF
+        printf '%s\n' "$SOURCES_END"
+    fi
+}
+
+if [ -f "$DATA/SOUL.md" ]; then
+    soul_tmp="$DATA/.SOUL.md.managed-tmp"
+    if {
+        strip_managed_blocks "$DATA/SOUL.md"
+        render_managed_blocks
     } > "$soul_tmp" 2>/dev/null && [ -s "$soul_tmp" ]; then
         # cmp, not two hashes: the question here is only "did anything change",
         # and unlike soul_fingerprint nothing stores the answer.
@@ -363,11 +411,11 @@ EOF
             rm -f "$soul_tmp"
         else
             mv "$soul_tmp" "$DATA/SOUL.md"
-            echo "[brain] SOUL.md scratch block applied ($SCRATCH)"
+            echo "[brain] SOUL.md managed blocks applied (scratch=$SCRATCH sources=${BRAIN_VAULT_PUBLIC_URL:-off})"
         fi
     else
         rm -f "$soul_tmp"
-        echo "[brain] could not apply the SOUL.md scratch block — left as-is"
+        echo "[brain] could not apply the SOUL.md managed blocks — left as-is"
     fi
 fi
 

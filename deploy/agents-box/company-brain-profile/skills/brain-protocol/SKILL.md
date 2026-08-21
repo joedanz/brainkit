@@ -27,6 +27,13 @@ recorded only if all four hold:
 Not recording is the ordinary outcome. When something fails these tests, use
 it to answer well and write nothing.
 
+Attribution runs the other way too: a reply to a human that drew on vault
+notes ends with a `Sources:` line linking each note you read. The link
+format and the dashboard URL are in your SOUL.md (`## Sources`); when that
+section is absent there is no published dashboard, so name the note paths
+instead. Vault *writes* keep the `[source:: [[note]]]` grammar from the
+vault's AGENTS.md — the URL form is only for replies.
+
 ## Ingest (new transcript or note in People/<you>/Inbox/)
 
 1. Summarize what was decided and what changed, not what was said.

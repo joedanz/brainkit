@@ -184,6 +184,7 @@ so her key can sync exactly one repo and run nothing else.
 | `BRAIN_EMBED_MODEL` | no | embedding model (default `text-embedding-3-small`) |
 | `BRAIN_EMBED_DIM` | no | vector dimension (default 512) — match what the endpoint really returns |
 | `BRAIN_SYNC_INTERVAL` | no | sync period in seconds (default 300) |
+| `BRAIN_VAULT_PUBLIC_URL` | no | where this person's vault dashboard is published (e.g. `https://joe-acme.example.com`). When set, SOUL.md gains a managed `## Sources` block telling the agent to end vault-backed replies with `[title](<url>/#note=<rel_path>)` links; unset = no block |
 
 \* or another chat platform's token — see the hermes gateway docs.
 

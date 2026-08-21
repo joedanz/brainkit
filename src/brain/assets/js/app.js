@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import { connectWS } from "./ws.js";
 import { mountTheme } from "./theme.js";
 import { mountCapture } from "./capture.js";
+import { parseHash } from "./hash.js";
 import * as overview from "./tabs/overview.js";
 import * as graph from "./tabs/graph.js";
 import * as query from "./tabs/query.js";
@@ -81,7 +82,9 @@ function showTab(id, focusPanel) {
     if (outgoing && outgoing.dispose) outgoing.dispose();
   }
   activeId = tab.id;
-  if (location.hash.slice(1) !== tab.id) location.hash = tab.id;
+  // A #note= hash already names this tab (query); leave it in place so the
+  // note link survives the render that is about to consume pendingNote.
+  if (parseHash(location.hash).tab !== tab.id) location.hash = tab.id;
   buttons.forEach((b, tid) => {
     const on = tid === tab.id;
     b.classList.toggle("active", on);
@@ -189,12 +192,18 @@ async function boot() {
     },
   });
 
+  // showNote writes its #note= hash with replaceState, which does not fire
+  // this — so a note seen here came from outside (a pasted link, back/forward)
+  // and is always opened.
   window.addEventListener("hashchange", () => {
-    const id = location.hash.slice(1);
-    if (id && id !== activeId) showTab(id);
+    const { tab, note } = parseHash(location.hash);
+    if (note) { ctx.openNote(note); return; }
+    if (tab && tab !== activeId) showTab(tab);
   });
 
-  showTab(location.hash.slice(1) || TABS[0].id);
+  const initial = parseHash(location.hash);
+  if (initial.note) ctx.pendingNote = initial.note;
+  showTab(initial.tab || TABS[0].id);
 }
 
 boot();

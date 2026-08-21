@@ -34,7 +34,7 @@ HELPERS_AWK = (
     r'/^SCRATCH_BEGIN=/{on=1} on{print} '
     r'/^merge_soul\(\)/{f=1} f && /^}$/{exit}'
 )
-APPLY_AWK = r'/^# --- SOUL.md: where scratch files go/{on=1} on{print} on && /^fi$/{exit}'
+APPLY_AWK = r'/^# --- SOUL.md: managed blocks/{on=1} on{print} on && /^fi$/{exit}'
 
 
 def _extract(awk_program: str) -> str:
@@ -54,9 +54,11 @@ def shell():
     helpers = _extract(HELPERS_AWK)
     apply_block = _extract(APPLY_AWK)
 
-    def run(data: Path, snippet: str = "") -> str:
+    def run(data: Path, snippet: str = "", env: dict[str, str] | None = None) -> str:
+        exports = [f"export {k}={v!r}" for k, v in (env or {}).items()]
         script = "\n".join([
             "set -eu",
+            *exports,
             f'DATA="{data}"',
             f'SCRATCH="$DATA/{SCRATCH_REL}"',
             'file_md5() { md5sum "$1" 2>/dev/null | cut -d\' \' -f1; }',
@@ -143,6 +145,57 @@ def test_block_is_restored_after_the_image_overwrites_soul(shell, tmp_path):
     soul = (data / "SOUL.md").read_text()
     assert soul.count("hermes-brain: scratch (managed") == 1
     assert "New image soul." in soul
+
+
+VAULT_URL = "https://joe-embark.example.test"
+
+
+def test_sources_block_is_off_without_a_public_url(shell, tmp_path):
+    data = _soul(tmp_path, NAMED)
+    shell(data)
+    soul = (data / "SOUL.md").read_text()
+    assert "hermes-brain: sources" not in soul
+    assert "Sources:" not in soul
+
+
+def test_sources_block_names_the_url_and_the_deep_link(shell, tmp_path):
+    data = _soul(tmp_path, NAMED)
+    shell(data, env={"BRAIN_VAULT_PUBLIC_URL": VAULT_URL + "/"})   # trailing slash is tolerated
+    soul = (data / "SOUL.md").read_text()
+    assert soul.count("hermes-brain: sources (managed") == 1
+    assert f"({VAULT_URL}/#note=<rel_path>)" in soul
+    assert "Omit the whole" in soul                       # no footer when no note was read
+    assert soul.index("hermes-brain: scratch") < soul.index("hermes-brain: sources")
+
+
+def test_sources_block_is_idempotent_and_hidden_from_the_fingerprint(shell, tmp_path):
+    data = _soul(tmp_path, NAMED)
+    before = _fingerprint(shell, data)
+    env = {"BRAIN_VAULT_PUBLIC_URL": VAULT_URL}
+    shell(data, env=env)
+    once = (data / "SOUL.md").read_text()
+    out = shell(data, env=env)
+    assert (data / "SOUL.md").read_text() == once
+    assert "applied" not in out                           # second boot is quiet
+    assert _fingerprint(shell, data) == before
+
+
+def test_sources_block_is_withdrawn_when_the_url_goes_away(shell, tmp_path):
+    data = _soul(tmp_path, NAMED)
+    shell(data, env={"BRAIN_VAULT_PUBLIC_URL": VAULT_URL})
+    assert "hermes-brain: sources" in (data / "SOUL.md").read_text()
+    shell(data)
+    soul = (data / "SOUL.md").read_text()
+    assert "hermes-brain: sources" not in soul
+    assert soul.count("hermes-brain: scratch (managed") == 1
+    assert "Your name is Stewie." in soul
+
+
+def test_the_url_is_not_shell_expanded_into_the_prompt(shell, tmp_path):
+    """The URL lands in a heredoc; a `$` in it must reach SOUL.md verbatim."""
+    data = _soul(tmp_path, NAMED)
+    shell(data, env={"BRAIN_VAULT_PUBLIC_URL": "https://x.test/$HOME"})
+    assert "https://x.test/$HOME/#note=" in (data / "SOUL.md").read_text()
 
 
 def test_missing_soul_is_left_missing(shell, tmp_path):
