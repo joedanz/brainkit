@@ -5,11 +5,13 @@ from pathlib import Path
 from brain.compiler import compile_vault
 from brain.edges import (
     INVERSE,
+    MAX_ENTITY_GROUP,
     RELATION_KEYS,
     W_EXPLICIT,
     W_MINED,
     date_edges,
     entity_edges,
+    entity_groups,
     explicit_edges,
     folder_edges,
     note_date,
@@ -89,6 +91,37 @@ def test_entity_edges_pairwise_canonical():
     assert entity_edges(entities) == [
         ("Clients/Acme.md", "Clients/Beta.md", "same", "entity", 0.5),
     ]  # singleton and empty-type groups produce nothing
+
+
+def test_entity_edges_skips_a_group_larger_than_the_cap():
+    """All-pairs is quadratic, so a big type is skipped rather than exploded.
+
+    A vault with 2,148 `provider` pages built 2.3M pairs, 82% of its index.
+    The relation exists to link a handful of like pages; past that it only
+    restates the type each page already declares.
+    """
+    at_cap = [(f"P/{i:03}.md", "provider") for i in range(MAX_ENTITY_GROUP)]
+    over = [*at_cap, ("P/over.md", "provider")]
+
+    n = MAX_ENTITY_GROUP
+    assert len(entity_edges(at_cap)) == n * (n - 1) // 2
+    assert entity_edges(over) == []
+
+
+def test_entity_groups_reports_membership_even_when_edges_are_capped():
+    """Doctor's connectivity check reads membership, not edges.
+
+    Reading the edges would make every page of a capped type look unlinked.
+    """
+    over = [(f"P/{i:03}.md", "provider") for i in range(MAX_ENTITY_GROUP + 1)]
+    assert entity_edges(over) == []
+    assert len(entity_groups(over)["provider"]) == MAX_ENTITY_GROUP + 1
+
+
+def test_entity_groups_drops_singletons_and_untyped():
+    got = entity_groups([("a.md", "client"), ("b.md", "client"),
+                         ("solo.md", "person"), ("none.md", "")])
+    assert got == {"client": ["a.md", "b.md"]}
 
 
 def test_with_inverses_mirrors_every_edge():

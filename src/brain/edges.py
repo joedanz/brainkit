@@ -32,6 +32,20 @@ INVERSE = {"up": "down", "down": "up", "same": "same", "prev": "next", "next": "
 W_EXPLICIT = 2.0
 W_MINED = 0.5
 
+# `same`-by-entity-type is all-pairs, so its cost is quadratic in the size of a
+# type. That was harmless while types held a handful of pages, which is what
+# this relation was designed for. It stops being harmless quickly: a vault with
+# 2,148 `provider` pages produced 2.3M pairs, and with their mirrors those
+# edges were 4.6M rows and 82% of a 1.6GB index -- an index that no longer fit
+# in the box's RAM, so every compile went to disk and took half an hour.
+#
+# The edges bought nothing in exchange. A page whose `same` neighbours are the
+# other 2,147 providers has been told only that it is a provider, which its own
+# frontmatter already says, and no reader can browse a list that long. Beyond
+# this many members the pairs are skipped; `entity_groups` still reports the
+# membership for callers that need it.
+MAX_ENTITY_GROUP = 25
+
 # One edge row, everywhere: (src_rel_path, dst_rel_path, rel, provenance, weight)
 Edge = tuple[str, str, str, str, float]
 Resolver = Callable[[list[str]], list[tuple[str, int]]]
@@ -200,16 +214,32 @@ def format_traversal(start: str, hops: list, truncated: bool) -> str:
     return "\n".join(lines)
 
 
-def entity_edges(entities: Iterable[tuple[str, str]]) -> list[Edge]:
-    """`same` between pages sharing an entity type, canonical direction
-    a < b. Groups are expected small (a handful of pages per type)."""
+def entity_groups(entities: Iterable[tuple[str, str]]) -> dict[str, list[str]]:
+    """Entity type -> its member paths, sorted; types with one page dropped.
+
+    Membership is what "shares a type" means, and it is knowable whether or not
+    `entity_edges` chooses to materialise the pairs. Callers that only need to
+    know a page is reachable through its type should use this rather than
+    walking the edges, so a capped group does not read as an isolated page.
+    """
     groups: dict[str, list[str]] = {}
     for rel, etype in entities:
         if etype:
             groups.setdefault(etype, []).append(rel)
+    return {t: sorted(m) for t, m in sorted(groups.items()) if len(m) > 1}
+
+
+def entity_edges(entities: Iterable[tuple[str, str]]) -> list[Edge]:
+    """`same` between pages sharing an entity type, canonical direction a < b.
+
+    Only for groups of at most MAX_ENTITY_GROUP pages. A shared entity type is
+    a category, not a relationship: past a certain size the clique stops being
+    a description of the vault and becomes a restatement of the type itself.
+    """
     edges: list[Edge] = []
-    for etype in sorted(groups):
-        members = sorted(groups[etype])
+    for members in entity_groups(entities).values():
+        if len(members) > MAX_ENTITY_GROUP:
+            continue
         for i, a in enumerate(members):
             for b in members[i + 1:]:
                 edges.append((a, b, "same", "entity", W_MINED))

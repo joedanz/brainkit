@@ -198,7 +198,7 @@ def _check_unlinked_notes(master: Path, shared: str) -> list[Finding]:
     keep doctor free of the indexer's store/embedding dependencies. Folders
     named Inbox are exempt: unprocessed captures are expected to be
     unlinked."""
-    from brain.edges import date_edges, entity_edges, folder_edges, note_date
+    from brain.edges import date_edges, entity_groups, folder_edges, note_date
     from brain.facts import parse_entity
 
     findings: list[Finding] = []
@@ -234,9 +234,11 @@ def _check_unlinked_notes(master: Path, shared: str) -> list[Finding]:
     for src, dst, *_rest in date_edges(dated):
         connected.add(src)
         connected.add(dst)
-    for src, dst, *_rest in entity_edges(entities):
-        connected.add(src)
-        connected.add(dst)
+    # Membership, not materialised edges: `entity_edges` caps large types, and
+    # a page in a capped group is still reachable through its type. Reading the
+    # edges here would report every provider in a big vault as unlinked.
+    for members in entity_groups(entities).values():
+        connected.update(members)
     for rel in sorted(paths - connected):
         if "Inbox" in Path(rel).parts or CORRECTIONS_DIR in Path(rel).parts:
             continue
