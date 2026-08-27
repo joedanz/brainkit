@@ -11,6 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `brain-protocol` skill no longer ships one company's taxonomy to
+  every agent.** Its Intel step told every agent to file under
+  `Destinations/<Place>.md`, `Providers/`, `Events/` and `Trends/` — the very
+  folders 0.4.7 removed from the scaffold for shipping a stranger's business
+  into each new vault. The scaffold was fixed; the skill was not, and a
+  real-estate company's agents were still being pointed at `Destinations/`
+  (measured in both of its containers, 2026-08-27). The step now routes to
+  `<shared space>/Intel/<Subject>.md` and defers to the vault's own
+  `Memory.md` "Where knowledge lives" map for the folders and entity types
+  the company keeps. Re-provision with `install-brain-skill.sh` (the fleet's
+  upgrade-brainkit job does this on every roll).
+
 ## [0.5.3] - 2026-08-21
 
 ### Fixed

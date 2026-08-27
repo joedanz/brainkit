@@ -66,6 +66,19 @@ def test_profile_skill_has_no_shared_space_literals():
     assert "Company/" not in text
 
 
+def test_profile_skill_ships_no_industry_taxonomy():
+    """0.4.7 stopped scaffolding one company's Destinations/Providers/Events/
+    Trends into every vault, but the skill kept naming them — so a real-estate
+    company's agents were still told to file intel under Destinations/
+    (measured in both of its containers, 2026-08-27). The company's own
+    Memory.md map is the vocabulary; the skill points there and nowhere else."""
+    text = (ROOT / "skills/brain-protocol/SKILL.md").read_text()
+    for literal in ("Destinations/", "Providers/", "Events/", "Trends/"):
+        assert literal not in text, literal
+    assert "Where knowledge lives" in text
+    assert "<shared space>/Intel/<Subject>.md" in text
+
+
 def test_profile_teaches_admission_not_only_routing():
     """The deployed profile must not teach a policy the vault's own AGENTS.md
     contradicts: both say record only what passes the gate."""
