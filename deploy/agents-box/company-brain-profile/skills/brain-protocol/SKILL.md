@@ -91,8 +91,9 @@ frontmatter-key names from there; the shapes below use placeholders.
    matches an entry you already have, or one that collides with your own
    household. Don't interrogate a distinctive name that's already unambiguous.
 4. One utterance can split into two homes: e.g. a family attending an event
-   also gets an `Intel/Events/<Name>.md` promotion under the shared space,
-   cross-linked so each references the other.
+   also gets a promotion into the shared space — the folder `Memory.md` names
+   for that kind of thing, or `Intel/<Name>.md` when it came from an outside
+   source — cross-linked so each references the other.
 5. To share or revoke access to a space you own, write
    `People/<you>/ShareRequests/<name>.md` with frontmatter: `space: <the space>`,
    `share-with: person:<id>` or `team:<name>`, `access: read|write`,
@@ -117,11 +118,15 @@ frontmatter-key names from there; the shapes below use placeholders.
    source is the URL, or the publication/title (or uploaded filename) when
    there's no link; use the source's own date, or `captured YYYY-MM` (today)
    when it shows none.
-2. Route destination, provider, event, or trend intel to the shared wiki via
-   a promotion targeting the shared Intel wiki (`<shared space>/Intel/` —
-   your AGENTS.md names it) — Destinations/<Place>.md,
-   Providers/<Name>.md, Events/<Name>.md, or Trends/<YYYY-MM Topic>.md.
-   New entity -> a new page (one-sentence summary first line; link related
+2. Route it to the shared Intel wiki via a promotion targeting
+   `<shared space>/Intel/<Subject>.md` (your AGENTS.md names the shared
+   space; `Intel/Home.md` is its map and links every page). Name subjects in
+   the company's own vocabulary: the "Where knowledge lives" section of
+   `<shared space>/Memory.md` names the folders and entity types this brain
+   keeps. What you read about the world is Intel; what the company knows from
+   working with a thing is first-party and belongs in the folder Memory.md
+   names for it, never in Intel.
+   New subject -> a new page (one-sentence summary first line; link related
    pages both ways). Page already exists -> promote with `mode: append` for
    an additive update, or `mode: patch` carrying the full revised page (fold
    any older addenda in while you're there).

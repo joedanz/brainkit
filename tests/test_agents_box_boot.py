@@ -658,9 +658,9 @@ def test_a_file_brainkit_no_longer_ships_does_not_linger(tmp_path):
     stale.write_text("from an older brainkit\n")
     # Recorded as ours, so this is a reinstall and not a local edit.
     subprocess.run(["sh", "-c",
-                    f"cd {repo}/brain-protocol && find . -type f ! -name '.*' | LC_ALL=C sort | "
-                    f"while IFS= read -r f; do printf '%s  %s\\n' \"$(md5sum \"$f\" | cut -d' ' -f1)\" \"${{f#./}}\"; done "
-                    f"> {repo}/.brain-protocol.manifest"], check=True)
+                    (f"cd {repo}/brain-protocol && find . -type f ! -name '.*' | LC_ALL=C sort | "
+                     f"while IFS= read -r f; do printf '%s  %s\\n' \"$(md5sum \"$f\" | cut -d' ' -f1)\" \"${{f#./}}\"; done "
+                     f"> {repo}/.brain-protocol.manifest")], check=True)
 
     assert _install(repo).returncode == 0
     assert not stale.exists()
