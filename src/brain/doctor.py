@@ -799,8 +799,13 @@ def _map_path_exists(master: Path, shared: str, raw: str) -> bool:
     return False
 
 
+_IRREGULAR_PLURALS = {"person": "people"}
+
+
 def _declared(word: str, words: set[str]) -> bool:
     if word in words or word + "s" in words or word + "es" in words:
+        return True
+    if _IRREGULAR_PLURALS.get(word) in words:
         return True
     return word.endswith("y") and word[:-1] + "ies" in words
 

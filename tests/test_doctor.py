@@ -1415,3 +1415,6 @@ def test_entity_vocabulary_flags_a_type_the_vault_never_declared(tmp_path):
     mem = tmp_path / "Company/Memory.md"
     mem.write_text(mem.read_text() + "- `Company/Playbook/` — our providers\n")
     assert not [f for f in run_doctor(tmp_path) if f.check == "entity-vocabulary"]
+    # the one irregular plural every vault's map already contains
+    (tmp_path / "Company/Playbook/Bob.md").write_text("---\nentity: person\n---\n# Bob\n")
+    assert not [f for f in run_doctor(tmp_path) if f.check == "entity-vocabulary"]
