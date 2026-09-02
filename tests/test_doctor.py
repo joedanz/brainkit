@@ -1356,3 +1356,62 @@ def test_a_tomb_that_survived_compiles_is_still_an_error(master, tmp_path):
 
     crashed = [f for f in findings if "crashed compile" in f.message]
     assert len(crashed) == 1 and crashed[0].severity == "error"
+
+
+def test_taxonomy_map_names_a_folder_that_does_not_exist(tmp_path):
+    """The defect that let two taxonomies coexist for a week: Memory.md's
+    'Where knowledge lives' — the one map every agent reads first — named
+    folders nothing had created, and doctor reported zero errors. Placeholders
+    (`<Name>`, `*`) are skipped; paths resolve at the root or inside the
+    shared space; a page path may omit its .md."""
+    from brain.doctor import run_doctor
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    mem = tmp_path / "Company/Memory.md"
+    mem.write_text(mem.read_text() + (
+        "- `Company/Partners/` — partners and lenders\n"
+        "- `Company/Intel/` — outside knowledge, mapped in `Intel/Home.md`\n"
+        "- `Company/Tenants` — who occupies what\n"
+        "- `Clients/<Name>/` — one space per client\n"
+    ))
+    hits = [f for f in run_doctor(tmp_path) if f.check == "taxonomy-map"]
+    assert len(hits) == 1 and hits[0].severity == "warn"
+    assert hits[0].paths == ("Company/Memory.md",)
+    assert "`Company/Partners/`" in hits[0].message
+    assert "`Company/Tenants`" in hits[0].message
+    assert "Intel" not in hits[0].message      # exists (root and shared-relative)
+    assert "Clients" not in hits[0].message    # placeholder, skipped
+
+
+def test_taxonomy_checks_are_silent_on_a_fresh_scaffold(tmp_path):
+    from brain.doctor import run_doctor
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    assert not [f for f in run_doctor(tmp_path)
+                if f.check in ("taxonomy-map", "entity-vocabulary")]
+
+
+def test_entity_vocabulary_flags_a_type_the_vault_never_declared(tmp_path):
+    """An ingest wrote `entity: provider` pages into a vault whose map declared
+    property/partner/tenant. Nothing noticed. The config's own entity word is
+    always declared; anything else must be named in 'Where knowledge lives'
+    (singular or plural) or the pages are using a vocabulary nobody agreed."""
+    from brain.doctor import run_doctor
+    from brain.templates import scaffold_master
+
+    scaffold_master(tmp_path, "Acme")
+    page = tmp_path / "Company/Playbook/Venable.md"
+    page.write_text("---\nentity: provider\n---\n# Venable\n")
+    own = tmp_path / "Clients/Acme Corp/Acme Corp.md"
+    own.parent.mkdir(parents=True)
+    own.write_text('---\nentity: "client"\n---\n# Acme\n')
+    hits = [f for f in run_doctor(tmp_path) if f.check == "entity-vocabulary"]
+    assert len(hits) == 1 and hits[0].severity == "warn"
+    assert "`provider`" in hits[0].message and "1 page" in hits[0].message
+    assert hits[0].paths == ("Company/Playbook/Venable.md",)
+    # naming it in the map — plural is fine — is the declaration
+    mem = tmp_path / "Company/Memory.md"
+    mem.write_text(mem.read_text() + "- `Company/Playbook/` — our providers\n")
+    assert not [f for f in run_doctor(tmp_path) if f.check == "entity-vocabulary"]

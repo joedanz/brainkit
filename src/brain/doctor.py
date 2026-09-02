@@ -770,6 +770,105 @@ def _check_charter(config: VaultConfig) -> list[Finding]:
                     paths=("_meta/config.yaml",))]
 
 
+_MAP_HEADING = "## Where knowledge lives"
+_MAP_PATH_RE = re.compile(r"`([A-Za-z][^`\s]*/[^`]*)`")
+_MAP_WORD_RE = re.compile(r"[a-z][a-z0-9_-]*")
+
+
+def _knowledge_map(master: Path, shared: str) -> str | None:
+    """The 'Where knowledge lives' section of the shared Memory.md, or None
+    when the file or the heading is absent. Ends at the next `## ` heading."""
+    p = master / shared / "Memory.md"
+    if not p.is_file():
+        return None
+    text = p.read_text(errors="replace")
+    i = text.find(_MAP_HEADING)
+    if i < 0:
+        return None
+    rest = text[i + len(_MAP_HEADING):]
+    m = re.search(r"^## ", rest, re.M)
+    return rest[:m.start()] if m else rest
+
+
+def _map_path_exists(master: Path, shared: str, raw: str) -> bool:
+    rel = raw.strip("/")
+    for base in (master, master / shared):
+        t = base / rel
+        if t.exists() or t.with_suffix(".md").exists():
+            return True
+    return False
+
+
+def _declared(word: str, words: set[str]) -> bool:
+    if word in words or word + "s" in words or word + "es" in words:
+        return True
+    return word.endswith("y") and word[:-1] + "ies" in words
+
+
+def _check_taxonomy(master: Path, config: VaultConfig) -> list[Finding]:
+    """Two taxonomies coexisted in one vault for a week with doctor at zero
+    errors: the shared Memory.md's 'Where knowledge lives' — the map brainkit's
+    own protocol tells every agent to read first — named folders nothing had
+    created, while an ingest filed pages under `entity:` types the map never
+    mentioned. Doctor reads structure, and both are structure.
+
+    `taxonomy-map`: every backticked path in that section must exist, at the
+    root or inside the shared space, as a folder or a page. Placeholders
+    (`<Name>`, `*`) are the section's own notation and are skipped.
+
+    `entity-vocabulary`: every `entity:` value pages actually use must be the
+    config's own entity word or be named in that section, singular or plural.
+    A type used by pages and declared nowhere is a vocabulary nobody agreed
+    to, which is how "provider" and "partner" end up meaning the same firm.
+
+    Warn only: neither leaks nor blocks a compile, and the fix is an edit to
+    one map an admin owns.
+    """
+    findings: list[Finding] = []
+    rel_mem = f"{config.shared}/Memory.md"
+    section = _knowledge_map(master, config.shared)
+    if section is not None:
+        missing = [raw for raw in _MAP_PATH_RE.findall(section)
+                   if not any(c in raw for c in "<>*")
+                   and not raw.strip("/").startswith("_meta")
+                   and not _map_path_exists(master, config.shared, raw)]
+        if missing:
+            named = ", ".join(f"`{m}`" for m in missing)
+            findings.append(Finding(
+                "warn", "taxonomy-map",
+                f"{rel_mem}: 'Where knowledge lives' names {named} but nothing "
+                "exists there — agents read this map before they file anything, "
+                "so a folder named here and absent on disk misroutes every "
+                "write; create it or drop the line",
+                paths=(rel_mem,)))
+    words = set(_MAP_WORD_RE.findall(section.lower())) if section else set()
+    used: dict[str, list[str]] = {}
+    for f in sorted(master.rglob("*.md")):
+        if f.is_symlink():
+            continue
+        rel = f.relative_to(master).as_posix()
+        if rel.split("/", 1)[0].startswith((".", "_")):
+            continue
+        try:
+            fm, _ = split_frontmatter(f.read_text(errors="replace"))
+        except Exception:
+            continue
+        etype = str(fm.get("entity", "")).strip().strip("\"'").lower()
+        if etype:
+            used.setdefault(etype, []).append(rel)
+    for etype, pages in sorted(used.items()):
+        if etype == config.entity or _declared(etype, words):
+            continue
+        n = len(pages)
+        findings.append(Finding(
+            "warn", "entity-vocabulary",
+            f"entity type `{etype}` is used by {n} page{'' if n == 1 else 's'} "
+            f"but named nowhere in {rel_mem} 'Where knowledge lives' or as the "
+            "config's entity word — declare it in the map, or fix the pages",
+            paths=tuple(pages[:20])))
+    return findings
+
+
 def _check_fact_sources(master: Path, shared: str) -> list[Finding]:
     """Fact lines standing without a `[source::]`.
 
@@ -1462,6 +1561,7 @@ def run_doctor(
     if config_ok:
         findings += _check_protocol(master, config)
         findings += _check_charter(config)
+        findings += _check_taxonomy(master, config)
     findings += _check_fact_sources(master, shared)
     findings += _check_fact_conflicts(master, shared)
     findings += _check_corrections(master)

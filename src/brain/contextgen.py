@@ -137,7 +137,7 @@ If you are unsure whether something passes, it does not.
   targeting a new file in `{shared}/Playbook/`
 - Articles, posts, links, PDFs, and screenshots: distill, never archive —
   read the source (fetch a URL, extract PDF text, read an image) and route
-  destination, provider, event, or trend intel to `{shared}/Intel/` via a
+  outside intel {intel_scope} to `{shared}/Intel/` via a
   promotion (see below). The full text or file never enters the vault; your
   personal take, when it is worth keeping, stays in `People/{pid}/Notes/`. Because the original is gone,
   the citation is the only way back to it: on any distilled page **outside**
@@ -252,6 +252,21 @@ def render_charter(config: VaultConfig) -> str:
             "of it does not belong here, however interesting it is.\n\n")
 
 
+def render_intel_scope(config: VaultConfig) -> str:
+    """What outside intel is worth distilling, in no company's vocabulary.
+
+    This sentence used to read "destination, provider, event, or trend intel"
+    — one company's subjects, compiled into every company's AGENTS.md, and
+    the only concrete list an agent had to calibrate relevance against. The
+    charter is the subject when there is one; otherwise the admission tests
+    the agent has just read are the whole definition, and naming examples
+    here would only narrow them to whoever wrote the examples.
+    """
+    if config.charter:
+        return "on the subject above"
+    return "that passes the admission tests above"
+
+
 def render_root_protocol(
     person: Person,
     spaces_rw: list[tuple[str, bool]],
@@ -268,6 +283,7 @@ def render_root_protocol(
         entity_title=config.entity[:1].upper() + config.entity[1:],
         requests=config.requests_folder, name_key=config.name_key,
         shared=config.shared, charter_block=render_charter(config),
+        intel_scope=render_intel_scope(config),
         corrections_block=(corrections_block + "\n") if corrections_block else "",
     )
     if len(text) > ROOT_LIMIT:

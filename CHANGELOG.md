@@ -13,6 +13,29 @@ explicitly under **Changed**, with what to do about it.
 
 ### Fixed
 
+- **The root protocol no longer routes Intel in one company's vocabulary.**
+  Every compiled `AGENTS.md` told every agent to "route destination, provider,
+  event, or trend intel to `Company/Intel/`" — Embark's subjects, a thousand
+  characters below the relevance test, and the only concrete list an agent had
+  to calibrate against. #167 fixed the brain-protocol skill; this sentence in
+  `contextgen` survived it and was live in a real-estate company's vaults
+  (measured 2026-09-02, `AGENTS.md:137`). It now reads "outside intel on the
+  subject above" when a charter is set and "outside intel that passes the
+  admission tests above" when none is. Masters will report `protocol-stale`
+  until `brain refresh-protocol --write` regenerates them.
+
+### Added
+
+- **Doctor reads the taxonomy map.** Two checks for the defect that let two
+  taxonomies coexist in one vault for a week at zero errors. `taxonomy-map`
+  warns when `Company/Memory.md`'s "Where knowledge lives" names a path that
+  does not exist (root- or shared-relative; placeholders like `<Name>` are
+  skipped) — agents read that map before they file anything. `entity-vocabulary`
+  warns when pages use an `entity:` type that is neither the config's entity
+  word nor named, singular or plural, in that section. Both warn-only.
+
+### Fixed
+
 - **The `brain-protocol` skill no longer ships one company's taxonomy to
   every agent.** Its Intel step told every agent to file under
   `Destinations/<Place>.md`, `Providers/`, `Events/` and `Trends/` — the very
