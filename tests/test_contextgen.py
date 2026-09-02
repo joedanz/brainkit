@@ -28,7 +28,7 @@ def test_root_protocol_content():
     # personal Memory.md is a lean map: fat topics split into Notes/
     assert "lean overview" in text
     assert "People/bob/Notes/<Topic>.md" in text
-    # shared travel wiki: distill articles into Intel entity pages
+    # shared Intel wiki: distill articles into entity pages
     assert "Company/Intel/" in text
     assert "distill, never archive" in text
     assert "as of YYYY-MM" in text                    # provenance on every claim
@@ -722,3 +722,25 @@ def test_scaffolded_master_is_clean_under_doctor(tmp_path):
     assert [f for f in findings if f.severity == "error"] == []
     assert [f for f in findings if f.check == "unlinked-notes"] == []
     assert [f.check for f in findings if f.severity == "info"] == ["charter-unset"]
+
+
+def test_intel_routing_speaks_no_industry_vocabulary():
+    """#167 pulled Embark's taxonomy out of the brain-protocol skill; the root
+    protocol itself still routed "destination, provider, event, or trend"
+    intel — one company's words in every company's AGENTS.md. A real-estate
+    vault must not be told what intel is in a travel company's vocabulary."""
+    helm = VaultConfig(entities="Properties", entity="property",
+                       charter="Retail and residential real estate in New York and Miami.")
+    text = render_root_protocol(BOB, [("Company", False), ("People/bob", True)], helm)
+    lowered = text.lower()
+    for word in ("destination", "trend intel", "travel"):
+        assert word not in lowered, word
+    assert "Company/Intel/" in text
+    assert "What this brain is for" in text
+    assert "outside intel on the subject above" in text   # charter-aware
+
+
+def test_intel_routing_without_charter_points_at_the_admission_tests():
+    text = render_root_protocol(BOB, [("Company", False), ("People/bob", True)])
+    assert "destination" not in text.lower()
+    assert "outside intel that passes the admission tests above" in text

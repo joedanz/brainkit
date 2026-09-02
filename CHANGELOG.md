@@ -11,7 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-02
+
 ### Fixed
+
+- **The root protocol no longer routes Intel in one company's vocabulary.**
+  Every compiled `AGENTS.md` told every agent to "route destination, provider,
+  event, or trend intel to `Company/Intel/`" — Embark's subjects, a thousand
+  characters below the relevance test, and the only concrete list an agent had
+  to calibrate against. #167 fixed the brain-protocol skill; this sentence in
+  `contextgen` survived it and was live in a real-estate company's vaults
+  (measured 2026-09-02, `AGENTS.md:137`). It now reads "outside intel on the
+  subject above" when a charter is set and "outside intel that passes the
+  admission tests above" when none is. Compiled slices pick it up on the
+  next cycle; the master's own `AGENTS.md` never carried the sentence.
 
 - **The `brain-protocol` skill no longer ships one company's taxonomy to
   every agent.** Its Intel step told every agent to file under
@@ -24,6 +37,16 @@ explicitly under **Changed**, with what to do about it.
   `Memory.md` "Where knowledge lives" map for the folders and entity types
   the company keeps. Re-provision with `install-brain-skill.sh` (the fleet's
   upgrade-brainkit job does this on every roll).
+
+### Added
+
+- **Doctor reads the taxonomy map.** Two checks for the defect that let two
+  taxonomies coexist in one vault for a week at zero errors. `taxonomy-map`
+  warns when `Company/Memory.md`'s "Where knowledge lives" names a path that
+  does not exist (root- or shared-relative; placeholders like `<Name>` are
+  skipped) — agents read that map before they file anything. `entity-vocabulary`
+  warns when pages use an `entity:` type that is neither the config's entity
+  word nor named, singular or plural, in that section. Both warn-only.
 
 ## [0.5.3] - 2026-08-21
 
