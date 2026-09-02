@@ -21,8 +21,8 @@ explicitly under **Changed**, with what to do about it.
   `contextgen` survived it and was live in a real-estate company's vaults
   (measured 2026-09-02, `AGENTS.md:137`). It now reads "outside intel on the
   subject above" when a charter is set and "outside intel that passes the
-  admission tests above" when none is. Masters will report `protocol-stale`
-  until `brain refresh-protocol --write` regenerates them.
+  admission tests above" when none is. Compiled slices pick it up on the
+  next cycle; the master's own `AGENTS.md` never carried the sentence.
 
 ### Added
 
