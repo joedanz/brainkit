@@ -74,3 +74,31 @@ def test_health_flags_ignore_self_links_and_out_of_range():
     res = _flags(nodes, edges)
     assert res["inbound"] == [0, 0]
     assert res["orphan"] == [False, True]   # degree says 0 has a link (cut by the cap); trust it
+
+
+# ---- labels ------------------------------------------------------------------
+
+def _labels(expr: str):
+    return run_js(f"""
+const L = await import({js_import("labels.js")});
+console.log(JSON.stringify({expr}));
+""")
+
+
+def test_label_budget_per_stop():
+    assert _labels('[L.labelBudget("hubs", 300), L.labelBudget("more", 300), L.labelBudget("all", 300)]') == [12, 25, 300]
+    assert _labels('[L.labelBudget("hubs", 5), L.labelBudget("more", 5), L.labelBudget("all", 5)]') == [5, 5, 5]
+    assert _labels('L.labelBudget("bogus", 100)') == 12   # unknown stop reads as hubs
+
+
+def test_busiest_always_named_the_rest_need_room():
+    # rank < HUBS: shown at any zoom, even before the gap is measured
+    assert _labels("L.labelShown(0, 0.3, 0, 25)") is True
+    assert _labels("L.labelShown(11, 0.3, 10, 25)") is True
+    # rank >= HUBS: needs k * gap >= 44 screen px
+    assert _labels("L.labelShown(12, 1.0, 43.9, 25)") is False
+    assert _labels("L.labelShown(12, 1.0, 44, 25)") is True
+    assert _labels("L.labelShown(12, 2.0, 22, 25)") is True
+    # and never past the budget, whatever the room
+    assert _labels("L.labelShown(25, 8, 1000, 25)") is False
+    assert _labels("L.labelShown(24, 8, 1000, 25)") is True
