@@ -235,3 +235,22 @@ def test_engine_mounts_2d_in_one_place_and_guards_the_3d_fallback():
     assert src.count('import("./view2d.js")') == 1        # one mount path, not two that can drift
     assert re.search(r"await mount2d\(token\)\.catch\(", src)   # the fallback cannot reject outwards
     assert "if (!E.view || E.dead || token !== switching) return;" in src
+
+
+def test_view3d_is_lazy_and_reuses_the_moved_layout():
+    """three.js is ~650KB: it must be reachable ONLY through engine.js's
+    dynamic import, or every 2D visitor pays for it. And the 3D integrator
+    lives in layout3d.js alone — a copy here would drift from the one the
+    layout test measures."""
+    src = (GRAPH / "view3d.js").read_text(encoding="utf-8")
+    assert 'from "../../vendor/three.module.min.js"' in src
+    assert 'from "../../vendor/OrbitControls.js"' in src
+    assert 'from "./layout3d.js"' in src
+    assert "50 * alpha" not in src   # the integrator lives in layout3d.js only
+    for f in GRAPH.glob("*.js"):
+        if f.name in ("view3d.js", "engine.js"):
+            continue
+        # an IMPORT of view3d, not a mention of it: layout3d.js names the file
+        # in prose to say who its one consumer is.
+        assert not re.search(r"""(?:import|from)\s*\(?\s*["'][^"']*view3d""",
+                             f.read_text(encoding="utf-8")), f"{f.name} must not import view3d.js"
