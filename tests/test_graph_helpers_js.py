@@ -224,3 +224,14 @@ console.log(JSON.stringify({{ kind: typeof ENGINE_CSS, hasChip: ENGINE_CSS.inclu
         src = f.read_text(encoding="utf-8")
         assert 'setAttribute("style"' not in src and "<style" not in src, name
         assert not re.search(r"\.style\.(?!setProperty|removeProperty)\w+\s*=", src), name
+
+
+def test_engine_mounts_2d_in_one_place_and_guards_the_3d_fallback():
+    """A failed 3D falls back to 2D, and that fallback can fail too (d3
+    unreachable). Uncaught, its rejection would escape switchMode: no note, no
+    view, a live toolbar over a blank surface. So the 2D mount exists once and
+    the fallback call is caught, and nothing runs on a view that never came."""
+    src = (GRAPH / "engine.js").read_text(encoding="utf-8")
+    assert src.count('import("./view2d.js")') == 1        # one mount path, not two that can drift
+    assert re.search(r"await mount2d\(token\)\.catch\(", src)   # the fallback cannot reject outwards
+    assert "if (!E.view || E.dead || token !== switching) return;" in src

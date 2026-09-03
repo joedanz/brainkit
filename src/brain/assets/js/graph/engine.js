@@ -339,6 +339,16 @@ export function mountGraph(host, options) {
 
   // --- views ------------------------------------------------------------------------
   let switching = 0;
+  function errText(e) { return e && e.message ? e.message : String(e); }
+  // Mounting 2D is both the 2D path and the fallback for a failed 3D, so it
+  // lives in one place: two copies could drift, and the copy in the catch is
+  // the one nobody exercises until the day WebGL is gone.
+  async function mount2d(token) {
+    const d3 = await ensureD3();
+    const mod = await import("./view2d.js");
+    if (E.dead || token !== switching) return;
+    E.view = mod.createView2d(E, d3);
+  }
   async function switchMode(mode, remember) {
     const token = ++switching;
     if (E.view) { E.view.destroy(); E.view = null; }
@@ -350,28 +360,23 @@ export function mountGraph(host, options) {
         if (E.dead || token !== switching) return;
         E.view = mod.createView3d(E);
       } else {
-        const d3 = await ensureD3();
-        const mod = await import("./view2d.js");
-        if (E.dead || token !== switching) return;
-        E.view = mod.createView2d(E, d3);
+        await mount2d(token);
       }
       E.mode = mode;
     } catch (e) {
       if (E.dead || token !== switching) return;
+      if (mode !== "3d") { note.textContent = "Graph unavailable: " + errText(e); return; }
       // No WebGL (headless, disabled GPU, locked-down browser) → 2D, with a
       // one-line note rather than a stuck, empty toolbar button.
-      if (mode === "3d") {
-        note.textContent = "3D view unavailable (WebGL): " + (e && e.message ? e.message : e);
-        E.mode = "2d";
-        const d3 = await ensureD3();
-        const mod = await import("./view2d.js");
-        if (E.dead || token !== switching) return;
-        E.view = mod.createView2d(E, d3);
-      } else {
-        note.textContent = "Graph unavailable: " + (e && e.message ? e.message : e);
-        return;
-      }
+      note.textContent = "3D view unavailable (WebGL): " + errText(e);
+      E.mode = "2d";
+      // The fallback can fail too (d3 unreachable). Caught here: an escaping
+      // rejection would leave a live toolbar over a blank surface saying
+      // nothing about why.
+      await mount2d(token).catch((e2) => { note.textContent = "Graph unavailable: " + errText(e2); });
     }
+    // A mount that failed or was overtaken has no view to drive.
+    if (!E.view || E.dead || token !== switching) return;
     modeBtn.textContent = E.mode === "3d" ? "2D" : "3D";
     modeBtn.classList.toggle("on", E.mode === "3d");
     if (remember) persist();
