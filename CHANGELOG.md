@@ -11,6 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-02
+
+### Fixed
+
+- **A period in a note title no longer breaks the links to it.** Link
+  targets were keyed by `PurePosixPath(...).stem`, which treats the last
+  period as a file extension: a link to `Amendment No. 3` became
+  `amendment no` and never matched the file `Amendment No. 3.md`, whose own
+  stem keeps the period. Titles hold periods routinely (`v.`, `No.`, `Inc.`).
+  The key now strips only a trailing `.md`, on both the file and the link
+  side, in the compiler, indexer, doctor, graph rank and vault map. Measured
+  on one production vault: five links to existing pages were dead for this
+  reason. No vault layout or `_meta` change; a re-index picks the links up.
+
 ## [0.5.4] - 2026-09-02
 
 ### Fixed

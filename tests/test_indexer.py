@@ -404,3 +404,17 @@ def test_a_link_into_a_session_demotes_rather_than_dangling(master, tmp_path):
     s.close()
     assert rows, "the link was recorded"
     assert all(resolved == 0 for _target, resolved in rows), rows
+
+
+def test_link_to_a_title_containing_a_period_resolves(master, tmp_path):
+    # A title like "Amendment No. 3" holds a period. The file's stem keeps it
+    # ("Amendment No. 3.md" → "Amendment No. 3") but a bare link target used to
+    # lose everything after the last period and never resolve.
+    (master / "Company" / "Decisions" / "Amendment No. 3.md").write_text("# Amendment No. 3\n")
+    (master / "Company" / "Decisions" / "Dotted Links.md").write_text(
+        "See [[Amendment No. 3]] and [[Big Deal Decision]].\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    links = _links(vault)
+    assert ("Company/Decisions/Dotted Links.md", "Company/Decisions/Amendment No. 3.md", 1) in links
