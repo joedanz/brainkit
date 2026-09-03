@@ -322,10 +322,15 @@ export function mountGraph(host, options) {
     }
     return [...ids];
   }
+  // Selection changes colors and which edges are bright — no node moves. A
+  // view that can say so repaints in place (view3d's focus(); a rebuild there
+  // would re-run its whole layout on every click). Views without it fall back
+  // to refresh, which is a scheduled repaint in 2D anyway.
+  function repaintFocus() { if (E.view) (E.view.focus ? E.view.focus() : E.view.refresh()); }
   function select(i) {
     if (i == null || !E.data || !E.data.nodes[i]) {
       E.selected = null; E.hood = null; E.prevPath = null;
-      if (E.view) E.view.refresh();
+      repaintFocus();
       E.onSelect(null, []);
       return;
     }
@@ -333,7 +338,7 @@ export function mountGraph(host, options) {
     E.selected = i;
     E.prevPath = E.data.nodes[i].rel_path;
     E.hood = new Set([i, ...nbrs]);
-    if (E.view) E.view.refresh();
+    repaintFocus();
     E.onSelect(E.data.nodes[i], nbrs.map((j) => E.data.nodes[j]));
   }
 
@@ -381,7 +386,7 @@ export function mountGraph(host, options) {
     modeBtn.classList.toggle("on", E.mode === "3d");
     if (remember) persist();
     E.view.setData();
-    if (E.selected != null) E.view.refresh();
+    if (E.selected != null) repaintFocus();   // the new view still owes the selection its highlight
   }
 
   // --- boot --------------------------------------------------------------------------

@@ -254,3 +254,32 @@ def test_view3d_is_lazy_and_reuses_the_moved_layout():
         # in prose to say who its one consumer is.
         assert not re.search(r"""(?:import|from)\s*\(?\s*["'][^"']*view3d""",
                              f.read_text(encoding="utf-8")), f"{f.name} must not import view3d.js"
+
+
+def test_view3d_rebuilds_cleanly_and_a_click_does_not_relayout():
+    """Three live-only defects a source contract can still pin:
+
+    labels are added to the scene outside `built`, so a rebuild that only drops
+    the array leaves stale text drawing (depthTest is off) and leaks a canvas
+    texture per sprite; an empty graph never allocates instanceColor, and the
+    paint runs after switchMode's try/catch, so the TypeError would escape as
+    an unhandled rejection; and a rebuild on select would re-run the 160
+    iteration O(n^2) layout on every click, so the engine asks the view to
+    repaint focus in place when it can."""
+    src = (GRAPH / "view3d.js").read_text(encoding="utf-8")
+    body = re.search(r"function clearBuilt\(\) \{(.+?)\n  \}", src, re.S).group(1)
+    # labels leave the scene AND free their texture on every rebuild
+    assert "clearLabels()" in body
+    labels = re.search(r"function clearLabels\(\) \{(.+?)\n  \}", src, re.S).group(1)
+    assert "scene.remove(" in labels and "l.dispose()" in labels
+    # the empty-graph guard stands before any instanceColor write
+    guard = src.index("if (n === 0)")
+    assert guard < src.index("mesh.instanceColor.needsUpdate = true")
+    # a focus-only repaint that does not call build()
+    focus = re.search(r"\n    focus\(\) \{(.+?)\},\n", src, re.S).group(1)
+    assert "paintFocus()" in focus and "build()" not in focus
+
+    eng = (GRAPH / "engine.js").read_text(encoding="utf-8")
+    assert "E.view.focus ? E.view.focus() : E.view.refresh()" in eng
+    sel = re.search(r"function select\(i\) \{(.+?)\n  \}", eng, re.S).group(1)
+    assert "repaintFocus()" in sel and "E.view.refresh()" not in sel

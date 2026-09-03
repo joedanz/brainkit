@@ -116,10 +116,18 @@ export function createView3d(E) {
   const halo = haloTexture(), ringThin = ringTexture(3), ringThick = ringTexture(6);
 
   function add(obj, dispose) { scene.add(obj); built.push({ obj, dispose }); return obj; }
+  // Label sprites are not in `built`: relabel() replaces them on their own
+  // cadence, many times per build. They still have to LEAVE the scene and free
+  // their texture — dropping the array alone leaves them drawing (depthTest is
+  // off, so stale text sits on top of the new text) and leaks a canvas each.
+  function clearLabels() {
+    for (const l of labelSprites) { scene.remove(l.sprite); l.dispose(); }
+    labelSprites = [];
+  }
   function clearBuilt() {
     for (const b of built.splice(0)) { scene.remove(b.obj); b.dispose(); }
     mesh = bright = dim = halos = marks = null;
-    labelSprites = []; lastK = -1;
+    clearLabels(); lastK = -1;
   }
   function hex(css) { return new THREE.Color(cssToHex(css)); }
   function nodeRadius(i) {
@@ -132,6 +140,13 @@ export function createView3d(E) {
     clearBuilt();
     const data = E.data, n = data.nodes.length, dark = E.tokens.theme === "dark";
     scene.background = hex(E.tokens.bg);
+    // An empty graph draws nothing. Not just an optimisation: an InstancedMesh
+    // with no instances never allocates instanceColor (setColorAt is what
+    // allocates it), so paintFocus's `mesh.instanceColor.needsUpdate` would
+    // throw — and build() runs from setData() AFTER switchMode's try/catch, so
+    // that TypeError would escape as an unhandled rejection under a live
+    // toolbar. mesh stays null and every later guard reads `if (mesh)`.
+    if (n === 0) { pos = []; radii = []; gap = 0; return; }
     pos = layout(data);
     gap = medianNearestGap(pos);
     const extent = pos.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y, p.z)), 0);
@@ -260,8 +275,7 @@ export function createView3d(E) {
     const k = fitDist / Math.max(1, camera.position.distanceTo(controls.target));
     if (!force && Math.abs(k - lastK) < lastK * 0.05) return;
     lastK = k;
-    for (const l of labelSprites) { scene.remove(l.sprite); l.dispose(); }
-    labelSprites = [];
+    clearLabels();
     const data = E.data, vis = data.nodes.filter((_, i) => E.visible(i)).length;
     const budget = labelBudget(E.prefs.labels, vis);
     const h = baseR * 2.2;
@@ -345,6 +359,11 @@ export function createView3d(E) {
     setData: build,
     applyForces() { /* the 3D layout is settled up front; force sliders shape the 2D view only */ },
     refresh() { if (!mesh) return; radii = E.data.nodes.map((_, i) => nodeRadius(i)); build(); },
+    // Selecting a node changes colors, one radius and which edges are bright —
+    // nothing that moves a node. A rebuild would re-run layout(), 160 O(n^2)
+    // iterations, on every click and every dismissal; this repaints the
+    // instances in place instead. engine.js prefers it over refresh() there.
+    focus() { if (!mesh) return; paintFocus(); relabel(true); },
     setTokens: build,                 // sprites and halos/regions are redrawn on a theme change
     fit() { autoFit = true; fitNow(); },
     destroy() {
@@ -357,8 +376,7 @@ export function createView3d(E) {
       renderer.domElement.removeEventListener("pointerleave", onLeave);
       controls.removeEventListener("start", onGesture);
       controls.dispose();
-      clearBuilt();
-      for (const l of labelSprites) { scene.remove(l.sprite); l.dispose(); }
+      clearBuilt();                   // labels included
       halo.dispose(); ringThin.dispose(); ringThick.dispose();
       renderer.dispose();
       renderer.domElement.remove();
