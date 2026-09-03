@@ -119,3 +119,23 @@ def test_tree_model_find_dir_and_locale_order():
     assert _model('M.findDir(root, "Company/Nope")') is None
     assert _model('M.sortedChildren(M.findDir(root, "Company/Decisions")).pages.map(p => p.title)') == ["A", "b"]
     assert _model('M.sortedChildren(root).dirs.map(d => d.name)') == ["Company"]
+
+
+def test_pages_tab_is_second_in_both_lenses_and_routes_page_hashes():
+    src = (JS / "app.js").read_text(encoding="utf-8")
+    assert 'import * as pages from "./tabs/pages.js";' in src
+    assert 'id: "pages", label: "Pages"' in src
+    # Overview then Pages, in the master return AND the vault return
+    assert len(re.findall(r"overviewTab,\s*pagesTab", src)) == 2
+    assert "ctx.openPage(page)" in src and "pendingPage" in src
+
+
+def test_pages_tab_module_exports_and_uses_the_shared_pieces():
+    src = (JS / "tabs" / "pages.js").read_text(encoding="utf-8")
+    for needle in ('from "../note-view.js"', 'from "../tree-model.js"', "pageHash(", "history.replaceState", "(max-width: 899px)"):
+        assert needle in src, needle
+    res = run_js(f"""
+const p = await import({json.dumps((JS / "tabs" / "pages.js").as_uri())});
+console.log(JSON.stringify([typeof p.render, typeof p.onLive, typeof p.dispose]));
+""")
+    assert res == ["function", "function", "function"]
