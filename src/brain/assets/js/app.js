@@ -5,6 +5,7 @@ import { mountTheme } from "./theme.js";
 import { mountCapture } from "./capture.js";
 import { parseHash } from "./hash.js";
 import * as overview from "./tabs/overview.js";
+import * as pages from "./tabs/pages.js";
 import * as graph from "./tabs/graph.js";
 import * as query from "./tabs/query.js";
 import * as admin from "./tabs/admin.js";
@@ -23,7 +24,9 @@ const ctx = {
   stats: null,
   person: null,      // selected person for master graph/query
   pendingNote: null, // rel_path to open when the query tab next renders
+  pendingPage: null, // rel_path to open when the pages tab next renders
   openNote(path) { ctx.pendingNote = path; showTab("query"); },
+  openPage(path) { ctx.pendingPage = path; showTab("pages"); },
   goTab(id) { showTab(id, true); },
 };
 
@@ -37,6 +40,7 @@ const buttons = new Map();
 //   "ignore"   — holds user input/scroll a blind rebuild would clobber (query)
 function tabsFor(kind) {
   const overviewTab = { id: "overview", label: "Overview", render: overview.render, live: "rerender" };
+  const pagesTab = { id: "pages", label: "Pages", render: pages.render, live: "onLive", onLive: pages.onLive, dispose: pages.dispose };
   const inboxTab = { id: "inbox", label: "Inbox", render: worklists.renderInbox, live: "ignore" };
   const actionsTab = { id: "actions", label: "Actions", render: worklists.renderActions, live: "ignore" };
   const graphTab = { id: "graph", label: "Graph", render: graph.render, live: "onLive", onLive: graph.onLive, dispose: graph.dispose };
@@ -44,7 +48,7 @@ function tabsFor(kind) {
   const factsTab = { id: "facts", label: "Facts", render: facts.render, live: "ignore", dispose: facts.dispose };
   if (kind === "master") {
     return [
-      overviewTab,
+      overviewTab, pagesTab,
       { id: "people", label: "People", render: admin.renderPeople, live: "rerender" },
       { id: "permissions", label: "Permissions", render: admin.renderPermissions, live: "rerender" },
       { id: "promotions", label: "Promotions", render: admin.renderPromotions, live: "rerender" },
@@ -53,7 +57,7 @@ function tabsFor(kind) {
       graphTab, queryTab,
     ];
   }
-  return [overviewTab, inboxTab, actionsTab, graphTab, queryTab, factsTab];
+  return [overviewTab, pagesTab, inboxTab, actionsTab, graphTab, queryTab, factsTab];
 }
 
 function buildTabs() {
@@ -82,8 +86,8 @@ function showTab(id, focusPanel) {
     if (outgoing && outgoing.dispose) outgoing.dispose();
   }
   activeId = tab.id;
-  // A #note= hash already names this tab (query); leave it in place so the
-  // note link survives the render that is about to consume pendingNote.
+  // A #note= or #page= hash already names this tab; leave it in place so the
+  // link survives the render that is about to consume pendingNote/pendingPage.
   if (parseHash(location.hash).tab !== tab.id) location.hash = tab.id;
   buttons.forEach((b, tid) => {
     const on = tid === tab.id;
@@ -192,17 +196,20 @@ async function boot() {
     },
   });
 
-  // showNote writes its #note= hash with replaceState, which does not fire
-  // this — so a note seen here came from outside (a pasted link, back/forward)
-  // and is always opened.
+  // The query and pages tabs write their own #note=/#page= hash with
+  // replaceState when a link inside them is opened, which does not fire
+  // this — so a note or page seen here came from outside (a pasted link,
+  // back/forward) and is always opened.
   window.addEventListener("hashchange", () => {
-    const { tab, note } = parseHash(location.hash);
+    const { tab, note, page } = parseHash(location.hash);
     if (note) { ctx.openNote(note); return; }
+    if (page) { ctx.openPage(page); return; }
     if (tab && tab !== activeId) showTab(tab);
   });
 
   const initial = parseHash(location.hash);
   if (initial.note) ctx.pendingNote = initial.note;
+  if (initial.page) ctx.pendingPage = initial.page;
   showTab(initial.tab || TABS[0].id);
 }
 

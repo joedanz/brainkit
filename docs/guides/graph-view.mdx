@@ -15,22 +15,35 @@ both views with no extra setup — the graph you see already includes them.
 ## The dashboard's Graph tab
 
 The [live dashboard](/guides/reference-deployment) has a **Graph** tab: your
-notes as glowing points, colored by space, linked where notes reference each
-other. It works for everyone — including people who only ever talk to their
-assistant in chat and never touch files, since the dashboard is just a URL.
+notes as points colored by space, linked where notes reference each other. In
+the light theme it reads as a territory map — each space a tinted region with
+its name at the centre; in the dark theme it is a constellation, each space a
+glow. It works for everyone, including people who only ever talk to their
+assistant in chat, since the dashboard is just a URL.
 
-- **Hover** a note (2D view) to light up its neighborhood; everything else
-  recedes.
-- **Zoom in** (2D view) and note titles fade into view.
-- **Click** a note to list what it links to and what links back, and open it
-  in the Query tab.
-- The **control panel** on the canvas filters by space, fades or shows
-  orphan notes and whole spaces, and tunes size, link distance, and layout
-  forces. Your settings stick across visits.
-- **3D view** renders the same graph as a constellation you can orbit.
+- **Space names** float at each cluster's centre, always on. The **legend**
+  (bottom-left) lists every space with its page count; tap a chip to hide or
+  show that space. The dashed **orphans** chip rings pages nothing links to.
+- **Labels** (in Settings) choose how many notes are named: *hubs* (the 12
+  most linked-to), *more* (about 25), or *all* — and names never overlap,
+  because a name is only drawn when there is room for it at the current zoom.
+  Phones start on *hubs*, desktops on *more*; the choice is remembered.
+- **Hover** a note to see its full path. **Click** (or tap) a note to focus
+  it: its neighbours stay bright and everything else fades. Click the empty
+  canvas to clear. The node card lists what it links to, what links back,
+  its facts, and opens it in the Query tab. **Search** focuses the first
+  match, so any page is reachable without hover.
+- **Size** is inbound links: the more notes cite a page, the bigger it draws.
+- **3D** renders the same graph as a constellation you can orbit; **Fit**
+  reframes the whole graph in either mode. **Full graph** appears when a
+  large vault was cut to its 300 most-connected notes.
+- **Settings** also mark dead ends (pages that link nowhere) and tune node
+  size, link width, and the layout forces. Everything sticks across visits.
 
 The graph updates live: add a note or a link and it springs into place without
-losing your zoom or layout.
+losing your zoom or layout. On a phone the legend becomes a scrolling row above
+the canvas and the node card slides up from the bottom; one finger orbits or
+pans, a pinch zooms.
 
 ## Obsidian's graph view
 

@@ -1,0 +1,39 @@
+---
+title: Browse your brain by folder
+description: The dashboard's Pages tab — a folder tree and reader on a desktop, a breadcrumb listing on a phone.
+icon: folder-tree
+---
+
+The [live dashboard](/guides/reference-deployment)'s **Pages** tab shows the
+vault the way it is laid out on disk: spaces and their folders, each with a
+page count, and every page you are allowed to read.
+
+## Desktop
+
+Two panes. The left tree (280px) lists folders with their page counts —
+click one to open or close it; the folder of the page you are reading stays
+expanded and the page is highlighted. The right pane is the reader: the note
+rendered as Markdown with live `[[wikilinks]]`, a raw view, and **Linked
+from** / **Links to** under the body. Picking a page swaps only the reader,
+so the tree keeps its scroll and its open folders.
+
+## Phone
+
+Below 900px the tree gives way to a breadcrumb listing: folders first, then
+pages, each sorted alphabetically. Tap a page to read it full width; the
+crumb at the top goes back.
+
+## Deep links
+
+Every open page has an address: `#page=<path>` (for example
+`#page=Company%2FHome.md`). Copy the URL to cite the page; the dashboard opens
+it in the Pages tab with its folder expanded. The Query tab's `#note=` links
+still work and open there.
+
+## What you see is what you may read
+
+The tree is built from the vault's index, not from the filesystem, and the
+index holds exactly the notes the [compiler](/concepts/the-compiler) gave your
+slice. A page outside your permissions is not in your vault, not in your
+index, and not in the tree. If the tree is empty, the vault has not been
+indexed yet — run `brain index`.

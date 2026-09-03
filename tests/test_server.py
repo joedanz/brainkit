@@ -489,3 +489,42 @@ async def test_facts_pre_v3_index_is_a_warning_not_500(aiohttp_client, master, t
     body = await resp.json()
     assert body["hits"] == []
     assert any("index" in w for w in body["warnings"])
+
+
+# ---- tree (Pages tab) --------------------------------------------------------
+
+async def test_tree_is_lens_scoped_and_index_backed(aiohttp_client, master, tmp_path):
+    vault = _vault(master, tmp_path)
+    client = await aiohttp_client(_vault_app(vault))
+    body = await (await client.get("/api/tree")).json()
+    root = body["root"]
+    assert root["name"] == "" and root["path"] == ""
+    names = [d["name"] for d in root["dirs"]]
+    assert "Company" in names and "People" in names
+    people = next(d for d in root["dirs"] if d["name"] == "People")
+    # bob's pages are outside alice's lens: not compiled, not indexed, not here
+    assert [d["name"] for d in people["dirs"]] == ["alice"]
+    company = next(d for d in root["dirs"] if d["name"] == "Company")
+    assert [p["rel_path"] for p in company["pages"]] == ["Company/Home.md"]
+    assert company["count"] == 2
+    # the vault lens refuses ?person= exactly as /api/notes does
+    assert (await client.get("/api/tree", params={"person": "bob"})).status == 400
+
+
+async def test_tree_master_lens_requires_a_known_person(aiohttp_client, master, tmp_path):
+    app, _ = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+    assert (await client.get("/api/tree")).status == 400
+    assert (await client.get("/api/tree", params={"person": "nobody"})).status == 404
+    bob = await (await client.get("/api/tree", params={"person": "bob"})).json()
+    people = next(d for d in bob["root"]["dirs"] if d["name"] == "People")
+    assert [d["name"] for d in people["dirs"]] == ["bob"]
+
+
+async def test_tree_without_index_is_empty_and_creates_nothing(aiohttp_client, master, tmp_path):
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    client = await aiohttp_client(_vault_app(vault))
+    body = await (await client.get("/api/tree")).json()
+    assert body == {"root": {"name": "", "path": "", "dirs": [], "pages": [], "count": 0}}
+    assert not (vault / ".brain" / "index.db").exists()

@@ -26,7 +26,7 @@ import pytest
 
 from tests.conftest import ASSETS
 
-GRAPH3D = ASSETS / "js" / "tabs" / "graph3d.js"
+GRAPH3D = ASSETS / "js" / "graph" / "layout3d.js"
 FLOAT32_MAX = 3.4028235e38
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the shipped JS")
@@ -91,3 +91,12 @@ def test_layout_still_produces_a_shape() -> None:
     """A bound that collapsed every node onto one point would pass the above."""
     result = _run(60, spokes=False, report="{distinct: new Set(pos.map(p => p.x.toFixed(3))).size}")
     assert result["distinct"] > 1
+
+
+def test_displacement_cap_is_preserved_verbatim() -> None:
+    """The cap is the only bound in the integrator (see the module docstring).
+    Moving the function must carry the line and the reasoning above it."""
+    src = GRAPH3D.read_text(encoding="utf-8")
+    assert "const step = 50 * alpha + 1;" in src
+    assert "It is NOT the repulsion running away, which is the natural guess." in src
+    assert "reach becomes bounded by construction" in src

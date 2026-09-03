@@ -279,6 +279,17 @@ async def handle_notes(request: web.Request) -> web.Response:
     return web.json_response({"notes": await asyncio.to_thread(_list)})
 
 
+async def handle_tree(request: web.Request) -> web.Response:
+    """Folder tree of the lens's indexed pages, for the Pages tab. Lens-scoped
+    like /api/notes; reads only the index, so the readable set is exactly
+    what the index holds."""
+    from brain.tree import build_tree
+
+    vault = _target_vault(request.app, request)
+    root = await asyncio.to_thread(lambda: asdict(build_tree(vault)))
+    return web.json_response({"root": root})
+
+
 def _lens_person(app: web.Application, request: web.Request) -> str:
     """The person id whose Inbox/Actions a request targets: the manifest person
     under the vault lens, or the validated ``?person=`` under the master lens."""
@@ -764,6 +775,7 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     app.router.add_get("/api/search", handle_search)
     app.router.add_get("/api/facts", handle_facts)
     app.router.add_get("/api/notes", handle_notes)
+    app.router.add_get("/api/tree", handle_tree)
     app.router.add_get("/api/note", handle_note)
     app.router.add_get("/api/inbox", handle_inbox)
     app.router.add_get("/api/actions", handle_actions)

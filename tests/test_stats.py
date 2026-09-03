@@ -120,6 +120,42 @@ def test_graph_cap_truncates_by_degree(master, tmp_path):
     assert any(n.rel_path == "Company/Home.md" for n in g.nodes)
 
 
+def test_graph_cap_drops_nodes_edgeless_only_by_truncation(master, tmp_path):
+    # Hub links to 5 leaves; a cycle of 10 decoys (degree 2 each) outranks
+    # the leaves (degree 1) for the cap's remaining slots, so a cap that
+    # keeps Hub (degree 5, a real hub) cuts every one of its neighbours.
+    # That leaves Hub with zero edges in the shipped subgraph -- noise the
+    # cut created, not a real orphan -- so it must be dropped when the
+    # graph IS truncated, while still shipping (with its edges) when it
+    # isn't.
+    (master / "Company/Hub.md").write_text(
+        "\n".join(f"[[Leaf{i}]]" for i in range(5)) + "\n")
+    for i in range(5):
+        (master / f"Company/Leaf{i}.md").write_text("Leaf.\n")
+    for i in range(10):
+        (master / f"Company/Decoy{i}.md").write_text(f"[[Decoy{(i + 1) % 10}]]\n")
+
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    # Hub(5) + 11 degree-2 nodes (Home + 10 decoys) fill exactly cap=12,
+    # pushing out all 5 leaves (degree 1) -- and Hub along with them.
+    truncated = collect_vault_stats(vault, include_graph=True, graph_cap=12)
+    g = truncated.graph
+    assert g.truncated
+    assert "Company/Hub.md" not in {n.rel_path for n in g.nodes}
+
+    full = collect_vault_stats(vault, include_graph=True)
+    g2 = full.graph
+    assert not g2.truncated
+    hub = next(n for n in g2.nodes if n.rel_path == "Company/Hub.md")
+    assert hub.degree == 5
+    leaf_ids = {n.id for n in g2.nodes if n.rel_path.startswith("Company/Leaf")}
+    hub_targets = {e.target for e in g2.edges if e.source == hub.id}
+    assert hub_targets == leaf_ids
+
+
 def test_format_vault_status_mentions_key_sections(master, tmp_path):
     vault = _compiled_indexed(master, tmp_path)
     text = format_vault_status(collect_vault_stats(vault))
