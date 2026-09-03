@@ -582,3 +582,29 @@ def test_revoked_space_stays_in_that_persons_vault_history(master: Path, tmp_pat
     compile_all(master, ORG, revoked, out_root)
     assert not (bob / "Clients/acme/Overview.md").exists()
     assert "Acme overview." not in history()
+
+
+# --- link stems: a period inside a title is not a file extension ------------
+
+from brain.compiler import _stem
+
+
+@pytest.mark.parametrize("target, expected", [
+    ("Amendment No. 3", "amendment no. 3"),
+    ("Bernardez v. Freehold – 44 Victory Lawsuit", "bernardez v. freehold – 44 victory lawsuit"),
+    ("People/ayal/Holdings/Amendment No. 3.md", "amendment no. 3"),
+    ("Foo.MD", "foo"),
+    ("  Foo  ", "foo"),
+    ("Company/Decisions/Big Deal Decision.md", "big deal decision"),
+    ("Big Deal Decision", "big deal decision"),
+])
+def test_stem_strips_only_a_markdown_suffix(target, expected):
+    # PurePosixPath.stem treats the last "." as an extension, so a link to
+    # "Amendment No. 3" used to become "amendment no" and never match the
+    # file "Amendment No. 3.md" (whose stem keeps the period). Five links on
+    # a real vault were dead for this reason.
+    assert _stem(target) == expected
+
+
+def test_stem_agrees_for_file_and_link_forms_of_a_dotted_title():
+    assert _stem("X/Foo v. Bar.md") == _stem("Foo v. Bar")

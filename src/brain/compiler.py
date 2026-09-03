@@ -42,7 +42,18 @@ WIKILINK_RE = re.compile(
 
 
 def _stem(target: str) -> str:
-    return PurePosixPath(target.strip()).stem.lower()
+    """The matching key for a note path or a wikilink target: the final path
+    component, lowercased, with only a trailing ``.md`` removed.
+
+    Not ``PurePosixPath.stem`` — that treats the last period as an extension,
+    so a link to ``Amendment No. 3`` became ``amendment no`` and never matched
+    the file ``Amendment No. 3.md`` (whose stem keeps the period). Titles hold
+    periods routinely (``v.``, ``No.``, ``Inc.``); only ``.md`` is a suffix.
+    """
+    name = PurePosixPath(target.strip()).name
+    if name.lower().endswith(".md"):
+        name = name[:-3]
+    return name.lower()
 
 
 def extract_wikilinks(text: str) -> list[str]:
@@ -226,10 +237,10 @@ def _post_process(
     from brain.resolver import can_write_path
 
     included_stems = {
-        PurePosixPath(rel).stem.lower() for rel in compiled if rel.endswith(".md")
+        _stem(rel) for rel in compiled if rel.endswith(".md")
     }
     master_stems = {
-        p.stem.lower()
+        _stem(p.name)
         for p in master.rglob("*.md")
         if ".git" not in p.parts and "_meta" not in p.parts
     }
