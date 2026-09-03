@@ -1,7 +1,7 @@
 import { el, clear, snippet, latest, clickable } from "../dom.js";
-import { renderMarkdown } from "../md.js";
 import { api } from "../api.js";
 import { noteHash } from "../hash.js";
+import { noteView } from "../note-view.js";
 
 // Query tab: free-text hybrid search plus structured filter chips. A text query
 // hits /api/search; chips-only browse hits /api/notes; both run search then keep
@@ -18,7 +18,7 @@ const PAGE = 25;
 
 export function render(container, ctx) {
   clear(container);
-  S = { ctx, container, results: null, note: null, runs: latest(), noteLoads: latest(),
+  S = { ctx, container, results: null, note: null, runs: latest(),
         hits: [], sel: -1, k: PAGE, keywordOnly: false };
   buildBar();
   S.results = el("div");
@@ -224,50 +224,20 @@ function closeNote() {
   history.replaceState(null, "", "#query");
 }
 
-async function showNote(path) {
-  const token = S.noteLoads.begin();
+function showNote(path) {
+  if (!S) return;
   // Make the open note addressable (copy the URL, cite it) without pushing a
   // history entry per click or re-triggering the app's hashchange handler.
   history.replaceState(null, "", noteHash(path));
   clear(S.noteHost);
-  const view = el("div", "note-view");
-  const toolbar = el("div", "toolbar");
-  const close = el("button", "btn close", "close");
-  close.addEventListener("click", closeNote);
-  const rawToggle = el("button", "btn", "view raw");
-  toolbar.appendChild(el("h3", null, path));
-  view.appendChild(close);
-  view.appendChild(toolbar);
-  const bodyHost = el("div");
-  view.appendChild(bodyHost);
-  S.noteHost.appendChild(view);
+  const view = noteView({
+    path, person: person(),
+    onOpen: (rel) => showNote(rel),
+    onClose: closeNote,
+    extras: (toolbar, body) => toolbar.appendChild(proposeButton(path, body.text)),
+  });
+  S.noteHost.appendChild(view.element);
   S.noteHost.scrollIntoView({ behavior: "smooth", block: "nearest" });
-
-  try {
-    const body = await api.note({ path, person: person() });
-    if (!S || !S.noteLoads.current(token)) return;
-    const links = body.links || { inbound: [], outbound: [], unresolved_out: [] };
-    const resolve = buildResolver(links.outbound);
-    let raw = false;
-    const paint = () => {
-      clear(bodyHost);
-      if (raw) {
-        const pre = el("pre", "raw"); pre.textContent = body.text; bodyHost.appendChild(pre);
-        rawToggle.textContent = "view rendered";
-      } else {
-        bodyHost.appendChild(renderMarkdown(body.text, { resolve, onLink: (rel) => showNote(rel) }));
-        rawToggle.textContent = "view raw";
-      }
-      renderLinks(bodyHost, links);
-    };
-    rawToggle.addEventListener("click", () => { raw = !raw; paint(); });
-    toolbar.appendChild(rawToggle);
-    toolbar.appendChild(proposeButton(path, body.text));
-    paint();
-  } catch (e) {
-    if (!S || !S.noteLoads.current(token)) return;
-    bodyHost.appendChild(el("div", "error-banner", "Cannot read " + path + ": " + e.message));
-  }
 }
 
 // "Propose to share": draft a promotion from the open note. Reveals an inline
@@ -299,46 +269,4 @@ function proposeButton(path, text) {
     btn.parentNode.parentNode.insertBefore(row, btn.parentNode.nextSibling);
   });
   return btn;
-}
-
-// map a [[wikilink]] target to a resolved outbound rel_path by matching either
-// the full rel_path, the file stem, or a trailing path segment.
-function buildResolver(outbound) {
-  const byStem = new Map();
-  const byPath = new Map();
-  (outbound || []).forEach((o) => { byPath.set(o.rel_path, o.rel_path); byStem.set(o.title, o.rel_path); });
-  return (target) => {
-    const t = target.trim();
-    if (byPath.has(t)) return byPath.get(t);
-    if (byStem.has(t)) return byStem.get(t);
-    const stem = t.split("/").pop().replace(/\.md$/, "");
-    return byStem.get(stem) || null;
-  };
-}
-
-function renderLinks(host, links) {
-  const { inbound, outbound, unresolved_out } = links;
-  if (!inbound.length && !outbound.length && !unresolved_out.length) return;
-  const box = el("div", "note-links");
-  const list = (label, refs, onClick) => {
-    if (!refs.length) return;
-    box.appendChild(el("h4", null, label + " (" + refs.length + ")"));
-    const ul = el("ul");
-    refs.forEach((r) => {
-      const li = el("li");
-      if (onClick) {
-        const a = el("a", "wikilink", r.title || r);
-        clickable(a, () => onClick(r.rel_path));
-        li.appendChild(a);
-      } else {
-        li.appendChild(el("span", "meta", r));
-      }
-      ul.appendChild(li);
-    });
-    box.appendChild(ul);
-  };
-  list("Linked from", inbound, (rel) => showNote(rel));
-  list("Links to", outbound, (rel) => showNote(rel));
-  list("Unresolved", unresolved_out, null);
-  host.appendChild(box);
 }

@@ -53,3 +53,32 @@ def test_a_failed_graph_load_tears_the_engine_down_before_clearing_the_host():
     assert "S.engine = null" in body, "the error branch must null the engine"
     assert teardown < body.find("clear(S.host)"), \
         "the engine must be torn down BEFORE the host is cleared out from under it"
+
+
+def test_note_view_resolver_matches_path_stem_or_trailing_segment():
+    """buildResolver is pure, so the wikilink → rel_path rule is asserted here
+    against the shipped module (both tabs now share it)."""
+    res = run_js(f"""
+const {{ buildResolver, noteView, renderLinks }} = await import({json.dumps((JS / "note-view.js").as_uri())});
+const r = buildResolver([
+  {{ rel_path: "Company/Decisions/Big Deal Decision.md", title: "Big Deal Decision" }},
+  {{ rel_path: "Teams/sales/Q3 Pipeline.md", title: "Q3 Pipeline" }},
+]);
+console.log(JSON.stringify({{
+  byPath: r("Teams/sales/Q3 Pipeline.md"),
+  byStem: r(" Big Deal Decision "),
+  trailing: r("Decisions/Big Deal Decision.md"),
+  miss: r("Nowhere"),
+  kinds: [typeof noteView, typeof renderLinks],
+}}));
+""")
+    assert res == {"byPath": "Teams/sales/Q3 Pipeline.md",
+                   "byStem": "Company/Decisions/Big Deal Decision.md",
+                   "trailing": "Company/Decisions/Big Deal Decision.md",
+                   "miss": None, "kinds": ["function", "function"]}
+
+
+def test_query_tab_uses_the_shared_note_view():
+    src = (JS / "tabs" / "query.js").read_text(encoding="utf-8")
+    assert 'from "../note-view.js"' in src
+    assert "function buildResolver" not in src and "function renderLinks" not in src
