@@ -82,19 +82,9 @@ export function fmtBytes(n) {
   return (i ? n.toFixed(1) : n) + " " + units[i];
 }
 
-// space -> stable palette color (shared across tabs so the graph legend, the
-// bar chart, and the three.js graph agree). Muted, uniform-lightness OKLCH
-// mid-tones (~L 0.71, C 0.09, hue-spaced away from the terracotta accent) so no
-// node shouts and the set reads on both the light and dark theme. Kept as hex,
-// not CSS vars, because three.js Color can't parse oklch().
-const PALETTE = ["#d48b85", "#92b074", "#bcab67", "#78a3cf", "#64b5b0",
-                 "#b88cc1", "#adac68", "#a48fcb", "#6db38e", "#d0878c"];
-const spaceColors = {};
-let nextColor = 0;
-export function colorFor(space) {
-  if (!(space in spaceColors)) spaceColors[space] = PALETTE[nextColor++ % PALETTE.length];
-  return spaceColors[space];
-}
+// space -> color: one table for every tab, owned by the graph engine so both
+// products (and this shell's bar chart) agree. See graph/palette.js.
+export { colorFor } from "./graph/palette.js";
 
 export function barChart(parent, rows) {
   const max = rows.reduce((m, r) => Math.max(m, r.count), 1);
