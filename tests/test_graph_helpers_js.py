@@ -273,6 +273,75 @@ def test_legend_chip_refreshes_the_view_after_hiding_the_selection():
         "hiding the selected space's chip must select(null) THEN refresh the view"
 
 
+# ---- edgeless-by-truncation nodes (defect: they fly off and crush the view) --
+
+def test_view2d_bounds_isolates_with_distance_max_and_a_radial_force():
+    """A node with no edge in the shipped data has no spring pulling it toward
+    the mass; unbounded forceManyBody repulsion can fling it far enough to
+    blow out bounds()/fit for everyone else. The fix is two-part: cap how far
+    the repulsion reaches, and give isolates a weak radial pull onto a ring
+    around the connected cluster instead of leaving them to drift."""
+    src = (GRAPH / "view2d.js").read_text(encoding="utf-8")
+    assert "distanceMax(" in src
+    assert "forceRadial(" in src
+
+
+def test_view3d_moves_isolates_onto_a_shell_right_after_layout():
+    src = (GRAPH / "view3d.js").read_text(encoding="utf-8")
+    assert re.search(r"pos = layout\(data\);\s*\n\s*placeIsolatesOnShell\(data, pos\);", src)
+
+
+def test_place_isolates_on_shell_rings_the_edgeless_around_the_connected_mass():
+    res = run_js(f"""
+const {{ placeIsolatesOnShell }} = await import({js_import("view3d.js")});
+// 0,1,2 are connected (a triangle centred on the origin); 3 has no edge at
+// all -- a real orphan, or one truncation left dangling.
+const data = {{
+  nodes: [{{id: 0}}, {{id: 1}}, {{id: 2}}, {{id: 3}}],
+  edges: [{{source: 0, target: 1}}, {{source: 1, target: 2}}, {{source: 2, target: 0}}],
+}};
+const pos = [
+  {{x: 10, y: 0, z: 0, vx: 0, vy: 0, vz: 0}},
+  {{x: -10, y: 0, z: 0, vx: 0, vy: 0, vz: 0}},
+  {{x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0}},
+  {{x: 9999, y: -9999, z: 9999, vx: 0, vy: 0, vz: 0}},
+];
+const before = JSON.parse(JSON.stringify(pos));
+placeIsolatesOnShell(data, pos);
+console.log(JSON.stringify({{
+  connectedUnmoved: [0, 1, 2].every((i) => pos[i].x === before[i].x && pos[i].y === before[i].y && pos[i].z === before[i].z),
+  isolateDist: Math.hypot(pos[3].x, pos[3].y, pos[3].z),   // connected centroid here is the origin
+}}));
+""")
+    assert res["connectedUnmoved"] is True
+    assert res["isolateDist"] == pytest.approx(10 * 1.15, rel=1e-6)   # 1.15x the connected max radius (10)
+
+
+def test_place_isolates_on_shell_is_deterministic_and_leaves_a_fully_connected_graph_alone():
+    res = run_js(f"""
+const {{ placeIsolatesOnShell }} = await import({js_import("view3d.js")});
+// Every node has an edge -- nothing to ring, positions untouched.
+const fullyConnected = {{ nodes: [{{id: 0}}, {{id: 1}}], edges: [{{source: 0, target: 1}}] }};
+const untouched = [{{x: 7, y: 8, z: 9}}, {{x: -1, y: -2, z: -3}}];
+const before = JSON.stringify(untouched);
+placeIsolatesOnShell(fullyConnected, untouched);
+
+// Both isolated (no connected mass at all): still placed, and the same way twice.
+const bothIsolated = {{ nodes: [{{id: 0}}, {{id: 1}}], edges: [] }};
+const runOnce = [{{x: 1, y: 2, z: 3}}, {{x: 4, y: 5, z: 6}}];
+placeIsolatesOnShell(bothIsolated, runOnce);
+const runTwice = [{{x: 1, y: 2, z: 3}}, {{x: 4, y: 5, z: 6}}];
+placeIsolatesOnShell(bothIsolated, runTwice);
+
+console.log(JSON.stringify({{
+  fullyConnectedNoop: before === JSON.stringify(untouched),
+  deterministic: JSON.stringify(runOnce) === JSON.stringify(runTwice),
+}}));
+""")
+    assert res["fullyConnectedNoop"] is True
+    assert res["deterministic"] is True
+
+
 def test_view3d_is_lazy_and_reuses_the_moved_layout():
     """three.js is ~650KB: it must be reachable ONLY through engine.js's
     dynamic import, or every 2D visitor pays for it. And the 3D integrator

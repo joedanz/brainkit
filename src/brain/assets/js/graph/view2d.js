@@ -27,6 +27,7 @@ export function createView2d(E, d3) {
   const sel = d3.select(canvas);
   let W = 0, H = 0, dpr = 1;
   let nodes = [], links = [], sim = null, gap = 0, raf = 0;
+  let isolates = new Set();   // node ids with no edge in the shipped data
   let transform = d3.zoomIdentity;
   let autoFit = true;      // until a real gesture takes the view
 
@@ -61,13 +62,25 @@ export function createView2d(E, d3) {
       return node;
     });
     links = E.data.edges.map((e) => ({ source: e.source, target: e.target }));
+    // A node with no edge in the shipped data (a real orphan, or one
+    // truncation left dangling) has nothing to spring it toward the mass —
+    // see the isolate-ring force below.
+    const connected = new Set();
+    for (const l of links) { connected.add(l.source); connected.add(l.target); }
+    isolates = new Set(nodes.filter((n) => !connected.has(n.id)).map((n) => n.id));
     gap = 0;   // a new layout has a new spacing; the old one must not decide labels
     sim = d3.forceSimulation(nodes)
       .force("link", d3.forceLink(links).id((d) => d.id).distance(60 * E.prefs.linkDist).strength(0.4))
-      .force("charge", d3.forceManyBody().strength(-90 * E.prefs.repel))
+      .force("charge", d3.forceManyBody().strength(-90 * E.prefs.repel).distanceMax(chargeDistanceMax()))
       .force("center", d3.forceCenter(W / 2, H / 2).strength(E.prefs.centerPull))
+      // A handful of nodes edgeless purely by truncation (or genuine orphans)
+      // have no spring pulling them toward the mass, so unbounded repulsion
+      // flings them far enough to blow out bounds()/fit for everyone else.
+      // Pin them instead to a visible ring around the connected cluster.
+      .force("isolateRing", d3.forceRadial(0, W / 2, H / 2).strength((d) => isolates.has(d.id) ? 0.06 : 0))
       .on("tick", () => {
         for (const n of nodes) E.pos.set(n.rel_path, { x: n.x, y: n.y });
+        if (isolates.size) updateIsolateRing();
         // Re-fitting each tick makes the graph look like it holds still while
         // it organises itself, instead of growing past the edges of its frame.
         if (autoFit) fitNow(false);
@@ -79,10 +92,31 @@ export function createView2d(E, d3) {
     if (returning) sim.alpha(0.3).restart();
   }
 
+  function chargeDistanceMax() { return 240 * E.prefs.linkDist; }   // ~4x link distance
+
+  // The ring's center/radius track the connected cluster's own current
+  // extent (~1.15x its radius around its centroid), so isolates land just
+  // outside the mass instead of at a fixed, eventually-wrong guess.
+  function updateIsolateRing() {
+    let cx = 0, cy = 0, n = 0;
+    for (const node of nodes) {
+      if (isolates.has(node.id) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
+      cx += node.x; cy += node.y; n++;
+    }
+    if (!n) return;
+    cx /= n; cy /= n;
+    let r = 0;
+    for (const node of nodes) {
+      if (isolates.has(node.id) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
+      r = Math.max(r, Math.hypot(node.x - cx, node.y - cy));
+    }
+    sim.force("isolateRing").x(cx).y(cy).radius((r || 40) * 1.15);
+  }
+
   function applyForces() {
     if (!sim) return;
     sim.force("link").distance(60 * E.prefs.linkDist);
-    sim.force("charge").strength(-90 * E.prefs.repel);
+    sim.force("charge").strength(-90 * E.prefs.repel).distanceMax(chargeDistanceMax());
     sim.force("center").strength(E.prefs.centerPull);
     sim.alpha(0.4).restart();
   }

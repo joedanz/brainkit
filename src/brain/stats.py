@@ -201,6 +201,20 @@ def _build_graph(conn: sqlite3.Connection, cap: int) -> GraphData:
     keep = sorted(rows, key=lambda r: (-degree[r[0]], r[0]))[:cap] if truncated else rows
     ids = {rel: i for i, (rel, _) in enumerate(keep)}
 
+    if truncated:
+        # Truncation can leave a kept, well-connected node with zero
+        # surviving edges purely because every one of its neighbours fell
+        # below the cap. That's noise created by the cut, not a real
+        # orphan (a degree-0 node would still ship untruncated) — drop it
+        # and re-index so `edges` still points at valid array positions.
+        in_subgraph_edges: dict[str, int] = {rel: 0 for rel, _ in keep}
+        for src, tgt in pairs:
+            if src in ids and tgt in ids:
+                in_subgraph_edges[src] += 1
+                in_subgraph_edges[tgt] += 1
+        keep = [r for r in keep if in_subgraph_edges[r[0]] > 0]
+        ids = {rel: i for i, (rel, _) in enumerate(keep)}
+
     nodes = [
         GraphNode(id=i, rel_path=rel, title=Path(rel).stem,
                   space=space, degree=degree[rel],

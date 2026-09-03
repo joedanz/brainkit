@@ -80,6 +80,39 @@ function textSprite(text, { px, color, alpha, font, weight }) {
   return { sprite, dispose() { tex.dispose(); mat.dispose(); } };
 }
 
+// A node with no edge in the shipped data (a real orphan, or one truncation
+// left dangling) has no spring pulling it toward the connected cluster —
+// layout()'s O(n^2) repulsion alone can leave it anywhere. Move it onto a
+// shell just outside the connected mass instead, at deterministic angles
+// (from the node's index, so a toggle back to 3D settles the same way)
+// rather than wherever the integrator happened to leave it.
+export function placeIsolatesOnShell(data, pos) {
+  const connected = new Set();
+  for (const e of data.edges) { connected.add(e.source); connected.add(e.target); }
+  const isolates = [];
+  let cx = 0, cy = 0, cz = 0, cn = 0;
+  for (let i = 0; i < pos.length; i++) {
+    if (connected.has(i)) { cx += pos[i].x; cy += pos[i].y; cz += pos[i].z; cn++; }
+    else isolates.push(i);
+  }
+  if (!isolates.length) return;
+  if (cn) { cx /= cn; cy /= cn; cz /= cn; }
+  let maxR = 0;
+  for (let i = 0; i < pos.length; i++) {
+    if (!connected.has(i)) continue;
+    maxR = Math.max(maxR, Math.hypot(pos[i].x - cx, pos[i].y - cy, pos[i].z - cz));
+  }
+  const shellR = (maxR || 40) * 1.15;
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));   // spreads points evenly over a sphere
+  for (const i of isolates) {
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / pos.length);
+    const theta = GOLDEN_ANGLE * i;
+    pos[i].x = cx + shellR * Math.sin(phi) * Math.cos(theta);
+    pos[i].y = cy + shellR * Math.sin(phi) * Math.sin(theta);
+    pos[i].z = cz + shellR * Math.cos(phi);
+  }
+}
+
 export function createView3d(E) {
   const W = E.surface.clientWidth || 800, H = E.surface.clientHeight || 560;
   // Throws without WebGL; engine.js turns that into the 2D fallback + note.
@@ -143,6 +176,7 @@ export function createView3d(E) {
     // toolbar. mesh stays null and every later guard reads `if (mesh)`.
     if (n === 0) { pos = []; radii = []; gap = 0; return; }
     pos = layout(data);
+    placeIsolatesOnShell(data, pos);
     gap = medianNearestGap(pos);
     const extent = pos.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y, p.z)), 0);
     // Size from the gap between neighbours, not from the camera distance —
