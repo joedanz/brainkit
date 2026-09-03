@@ -3,7 +3,7 @@
 // three.js — so node can import it (tests/test_graph_layout_js.py) and so the
 // engine's 3D view (graph/view3d.js) and nothing else depends on it.
 //
-// Moved verbatim from tabs/graph3d.js. The displacement cap and its comment
+// Moved verbatim from the old 3D tab module. The displacement cap and its comment
 // are the only bound against the float32 overflow; keep both exactly.
 
 // Exported so a test can import and run the SHIPPED function rather than a
