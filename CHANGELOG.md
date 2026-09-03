@@ -11,6 +11,47 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-03
+
+### Added
+
+- **A shared graph engine, `/assets/js/graph/engine.js`.** One ES module
+  (`mountGraph(host, options)`, `ENGINE_VERSION = 1`) owns the canvas, legend
+  chips with page counts, toolbar (search, 2D/3D, Fit, Full graph, settings),
+  hover tooltip, focus mode and the persisted view preferences, so the agent
+  portal can load the same graph through its `/brain/assets/*` proxy instead
+  of carrying a drifted copy. 2D moved from SVG to a canvas (d3-force for
+  layout), which keeps glow and per-space regions cheap at 2,000 nodes.
+  Light theme draws a territory map (space names at each centroid, tinted
+  regions); dark theme a constellation (glow). Node size is inbound links.
+  Labels have three stops — hubs, more, all — under a spacing rule that never
+  overlaps names. Orphans (dashed rings) and dead ends are highlighted on
+  request. No WebGL falls back to 2D with a note. Pure helpers
+  (`graph/layout3d.js`, `labels.js`, `hull.js`, `health.js`) are tested from
+  node.
+- **Pages tab** in both lenses, after Overview: a folder tree with page counts
+  beside the note reader on a desktop, a breadcrumb listing on a phone.
+  Opening a page writes `#page=<path>`; the reader is the Query tab's note
+  view (Markdown, wikilinks, backlinks), now shared in `js/note-view.js`.
+- **`GET /api/tree`** (lens-scoped like `/api/notes`): the folder tree built
+  from the sqlite index's `files` table — nothing walks the filesystem, so
+  the readable set is exactly what the index holds; an empty root without an
+  index.
+
+### Changed
+
+- The graph engine carries its own styles as a constructable stylesheet
+  (`document.adoptedStyleSheets`, one per document), so the portal loads no
+  brainkit stylesheet. The dashboard's CSP (`default-src 'self'`) is
+  unchanged: CSSOM insertion is outside `style-src`, and the engine writes
+  no `style=` attribute.
+- `tabs/graph3d.js` and `tabs/graph-controls.js` are gone; the Graph tab now
+  renders only its node card and mounts the engine. The 3D layout's
+  displacement cap (`step = 50 * alpha + 1`) moved verbatim to
+  `graph/layout3d.js`.
+- Graph preferences are keyed `brain-graph-engine:<lens>`; the old
+  `brain-graph:<lens>` keys are ignored (defaults apply once).
+
 ## [0.5.5] - 2026-09-02
 
 ### Fixed
