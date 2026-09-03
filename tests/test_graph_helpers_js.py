@@ -226,6 +226,40 @@ console.log(JSON.stringify({{ kind: typeof ENGINE_CSS, hasChip: ENGINE_CSS.inclu
         assert not re.search(r"\.style\.(?!setProperty|removeProperty)\w+\s*=", src), name
 
 
+def test_note_and_toolbar_share_one_in_flow_row_above_the_surface():
+    """Defects 2/3 (browser pass): an independently absolutely-positioned
+    .ge-toolbar and .ge-note used to collide with each other at ~900px
+    (desktop) and both landed on top of the legend row instead of below it
+    on a phone. Both now live in one in-flow .ge-top row, mounted before the
+    legend and the surface, and neither is a self-positioned overlay any
+    more (only .ge-legend on desktop, .ge-tip and .ge-settings still are)."""
+    eng = (GRAPH / "engine.js").read_text(encoding="utf-8")
+    css = (GRAPH / "styles.js").read_text(encoding="utf-8")
+
+    assert re.search(
+        r'const top = el\("div", "ge-top"\);\s*\n'
+        r'\s*top\.appendChild\(note\);\s*\n'
+        r'\s*top\.appendChild\(toolbar\);', eng), \
+        "note and toolbar must share one .ge-top wrapper"
+    assert re.search(
+        r"host\.appendChild\(top\);\s*\n"
+        r"\s*host\.appendChild\(legend\);.*?host\.appendChild\(surface\);", eng, re.S), \
+        "the top row must mount before the legend and the surface (phone order)"
+
+    assert ".ge-top {" in css
+    assert not re.search(r"\.ge-toolbar\s*\{[^}]*position:\s*absolute", css)
+    assert not re.search(r"\.ge-note\s*\{[^}]*position:\s*absolute", css)
+    # DOM order alone now puts the phone legend after .ge-top; no order hack needed.
+    assert "order: -1" not in css
+
+
+def test_insets_no_longer_reserves_space_for_the_in_flow_toolbar():
+    src = (GRAPH / "engine.js").read_text(encoding="utf-8")
+    insets = re.search(r"insets\(\) \{(.+?)\n    \},", src, re.S).group(1)
+    assert "top: 0" in insets
+    assert "toolbar.offsetHeight" not in insets
+
+
 def test_engine_mounts_2d_in_one_place_and_guards_the_3d_fallback():
     """A failed 3D falls back to 2D, and that fallback can fail too (d3
     unreachable). Uncaught, its rejection would escape switchMode: no note, no

@@ -95,12 +95,12 @@ export function mountGraph(host, options) {
     loadFull: typeof options.loadFull === "function" ? options.loadFull : null,
     visible(i) { return !E.hidden.has(E.data.nodes[i].space); },
     insets() {
-      // Only what actually overlays the canvas: the toolbar (top-right) and,
-      // on desktop, the legend (bottom-left). On a phone the legend is a row
-      // above the surface, not over it.
-      const top = (toolbar.offsetHeight || 0) + 8;
+      // The note/toolbar row is normal flow above the surface at every
+      // width now, not an overlay — nothing to reserve at the top. Only the
+      // desktop legend still overlays the canvas (bottom-left); on a phone
+      // it is a row above the surface too.
       const bottom = viewport === "desktop" ? (legend.offsetHeight || 0) + 8 : 0;
-      return { top, right: 0, bottom, left: 0 };
+      return { top: 0, right: 0, bottom, left: 0 };
     },
     setHover(i, cx, cy) {
       E.hover = i;
@@ -187,8 +187,13 @@ export function mountGraph(host, options) {
   toolbar.appendChild(gearBtn);
 
   buildSettings();
-  host.appendChild(note);
-  host.appendChild(toolbar);
+  // note + toolbar share one in-flow row above the surface at every width —
+  // two independently absolutely-positioned elements used to collide with
+  // each other (~900px) and with the phone legend row below them.
+  const top = el("div", "ge-top");
+  top.appendChild(note);
+  top.appendChild(toolbar);
+  host.appendChild(top);
   host.appendChild(legend);
   host.appendChild(settings);
   host.appendChild(surface);
