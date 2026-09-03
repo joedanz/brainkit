@@ -134,7 +134,8 @@ def test_hull_pads_and_contains_every_point():
     assert len(hull) >= 4
     for p in pts:
         assert _inside(hull, p["x"], p["y"])
-    xs = [h["x"] for h in hull]; ys = [h["y"] for h in hull]
+    xs = [h["x"] for h in hull]
+    ys = [h["y"] for h in hull]
     assert min(xs) == pytest.approx(-4) and max(xs) == pytest.approx(14)
     assert min(ys) == pytest.approx(-4) and max(ys) == pytest.approx(14)
     assert res["c"] == {"x": 5, "y": 5, "z": 0}

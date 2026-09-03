@@ -55,7 +55,8 @@ def test_tree_shows_only_what_the_index_holds(master, tmp_path):
     flat = []
     def walk(d):
         flat.extend(p.rel_path for p in d.pages)
-        for c in d.dirs: walk(c)
+        for c in d.dirs:
+            walk(c)
     walk(root)
     assert not any(r.endswith(("AGENTS.md", "CLAUDE.md", "Map.md")) for r in flat)
     # And nothing bob-only: the lens is alice's compiled slice.
