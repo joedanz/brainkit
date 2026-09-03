@@ -81,8 +81,13 @@ async function load() {
   }
   if (!S || !S.loads.current(token)) return;
   S.root = body.root;
-  if (S.phone) paintPhone();
-  else {
+  if (S.phone) {
+    // An open note (S.current, reader already painted) keeps its DOM across a
+    // live push — a rebuild would drop the raw/rendered toggle and in-note
+    // scroll, and re-fetch /api/note for nothing. Only S.root refreshes; the
+    // listing catches up next time the user goes back to it.
+    if (!S.current || !S.reader.firstChild) paintPhone();
+  } else {
     paintTree();
     if (S.current && !S.reader.firstChild) openPage(S.current);
     else if (!S.current && !S.reader.firstChild) hint();

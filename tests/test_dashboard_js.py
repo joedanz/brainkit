@@ -139,3 +139,21 @@ const p = await import({json.dumps((JS / "tabs" / "pages.js").as_uri())});
 console.log(JSON.stringify([typeof p.render, typeof p.onLive, typeof p.dispose]));
 """)
     assert res == ["function", "function", "function"]
+
+
+def test_pages_live_push_on_phone_does_not_clobber_an_open_note():
+    """A live push on phone (onLive -> load()) must not rebuild an already-open
+    note's reader: paintPhone() does clear(S.reader) then remounts noteView,
+    which would drop the raw/rendered toggle and in-note scroll and re-fetch
+    /api/note for nothing. The phone branch must guard the paintPhone() call on
+    S.current, mirroring the desktop branch's
+    `if (S.current && !S.reader.firstChild) openPage(...)` guard — only the
+    tree data (S.root) refreshes silently while a note is open; the listing
+    repaints next time the user goes back to it."""
+    src = (JS / "tabs" / "pages.js").read_text(encoding="utf-8")
+    m = re.search(r"if \(S\.phone\) \{\n(.*?)\n  \} else \{\n", src, re.S)
+    assert m, "the phone branch of load() is not where this test expects it"
+    body = m.group(1)
+    assert "paintPhone();" in body
+    assert re.search(r"if\s*\([^)]*S\.current[^)]*\)\s*paintPhone\(\);", body), \
+        "a live push on phone must guard paintPhone() on S.current so an open note keeps its DOM"
