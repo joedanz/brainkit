@@ -82,3 +82,40 @@ def test_query_tab_uses_the_shared_note_view():
     src = (JS / "tabs" / "query.js").read_text(encoding="utf-8")
     assert 'from "../note-view.js"' in src
     assert "function buildResolver" not in src and "function renderLinks" not in src
+
+
+_TREE = {
+    "name": "", "path": "", "count": 3, "pages": [],
+    "dirs": [
+        {"name": "Company", "path": "Company", "count": 3,
+         "pages": [{"rel_path": "Company/Home.md", "title": "Home", "mtime": "2026-09-01"}],
+         "dirs": [{"name": "Decisions", "path": "Company/Decisions", "count": 2, "dirs": [],
+                   "pages": [{"rel_path": "Company/Decisions/b.md", "title": "b", "mtime": ""},
+                             {"rel_path": "Company/Decisions/A.md", "title": "A", "mtime": ""}]}]},
+    ],
+}
+
+
+def _model(expr: str):
+    return run_js(f"""
+const M = await import({json.dumps((JS / "tree-model.js").as_uri())});
+const root = {json.dumps(_TREE)};
+console.log(JSON.stringify({expr}));
+""")
+
+
+def test_tree_model_ancestors_and_crumbs():
+    assert _model('M.ancestors("Company/Decisions/A.md")') == ["Company", "Company/Decisions"]
+    assert _model('M.ancestors("Top.md")') == []
+    assert _model('M.crumbsFor("Company/Decisions")') == [
+        {"name": "", "path": ""}, {"name": "Company", "path": "Company"},
+        {"name": "Decisions", "path": "Company/Decisions"}]
+    assert _model('M.crumbsFor("")') == [{"name": "", "path": ""}]
+
+
+def test_tree_model_find_dir_and_locale_order():
+    assert _model('M.findDir(root, "").path') == ""
+    assert _model('M.findDir(root, "Company/Decisions").count') == 2
+    assert _model('M.findDir(root, "Company/Nope")') is None
+    assert _model('M.sortedChildren(M.findDir(root, "Company/Decisions")).pages.map(p => p.title)') == ["A", "b"]
+    assert _model('M.sortedChildren(root).dirs.map(d => d.name)') == ["Company"]
