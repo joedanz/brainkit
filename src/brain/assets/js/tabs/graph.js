@@ -107,6 +107,11 @@ async function load() {
     g = await api.graph(params(300));
   } catch (e) {
     if (!S || !S.loads.current(token)) return;
+    // The banner replaces the whole host, canvas included, so a mounted engine
+    // must go with it: left alive it would keep the `update({ data })` early
+    // return below, and the next good push would paint into a detached canvas
+    // behind a stale error.
+    if (S.engine) { S.engine.destroy(); S.engine = null; }
     clear(S.host);
     S.host.appendChild(el("div", "error-banner", "Graph unavailable: " + e.message));
     return;

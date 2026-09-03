@@ -36,3 +36,20 @@ const g = await import({json.dumps((JS / "tabs" / "graph.js").as_uri())});
 console.log(JSON.stringify([typeof g.render, typeof g.onLive, typeof g.dispose]));
 """)
     assert res == ["function", "function", "function"]
+
+
+def test_a_failed_graph_load_tears_the_engine_down_before_clearing_the_host():
+    """`clear(S.host)` removes the mounted engine's canvas from the document.
+    If `S.engine` survived that, the next successful load would take the
+    `update({data})` early return and paint into a detached canvas — the tab
+    would show a stale error banner and no graph until it was left and
+    re-entered. So the error branch must destroy and null the engine first."""
+    src = (JS / "tabs" / "graph.js").read_text(encoding="utf-8")
+    catch = re.search(r"\n  \} catch \(e\) \{\n(.*?)\n    return;\n  \}\n", src, re.S)
+    assert catch, "the load() error branch is not where this test expects it"
+    body = catch.group(1)
+    teardown = body.find("S.engine.destroy()")
+    assert teardown >= 0, "the error branch must destroy the mounted engine"
+    assert "S.engine = null" in body, "the error branch must null the engine"
+    assert teardown < body.find("clear(S.host)"), \
+        "the engine must be torn down BEFORE the host is cleared out from under it"
