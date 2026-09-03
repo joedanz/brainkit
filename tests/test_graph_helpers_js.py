@@ -237,6 +237,42 @@ def test_engine_mounts_2d_in_one_place_and_guards_the_3d_fallback():
     assert "if (!E.view || E.dead || token !== switching) return;" in src
 
 
+def test_switch_mode_skips_mode_assignment_when_mount2d_is_overtaken():
+    """An overtaken 2D mount (mount2d() declines because its token went stale)
+    must not fall through to `E.mode = mode` — that would silently claim a
+    mode switch that never happened. mount2d reports whether it mounted so
+    switchMode can gate on it, mirroring the 3D branch's own early return.
+    And the 3D-failure fallback's .catch must re-check E.dead/staleness
+    before writing to note.textContent, or an overtaken fallback could stomp
+    a newer switch's note."""
+    src = (GRAPH / "engine.js").read_text(encoding="utf-8")
+    mount2d = re.search(r"async function mount2d\(token\) \{(.+?)\n  \}", src, re.S).group(1)
+    assert "return false;" in mount2d, "mount2d must report a decline"
+    assert "return true;" in mount2d, "mount2d must report a successful mount"
+
+    switch_body = re.search(r"async function switchMode\(mode, remember\) \{(.+?)\n  \}\n", src, re.S).group(1)
+    assert re.search(r"if \(await mount2d\(token\)\)\s*\{?\s*\n?\s*E\.mode = mode;", switch_body), \
+        "the 2D branch must only set E.mode when mount2d actually mounted"
+
+    fallback = re.search(r"await mount2d\(token\)\.catch\(\(e2\) => \{(.+?)\}\);", switch_body, re.S)
+    assert fallback, "the 3D-failure fallback must still be caught"
+    assert "E.dead || token !== switching" in fallback.group(1), \
+        "the fallback catch must re-check dead/staleness before writing note.textContent"
+
+
+def test_legend_chip_refreshes_the_view_after_hiding_the_selection():
+    """select(null) now repaints focus only, not the view (see repaintFocus).
+    A legend chip that hides the space holding the current selection must
+    still refresh the view afterwards, or the hidden space's name sprite,
+    region and rings linger in 3D until some unrelated refresh."""
+    src = (GRAPH / "engine.js").read_text(encoding="utf-8")
+    m = re.search(r"chip\.addEventListener\(\"click\", \(\) => \{(.+?)\n      \}\);", src, re.S)
+    assert m, "the legend chip click handler is not where this test expects it"
+    body = m.group(1)
+    assert re.search(r"select\(null\);\s*\n\s*if \(E\.view\) E\.view\.refresh\(\);", body), \
+        "hiding the selected space's chip must select(null) THEN refresh the view"
+
+
 def test_view3d_is_lazy_and_reuses_the_moved_layout():
     """three.js is ~650KB: it must be reachable ONLY through engine.js's
     dynamic import, or every 2D visitor pays for it. And the 3D integrator

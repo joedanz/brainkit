@@ -59,7 +59,7 @@ function buildChrome() {
     bar.appendChild(sel);
     S.container.appendChild(bar);
   }
-  const wrap = el("div", "pages-wrap" + (S.phone ? " phone" : ""));
+  const wrap = el("div", "pages-wrap");
   S.tree = el("nav", "pages-tree");
   S.tree.setAttribute("aria-label", "Folders");
   S.reader = el("div", "pages-reader");

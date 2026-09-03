@@ -30,6 +30,12 @@ function themeTokens() {
 }
 
 export function render(container, ctx) {
+  // Idempotent: app.js only calls dispose() when the tab id changes, so
+  // re-clicking the already-active Graph tab re-enters render() with the
+  // old S still live. Tear it down first — otherwise the mounted engine
+  // (a live WebGLRenderer in 3D, its rAF loop never stopped), the theme
+  // MutationObserver and the media-query listener all orphan.
+  if (S) dispose();
   clear(container);
   S = {
     ctx, container,

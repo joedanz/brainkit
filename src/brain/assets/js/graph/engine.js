@@ -293,7 +293,14 @@ export function mountGraph(host, options) {
         chip.classList.toggle("off", E.hidden.has(space));
         chip.setAttribute("aria-pressed", E.hidden.has(space) ? "false" : "true");
         persist();
-        if (E.selected != null && !E.visible(E.selected)) select(null);
+        // Hiding the space that holds the current selection clears focus,
+        // but select(null) now only repaints focus — the hidden space's name
+        // sprite, region and rings would otherwise linger in 3D until some
+        // unrelated refresh. Ask the view to repaint after clearing.
+        if (E.selected != null && !E.visible(E.selected)) {
+          select(null);
+          if (E.view) E.view.refresh();
+        }
         else if (E.view) E.view.refresh();
       });
       legend.appendChild(chip);
@@ -351,8 +358,9 @@ export function mountGraph(host, options) {
   async function mount2d(token) {
     const d3 = await ensureD3();
     const mod = await import("./view2d.js");
-    if (E.dead || token !== switching) return;
+    if (E.dead || token !== switching) return false;
     E.view = mod.createView2d(E, d3);
+    return true;
   }
   async function switchMode(mode, remember) {
     const token = ++switching;
@@ -364,10 +372,10 @@ export function mountGraph(host, options) {
         const mod = await import("./view3d.js");
         if (E.dead || token !== switching) return;
         E.view = mod.createView3d(E);
-      } else {
-        await mount2d(token);
+        E.mode = mode;
+      } else if (await mount2d(token)) {
+        E.mode = mode;
       }
-      E.mode = mode;
     } catch (e) {
       if (E.dead || token !== switching) return;
       if (mode !== "3d") { note.textContent = "Graph unavailable: " + errText(e); return; }
@@ -377,8 +385,12 @@ export function mountGraph(host, options) {
       E.mode = "2d";
       // The fallback can fail too (d3 unreachable). Caught here: an escaping
       // rejection would leave a live toolbar over a blank surface saying
-      // nothing about why.
-      await mount2d(token).catch((e2) => { note.textContent = "Graph unavailable: " + errText(e2); });
+      // nothing about why. And an overtaken fallback (a newer switchMode
+      // already running) must not stomp that newer switch's note.
+      await mount2d(token).catch((e2) => {
+        if (E.dead || token !== switching) return;
+        note.textContent = "Graph unavailable: " + errText(e2);
+      });
     }
     // A mount that failed or was overtaken has no view to drive.
     if (!E.view || E.dead || token !== switching) return;

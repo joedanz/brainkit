@@ -55,6 +55,22 @@ def test_a_failed_graph_load_tears_the_engine_down_before_clearing_the_host():
         "the engine must be torn down BEFORE the host is cleared out from under it"
 
 
+def test_graph_tab_render_disposes_a_previous_singleton_before_building():
+    """app.js's showTab() only calls dispose() when the tab id changes, so
+    re-clicking the already-active Graph tab calls render() again with the
+    old S still live. A reassignment that drops S without tearing it down
+    orphans the mounted engine — in 3D a live WebGLRenderer whose rAF loop
+    never stops — and repeated re-clicks exhaust the browser's WebGL context
+    cap. render() must be idempotent: dispose any previous S first."""
+    src = (JS / "tabs" / "graph.js").read_text(encoding="utf-8")
+    body = re.search(r"export function render\(container, ctx\) \{\n(.*?)\n\}\n", src, re.S).group(1)
+    teardown = body.find("dispose()")
+    reassign = body.find("S = {")
+    assert teardown >= 0, "render() must tear down a previous S (reuse dispose()) before reassigning it"
+    assert reassign >= 0
+    assert teardown < reassign, "the previous singleton must be disposed BEFORE render() reassigns S"
+
+
 def test_note_view_resolver_matches_path_stem_or_trailing_segment():
     """buildResolver is pure, so the wikilink → rel_path rule is asserted here
     against the shipped module (both tabs now share it)."""

@@ -215,8 +215,6 @@ select { cursor: pointer; }
   border-radius: var(--radius-sm); padding: var(--sp-2) var(--sp-3);
   font: 500 var(--step-0) var(--body); cursor: pointer; transition: border-color .15s, color .15s; }
 .graph-toolbar button:hover, .btn:hover { border-color: var(--border-strong); }
-.graph-toolbar button.on { border-color: var(--accent); color: var(--accent);
-                           background: var(--accent-quiet); }
 .btn.primary { background: var(--accent); border-color: var(--accent);
                color: var(--surface-0); font-weight: 600; }
 .btn.primary:hover { filter: brightness(1.06); }
