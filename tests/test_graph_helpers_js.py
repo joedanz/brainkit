@@ -102,3 +102,52 @@ def test_busiest_always_named_the_rest_need_room():
     # and never past the budget, whatever the room
     assert _labels("L.labelShown(25, 8, 1000, 25)") is False
     assert _labels("L.labelShown(24, 8, 1000, 25)") is True
+
+
+# ---- hull --------------------------------------------------------------------
+
+def _hull(points, pad):
+    return run_js(f"""
+const {{ hullFor, centroidOf }} = await import({js_import("hull.js")});
+const hull = hullFor({json.dumps(points)}, {pad});
+const c = centroidOf({json.dumps(points)});
+console.log(JSON.stringify({{ hull, c }}));
+""")
+
+
+def _inside(poly, x, y):
+    """Point-in-convex-polygon by consistent cross-product sign."""
+    signs = set()
+    for i, a in enumerate(poly):
+        b = poly[(i + 1) % len(poly)]
+        cross = (b["x"] - a["x"]) * (y - a["y"]) - (b["y"] - a["y"]) * (x - a["x"])
+        if abs(cross) > 1e-9:
+            signs.add(cross > 0)
+    return len(signs) == 1
+
+
+def test_hull_pads_and_contains_every_point():
+    pts = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10}, {"x": 5, "y": 5}]
+    res = _hull(pts, 4)
+    hull = res["hull"]
+    assert len(hull) >= 4
+    for p in pts:
+        assert _inside(hull, p["x"], p["y"])
+    xs = [h["x"] for h in hull]; ys = [h["y"] for h in hull]
+    assert min(xs) == pytest.approx(-4) and max(xs) == pytest.approx(14)
+    assert min(ys) == pytest.approx(-4) and max(ys) == pytest.approx(14)
+    assert res["c"] == {"x": 5, "y": 5, "z": 0}
+
+
+def test_hull_of_one_or_two_points_still_has_area():
+    one = _hull([{"x": 3, "y": 3}], 5)["hull"]
+    assert len(one) >= 6
+    assert all(abs(((h["x"] - 3) ** 2 + (h["y"] - 3) ** 2) ** 0.5 - 5) < 1e-6 for h in one)
+    two = _hull([{"x": 0, "y": 0}, {"x": 20, "y": 0}], 3)["hull"]
+    assert _inside(two, 10, 0) and _inside(two, 10, 2.5)
+
+
+def test_hull_skips_non_finite_points():
+    res = _hull([{"x": 0, "y": 0}, {"x": None, "y": 1}], 2)
+    assert res["hull"] and all(isinstance(h["x"], (int, float)) for h in res["hull"])
+    assert _hull([{"x": None, "y": None}], 2)["hull"] == []
