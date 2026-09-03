@@ -13,6 +13,7 @@ import * as THREE from "../../vendor/three.module.min.js";
 import { OrbitControls } from "../../vendor/OrbitControls.js";
 import { layout } from "./layout3d.js";
 import { labelBudget, labelShown } from "./labels.js";
+import { centroidOf } from "./hull.js";
 import { colorFor } from "./palette.js";
 import { medianNearestGap } from "../dom.js";
 
@@ -77,12 +78,6 @@ function textSprite(text, { px, color, alpha, font, weight }) {
   const sprite = new THREE.Sprite(mat);
   sprite.userData.aspect = c.width / c.height;
   return { sprite, dispose() { tex.dispose(); mat.dispose(); } };
-}
-
-function centroid3(points) {
-  let x = 0, y = 0, z = 0, n = 0;
-  for (const p of points) { x += p.x; y += p.y; z += p.z; n++; }
-  return n ? { x: x / n, y: y / n, z: z / n } : { x: 0, y: 0, z: 0 };
 }
 
 export function createView3d(E) {
@@ -197,7 +192,7 @@ export function createView3d(E) {
       const bySpace = new Map();
       data.nodes.forEach((node, i) => { if (!E.visible(i)) return; let a = bySpace.get(node.space); if (!a) bySpace.set(node.space, a = []); a.push(pos[i]); });
       for (const [space, pts] of bySpace) {
-        const c = centroid3(pts);
+        const c = centroidOf(pts);
         let spread = 0;
         for (const p of pts) spread += (p.x - c.x) ** 2 + (p.y - c.y) ** 2 + (p.z - c.z) ** 2;
         const r = Math.sqrt(spread / pts.length) * 1.6 + baseR * 3;
@@ -213,7 +208,7 @@ export function createView3d(E) {
     data.nodes.forEach((node, i) => { let a = bySpaceAll.get(node.space); if (!a) bySpaceAll.set(node.space, a = []); a.push(pos[i]); });
     const nameH = Math.max(baseR * 6, gap * 1.4);
     for (const [space, pts] of bySpaceAll) {
-      const c = centroid3(pts);
+      const c = centroidOf(pts);
       const t = textSprite(space, { px: 26, color: colorFor(space), alpha: dark ? 0.35 : 0.5, font: E.font, weight: 600 });
       t.sprite.position.set(c.x, c.y, c.z);
       t.sprite.scale.set(nameH * t.sprite.userData.aspect, nameH, 1);
@@ -296,9 +291,10 @@ export function createView3d(E) {
   // 60° field of view, gives d = 2. 2.1 keeps a little margin.
   function fitNow() {
     const vis = pos.filter((_, i) => E.visible(i));
-    const c = centroid3(vis.length ? vis : pos);
+    const pts = vis.length ? vis : pos;
+    const c = centroidOf(pts);
     let radius = 0;
-    for (const p of (vis.length ? vis : pos)) radius = Math.max(radius, Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z));
+    for (const p of pts) radius = Math.max(radius, Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z));
     fitDist = Math.max(160, radius * 2.1);
     controls.target.set(c.x, c.y, c.z);
     camera.position.set(c.x, c.y, c.z + fitDist);
@@ -358,7 +354,7 @@ export function createView3d(E) {
   return {
     setData: build,
     applyForces() { /* the 3D layout is settled up front; force sliders shape the 2D view only */ },
-    refresh() { if (!mesh) return; radii = E.data.nodes.map((_, i) => nodeRadius(i)); build(); },
+    refresh() { if (!mesh) return; build(); },   // build() recomputes radii from the current prefs
     // Selecting a node changes colors, one radius and which edges are bright —
     // nothing that moves a node. A rebuild would re-run layout(), 160 O(n^2)
     // iterations, on every click and every dismissal; this repaints the
