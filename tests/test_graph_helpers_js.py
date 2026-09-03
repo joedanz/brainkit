@@ -7,6 +7,7 @@ Python restatement of it.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 
@@ -151,3 +152,75 @@ def test_hull_skips_non_finite_points():
     res = _hull([{"x": 0, "y": 0}, {"x": None, "y": 1}], 2)
     assert res["hull"] and all(isinstance(h["x"], (int, float)) for h in res["hull"])
     assert _hull([{"x": None, "y": None}], 2)["hull"] == []
+
+
+# ---- engine module -----------------------------------------------------------
+
+def test_engine_exports_the_contract_and_loads_d3_itself():
+    """Appendix A: ENGINE_VERSION, mountGraph, and d3 fetched by the engine via
+    a dynamic import of the vendored UMD file when globalThis.d3 is missing.
+    Importing engine.js must touch no DOM at module load, or node could not
+    run this."""
+    res = run_js(f"""
+const E = await import({js_import("engine.js")});
+const before = typeof globalThis.d3;
+const d3 = await E.ensureD3();
+console.log(JSON.stringify({{
+  version: E.ENGINE_VERSION,
+  mount: typeof E.mountGraph,
+  before,
+  after: typeof d3.forceSimulation,
+  global: globalThis.d3 === d3,
+}}));
+""")
+    assert res == {"version": 1, "mount": "function", "before": "undefined", "after": "function", "global": True}
+
+
+def test_engine_never_imports_three_statically():
+    src = (GRAPH / "engine.js").read_text(encoding="utf-8")
+    assert "three.module" not in src and "OrbitControls" not in src
+    assert 'import("./view3d.js")' in src  # 3D stays lazy
+
+
+def test_prefs_default_by_viewport_and_survive_bad_storage():
+    res = run_js(f"""
+const {{ loadPrefs, prefsKey }} = await import({js_import("engine.js")});
+const store = new Map();
+globalThis.localStorage = {{ getItem: (k) => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, v) }};
+const phone = loadPrefs("vault", "phone"), desk = loadPrefs("vault", "desktop");
+store.set(prefsKey("master"), JSON.stringify({{ labels: "all", mode: "3d", hidden: ["Company"], nodeSize: "big", orphans: 1 }}));
+const saved = loadPrefs("master", "desktop");
+store.set(prefsKey("junk"), "{{not json");
+const junk = loadPrefs("junk", "desktop");
+console.log(JSON.stringify({{ phone: phone.labels, desk: desk.labels, mode: desk.mode, key: prefsKey("vault"),
+  saved: [saved.labels, saved.mode, saved.hidden, saved.nodeSize, saved.orphans], junk: junk.labels }}));
+""")
+    assert res == {"phone": "hubs", "desk": "more", "mode": "2d", "key": "brain-graph-engine:vault",
+                   "saved": ["all", "3d", ["Company"], 1, False], "junk": "more"}
+
+
+def test_engine_styles_adopt_one_sheet_per_document_and_never_touch_style_attributes():
+    """Appendix A: a constructable stylesheet adopted once (CSSOM, outside CSP
+    style-src), so brainkit's default-src 'self' stays as it is. And no
+    `style=` attribute anywhere in the engine — inline style ATTRIBUTES are
+    what that CSP blocks — so every dynamic value is a class or a custom
+    property set through el.style.setProperty."""
+    res = run_js(f"""
+const {{ ENGINE_CSS, adoptStyles }} = await import({js_import("styles.js")});
+// a stand-in document with the two members adoptStyles uses
+class CSSStyleSheet {{ replaceSync(t) {{ this.text = t; }} }}
+globalThis.CSSStyleSheet = CSSStyleSheet;
+globalThis.document = {{ adoptedStyleSheets: [] }};
+adoptStyles(); adoptStyles();
+console.log(JSON.stringify({{ kind: typeof ENGINE_CSS, hasChip: ENGINE_CSS.includes(".ge-chip"),
+  hasPhone: ENGINE_CSS.includes(".ge-phone"), adopted: document.adoptedStyleSheets.length,
+  same: document.adoptedStyleSheets[0].text === ENGINE_CSS }}));
+""")
+    assert res == {"kind": "string", "hasChip": True, "hasPhone": True, "adopted": 1, "same": True}
+    for name in ("engine.js", "view2d.js", "view3d.js", "styles.js"):
+        f = GRAPH / name
+        if not f.exists():
+            continue
+        src = f.read_text(encoding="utf-8")
+        assert 'setAttribute("style"' not in src and "<style" not in src, name
+        assert not re.search(r"\.style\.(?!setProperty|removeProperty)\w+\s*=", src), name
