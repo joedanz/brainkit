@@ -11,6 +11,24 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-06
+
+### Fixed
+
+- **The phone graph toolbar no longer clips Settings at the right edge.**
+  At narrow phone hosts, `.ge-top` never wrapped, so `.ge-toolbar` (search,
+  2D/3D, Settings — Fit/Full graph are already `.ge-desktop-only`) held its
+  full intrinsic width against `flex-shrink: 0` and spilled past the host's
+  right edge, where `.ge`'s own `overflow: hidden` clipped the Settings
+  button to a sliver. `.ge-phone .ge-top` now wraps, `.ge-phone .ge-toolbar`
+  claims the full row on its own line below the note, and its search input
+  can shrink (`min-width: 0`) instead of holding a fixed width. Measured
+  live at a 390px phone width with a narrowed host reproducing the clip
+  (230px): before, the Settings button's right edge sat 21px past the
+  host's; after, every toolbar control's `getBoundingClientRect()` falls
+  fully inside the host, and `.ge-top`/`.ge-legend`/the canvas stay
+  vertically disjoint. Desktop (1280px) is unchanged.
+
 ## [0.6.0] - 2026-09-03
 
 ### Added
