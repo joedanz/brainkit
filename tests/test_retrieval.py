@@ -202,16 +202,22 @@ def test_snippets_are_never_written_to_the_raw_log(tmp_path):
 
 
 def test_raw_log_since_reports_the_sentinel_mtime(tmp_path):
+    """`raw_log_since` reads the sentinel's real mtime, never the injected
+    `now` a search happens to run with — asserted directly against the mtime
+    we set, not against a fixed constant: comparing to a hardcoded date is
+    what made this test wall-clock-dependent (and fail) once real time
+    caught up to it."""
+    from datetime import UTC, datetime
+
     vault = _vault(tmp_path)
     sentinel = _switch_on(vault)
     backdated = time.time() - (10 * 86400)
     os.utime(sentinel, (backdated, backdated))
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
     since = _stats(vault)["raw_log_since"]
-    assert since is not None
-    assert since.endswith("Z")
-    # 10 days ago, not the injected NOW
-    assert since < NOW
+    expected = datetime.fromtimestamp(backdated, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert since == expected
+    assert since != NOW
 
 
 def test_raw_log_since_is_null_when_switched_off(tmp_path):
