@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-06
+
 ### Fixed
 
 - **`brain dashboard --vault` now seeds `retrieval-stats.json` on startup
@@ -1082,7 +1084,8 @@ answer "what's in here?".
 **18 subcommands** in all, documented with their flags and exit codes in the
 [CLI reference](https://brainkit-docs.vercel.app/reference/cli).
 
-[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/joedanz/brainkit/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/joedanz/brainkit/compare/v0.6.1...v0.6.2
 [0.5.1]: https://github.com/joedanz/brainkit/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/joedanz/brainkit/compare/v0.4.11...v0.5.0
 [0.4.11]: https://github.com/joedanz/brainkit/compare/v0.4.10...v0.4.11
