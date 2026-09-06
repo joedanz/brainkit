@@ -11,6 +11,37 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-06
+
+### Fixed
+
+- **The phone graph toolbar no longer clips Settings at the right edge.**
+  At narrow phone hosts, `.ge-top` never wrapped, so `.ge-toolbar` (search,
+  2D/3D, Settings — Fit/Full graph are already `.ge-desktop-only`) held its
+  full intrinsic width against `flex-shrink: 0` and spilled past the host's
+  right edge, where `.ge`'s own `overflow: hidden` clipped the Settings
+  button to a sliver. `.ge-phone .ge-top` now wraps, `.ge-phone .ge-toolbar`
+  claims the full row on its own line below the note, and its search input
+  can shrink (`min-width: 0`) instead of holding a fixed width. Measured
+  live at a 390px phone width with a narrowed host reproducing the clip
+  (230px): before, the Settings button's right edge sat 21px past the
+  host's; after, every toolbar control's `getBoundingClientRect()` falls
+  fully inside the host, and `.ge-top`/`.ge-legend`/the canvas stay
+  vertically disjoint. Desktop (1280px) is unchanged.
+- **The phone graph settings popover no longer opens on top of the
+  toolbar.** `.ge-settings` was `position: absolute; top: 44px` relative to
+  `.ge`, tuned for a one-line `.ge-top` — once the top row wraps to two
+  lines on phone (the truncation note, "Showing the N most-connected
+  pages.", is the common case), that fixed offset opened the popover over
+  the toolbar line instead of below it. `.ge-phone .ge-settings` now drops
+  out of absolute layout (`position: static`) so DOM order decides its
+  place — after `.ge-top` and `.ge-legend`, before `.ge-surface` — and it
+  sits in flow below the legend, pushing the canvas down while open.
+  Measured live at 390px with the truncation note present: before, the
+  popover overlapped the toolbar's search/2D3D/Settings rects; after, the
+  popover rect sits fully inside the host and intersects none of them.
+  Desktop is unchanged.
+
 ## [0.6.0] - 2026-09-03
 
 ### Added

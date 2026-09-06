@@ -254,6 +254,45 @@ def test_note_and_toolbar_share_one_in_flow_row_above_the_surface():
     assert "order: -1" not in css
 
 
+def test_phone_toolbar_wraps_inside_the_host():
+    """Live defect: at 390px the .ge-toolbar row (search, 2D/3D, Settings —
+    Fit/Full graph already hidden by .ge-desktop-only) overflowed the host
+    and clipped Settings at the right edge. .ge-top must wrap on phone so
+    .ge-toolbar drops to its own full-width line below .ge-note, and the
+    search input must be allowed to shrink instead of holding a fixed width
+    wider than the row has room for."""
+    css = (GRAPH / "styles.js").read_text(encoding="utf-8")
+
+    assert re.search(r"\.ge-phone \.ge-top\s*\{[^}]*flex-wrap:\s*wrap\s*;", css), \
+        ".ge-phone .ge-top must wrap (not wrap-reverse) so the toolbar can drop to its own line"
+    assert re.search(
+        r"\.ge-phone \.ge-toolbar\s*\{[^}]*flex:\s*1 1 100%", css), \
+        ".ge-phone .ge-toolbar must claim the full row width once wrapped"
+    assert re.search(
+        r"\.ge-phone \.ge-toolbar input\[type=search\]\s*\{[^}]*min-width:\s*0", css), \
+        "the phone search input must be allowed to shrink, not held at a fixed width"
+
+
+def test_phone_settings_popover_sits_in_flow_below_the_top_row():
+    """Live defect: .ge-settings is position:absolute; top:44px relative to
+    .ge, tuned for a one-line .ge-top. Once .ge-top wraps to two lines on
+    phone (the truncation note is the common case), that fixed 44px offset
+    opens the popover on top of the toolbar line. On phone the popover
+    drops out of absolute layout entirely so DOM order — after .ge-top and
+    .ge-legend, before .ge-surface — decides its position: it sits in flow
+    below the legend, pushing the canvas down while open."""
+    css = (GRAPH / "styles.js").read_text(encoding="utf-8")
+    eng = (GRAPH / "engine.js").read_text(encoding="utf-8")
+
+    assert re.search(r"\.ge-phone \.ge-settings\s*\{[^}]*position:\s*static", css), \
+        ".ge-phone .ge-settings must leave absolute positioning so it flows below the top row"
+    assert re.search(
+        r"host\.appendChild\(legend\);\s*\n"
+        r"\s*host\.appendChild\(settings\);\s*\n"
+        r"\s*host\.appendChild\(surface\);", eng), \
+        "settings must mount after the legend and before the surface (phone in-flow order)"
+
+
 def test_insets_no_longer_reserves_space_for_the_in_flow_toolbar():
     src = (GRAPH / "engine.js").read_text(encoding="utf-8")
     insets = re.search(r"insets\(\) \{(.+?)\n    \},", src, re.S).group(1)
