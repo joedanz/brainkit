@@ -28,6 +28,19 @@ explicitly under **Changed**, with what to do about it.
   host's; after, every toolbar control's `getBoundingClientRect()` falls
   fully inside the host, and `.ge-top`/`.ge-legend`/the canvas stay
   vertically disjoint. Desktop (1280px) is unchanged.
+- **The phone graph settings popover no longer opens on top of the
+  toolbar.** `.ge-settings` was `position: absolute; top: 44px` relative to
+  `.ge`, tuned for a one-line `.ge-top` — once the top row wraps to two
+  lines on phone (the truncation note, "Showing the N most-connected
+  pages.", is the common case), that fixed offset opened the popover over
+  the toolbar line instead of below it. `.ge-phone .ge-settings` now drops
+  out of absolute layout (`position: static`) so DOM order decides its
+  place — after `.ge-top` and `.ge-legend`, before `.ge-surface` — and it
+  sits in flow below the legend, pushing the canvas down while open.
+  Measured live at 390px with the truncation note present: before, the
+  popover overlapped the toolbar's search/2D3D/Settings rects; after, the
+  popover rect sits fully inside the host and intersects none of them.
+  Desktop is unchanged.
 
 ## [0.6.0] - 2026-09-03
 

@@ -73,5 +73,5 @@ export const ENGINE_CSS = `
 .ge-phone .ge-top { flex-wrap: wrap; }
 .ge-phone .ge-toolbar { margin-left: 0; flex: 1 1 100%; justify-content: space-between; }
 .ge-phone .ge-toolbar input[type=search] { flex: 1 1 auto; min-width: 0; width: auto; }
-.ge-phone .ge-settings { width: calc(100% - 16px); }
+.ge-phone .ge-settings { position: static; width: auto; margin: 0 8px 8px; }
 `;
