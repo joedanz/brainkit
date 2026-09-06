@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -528,3 +529,34 @@ async def test_tree_without_index_is_empty_and_creates_nothing(aiohttp_client, m
     body = await (await client.get("/api/tree")).json()
     assert body == {"root": {"name": "", "path": "", "dirs": [], "pages": [], "count": 0}}
     assert not (vault / ".brain" / "index.db").exists()
+
+
+# ---- retrieval-stats seeding on startup ---------------------------------------
+
+from brain.retrieval import STATS_NAME
+from brain.server import _seed_retrieval_stats
+
+
+def test_seed_retrieval_stats_creates_the_file_for_a_fresh_user_lens(tmp_path):
+    vault = tmp_path / "alice"
+    vault.mkdir()
+    _seed_retrieval_stats(Lens(kind="vault", vault=vault))
+    stats = vault / ".brain" / STATS_NAME
+    assert stats.is_file()
+    assert json.loads(stats.read_text())["searches"] == 0
+
+
+def test_seed_retrieval_stats_does_nothing_for_the_master_lens(tmp_path):
+    master = tmp_path / "master"
+    master.mkdir()
+    _seed_retrieval_stats(Lens(kind="master", master=master))
+    assert not (master / ".brain" / STATS_NAME).is_file()
+
+
+def test_seed_retrieval_stats_does_not_overwrite_real_counts(tmp_path):
+    vault = tmp_path / "alice"
+    brain_dir = vault / ".brain"
+    brain_dir.mkdir(parents=True)
+    (brain_dir / STATS_NAME).write_text(json.dumps({"schema": 1, "searches": 7}) + "\n")
+    _seed_retrieval_stats(Lens(kind="vault", vault=vault))
+    assert json.loads((brain_dir / STATS_NAME).read_text())["searches"] == 7

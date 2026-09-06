@@ -241,6 +241,45 @@ def _append_raw(
     return pending
 
 
+def ensure(vault: Path, *, now: str) -> None:
+    """Guarantee the stats file exists, without recording a search.
+
+    Meant to be called once, when a vault's dashboard/search server starts —
+    the point at which a fleet consumer can otherwise only tell "this agent
+    has never been searched" apart from "this agent is broken" by leaving
+    both unreadable. Written with searches=0, which is real information here
+    (verified at this instant, by this process) rather than the guess a
+    consumer would otherwise have to make by treating an absent file as zero.
+
+    Never overwrites: a vault with real counts already on disk is left
+    exactly as `record()` last wrote it. `now` is injected so tests are not
+    clock-dependent, same as `record()`.
+    """
+    vault = Path(vault)
+    brain_dir = _brain_dir(vault)
+    with _locked(brain_dir):
+        stats_path = brain_dir / STATS_NAME
+        if stats_path.is_file():
+            return
+        payload = {
+            "schema": SCHEMA,
+            "person": _person(vault),
+            "brainkit_version": __version__,
+            "updated_at": now,
+            "searches": 0,
+            "zero_hit": 0,
+            "by_mode": {},
+            "warn": {},
+            "raw_log": False,
+            "raw_log_since": None,
+            "raw_truncated": False,
+            "raw_log_wrapped": False,
+        }
+        tmp = stats_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, sort_keys=True) + "\n")
+        os.replace(tmp, stats_path)
+
+
 def record(
     vault: Path,
     *,

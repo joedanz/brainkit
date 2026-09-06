@@ -793,6 +793,25 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     return app
 
 
+def _seed_retrieval_stats(lens: Lens) -> None:
+    """Guarantee a user-lens vault's retrieval-stats.json exists before the
+    server starts serving it.
+
+    Only the user lens has one to seed — the master lens serves company-wide
+    data, not one person's searches. Wrapped, like every call into
+    retrieval.py from a request path (see search.py's search_index): this
+    must never keep the dashboard from starting.
+    """
+    if lens.kind != "vault" or lens.vault is None:
+        return
+    with suppress(Exception):
+        from datetime import UTC, datetime
+
+        from brain.retrieval import ensure
+
+        ensure(lens.vault, now=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+
 def run_server(lens: Lens, *, host: str = "127.0.0.1", port: int = 8765,
                open_browser: bool = True) -> int:
     import sys
@@ -802,6 +821,8 @@ def run_server(lens: Lens, *, host: str = "127.0.0.1", port: int = 8765,
     if not loopback:
         print(f"WARNING: binding {host} exposes this vault with NO authentication — "
               "anyone who can reach this port can read it.", file=sys.stderr)
+
+    _seed_retrieval_stats(lens)
 
     app = create_app(lens, loopback=loopback)
 
