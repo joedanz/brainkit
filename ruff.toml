@@ -78,7 +78,12 @@ ignore = [
 #   E501      — markdown bodies, frontmatter, and strings compared verbatim.
 #               Rewrapping a fixture to hit a column limit is how you change
 #               what a test tests without noticing.
-"tests/*" = ["B008", "B023", "E402", "E731", "E501"]
+#   RUF001    — test_compiler.py's `_stem` cases include a real case-citation
+#               title ("Bernardez v. Freehold – 44 Victory Lawsuit") with a
+#               genuine en dash, exercising that `_stem` only special-cases
+#               periods. Swapping it for a hyphen to please the linter would
+#               quietly stop testing the character the case exists for.
+"tests/*" = ["B008", "B023", "E402", "E731", "E501", "RUF001"]
 
 [lint.isort]
 known-first-party = ["brain", "tests"]
