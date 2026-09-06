@@ -254,6 +254,25 @@ def test_note_and_toolbar_share_one_in_flow_row_above_the_surface():
     assert "order: -1" not in css
 
 
+def test_phone_toolbar_wraps_inside_the_host():
+    """Live defect: at 390px the .ge-toolbar row (search, 2D/3D, Settings —
+    Fit/Full graph already hidden by .ge-desktop-only) overflowed the host
+    and clipped Settings at the right edge. .ge-top must wrap on phone so
+    .ge-toolbar drops to its own full-width line below .ge-note, and the
+    search input must be allowed to shrink instead of holding a fixed width
+    wider than the row has room for."""
+    css = (GRAPH / "styles.js").read_text(encoding="utf-8")
+
+    assert re.search(r"\.ge-phone \.ge-top\s*\{[^}]*flex-wrap:\s*wrap", css), \
+        ".ge-phone .ge-top must wrap so the toolbar can drop to its own line"
+    assert re.search(
+        r"\.ge-phone \.ge-toolbar\s*\{[^}]*flex:\s*1 1 100%", css), \
+        ".ge-phone .ge-toolbar must claim the full row width once wrapped"
+    assert re.search(
+        r"\.ge-phone \.ge-toolbar input\[type=search\]\s*\{[^}]*min-width:\s*0", css), \
+        "the phone search input must be allowed to shrink, not held at a fixed width"
+
+
 def test_insets_no_longer_reserves_space_for_the_in_flow_toolbar():
     src = (GRAPH / "engine.js").read_text(encoding="utf-8")
     insets = re.search(r"insets\(\) \{(.+?)\n    \},", src, re.S).group(1)
