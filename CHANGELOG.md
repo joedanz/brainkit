@@ -11,6 +11,16 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`brain dashboard --vault` now seeds `retrieval-stats.json` on startup
+  instead of waiting for the first search.** The file is written lazily by
+  every search, so a newly onboarded agent nobody has queried yet had no
+  file at all — indistinguishable, to a fleet consumer, from a broken or
+  unreachable one. The user lens now calls `retrieval.ensure()` once at
+  server start, which writes a real, verified `searches: 0` record if none
+  exists yet and never touches a vault that already has one.
+
 ## [0.6.1] - 2026-09-06
 
 ### Fixed

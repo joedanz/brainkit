@@ -543,3 +543,55 @@ def test_counters_still_advance_across_a_rotation(tmp_path):
     _fill_raw(vault, ROTATE_AT_BYTES)
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
     assert _stats(vault)["searches"] == 1
+
+
+from brain.retrieval import ensure
+
+
+def test_ensure_creates_a_zero_count_file_on_a_fresh_vault(tmp_path):
+    vault = _vault(tmp_path)
+    assert not (vault / ".brain" / STATS_NAME).is_file()
+    ensure(vault, now=NOW)
+    d = _stats(vault)
+    assert d["schema"] == SCHEMA
+    assert d["person"] == "joe"
+    assert d["searches"] == 0
+    assert d["zero_hit"] == 0
+    assert d["by_mode"] == {}
+    assert d["warn"] == {}
+    assert d["raw_log"] is False
+    assert d["raw_log_since"] is None
+    assert d["raw_truncated"] is False
+    assert d["raw_log_wrapped"] is False
+    assert d["updated_at"] == NOW
+
+
+def test_ensure_never_overwrites_real_counts(tmp_path):
+    """The whole point: a vault someone has actually searched must not be
+    reset back to zero by a server restart."""
+    vault = _vault(tmp_path)
+    record(vault, mode="hybrid", hits=3, warnings=[], now=NOW)
+    ensure(vault, now="2026-09-06T00:00:00Z")
+    d = _stats(vault)
+    assert d["searches"] == 1
+    assert d["updated_at"] == NOW
+
+
+def test_ensure_is_idempotent(tmp_path):
+    vault = _vault(tmp_path)
+    ensure(vault, now=NOW)
+    ensure(vault, now="2026-09-06T00:00:00Z")
+    assert _stats(vault)["updated_at"] == NOW
+
+
+def test_ensure_person_is_null_when_the_manifest_is_unreadable(tmp_path):
+    vault = tmp_path / "vault"
+    vault.mkdir(parents=True)
+    ensure(vault, now=NOW)
+    assert _stats(vault)["person"] is None
+
+
+def test_ensure_never_leaves_a_temp_file_behind(tmp_path):
+    vault = _vault(tmp_path)
+    ensure(vault, now=NOW)
+    assert list((vault / ".brain").glob("*.tmp")) == []
