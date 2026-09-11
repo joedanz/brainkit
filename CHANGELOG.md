@@ -11,6 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-09-11
+
+### Changed
+
+- **Embedding requests to the Vercel AI Gateway now ask for non-training
+  upstreams only** (`providerOptions.gateway.disallowPromptTraining`). The
+  gateway can route one model to several upstreams, and by default it may pick
+  one that trains on prompts; with this option it refuses such an upstream
+  (HTTP 400) instead. Nothing changes for `voyage/voyage-4`: its one upstream
+  already does not train, and the request costs the same (measured). Other
+  OpenAI-compatible endpoints do not get the field, because they can reject a
+  field they do not know. No re-embedding: the model and the cache key stay
+  the same.
+
 ## [0.6.2] - 2026-09-06
 
 ### Fixed
