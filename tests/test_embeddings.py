@@ -74,6 +74,7 @@ def test_openai_provider_request_shape_and_batching(monkeypatch):
         assert req.headers["Authorization"] == "Bearer KEY"
         assert body["model"] == "text-embedding-3-small"
         assert body["dimensions"] == 512
+        assert "providerOptions" not in body  # gateway-only field
         return FakeResp(len(body["input"]))
 
     monkeypatch.setattr(embeddings.urllib.request, "urlopen", fake_urlopen)
@@ -83,6 +84,28 @@ def test_openai_provider_request_shape_and_batching(monkeypatch):
     assert len(out) == 3
     # 3 inputs, batch size 2 → two requests
     assert [len(c["input"]) for c in calls] == [2, 1]
+
+
+def test_openai_provider_asks_vercel_gateway_for_no_training_upstreams(monkeypatch):
+    bodies = []
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def read(self):
+            return json.dumps({"data": [{"embedding": [0.0]}]}).encode()
+
+    def fake_urlopen(req, timeout=None):
+        bodies.append(json.loads(req.data))
+        return FakeResp()
+
+    monkeypatch.setattr(embeddings.urllib.request, "urlopen", fake_urlopen)
+    OpenAICompatProvider("https://ai-gateway.vercel.sh/v1", "K", "voyage/voyage-4").embed(["a"])
+    OpenAICompatProvider("https://ai-gateway.vercel.sh.example.com/v1", "K", "m").embed(["a"])
+    assert bodies[0]["providerOptions"] == {"gateway": {"disallowPromptTraining": True}}
+    assert "providerOptions" not in bodies[1]  # a lookalike host is not the gateway
 
 
 def test_openai_provider_retries_then_raises(monkeypatch):
