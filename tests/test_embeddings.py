@@ -86,7 +86,6 @@ def test_openai_provider_request_shape_and_batching(monkeypatch):
     assert [len(c["input"]) for c in calls] == [2, 1]
 
 
-
 def test_openai_provider_asks_vercel_gateway_for_no_training_upstreams(monkeypatch):
     bodies = []
 
@@ -107,6 +106,7 @@ def test_openai_provider_asks_vercel_gateway_for_no_training_upstreams(monkeypat
     OpenAICompatProvider("https://ai-gateway.vercel.sh.example.com/v1", "K", "m").embed(["a"])
     assert bodies[0]["providerOptions"] == {"gateway": {"disallowPromptTraining": True}}
     assert "providerOptions" not in bodies[1]  # a lookalike host is not the gateway
+
 
 def test_openai_provider_retries_then_raises(monkeypatch):
     import urllib.error

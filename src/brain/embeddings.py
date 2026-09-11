@@ -33,11 +33,9 @@ from brain.errors import BrainError
 DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_DIM = 512
 _RETRYABLE = (429, 500, 502, 503, 504)
-# Vercel AI Gateway can route one model to several upstreams, and by default
-# some of them may train on prompts. Vault text must never go to one, so a
-# gateway request asks for non-training upstreams only (the gateway answers
-# 400 rather than fall back to a training one). Other endpoints can reject a
-# field they do not know, so only the gateway gets it.
+# Vercel AI Gateway may route to an upstream that trains on prompts; vault text
+# must never reach one, so gateway requests ask for non-training upstreams only.
+# Other endpoints can reject the unknown field, so only the gateway gets it.
 _VERCEL_GATEWAY_HOST = "ai-gateway.vercel.sh"
 _NO_TRAINING = {"gateway": {"disallowPromptTraining": True}}
 
@@ -104,6 +102,7 @@ class OpenAICompatProvider:
         self.dim = dim
         self.batch_size = batch_size
         self.timeout = timeout
+        self._gateway = urllib.parse.urlsplit(self.base_url).hostname == _VERCEL_GATEWAY_HOST
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
@@ -115,7 +114,7 @@ class OpenAICompatProvider:
         payload: dict = {"model": self.model, "input": batch}
         if self.dim:
             payload["dimensions"] = self.dim
-        if urllib.parse.urlsplit(self.base_url).hostname == _VERCEL_GATEWAY_HOST:
+        if self._gateway:
             payload["providerOptions"] = _NO_TRAINING
         data = json.dumps(payload).encode()
         req = urllib.request.Request(
