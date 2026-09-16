@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import struct
 import time
@@ -191,23 +192,43 @@ def _config_path() -> Path:
     return Path(override) if override else Path.home() / ".config/brain/config.yaml"
 
 
+_PLACEHOLDER = re.compile(r"\$\{[^}]*\}")
+
+
+def _env(name: str) -> str:
+    """An environment value, with "not really set" folded into "".
+
+    Empty counts as unset: compose files pass `${VAR:-}` through, so an
+    operator who sets only the base URL must still get the defaults instead of
+    `int("")` or a blank model name.
+
+    So does a value that is still an unresolved `${VAR}` placeholder. An MCP
+    client that interpolates its server stanza's `env:` block (hermes does)
+    leaves the literal text in place when the variable is missing from its own
+    environment. That text is non-empty, so taken at face value it would build a
+    provider aimed at the URL `${BRAIN_EMBED_BASE_URL}` — and because a search
+    does not catch embedding errors, every search would fail instead of
+    degrading to keyword-only.
+    """
+    value = os.environ.get(name, "")
+    return "" if _PLACEHOLDER.search(value) else value
+
+
 def provider_from_config() -> EmbeddingProvider | None:
     """Resolve a provider from env then config file, else None (keyword-only).
 
     Env wins: BRAIN_EMBED_BASE_URL / _API_KEY / _MODEL / _DIM. Otherwise a
     ``~/.config/brain/config.yaml`` with an ``embeddings:`` block (api key read
     from the env var named by ``api_key_env``, never stored in the file).
+    Empty values and unresolved ``${VAR}`` placeholders count as unset.
     """
-    base_url = os.environ.get("BRAIN_EMBED_BASE_URL")
+    base_url = _env("BRAIN_EMBED_BASE_URL")
     if base_url:
-        # empty-string vars count as unset: compose files pass `${VAR:-}`
-        # through, so an operator who sets only the base URL must still get
-        # the defaults instead of `int("")` or a blank model name.
         return OpenAICompatProvider(
             base_url=base_url,
-            api_key=os.environ.get("BRAIN_EMBED_API_KEY", ""),
-            model=os.environ.get("BRAIN_EMBED_MODEL") or DEFAULT_MODEL,
-            dim=int(os.environ.get("BRAIN_EMBED_DIM") or DEFAULT_DIM),
+            api_key=_env("BRAIN_EMBED_API_KEY"),
+            model=_env("BRAIN_EMBED_MODEL") or DEFAULT_MODEL,
+            dim=int(_env("BRAIN_EMBED_DIM") or DEFAULT_DIM),
         )
 
     path = _config_path()
@@ -219,7 +240,7 @@ def provider_from_config() -> EmbeddingProvider | None:
         data = yaml.safe_load(text) or {}
         emb = data.get("embeddings")
         if isinstance(emb, dict) and emb.get("base_url"):
-            api_key = os.environ.get(emb.get("api_key_env", ""), "")
+            api_key = _env(emb.get("api_key_env", ""))
             return OpenAICompatProvider(
                 base_url=emb["base_url"],
                 api_key=api_key,

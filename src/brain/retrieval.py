@@ -91,11 +91,14 @@ def _person(vault: Path) -> str | None:
 def _warn_keys(mode: str, warnings: Sequence[str]) -> list[str]:
     """Warning categories, never messages.
 
-    `search_index` emits exactly two warnings. The no-index early return emits
-    one AND sets mode="", so `mode == ""` identifies that case completely —
-    and it is already counted in by_mode, so counting it here too would
-    double-count one search. Every other warning comes from
-    `store.vector_status`.
+    The no-index early return in `search_index` emits a warning AND sets
+    mode="", so `mode == ""` identifies that case completely — and it is
+    already counted in by_mode, so counting it here too would double-count one
+    search. Every other search that warns is counted as vector-degraded: a
+    `store.vector_status` failure, or no embedding provider against an index
+    that has vectors (`search.NO_PROVIDER_WARNING`) — both mean the vector leg
+    was wanted and did not run. (A `center` note missing from the index also
+    warns and is lumped in here.)
     """
     if mode == "":
         return []
