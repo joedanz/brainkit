@@ -457,13 +457,9 @@ for plat in telegram email; do
 done
 
 # --- brain MCP server: embedding env (healed every boot) ---------------------
-# hermes launches stdio MCP servers with a FILTERED environment — HOME, PATH,
-# TMPDIR and friends, plus the server stanza's own `env:` block — so an API key
-# in the container env never leaks into a server that was not given it. The
-# `brain` stanza used to have no `env:` block, so `brain mcp` never saw
-# BRAIN_EMBED_*, resolved no embedding provider, and every agent's own brain
-# search ran keyword-only. Silently: the container, and the gateway itself, did
-# hold all four variables.
+# hermes starts stdio MCP servers with a filtered env (PATH, HOME, TMPDIR, …)
+# plus only the stanza's own `env:` block. Without that block `brain mcp` sees
+# no BRAIN_EMBED_*, resolves no provider, and searches keyword-only.
 #
 # New volumes get the block from the first-boot heredoc above. Existing ones
 # are healed here, because config.yaml is never re-synced. The values are
