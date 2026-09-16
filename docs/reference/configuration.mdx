@@ -286,6 +286,32 @@ Configure via environment variables:
 | `BRAIN_EMBED_DIM` | `512` | Output dimension (sent as `dimensions`). |
 | `BRAIN_EMBED_CACHE` | `~/.cache/brain/embeddings.db` | Embedding cache location. |
 
+An empty value, or one that is still an unresolved `${VAR}` placeholder, counts as unset.
+
+<Callout type="warning">
+  `brain mcp` reads these variables from **its own** environment, and some MCP
+  clients start servers with a filtered one. hermes, for instance, passes only
+  `HOME`, `PATH`, `TMPDIR` and the server stanza's `env:` block — so the stanza
+  must forward them, or the server searches keyword-only:
+
+  ```yaml
+  mcp_servers:
+    brain:
+      command: brain
+      args: ["mcp", "--vault", "/vault"]
+      env:
+        BRAIN_EMBED_BASE_URL: ${BRAIN_EMBED_BASE_URL}
+        BRAIN_EMBED_API_KEY: ${BRAIN_EMBED_API_KEY}
+        BRAIN_EMBED_MODEL: ${BRAIN_EMBED_MODEL}
+        BRAIN_EMBED_DIM: ${BRAIN_EMBED_DIM}
+  ```
+
+  hermes resolves each `${VAR}` from its own environment when it starts the
+  server. The agents-box image writes this block for you. When a search runs
+  keyword-only against an index that has vectors, it warns
+  `no embedding provider configured`.
+</Callout>
+
 Or a config file at `~/.config/brain/config.yaml` (override the path with `BRAIN_CONFIG`):
 
 ```yaml
