@@ -15,11 +15,15 @@ The shell is extracted from the script rather than restated here — a copy woul
 keep passing after the script it describes had changed.
 """
 
+import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 DEPLOY = Path(__file__).resolve().parents[1] / "deploy/agents-box"
 HOOK = DEPLOY / "scripts/03-brain-first-boot"
@@ -671,3 +675,242 @@ def test_an_unknown_option_is_rejected(tmp_path):
     r = _install(repo, "--yolo")
     assert r.returncode == 1
     assert "unknown option" in r.stderr
+
+
+# --- brain MCP server env: healed into config.yaml on every boot -------------
+#
+# hermes starts MCP servers with a filtered environment, so the `brain` stanza
+# has to carry BRAIN_EMBED_* in its own `env:` block or agent search silently
+# runs keyword-only. The block under test is extracted from the script, and
+# run with the real Python (it needs PyYAML, as /opt/brainkit/bin/python has)
+# against a fake `hermes` that records its argv and applies the edit the way
+# the real one does: a YAML merge written to a fresh inode.
+#
+# No md5sum dependency — these must not skip on macOS.
+
+EMBED_KEYS = ["BRAIN_EMBED_BASE_URL", "BRAIN_EMBED_API_KEY", "BRAIN_EMBED_MODEL", "BRAIN_EMBED_DIM"]
+MCP_ENV_AWK = r'/^# --- brain MCP server: embedding env/{on=1} on{print} on && /^fi$/{exit}'
+FIRST_BOOT_HEREDOC_AWK = (
+    r'/^    cat >> "\$DATA\/config.yaml" <<.EOF.$/{on=1; next} on && /^EOF$/{exit} on{print}'
+)
+
+FAKE_HERMES = """#!{python}
+import json, os, sys, tempfile
+import yaml
+log = os.environ["FAKE_HERMES_LOG"]
+with open(log, "a") as f:
+    f.write(json.dumps({{"argv": sys.argv[1:], "HERMES_HOME": os.environ.get("HERMES_HOME")}}) + "\\n")
+if os.environ.get("FAKE_HERMES_FAIL"):
+    sys.exit(1)
+assert sys.argv[1:3] == ["config", "set"], sys.argv
+path = os.path.join(os.environ["HERMES_HOME"], "config.yaml")
+with open(path) as f:
+    cfg = yaml.safe_load(f)
+node = cfg
+*parents, leaf = sys.argv[3].split(".")
+for part in parents:
+    node = node.setdefault(part, {{}})
+node[leaf] = sys.argv[4]
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))  # 0600, like atomic_yaml_write
+with os.fdopen(fd, "w") as f:
+    yaml.safe_dump(cfg, f, sort_keys=False)
+os.replace(tmp, path)
+"""
+
+BASE_CONFIG = """\
+model:
+  default: some/model
+mcp_servers:
+  other:
+    command: /usr/bin/other
+    env:
+      OTHER_TOKEN: ${OTHER_TOKEN}
+  brain:
+    command: /usr/local/bin/brain
+    args: ["mcp", "--vault", "/vault"]
+"""
+
+
+@pytest.fixture(scope="module")
+def mcp_env_block():
+    return _extract(MCP_ENV_AWK)
+
+
+@pytest.fixture
+def heal(mcp_env_block, tmp_path):
+    """Run the extracted block. Returns (CompletedProcess, recorded hermes calls)."""
+    fake = tmp_path / "bin/hermes"
+    fake.parent.mkdir()
+    fake.write_text(FAKE_HERMES.format(python=sys.executable))
+    fake.chmod(0o755)
+    log = tmp_path / "hermes-calls.jsonl"
+
+    def run(data: Path, *, fail: bool = False, python: str = sys.executable,
+            extra_env: dict[str, str] | None = None):
+        log.unlink(missing_ok=True)
+        env = dict(os.environ)
+        env.update({
+            "BRAIN_PYTHON": python,
+            "HERMES_BIN": str(fake),
+            "FAKE_HERMES_LOG": str(log),
+            # the block must set HERMES_HOME itself, not inherit one
+            "HERMES_HOME": str(tmp_path / "wrong-hermes-home"),
+        })
+        env.pop("FAKE_HERMES_FAIL", None)
+        if fail:
+            env["FAKE_HERMES_FAIL"] = "1"
+        env.update(extra_env or {})
+        script = "\n".join(["set -eu", f'DATA="{data}"', mcp_env_block])
+        r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, env=env)
+        calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        return r, calls
+
+    return run
+
+
+def _config(tmp_path: Path, text: str) -> Path:
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    cfg = data / "config.yaml"
+    cfg.write_text(text)
+    cfg.chmod(0o640)
+    return data
+
+
+def _snapshot(path: Path) -> tuple[bytes, int, int]:
+    st = path.stat()
+    return path.read_bytes(), st.st_ino, st.st_mtime_ns
+
+
+def test_mcp_env_missing_block_is_added_with_literal_placeholders(heal, tmp_path):
+    data = _config(tmp_path, BASE_CONFIG)
+    r, calls = heal(data)
+    assert r.returncode == 0, r.stderr
+    assert [c["argv"] for c in calls] == [
+        ["config", "set", f"mcp_servers.brain.env.{k}", "${" + k + "}"] for k in EMBED_KEYS
+    ]
+    assert {c["HERMES_HOME"] for c in calls} == {str(data)}
+    assert r.stdout.count("[brain]") == 1
+    assert "mcp_servers.brain.env: added" in r.stdout
+
+    cfg = yaml.safe_load((data / "config.yaml").read_text())
+    assert cfg["mcp_servers"]["brain"]["env"] == {k: "${" + k + "}" for k in EMBED_KEYS}
+    assert cfg["mcp_servers"]["other"] == {
+        "command": "/usr/bin/other", "env": {"OTHER_TOKEN": "${OTHER_TOKEN}"}}
+    # the fake wrote a fresh 0600 inode, as hermes does; the block restores 640
+    assert (data / "config.yaml").stat().st_mode & 0o777 == 0o640
+
+
+def test_mcp_env_heal_is_idempotent(heal, tmp_path):
+    data = _config(tmp_path, BASE_CONFIG)
+    heal(data)
+    before = _snapshot(data / "config.yaml")
+    r, calls = heal(data)
+    assert r.returncode == 0, r.stderr
+    assert calls == []
+    assert r.stdout == ""
+    assert _snapshot(data / "config.yaml") == before
+
+
+def test_mcp_env_all_present_invokes_nothing(heal, tmp_path):
+    text = BASE_CONFIG + "    env:\n" + "".join(
+        f"      {k}: operator-set-{k}\n" for k in EMBED_KEYS)
+    data = _config(tmp_path, text)
+    before = _snapshot(data / "config.yaml")
+    r, calls = heal(data)
+    assert r.returncode == 0, r.stderr
+    assert calls == []
+    assert r.stdout == ""
+    assert _snapshot(data / "config.yaml") == before
+
+
+def test_mcp_env_only_the_missing_keys_are_written(heal, tmp_path):
+    text = (BASE_CONFIG + "    env:\n"
+            "      BRAIN_EMBED_BASE_URL: https://hand.set/v1\n"
+            "      BRAIN_EMBED_DIM: '1024'\n")
+    data = _config(tmp_path, text)
+    r, calls = heal(data)
+    assert r.returncode == 0, r.stderr
+    assert [c["argv"][2] for c in calls] == [
+        "mcp_servers.brain.env.BRAIN_EMBED_API_KEY", "mcp_servers.brain.env.BRAIN_EMBED_MODEL"]
+    env = yaml.safe_load((data / "config.yaml").read_text())["mcp_servers"]["brain"]["env"]
+    assert env["BRAIN_EMBED_BASE_URL"] == "https://hand.set/v1"
+    assert env["BRAIN_EMBED_DIM"] == "1024"
+
+
+@pytest.mark.parametrize("text", [
+    "model:\n  default: some/model\n",
+    "mcp_servers:\n  other:\n    command: /usr/bin/other\n",
+    "mcp_servers:\n  brain:\n    args: [mcp]\n",
+    "mcp_servers:\n  brain:\n",
+], ids=["no-mcp-servers", "no-brain-stanza", "brain-without-command", "brain-null"])
+def test_mcp_env_is_never_created_where_there_is_no_brain_server(heal, tmp_path, text):
+    data = _config(tmp_path, text)
+    before = _snapshot(data / "config.yaml")
+    r, calls = heal(data)
+    assert r.returncode == 0, r.stderr
+    assert calls == []
+    assert r.stdout == ""
+    assert _snapshot(data / "config.yaml") == before
+
+
+def test_mcp_env_a_failing_hermes_does_not_fail_the_boot(heal, tmp_path):
+    data = _config(tmp_path, BASE_CONFIG)
+    before = (data / "config.yaml").read_bytes()
+    r, calls = heal(data, fail=True)
+    assert r.returncode == 0, r.stderr
+    assert len(calls) == 4          # tried every key, did not stop at the first
+    lines = [line for line in r.stdout.splitlines() if line.startswith("[brain]")]
+    assert len(lines) == 1 and "could not add" in lines[0]
+    assert (data / "config.yaml").read_bytes() == before
+
+
+@pytest.mark.parametrize("case", ["no-python", "unparseable", "missing-config", "env-not-a-mapping"])
+def test_mcp_env_an_unreadable_config_does_not_fail_the_boot(heal, tmp_path, case):
+    python = sys.executable
+    if case == "no-python":
+        data = _config(tmp_path, BASE_CONFIG)
+        python = str(tmp_path / "no-such-python")
+    elif case == "unparseable":
+        data = _config(tmp_path, "mcp_servers: [unclosed\n")
+    elif case == "missing-config":
+        data = tmp_path / "data"
+        data.mkdir()
+    else:
+        data = _config(tmp_path, BASE_CONFIG + "    env: [BRAIN_EMBED_BASE_URL]\n")
+    r, calls = heal(data, python=python)
+    assert r.returncode == 0, r.stderr
+    assert calls == []
+    assert "[brain] could not inspect mcp_servers.brain" in r.stdout
+
+
+def test_mcp_env_placeholders_are_not_expanded_by_the_script(heal, tmp_path):
+    # The boot runs under with-contenv, where these variables DO hold the real
+    # values. Expanding them would write the API key into config.yaml.
+    data = _config(tmp_path, BASE_CONFIG)
+    secrets = {k: f"real-$value-{k}" for k in EMBED_KEYS}
+    r, calls = heal(data, extra_env=secrets)
+    assert r.returncode == 0, r.stderr
+    assert [c["argv"][3] for c in calls] == ["${" + k + "}" for k in EMBED_KEYS]
+    assert "real-" not in (data / "config.yaml").read_text()
+
+
+def test_first_boot_stanza_carries_the_env_block(heal, tmp_path):
+    appended = _extract(FIRST_BOOT_HEREDOC_AWK)
+    brain = yaml.safe_load(appended)["mcp_servers"]["brain"]
+    assert brain["env"] == {k: "${" + k + "}" for k in EMBED_KEYS}
+    # and a freshly installed agent is already healed: nothing to write
+    data = _config(tmp_path, "model:\n  default: some/model\n" + appended)
+    r, calls = heal(data)
+    assert r.returncode == 0, r.stderr
+    assert calls == []
+
+
+def test_mcp_env_block_runs_before_the_ownership_block():
+    text = HOOK.read_text()
+    heal_at = text.index("# --- brain MCP server: embedding env")
+    owner_at = text.index("# --- 3. ownership")
+    assert heal_at < owner_at
+    # the closing chown still covers the file the heal may have rewritten
+    assert '"$DATA/config.yaml"' in text[owner_at:]
+    assert 'chown hermes:hermes "$DATA/config.yaml"' in text[heal_at:owner_at]
