@@ -1,8 +1,12 @@
 """Generate AGENTS.md / CLAUDE.md so every compiled vault is self-describing.
 
-Limits follow Hermes Agent context-file loading: ~20K chars for the root file,
-~8K for progressively-discovered per-directory files. Copy is declarative so it
-passes Hermes's prompt-injection scan.
+Limits follow Hermes Agent context-file loading: Hermes injects this file
+into the system prompt with a dynamic cap that scales to the model's real
+context window (20K-char floor, 500K ceiling — see
+``_dynamic_context_file_max_chars`` in hermes-agent's prompt_builder.py), so
+ROOT_LIMIT only needs to stay under the floor's *headroom*, not at the floor
+itself. ~8K for progressively-discovered per-directory files. Copy is
+declarative so it passes Hermes's prompt-injection scan.
 """
 
 from __future__ import annotations
@@ -11,7 +15,12 @@ from pathlib import Path
 
 from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, VaultConfig
 
-ROOT_LIMIT = 20_000
+# `## Spaces in this vault` renders one line per second-level entity
+# directory (every Property, every Company, ...), so this scales with a
+# vault's entity count, not just its prose. 664 Properties alone pushed a
+# real vault past the old 20_000 floor — raised with headroom for continued
+# entity growth; still a small fraction of any modern model's dynamic cap.
+ROOT_LIMIT = 50_000
 SPACE_LIMIT = 8_000
 
 _ROOT_TEMPLATE = """\

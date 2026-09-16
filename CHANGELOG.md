@@ -11,6 +11,24 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-09-16
+
+### Fixed
+
+- **The root protocol no longer hard-fails once a vault's entities pile up.**
+  `## Spaces in this vault` renders one line per second-level entity
+  directory — every Property, every Company — so the file's length scales
+  with a vault's entity count, not just its charter and corrections. A real
+  vault with 664 Properties pushed the root protocol past the 20,000-char
+  `ROOT_LIMIT`, and every compile for that person raised `ValueError` before
+  writing anything: the cron cycle died silently every run, the compiled
+  vault froze at its pre-growth state, and the dashboard kept serving a
+  stale page count indefinitely with no error surfaced anywhere in the
+  chain. `ROOT_LIMIT` is now 50,000 — still a small fraction of Hermes's own
+  dynamic context-file cap (20K floor, 500K ceiling, scaled to the model's
+  real context window), so this stays well inside that headroom rather than
+  sitting at its floor.
+
 ## [0.6.4] - 2026-09-16
 
 ### Fixed
