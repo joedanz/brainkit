@@ -175,7 +175,7 @@ question that nothing else in brainkit answers: **is search returning
 anything?**
 
 ```json
-{"schema":1,"person":"joe","brainkit_version":"0.4.11","updated_at":"2026-08-19T14:02:11Z","searches":412,"zero_hit":157,"by_mode":{"hybrid":380,"no-index":2},"warn":{"vector-degraded":8},"raw_log":false,"raw_log_since":null,"raw_truncated":false,"raw_log_wrapped":false}
+{"schema":1,"person":"joe","brainkit_version":"0.4.11","updated_at":"2026-08-19T14:02:11Z","searches":412,"zero_hit":157,"by_mode":{"hybrid":380,"no-index":2},"warn":{"vector-degraded":8},"raw_truncated":false,"raw_log_wrapped":false}
 ```
 
 Counters are cumulative and only ever increase. A recompile does **not**
@@ -236,9 +236,19 @@ To read the whole window, newest last:
 ls -r <vault>/.brain/retrieval.jsonl.*.gz 2>/dev/null | xargs -r gunzip -c; cat <vault>/.brain/retrieval.jsonl
 ```
 
-This log holds the literal text people typed. `raw_log` and `raw_log_since` in
-the stats file report that it is running and since when, so it cannot be
-switched on and forgotten.
+This log holds the literal text people typed. Whether capture is on, and
+since when, is **not** in the stats file — it is the existence and mtime of
+the sentinel itself, so it cannot be switched on and forgotten:
+
+```bash
+test -f <vault>/.brain/retrieval-log.on && stat -c %Y <vault>/.brain/retrieval-log.on
+```
+
+Prints the sentinel's mtime as a Unix timestamp when capture is on, and
+nothing when it is off. (`retrieval-stats.json` carried `raw_log` and
+`raw_log_since` mirroring this through 0.6.3; both were dropped in 0.6.4
+because they only refreshed on a search, so they read stale for as long as
+nobody searched after capture was toggled — see the CHANGELOG.)
 
 Removing the sentinel stops **future** capture only — it does not erase what
 was already captured, and it does not change whether the switch is on or off

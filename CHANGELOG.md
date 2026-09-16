@@ -11,6 +11,24 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-09-16
+
+### Removed
+
+- **`retrieval-stats.json` no longer carries `raw_log` or `raw_log_since`.**
+  Both were only rewritten when a search ran, so they went stale for as long
+  as nobody searched after capture was switched on or off — in production
+  that showed three agents as not recording for nine days while they
+  actually were. Both values are fully derivable from the sentinel file,
+  `.brain/retrieval-log.on`: its existence is on/off, and its mtime is since
+  when. Fleet now reads the sentinel directly (fleet #456, #458) instead of
+  these fields, and this release removes fleet's last read of them. `schema`
+  stays `1` — fleet's parser treats any other value as "not reporting" for
+  every agent on every company, and the one remaining consumer no longer
+  reads these two keys, so removing them is compatible for it. Everything
+  else in the payload, including `raw_log_wrapped` and `raw_truncated`, is
+  unchanged. See [issue #178](https://github.com/joedanz/brainkit/issues/178).
+
 ## [0.6.3] - 2026-09-11
 
 ### Changed
