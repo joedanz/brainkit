@@ -478,15 +478,24 @@ done
 # stanza at all, on an agent where it was deliberately removed — is left alone,
 # as is every other server and any value an operator set by hand.
 #
-# `hermes config set` writes a fresh inode, owned by whoever ran it and without
-# the 640 mode config.yaml carries, so both are restored right here: the
-# restart-ping loop reads the file as hermes, and a later step must never find
-# it unreadable.
+# `hermes config set` runs AS HERMES, never as this root script. Measured on a
+# live agent against a copy of its data: run as root, the hermes CLI builds its
+# home skeleton as the caller — logs/agent.log, logs/errors.log, sessions/,
+# memories/, cron/, pairing/ all came out root:root — and the gateway runs as
+# hermes. The chown further down covers config.yaml and SOUL.md, not those. Run
+# through s6-setuidgid, the same run created zero root-owned files.
+# SETUIDGID is an absolute path for the same reason as tmp-reaper-run: /command
+# is on PATH only inside s6 services. Empty (tests) runs hermes directly.
+#
+# The write is also a fresh inode, so ownership and the 640 mode are restored
+# right after it as a second line of defence: the restart-ping loop reads the
+# file as hermes, and a later step must never find it unreadable.
 #
 # Fully guarded — this script runs `set -eu`, and no failure here may fail a
 # boot. The worst case is the state every agent was already in.
 BRAIN_PYTHON=${BRAIN_PYTHON:-/opt/brainkit/bin/python}
 HERMES_BIN=${HERMES_BIN:-/opt/hermes/.venv/bin/hermes}
+SETUIDGID=${SETUIDGID-/command/s6-setuidgid}
 if ! embed_missing=$("$BRAIN_PYTHON" -c '
 import sys, yaml
 with open(sys.argv[1]) as f:
@@ -510,7 +519,8 @@ elif [ -n "$embed_missing" ]; then
     for key in $embed_missing; do
         # "\${$key}" is the literal text ${BRAIN_EMBED_...}: hermes, not this
         # shell, resolves it.
-        HERMES_HOME="$DATA" "$HERMES_BIN" config set "mcp_servers.brain.env.$key" "\${$key}" \
+        HERMES_HOME="$DATA" $SETUIDGID ${SETUIDGID:+hermes} "$HERMES_BIN" \
+            config set "mcp_servers.brain.env.$key" "\${$key}" \
             >/dev/null 2>&1 || embed_failed="$embed_failed $key"
     done
     chown hermes:hermes "$DATA/config.yaml" 2>/dev/null || true

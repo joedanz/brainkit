@@ -752,6 +752,8 @@ def heal(mcp_env_block, tmp_path):
         env.update({
             "BRAIN_PYTHON": python,
             "HERMES_BIN": str(fake),
+            # no s6 here; empty runs hermes directly (the drop is tested below)
+            "SETUIDGID": "",
             "FAKE_HERMES_LOG": str(log),
             # the block must set HERMES_HOME itself, not inherit one
             "HERMES_HOME": str(tmp_path / "wrong-hermes-home"),
@@ -914,3 +916,26 @@ def test_mcp_env_block_runs_before_the_ownership_block():
     # the closing chown still covers the file the heal may have rewritten
     assert '"$DATA/config.yaml"' in text[owner_at:]
     assert 'chown hermes:hermes "$DATA/config.yaml"' in text[heal_at:owner_at]
+
+
+def test_hermes_config_set_runs_as_hermes_not_root(heal, tmp_path):
+    """Run as root, the hermes CLI builds its home skeleton as the CALLER —
+    measured on a live agent against a copy of its data: logs/agent.log,
+    logs/errors.log, sessions/, memories/, cron/ all came out root:root, while
+    the gateway runs as hermes. Through s6-setuidgid the same run left zero
+    root-owned files. So every write must go through the privilege drop."""
+    data = _config(tmp_path, BASE_CONFIG)
+    wrap = tmp_path / "setuidgid"
+    wlog = tmp_path / "setuidgid.log"
+    wrap.write_text(f'#!/bin/sh\necho "$1" >> "{wlog}"\nshift\nexec "$@"\n')
+    wrap.chmod(0o755)
+    r, calls = heal(data, extra_env={"SETUIDGID": str(wrap)})
+    assert r.returncode == 0, r.stderr
+    assert len(calls) == 4, calls
+    assert wlog.read_text().split() == ["hermes"] * 4
+
+
+def test_heal_drops_privileges_by_absolute_path():
+    """/command is on PATH only inside s6 services, same as tmp-reaper-run: a
+    bare `s6-setuidgid` would fail here and leave the heal a no-op."""
+    assert "SETUIDGID=${SETUIDGID-/command/s6-setuidgid}" in HOOK.read_text()
