@@ -51,8 +51,13 @@ mimetypes.add_type("font/woff2", ".woff2")
 
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", ""}
 _LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+# Node selection is by degree (highest first, see _build_graph), so a fixed
+# default cap covers a shrinking fraction of the vault as it grows: a real
+# vault that tripled from ~3,900 to ~9,472 pages left plenty of genuinely
+# well-linked pages (degree 14-20) with almost all their neighbors pruned
+# from the default view, rendering as if isolated even though they aren't.
 _MAX_GRAPH_CAP = 2000
-_DEFAULT_GRAPH_CAP = 300
+_DEFAULT_GRAPH_CAP = 1000
 _SEND_TIMEOUT = 10.0  # seconds a single WS send may take before we drop the socket
 
 

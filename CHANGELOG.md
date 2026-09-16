@@ -11,6 +11,23 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-09-16
+
+### Fixed
+
+- **The Graph tab's default view no longer strands well-linked pages that
+  merely aren't top-300.** Node selection is by degree, so a fixed default
+  cap covers a shrinking slice of the vault as it grows. A real vault that
+  tripled from ~3,900 to ~9,472 pages left pages with real degree 14-20
+  (dozens of times better-linked than a typical page) with almost all their
+  neighbors pruned from the default 300-node view — the one surviving edge
+  was often to another similarly-stranded page, rendering as an isolated
+  pair floating off the main graph even though both are solidly connected
+  in the underlying data. Default cap raised from 300 to 1,000, verified
+  against a real large vault to restore full connectivity for its
+  moderately-linked pages at the default view (no change needed to the
+  2,000 max).
+
 ## [0.6.5] - 2026-09-16
 
 ### Fixed
