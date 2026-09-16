@@ -11,6 +11,51 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-09-16
+
+### Fixed
+
+- **Agent brain search on the agents box uses vectors again.** Every agent's
+  own `brain_search` ran keyword-only, on every search, with no warning: the
+  semantic leg was lost on all agents even though the container held a working
+  embedding provider. hermes starts stdio MCP servers with a filtered
+  environment (HOME, PATH, TMPDIR, plus the server stanza's own `env:` block),
+  and the `mcp_servers.brain` stanza that `03-brain-first-boot` writes had no
+  `env:` block, so `brain mcp` never saw `BRAIN_EMBED_*`. The stanza now
+  carries all four as `${VAR}` placeholders, which hermes resolves from its own
+  environment when it starts the server — `config.yaml` holds no key. New
+  agents get it at first boot. **Existing agents heal on their next boot after
+  the upgrade:** the boot script adds only the missing keys, through
+  `hermes config set`, and leaves the file alone when they are already there or
+  when the agent has no `brain` server.
+- **A search that runs keyword-only by accident now says so.** When no
+  embedding provider resolves but the index was built with vectors,
+  `brain search` and the MCP tool warn `no embedding provider configured —
+  searching keyword-only against an index that has vectors` (counted as
+  `vector-degraded` in `retrieval-stats.json`). An index built keyword-only,
+  or an explicit `--keyword-only`, stays quiet.
+- **An unresolved `${VAR}` placeholder in `BRAIN_EMBED_*` counts as unset.**
+  An MCP client that interpolates `env:` leaves the literal text when the
+  variable is missing; brainkit used to take `${BRAIN_EMBED_BASE_URL}` as a
+  URL, which would have made every search fail instead of falling back to
+  keyword-only.
+
+### Removed
+
+- **`retrieval-stats.json` no longer carries `raw_log` or `raw_log_since`.**
+  Both were only rewritten when a search ran, so they went stale for as long
+  as nobody searched after capture was switched on or off — in production
+  that showed three agents as not recording for nine days while they
+  actually were. Both values are fully derivable from the sentinel file,
+  `.brain/retrieval-log.on`: its existence is on/off, and its mtime is since
+  when. Fleet now reads the sentinel directly (fleet #456, #458) instead of
+  these fields, and a matching fleet change removes fleet's last read of
+  them. `schema` stays `1` — fleet's parser treats any other value as "not
+  reporting" for every agent on every company, and the one remaining consumer
+  no longer reads these two keys, so removing them is compatible for it. Everything
+  else in the payload, including `raw_log_wrapped` and `raw_truncated`, is
+  unchanged. See [issue #178](https://github.com/joedanz/brainkit/issues/178).
+
 ## [0.6.3] - 2026-09-11
 
 ### Changed

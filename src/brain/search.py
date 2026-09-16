@@ -29,6 +29,9 @@ _MAX_PER_FILE = 2
 _RRF_C = 60
 _PPR_LEG = 20   # PPR files entering the fusion
 _SEED_HITS = 5  # top text-fused chunks whose files become weak seeds
+NO_PROVIDER_WARNING = (
+    "no embedding provider configured — searching keyword-only against an index that has vectors"
+)
 
 
 @dataclass
@@ -126,6 +129,12 @@ def _run_search(
     use_vectors = not keyword_only and provider is not None and store.vector_status == "ok"
     if not keyword_only and provider is not None and store.vector_status != "ok":
         warnings.append(store.vector_status)
+    # Nobody asked for keyword-only, yet no provider resolved, against an index
+    # that was built with vectors: a configuration gap, not a choice. It used
+    # to be silent — every agent's brain search ran keyword-only for weeks
+    # because its MCP client never passed the embedding env through.
+    if not keyword_only and provider is None and store.has_vectors():
+        warnings.append(NO_PROVIDER_WARNING)
 
     vec_rank: list[int] = []
     if use_vectors:

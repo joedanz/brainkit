@@ -233,6 +233,14 @@ mcp_servers:
   brain:
     command: /usr/local/bin/brain
     args: ["mcp", "--vault", "/vault"]
+    # hermes starts MCP servers with a filtered environment; without these
+    # the server has no embedding provider and searches keyword-only. hermes
+    # resolves each ${VAR} from its own environment at launch.
+    env:
+      BRAIN_EMBED_BASE_URL: ${BRAIN_EMBED_BASE_URL}
+      BRAIN_EMBED_API_KEY: ${BRAIN_EMBED_API_KEY}
+      BRAIN_EMBED_MODEL: ${BRAIN_EMBED_MODEL}
+      BRAIN_EMBED_DIM: ${BRAIN_EMBED_DIM}
 
 tool_loop_guardrails:
   hard_stop_enabled: true
@@ -447,6 +455,78 @@ for plat in telegram email; do
         echo "[brain] could not set $key — left as-is, agent may ping on restart"
     fi
 done
+
+# --- brain MCP server: embedding env (healed every boot) ---------------------
+# hermes starts stdio MCP servers with a filtered env (PATH, HOME, TMPDIR, …)
+# plus only the stanza's own `env:` block. Without that block `brain mcp` sees
+# no BRAIN_EMBED_*, resolves no provider, and searches keyword-only.
+#
+# New volumes get the block from the first-boot heredoc above. Existing ones
+# are healed here, because config.yaml is never re-synced. The values are
+# `${VAR}` placeholders, never the secrets: hermes resolves them from its own
+# environment when it starts the server, so config.yaml holds no key.
+#
+# Same stance as the restart-ping loop above: hermes owns config.yaml, so
+# hermes writes it (`hermes config set` does a real YAML merge), and we write
+# only what is MISSING. Deciding that needs to read the YAML, which the image's
+# brainkit Python can. When all four keys are present nothing is invoked, so
+# the file is not rewritten. A stanza without a `command` — or no `brain`
+# stanza at all, on an agent where it was deliberately removed — is left alone,
+# as is every other server and any value an operator set by hand.
+#
+# `hermes config set` runs AS HERMES, never as this root script. Measured on a
+# live agent against a copy of its data: run as root, the hermes CLI builds its
+# home skeleton as the caller — logs/agent.log, logs/errors.log, sessions/,
+# memories/, cron/, pairing/ all came out root:root — and the gateway runs as
+# hermes. The chown further down covers config.yaml and SOUL.md, not those. Run
+# through s6-setuidgid, the same run created zero root-owned files.
+# SETUIDGID is an absolute path for the same reason as tmp-reaper-run: /command
+# is on PATH only inside s6 services. Empty (tests) runs hermes directly.
+#
+# The write is also a fresh inode, so ownership and the 640 mode are restored
+# right after it as a second line of defence: the restart-ping loop reads the
+# file as hermes, and a later step must never find it unreadable.
+#
+# Fully guarded — this script runs `set -eu`, and no failure here may fail a
+# boot. The worst case is the state every agent was already in.
+BRAIN_PYTHON=${BRAIN_PYTHON:-/opt/brainkit/bin/python}
+HERMES_BIN=${HERMES_BIN:-/opt/hermes/.venv/bin/hermes}
+SETUIDGID=${SETUIDGID-/command/s6-setuidgid}
+if ! embed_missing=$("$BRAIN_PYTHON" -c '
+import sys, yaml
+with open(sys.argv[1]) as f:
+    cfg = yaml.safe_load(f)
+servers = cfg.get("mcp_servers") if isinstance(cfg, dict) else None
+brain = servers.get("brain") if isinstance(servers, dict) else None
+if not isinstance(brain, dict) or not brain.get("command"):
+    sys.exit(0)
+env = brain.get("env")
+if env is None:
+    env = {}
+if not isinstance(env, dict):
+    sys.exit("mcp_servers.brain.env is not a mapping")
+print(" ".join(k for k in sys.argv[2:] if k not in env))
+' "$DATA/config.yaml" \
+        BRAIN_EMBED_BASE_URL BRAIN_EMBED_API_KEY BRAIN_EMBED_MODEL BRAIN_EMBED_DIM \
+        2>/dev/null); then
+    echo "[brain] could not inspect mcp_servers.brain in config.yaml — embedding env not checked, brain search may be keyword-only"
+elif [ -n "$embed_missing" ]; then
+    embed_failed=""
+    for key in $embed_missing; do
+        # "\${$key}" is the literal text ${BRAIN_EMBED_...}: hermes, not this
+        # shell, resolves it.
+        HERMES_HOME="$DATA" $SETUIDGID ${SETUIDGID:+hermes} "$HERMES_BIN" \
+            config set "mcp_servers.brain.env.$key" "\${$key}" \
+            >/dev/null 2>&1 || embed_failed="$embed_failed $key"
+    done
+    chown hermes:hermes "$DATA/config.yaml" 2>/dev/null || true
+    chmod 640 "$DATA/config.yaml" 2>/dev/null || true
+    if [ -z "$embed_failed" ]; then
+        echo "[brain] mcp_servers.brain.env: added $embed_missing (brain search can use vectors again)"
+    else
+        echo "[brain] could not add mcp_servers.brain.env:$embed_failed — left as-is, brain search stays keyword-only"
+    fi
+fi
 
 # --- 2. deploy key (once) — the private key never leaves this container ----
 # ssh finds it via /etc/ssh/ssh_config.d/brain.conf (absolute paths, baked

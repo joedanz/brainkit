@@ -6,7 +6,7 @@ from brain.cli import main
 from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.indexer import build_index
-from brain.search import rrf, search_index
+from brain.search import NO_PROVIDER_WARNING, rrf, search_index
 from tests.conftest import ALICE, RULES, requires_vectors
 
 
@@ -53,6 +53,32 @@ def test_keyword_only_when_no_provider(indexed_alice):
     # introduce Home's non-matching neighbor (Big Deal Decision) as a
     # graph-only hit — not just "keyword survives," but "graph adds."
     assert any(h.sources == ["graph"] for h in report.hits)
+
+
+@requires_vectors
+def test_missing_provider_against_a_vector_index_warns(indexed_alice):
+    # The silent-degradation bug: an MCP client that drops BRAIN_EMBED_* ran
+    # every agent search keyword-only with no hint that vectors existed.
+    report = search_index(indexed_alice, "pipeline", provider=None)
+    assert report.mode == "keyword-only+graph"
+    assert NO_PROVIDER_WARNING in report.warnings
+
+
+def test_missing_provider_against_a_keyword_only_index_is_quiet(master, tmp_path):
+    # sqlite-vec loading (vector_status == "ok") is not "the index has
+    # vectors" — a keyword-only build is a choice, not a misconfiguration.
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    report = search_index(vault, "pipeline", provider=None)
+    assert report.mode == "keyword-only+graph"
+    assert report.warnings == []
+
+
+@requires_vectors
+def test_explicit_keyword_only_against_a_vector_index_is_quiet(indexed_alice):
+    report = search_index(indexed_alice, "pipeline", provider=None, keyword_only=True)
+    assert NO_PROVIDER_WARNING not in report.warnings
 
 
 def test_keyword_only_flag_forces_no_vectors(indexed_alice):

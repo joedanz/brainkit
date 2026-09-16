@@ -100,10 +100,37 @@ def test_raw_fields_are_present_and_off_by_default(tmp_path):
     vault = _vault(tmp_path)
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW)
     d = _stats(vault)
-    assert d["raw_log"] is False
-    assert d["raw_log_since"] is None
     assert d["raw_truncated"] is False
     assert d["raw_log_wrapped"] is False
+
+
+def test_schema_stays_1(tmp_path):
+    """Fleet's parser (apps/dashboard/lib/ops/health.ts, two call sites) does
+    `if (d.schema !== 1) return absent` — bumping this makes every agent on
+    every company read as "not reporting" on the next sweep. Do not bump it
+    casually; see brainkit issue #178."""
+    vault = _vault(tmp_path)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW)
+    assert _stats(vault)["schema"] == 1
+
+
+def test_raw_log_and_raw_log_since_are_not_written(tmp_path):
+    """Both fields were only rewritten when a search ran, so they went stale
+    whenever capture was switched on or off between searches (fleet issue
+    #178). Fleet now derives on/off and since from the sentinel file's
+    existence and mtime directly, so neither key is written any more —
+    checked with capture both on and off."""
+    vault = _vault(tmp_path)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW)
+    d = _stats(vault)
+    assert "raw_log" not in d
+    assert "raw_log_since" not in d
+
+    _switch_on(vault)
+    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
+    d = _stats(vault)
+    assert "raw_log" not in d
+    assert "raw_log_since" not in d
 
 
 def test_a_corrupt_stats_file_does_not_raise(tmp_path):
@@ -144,9 +171,6 @@ def test_never_leaves_a_temp_file_behind(tmp_path):
     assert list((vault / ".brain").glob("*.tmp")) == []
 
 
-import os
-import time
-
 from brain.retrieval import RAW_NAME, SENTINEL_NAME
 
 
@@ -175,7 +199,6 @@ def test_no_raw_log_is_written_without_the_sentinel(tmp_path):
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW,
            query="what is our refund policy", hit_locations=[("Company/Policy.md", "Company")])
     assert _raw_lines(vault) == []
-    assert _stats(vault)["raw_log"] is False
 
 
 def test_the_sentinel_switches_the_raw_log_on(tmp_path):
@@ -189,7 +212,6 @@ def test_the_sentinel_switches_the_raw_log_on(tmp_path):
     assert lines[0]["mode"] == "hybrid"
     assert lines[0]["hits"] == [{"rel_path": "Company/Policy.md", "space": "Company"}]
     assert lines[0]["at"] == NOW
-    assert _stats(vault)["raw_log"] is True
 
 
 def test_snippets_are_never_written_to_the_raw_log(tmp_path):
@@ -199,31 +221,6 @@ def test_snippets_are_never_written_to_the_raw_log(tmp_path):
     record(vault, mode="hybrid", hits=1, warnings=[], now=NOW,
            query="q", hit_locations=[("Company/Policy.md", "Company")])
     assert "snippet" not in (vault / ".brain" / RAW_NAME).read_text()
-
-
-def test_raw_log_since_reports_the_sentinel_mtime(tmp_path):
-    """`raw_log_since` reads the sentinel's real mtime, never the injected
-    `now` a search happens to run with — asserted directly against the mtime
-    we set, not against a fixed constant: comparing to a hardcoded date is
-    what made this test wall-clock-dependent (and fail) once real time
-    caught up to it."""
-    from datetime import UTC, datetime
-
-    vault = _vault(tmp_path)
-    sentinel = _switch_on(vault)
-    backdated = time.time() - (10 * 86400)
-    os.utime(sentinel, (backdated, backdated))
-    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
-    since = _stats(vault)["raw_log_since"]
-    expected = datetime.fromtimestamp(backdated, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    assert since == expected
-    assert since != NOW
-
-
-def test_raw_log_since_is_null_when_switched_off(tmp_path):
-    vault = _vault(tmp_path)
-    record(vault, mode="hybrid", hits=1, warnings=[], now=NOW, query="q")
-    assert _stats(vault)["raw_log_since"] is None
 
 
 def test_raw_truncated_is_false_while_raw_logging_is_off(tmp_path):
@@ -559,8 +556,8 @@ def test_ensure_creates_a_zero_count_file_on_a_fresh_vault(tmp_path):
     assert d["zero_hit"] == 0
     assert d["by_mode"] == {}
     assert d["warn"] == {}
-    assert d["raw_log"] is False
-    assert d["raw_log_since"] is None
+    assert "raw_log" not in d
+    assert "raw_log_since" not in d
     assert d["raw_truncated"] is False
     assert d["raw_log_wrapped"] is False
     assert d["updated_at"] == NOW

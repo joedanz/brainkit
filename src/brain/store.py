@@ -252,6 +252,22 @@ class IndexStore:
         row = self.conn.execute("SELECT value FROM index_meta WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 
+    def has_vectors(self) -> bool:
+        """True when this index holds at least one embedded chunk it can search.
+
+        Not `vector_status == "ok"`: that only says sqlite-vec loaded, which is
+        just as true for an index built keyword-only. The vec table is created
+        lazily on the first embedded write (`SqliteVecBackend._ensure`), so a
+        keyword-only build has none; an index that once had vectors can keep an
+        emptied table, hence the row check rather than the table alone.
+        """
+        if not isinstance(self.vectors, SqliteVecBackend) or not self.vectors._ready:
+            return False
+        try:
+            return self.conn.execute("SELECT 1 FROM chunks_vec LIMIT 1").fetchone() is not None
+        except sqlite3.Error:
+            return False
+
     def has_file(self, rel_path: str) -> bool:
         row = self.conn.execute(
             "SELECT 1 FROM files WHERE rel_path = ?", (rel_path,)

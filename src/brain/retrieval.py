@@ -21,7 +21,6 @@ import os
 import shutil
 from collections.abc import Sequence
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.version import __version__
@@ -92,11 +91,14 @@ def _person(vault: Path) -> str | None:
 def _warn_keys(mode: str, warnings: Sequence[str]) -> list[str]:
     """Warning categories, never messages.
 
-    `search_index` emits exactly two warnings. The no-index early return emits
-    one AND sets mode="", so `mode == ""` identifies that case completely —
-    and it is already counted in by_mode, so counting it here too would
-    double-count one search. Every other warning comes from
-    `store.vector_status`.
+    The no-index early return in `search_index` emits a warning AND sets
+    mode="", so `mode == ""` identifies that case completely — and it is
+    already counted in by_mode, so counting it here too would double-count one
+    search. Every other search that warns is counted as vector-degraded: a
+    `store.vector_status` failure, or no embedding provider against an index
+    that has vectors (`search.NO_PROVIDER_WARNING`) — both mean the vector leg
+    was wanted and did not run. (A `center` note missing from the index also
+    warns and is lumped in here.)
     """
     if mode == "":
         return []
@@ -105,19 +107,6 @@ def _warn_keys(mode: str, warnings: Sequence[str]) -> list[str]:
 
 def _mode_key(mode: str) -> str:
     return NO_INDEX if mode == "" else mode
-
-
-def _sentinel_since(sentinel: Path) -> str | None:
-    """When raw logging was switched on, from the sentinel's mtime.
-
-    Not derived from the injected `now`: this is a filesystem fact, and it is
-    what lets fleet escalate a switch that has been left on.
-    """
-    try:
-        ts = sentinel.stat().st_mtime
-    except OSError:
-        return None
-    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def segment_path(brain_dir: Path, n: int) -> Path:
@@ -270,8 +259,6 @@ def ensure(vault: Path, *, now: str) -> None:
             "zero_hit": 0,
             "by_mode": {},
             "warn": {},
-            "raw_log": False,
-            "raw_log_since": None,
             "raw_truncated": False,
             "raw_log_wrapped": False,
         }
@@ -336,8 +323,6 @@ def record(
             "zero_hit": int(data.get("zero_hit", 0) or 0) + (1 if hits == 0 else 0),
             "by_mode": by_mode,
             "warn": warn,
-            "raw_log": raw_on,
-            "raw_log_since": _sentinel_since(sentinel) if raw_on else None,
             # Two keys, one value, by design. `raw_truncated` meant "capture
             # stopped" on 0.4.5-0.4.8 and means "the segment set is full, the
             # next rotation discards the oldest" from 0.4.9 on — same field

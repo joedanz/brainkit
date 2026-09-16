@@ -180,6 +180,55 @@ def test_provider_from_config_empty_vars_mean_unset(monkeypatch, tmp_path):
     assert p.dim == embeddings.DEFAULT_DIM
 
 
+def test_provider_from_config_unresolved_placeholder_base_url_means_unset(monkeypatch, tmp_path):
+    # hermes interpolates `${VAR}` in an MCP server's env block and leaves the
+    # literal text when VAR is missing from its own environment. A provider
+    # aimed at that "URL" would make every search fail; keyword-only is right.
+    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "nope.yaml"))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "${BRAIN_EMBED_BASE_URL}")
+    monkeypatch.setenv("BRAIN_EMBED_API_KEY", "${BRAIN_EMBED_API_KEY}")
+    monkeypatch.setenv("BRAIN_EMBED_MODEL", "${BRAIN_EMBED_MODEL}")
+    monkeypatch.setenv("BRAIN_EMBED_DIM", "${BRAIN_EMBED_DIM}")
+    assert provider_from_config() is None
+
+
+def test_provider_from_config_unresolved_placeholders_fall_back_to_defaults(monkeypatch, tmp_path):
+    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "nope.yaml"))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("BRAIN_EMBED_API_KEY", "${BRAIN_EMBED_API_KEY}")
+    monkeypatch.setenv("BRAIN_EMBED_MODEL", "${BRAIN_EMBED_MODEL}")
+    monkeypatch.setenv("BRAIN_EMBED_DIM", "${BRAIN_EMBED_DIM}")  # int() would raise
+    p = provider_from_config()
+    assert isinstance(p, OpenAICompatProvider)
+    assert p.api_key == ""
+    assert p.model == embeddings.DEFAULT_MODEL
+    assert p.dim == embeddings.DEFAULT_DIM
+
+
+def test_provider_from_config_placeholder_env_falls_through_to_config_file(monkeypatch, tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "embeddings:\n  base_url: https://file.example.com/v1\n  api_key_env: FILE_KEY\n"
+    )
+    monkeypatch.setenv("BRAIN_CONFIG", str(cfg))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "${BRAIN_EMBED_BASE_URL}")
+    monkeypatch.setenv("FILE_KEY", "${FILE_KEY}")
+    p = provider_from_config()
+    assert isinstance(p, OpenAICompatProvider)
+    assert p.base_url == "https://file.example.com/v1"
+    assert p.api_key == ""
+
+
+def test_provider_from_config_resolved_values_with_dollar_signs_survive(monkeypatch, tmp_path):
+    # only the `${...}` shape is a placeholder; a key with a bare `$` is real
+    monkeypatch.setenv("BRAIN_CONFIG", str(tmp_path / "nope.yaml"))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("BRAIN_EMBED_API_KEY", "sk-$abc")
+    p = provider_from_config()
+    assert isinstance(p, OpenAICompatProvider)
+    assert p.api_key == "sk-$abc"
+
+
 def test_default_cache_path_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("BRAIN_EMBED_CACHE", str(tmp_path / "c.db"))
     assert default_cache_path() == tmp_path / "c.db"
