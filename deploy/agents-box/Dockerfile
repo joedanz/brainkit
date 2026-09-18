@@ -99,6 +99,24 @@ RUN npm install -g --no-fund --no-audit "@pnp/cli-microsoft365@${M365_CLI_VERSIO
 # with no obvious cause.
 ENV CLIMICROSOFT365_NOUPDATE=true
 
+# Document tools, so an agent can read the attachments its work arrives in —
+# invoices and pay applications as PDF, payables schedules as spreadsheets.
+# hermes' own Python (/opt/hermes, immutable at runtime) has no document
+# libraries and no pip, and a pip install into a running container is lost on
+# the next rebuild. So: poppler's pdftotext from the distro, and the Python
+# readers in their own venv beside brainkit's, reached through one command,
+# `doc2text <file>`, that bounds size, time and output for mail from outside
+# senders. PINNED for the same reason as the m365 CLI below.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && pdftotext -v >/dev/null 2>&1
+RUN uv venv /opt/doctools --python 3.13 \
+    && uv pip install --python /opt/doctools/bin/python \
+       "openpyxl==3.1.5" "xlrd==2.0.2" "python-docx==1.2.0" "pypdf==6.1.1"
+COPY deploy/agents-box/scripts/doc2text /usr/local/bin/doc2text
+RUN chmod 755 /usr/local/bin/doc2text && /usr/local/bin/doc2text --help >/dev/null
+
 # The company-brain profile (SOUL.md, config defaults, brain-protocol skill).
 # First boot copies it into /opt/data with terminal.cwd pointed at /vault.
 COPY deploy/agents-box/company-brain-profile /opt/brain-profile
