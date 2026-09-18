@@ -11,6 +11,25 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-09-18
+
+### Fixed
+
+- **`doc2text` no longer reports a scan as an empty document.** A PDF with no
+  text layer printed one newline and exited 0, so an agent "read" a scanned
+  permit or insurance notice and found nothing in it. It now exits **3**
+  ("needs OCR") whenever it has no text to give, and pypdf is tried only when
+  `pdftotext` fails, not when it correctly finds nothing.
+
+### Added
+
+- **Local OCR for scans and photos.** The agent image now ships tesseract
+  (English). A PDF with under 25 characters of text per page is rendered with
+  `pdftoppm` and OCR'd on the box — first 10 pages, one thread, inside the
+  same 60 s limit — and PNG/JPG/TIFF attachments are read the same way. OCR'd
+  output starts with an `[OCR: …]` line so an agent checks figures before
+  acting on them. Nothing is uploaded anywhere. `--no-ocr` skips it.
+
 ## [0.6.7] - 2026-09-18
 
 ### Added
