@@ -103,14 +103,16 @@ ENV CLIMICROSOFT365_NOUPDATE=true
 # invoices and pay applications as PDF, payables schedules as spreadsheets.
 # hermes' own Python (/opt/hermes, immutable at runtime) has no document
 # libraries and no pip, and a pip install into a running container is lost on
-# the next rebuild. So: poppler's pdftotext from the distro, and the Python
+# the next rebuild. So: poppler's pdftotext from the distro, tesseract for
+# scanned PDFs and photos (LOCAL OCR — mail is confidential, so nothing goes
+# to a hosted OCR service; ~5,700 of Helm's archived attachments are scans), and the Python
 # readers in their own venv beside brainkit's, reached through one command,
 # `doc2text <file>`, that bounds size, time and output for mail from outside
 # senders. PINNED for the same reason as the m365 CLI below.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends poppler-utils \
+    && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/* \
-    && pdftotext -v >/dev/null 2>&1
+    && pdftotext -v >/dev/null 2>&1 && tesseract --version >/dev/null 2>&1
 RUN uv venv /opt/doctools --python 3.13 \
     && uv pip install --python /opt/doctools/bin/python \
        "openpyxl==3.1.5" "xlrd==2.0.2" "python-docx==1.2.0" "pypdf==6.1.1"

@@ -1,30 +1,56 @@
 #!/opt/doctools/bin/python
-"""doc2text — print the text of a PDF, spreadsheet, Word or CSV file.
+"""doc2text — print the text of a PDF, spreadsheet, Word, CSV or image file.
 
 For agents: mail attachments (invoices, payables sheets, pay applications)
 arrive as files, and hermes' own Python has no document libraries. One
 command, one output shape, bounded work:
 
-    doc2text <file> [--max-chars N]
+    doc2text <file> [--max-chars N] [--no-ocr]
 
-PDF      pdftotext -layout (poppler), pypdf as a fallback
+PDF      pdftotext -layout (poppler), pypdf as a fallback; a PDF with no text
+         layer (a scan) is OCR'd locally with tesseract, first 10 pages
 XLSX     every sheet, "## Sheet: <name>", one tab-separated line per row
 XLS      the same, through xlrd
 DOCX     paragraphs, then tables as tab-separated rows
+PNG/JPG/TIFF  OCR'd locally with tesseract
 CSV/TXT  passed through
+
+OCR runs on this machine only; nothing is uploaded. OCR'd output starts with
+an "[OCR: …]" line, because OCR misreads digits: check figures against the
+document before acting on them.
 
 Attachments come from outside senders, so every path is bounded: files over
 50 MB are refused, work stops after 60 s, output stops at --max-chars
-(default 40,000) with a line saying so. Exit 2 = unsupported or unreadable.
+(default 40,000) with a line saying so.
+
+Exit 0 = text printed. Exit 2 = unsupported or unreadable. Exit 3 = the file
+is a scan and has no text to give (OCR is off, missing, or found nothing):
+say so, never treat it as an empty document.
 """
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
+import time
 
 MAX_BYTES = 50 * 1024 * 1024
 TIMEOUT_S = 60
 MAX_ROWS = 5000
+# A page of real text has hundreds of characters; a scan's text layer is empty
+# or a stray page number. Below this per page, the PDF is treated as a scan.
+MIN_CHARS_PER_PAGE = 25
+OCR_MAX_PAGES = 10
+OCR_DPI = 200
+OCR_BUDGET_S = 45  # stop adding pages here, inside the 60 s limit
+OCR_NOTE = ("[OCR: {what} — text read by OCR on this machine; check figures "
+            "against the document]")
+NO_OCR = False
+
+
+class NeedsOcr(Exception):
+    """The file is a scan and no text could be read from it."""
 
 
 def die(msg: str, code: int = 2) -> None:
@@ -32,16 +58,89 @@ def die(msg: str, code: int = 2) -> None:
     sys.exit(code)
 
 
-def pdf(path: str) -> str:
+def chars(t: str) -> int:
+    return len("".join(t.split()))
+
+
+def pdf_text(path: str) -> str:
+    # pypdf only when pdftotext FAILED. Empty output from a working pdftotext
+    # is the answer (a scan), and pypdf would only find the same nothing.
     try:
         r = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", path, "-"],
                            capture_output=True, timeout=TIMEOUT_S)
-        if r.returncode == 0 and r.stdout.strip():
+        if r.returncode == 0:
             return r.stdout.decode("utf-8", "replace")
     except (OSError, subprocess.TimeoutExpired):
         pass
     from pypdf import PdfReader
     return "\n\n".join((p.extract_text() or "") for p in PdfReader(path).pages)
+
+
+def pdf_pages(path: str) -> int:
+    try:
+        r = subprocess.run(["pdfinfo", path], capture_output=True, timeout=TIMEOUT_S)
+        for line in r.stdout.decode("utf-8", "replace").splitlines():
+            if line.startswith("Pages:"):
+                return max(1, int(line.split()[1]))
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        pass
+    from pypdf import PdfReader
+    return max(1, len(PdfReader(path).pages))
+
+
+def tesseract(image: str) -> str:
+    # One thread: the agents box is shared, and OCR is never urgent.
+    env = dict(os.environ, OMP_THREAD_LIMIT="1")
+    r = subprocess.run(["tesseract", image, "-", "--psm", "3"], capture_output=True,
+                       timeout=TIMEOUT_S, env=env)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode("utf-8", "replace").strip()[:200])
+    return r.stdout.decode("utf-8", "replace")
+
+
+def ocr_ready(*tools: str) -> None:
+    if NO_OCR:
+        raise NeedsOcr("it is a scan with no text layer, and --no-ocr was given")
+    missing = [t for t in tools if shutil.which(t) is None]
+    if missing:
+        raise NeedsOcr(f"it is a scan with no text layer, and {', '.join(missing)} is not installed")
+
+
+def pdf(path: str) -> str:
+    text = pdf_text(path)
+    pages = pdf_pages(path)
+    if chars(text) >= MIN_CHARS_PER_PAGE * pages:
+        return text
+    ocr_ready("pdftoppm", "tesseract")
+    last = min(pages, OCR_MAX_PAGES)
+    out, read, start = [], 0, time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="doc2text-") as d:
+        for p in range(1, last + 1):
+            if time.monotonic() - start > OCR_BUDGET_S:
+                out.append(f"[… OCR stopped before page {p}: time limit]")
+                last = p - 1
+                break
+            img = os.path.join(d, "page")
+            subprocess.run(["pdftoppm", "-r", str(OCR_DPI), "-gray", "-png", "-singlefile",
+                            "-f", str(p), "-l", str(p), path, img],
+                           check=True, capture_output=True, timeout=TIMEOUT_S)
+            page = tesseract(img + ".png").strip()
+            read += chars(page)
+            out.append(f"## Page {p}\n{page}")
+    if pages > last and not out[-1].startswith("[…"):
+        out.append(f"[… pages after {last} not OCR'd]")
+    if read < MIN_CHARS_PER_PAGE:
+        raise NeedsOcr(f"it is a scan and OCR found no text on {last} page(s)")
+    note = OCR_NOTE.format(what=f"pages 1-{last} of {pages} are scanned images")
+    return note + "\n" + "\n\n".join(out)
+
+
+def image(path: str) -> str:
+    ocr_ready("tesseract")
+    body = tesseract(path)
+    if chars(body) < MIN_CHARS_PER_PAGE:
+        raise NeedsOcr("OCR found no text in the image")
+    return OCR_NOTE.format(what="an image") + "\n" + body
 
 
 def cell(v) -> str:
@@ -96,16 +195,21 @@ def text(path: str) -> str:
 
 
 HANDLERS = {".pdf": pdf, ".xlsx": xlsx, ".xlsm": xlsx, ".xls": xls,
-            ".docx": docx, ".csv": text, ".txt": text, ".tsv": text}
+            ".docx": docx, ".csv": text, ".txt": text, ".tsv": text,
+            ".png": image, ".jpg": image, ".jpeg": image, ".tif": image, ".tiff": image}
 
 
 def main(argv: list[str]) -> None:
     import argparse
     ap = argparse.ArgumentParser(
-        prog="doc2text", description="Print the text of a PDF, spreadsheet, Word or CSV file.")
+        prog="doc2text", description="Print the text of a PDF, spreadsheet, Word, CSV or image file.")
     ap.add_argument("file")
     ap.add_argument("--max-chars", type=int, default=40000)
+    ap.add_argument("--no-ocr", action="store_true",
+                    help="never OCR; a scan exits 3 at once")
     a = ap.parse_args(argv)
+    global NO_OCR
+    NO_OCR = a.no_ocr
     path, limit = a.file, a.max_chars
     if not os.path.isfile(path):
         die(f"no such file: {path}")
@@ -119,6 +223,8 @@ def main(argv: list[str]) -> None:
     signal.alarm(TIMEOUT_S)
     try:
         out = handler(path)
+    except NeedsOcr as e:
+        die(f"needs OCR: {os.path.basename(path)}: {e}", 3)
     except Exception as e:  # any parser failure means "unreadable"
         die(f"could not read {os.path.basename(path)}: {type(e).__name__}: {e}")
     signal.alarm(0)
