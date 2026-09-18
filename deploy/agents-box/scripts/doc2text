@@ -1,0 +1,131 @@
+#!/opt/doctools/bin/python
+"""doc2text — print the text of a PDF, spreadsheet, Word or CSV file.
+
+For agents: mail attachments (invoices, payables sheets, pay applications)
+arrive as files, and hermes' own Python has no document libraries. One
+command, one output shape, bounded work:
+
+    doc2text <file> [--max-chars N]
+
+PDF      pdftotext -layout (poppler), pypdf as a fallback
+XLSX     every sheet, "## Sheet: <name>", one tab-separated line per row
+XLS      the same, through xlrd
+DOCX     paragraphs, then tables as tab-separated rows
+CSV/TXT  passed through
+
+Attachments come from outside senders, so every path is bounded: files over
+50 MB are refused, work stops after 60 s, output stops at --max-chars
+(default 40,000) with a line saying so. Exit 2 = unsupported or unreadable.
+"""
+import os
+import signal
+import subprocess
+import sys
+
+MAX_BYTES = 50 * 1024 * 1024
+TIMEOUT_S = 60
+MAX_ROWS = 5000
+
+
+def die(msg: str, code: int = 2) -> None:
+    print(f"doc2text: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def pdf(path: str) -> str:
+    try:
+        r = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", path, "-"],
+                           capture_output=True, timeout=TIMEOUT_S)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    from pypdf import PdfReader
+    return "\n\n".join((p.extract_text() or "") for p in PdfReader(path).pages)
+
+
+def cell(v) -> str:
+    if v is None:
+        return ""
+    return str(v).replace("\t", " ").replace("\n", " ").strip()
+
+
+def xlsx(path: str) -> str:
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True, data_only=True)
+    out = []
+    for ws in wb.worksheets:
+        out.append(f"## Sheet: {ws.title}")
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i >= MAX_ROWS:
+                out.append(f"[… rows after {MAX_ROWS} omitted]")
+                break
+            vals = [cell(v) for v in row]
+            if any(vals):
+                out.append("\t".join(vals).rstrip("\t"))
+    return "\n".join(out)
+
+
+def xls(path: str) -> str:
+    import xlrd
+    wb = xlrd.open_workbook(path)
+    out = []
+    for sh in wb.sheets():
+        out.append(f"## Sheet: {sh.name}")
+        for r in range(min(sh.nrows, MAX_ROWS)):
+            vals = [cell(v) for v in sh.row_values(r)]
+            if any(vals):
+                out.append("\t".join(vals).rstrip("\t"))
+    return "\n".join(out)
+
+
+def docx(path: str) -> str:
+    from docx import Document
+    d = Document(path)
+    out = [p.text for p in d.paragraphs if p.text.strip()]
+    for t in d.tables:
+        out.append("## Table")
+        for row in t.rows:
+            out.append("\t".join(cell(c.text) for c in row.cells))
+    return "\n".join(out)
+
+
+def text(path: str) -> str:
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+HANDLERS = {".pdf": pdf, ".xlsx": xlsx, ".xlsm": xlsx, ".xls": xls,
+            ".docx": docx, ".csv": text, ".txt": text, ".tsv": text}
+
+
+def main(argv: list[str]) -> None:
+    import argparse
+    ap = argparse.ArgumentParser(
+        prog="doc2text", description="Print the text of a PDF, spreadsheet, Word or CSV file.")
+    ap.add_argument("file")
+    ap.add_argument("--max-chars", type=int, default=40000)
+    a = ap.parse_args(argv)
+    path, limit = a.file, a.max_chars
+    if not os.path.isfile(path):
+        die(f"no such file: {path}")
+    if os.path.getsize(path) > MAX_BYTES:
+        die(f"file is over {MAX_BYTES // (1024 * 1024)} MB; refusing")
+    handler = HANDLERS.get(os.path.splitext(path)[1].lower())
+    if handler is None:
+        die(f"unsupported type: {os.path.splitext(path)[1] or '(none)'} "
+            f"(supported: {', '.join(sorted(HANDLERS))})")
+    signal.signal(signal.SIGALRM, lambda *_: die(f"gave up after {TIMEOUT_S}s"))
+    signal.alarm(TIMEOUT_S)
+    try:
+        out = handler(path)
+    except Exception as e:  # any parser failure means "unreadable"
+        die(f"could not read {os.path.basename(path)}: {type(e).__name__}: {e}")
+    signal.alarm(0)
+    if len(out) > limit:
+        out = out[:limit] + f"\n[… truncated at {limit} characters of {len(out)}]"
+    sys.stdout.write(out if out.endswith("\n") else out + "\n")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

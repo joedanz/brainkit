@@ -11,6 +11,21 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-09-18
+
+### Added
+
+- **Agents can read the documents their mail carries.** The agent image now
+  ships `doc2text <file>`, which prints the text of a PDF, XLSX/XLSM, XLS,
+  DOCX, CSV or TXT attachment (spreadsheets as one tab-separated line per row,
+  per sheet). hermes' own Python has no document libraries and no pip, so an
+  invoice amount or a payables schedule was unreadable to a skill. PDFs go
+  through poppler's `pdftotext -layout` (pypdf as a fallback); the Python
+  readers live in their own pinned venv at `/opt/doctools`, beside
+  brainkit's. Attachments come from outside senders, so the command refuses
+  files over 50 MB, stops after 60 s, and caps output at `--max-chars`
+  (default 40,000). Exit 2 means unsupported or unreadable.
+
 ## [0.6.6] - 2026-09-16
 
 ### Fixed
