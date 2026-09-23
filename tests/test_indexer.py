@@ -7,7 +7,15 @@ from brain.compiler import compile_vault
 from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.store import IndexStore
-from tests.conftest import ALICE, BOB, RULES, familyize, requires_vectors, rules_for
+from tests.conftest import (
+    ALICE,
+    BOB,
+    RULES,
+    add_riverside_client,
+    familyize,
+    requires_vectors,
+    rules_for,
+)
 
 
 class SpyProvider(FakeEmbeddingProvider):
@@ -213,9 +221,7 @@ def test_a_schema_4_index_keeps_searching_then_rebuilds_with_space_names(
 
     from brain.search import search_index
 
-    note = master / "Clients/Riverside Property 0123/Home.md"
-    note.parent.mkdir(parents=True)
-    note.write_text("# Lease\nRenewal is due in March.\n")
+    note = add_riverside_client(master)
     vault = tmp_path / "alice"
     compile_vault(master, ALICE, RULES, vault)
     build_index(vault, provider=None, cache=None)
@@ -231,12 +237,12 @@ def test_a_schema_4_index_keeps_searching_then_rebuilds_with_space_names(
     conn.close()
 
     old = search_index(vault, "renewal", keyword_only=True).hits
-    assert [h.rel_path for h in old] == ["Clients/Riverside Property 0123/Home.md"]
+    assert [h.rel_path for h in old] == [note]
     assert not search_index(vault, "Riverside 0123", keyword_only=True).hits
 
     assert build_index(vault, provider=None, cache=None).files_indexed > 0  # full rebuild
     hits = search_index(vault, "Riverside 0123", keyword_only=True).hits
-    assert hits and hits[0].rel_path == "Clients/Riverside Property 0123/Home.md"
+    assert hits and hits[0].rel_path == note
 
 
 def test_cli_index_json_and_missing_manifest(master, tmp_path, capsys):

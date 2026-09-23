@@ -492,6 +492,7 @@ class IndexStore:
                 [(fid, t) for t in resolved_targets],
             )
         ids: list[int] = []
+        space_name = _space_name(space)
         for ch, csha in zip(chunks, chunk_shas):
             cur.execute(
                 "INSERT INTO chunks(rel_path, space, heading_path, pos, chunk_sha, text) "
@@ -503,7 +504,7 @@ class IndexStore:
             cur.execute(
                 "INSERT INTO chunks_fts(rowid, text, heading_path, space_name) "
                 "VALUES (?, ?, ?, ?)",
-                (cid, ch.text, ch.heading_path, _space_name(ch.space)),
+                (cid, ch.text, ch.heading_path, space_name),
             )
         if vectors:
             self.vectors.add(ids, vectors)

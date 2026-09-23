@@ -17,7 +17,7 @@ from brain.indexer import build_index
 from brain.mcp import _tool_read
 from brain.resolver import readable_spaces, space_of_path
 from brain.search import search_index
-from brain.store import IndexStore
+from brain.store import IndexStore, _space_name
 from brain.writeback import vault_shared
 from tests.test_leak_property import random_world, rules_for
 
@@ -75,11 +75,11 @@ def test_unreadable_space_names_find_nothing_outside_readable_spaces(tmp_path):
         for person in org.people.values():
             allowed = set(readable_spaces(master, person, rules, shared))
             for space in sorted(every - allowed):
-                name = space.partition("/")[2]
+                name = _space_name(space)
                 if not name:
                     continue
                 report = search_index(out_root / person.id, name, k=50,
-                                      provider=FakeEmbeddingProvider())
+                                      keyword_only=True)
                 for h in report.hits:
                     assert h.space in allowed, (
                         f"LEAK(space name {name!r}) {person.id}: {h.rel_path} ({h.space})")
