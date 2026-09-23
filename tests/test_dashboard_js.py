@@ -71,20 +71,15 @@ def test_graph_tab_render_disposes_a_previous_singleton_before_building():
     assert teardown < reassign, "the previous singleton must be disposed BEFORE render() reassigns S"
 
 
-def test_graph_tab_default_load_leaves_the_cap_to_the_server():
-    """The server owns the default node cap (`_DEFAULT_GRAPH_CAP` in
-    server.py) and honours any explicit `cap` a request carries, so a number
-    pinned here silently wins over it. That is exactly how 0.6.6's raise from
-    300 to 1000 never reached this view: the tab kept asking for 300. The
-    default load sends no cap (getJSON drops an undefined param); the only
-    explicit cap is FULL_CAP, behind the Full graph button."""
+def test_graph_tab_leaves_every_cap_to_the_server():
+    """The server owns both node caps and obeys any `cap` it is sent, so a
+    number carried here silently wins over it: 0.6.6 raised the default to
+    1000 and this tab kept asking for 300. Full graph asks for the maximum by
+    name (`full`). The rule, not one spelling of it: no cap in the code."""
     src = (JS / "tabs" / "graph.js").read_text(encoding="utf-8")
-    pinned = re.findall(r"\bparams\(\s*\d[^)]*\)", src)
-    assert not pinned, f"graph.js pins a numeric cap, which overrides the server's default: {pinned}"
-    load = re.search(r"\nasync function load\(\) \{\n(.*?)\n\}\n", src, re.S)
-    assert load, "load() is not where this test expects it"
-    assert "api.graph(params())" in load.group(1), \
-        "the default load must send no cap, so the server's default applies"
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", src, flags=re.S)
+    caps = re.findall(r"(?i)[a-z_]*cap\b", code)
+    assert not caps, f"graph.js carries a cap, which overrides the server's: {caps}"
 
 
 def test_note_view_resolver_matches_path_stem_or_trailing_segment():

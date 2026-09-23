@@ -435,19 +435,16 @@ async def test_input_clamps(aiohttp_client, master, tmp_path):
     assert "nodes" in graph
 
 
-async def test_graph_without_a_cap_applies_the_server_default(aiohttp_client, master, tmp_path, monkeypatch):
-    """The Graph tab's default load sends no `cap` and leaves the size of the
-    view to `_DEFAULT_GRAPH_CAP`: at most that many nodes, and `truncated` set
-    when the vault has more notes, so the Full graph button shows. This pins
-    the contract the client now relies on. The server already keeps it, so
-    this passes on the code as it stands (0.6.9's fix was in graph.js). The
-    fixture vault has 5 notes, 3 of them linked, so a default of 2 must cut."""
-    cap = 2
-    monkeypatch.setattr("brain.server._DEFAULT_GRAPH_CAP", cap)
+async def test_graph_caps_belong_to_the_server(aiohttp_client, master, tmp_path, monkeypatch):
+    """The Graph tab sends no number: no param means the default, `full` the max."""
+    # fixture vault: 5 notes, 3 of them linked, so both caps must cut
+    monkeypatch.setattr("brain.server._DEFAULT_GRAPH_CAP", 2)
+    monkeypatch.setattr("brain.server._MAX_GRAPH_CAP", 3)
     client = await aiohttp_client(_vault_app(_vault(master, tmp_path)))
-    graph = await (await client.get("/api/graph")).json()
-    assert 0 < len(graph["nodes"]) <= cap
-    assert graph["truncated"] is True
+    default = await (await client.get("/api/graph")).json()
+    full = await (await client.get("/api/graph", params={"full": "1"})).json()
+    assert len(default["nodes"]) == 2 and default["truncated"] is True
+    assert len(full["nodes"]) == 3 and full["truncated"] is True
 
 
 # ---- facts endpoint ----------------------------------------------------------

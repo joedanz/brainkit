@@ -24,6 +24,13 @@ explicitly under **Changed**, with what to do about it.
   applies. The static `brain dashboard --html` snapshot stays at 300 on
   purpose: its simpler layout compares every pair of nodes, so 1,000 nodes
   would be about 11 times the work.
+- **Full graph asks the server for its maximum instead of carrying its own
+  copy of the number** (`GET /api/graph?full=1`), so a future change to the
+  maximum reaches the button too. The full view now also survives live
+  updates; it used to snap back to the default size on the next refresh.
+- **A live update that leaves the graph unchanged no longer restarts the
+  layout.** At 1,000 nodes, re-settling an identical graph on every refresh
+  cost seconds of main-thread work each time.
 
 ## [0.6.8] - 2026-09-18
 
