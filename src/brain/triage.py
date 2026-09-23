@@ -260,6 +260,7 @@ def _doctor_with_cache(master: Path, out_root: Path | None,
         except sqlite3.Error as e:
             warnings.append(f"{DEDUP_CACHE_REL}: {e} — not updated this run")
     finally:
+        warnings.extend(cache.warnings)  # e.g. a damaged file that was rebuilt
         cache.close()
     return findings
 

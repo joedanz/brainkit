@@ -3,6 +3,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from brain.cli import main
 from brain.doctor import Finding
 from brain.schemas import Org, Person
@@ -426,9 +428,63 @@ def test_an_unusable_cache_warns_and_triage_still_routes(master):
     db.parent.mkdir(parents=True)
     db.write_bytes(b"this is not a database" * 64)
     report = run_triage(master, today="2026-07-24")
-    assert any("dedup.db" in w for w in report.warnings)
+    assert any("dedup.db" in w and "rebuilt" in w for w in report.warnings)
     assert report.routed >= 1
     assert "dup-near" in _digest(master, "bob").read_text()
+
+
+
+def _damage(db: Path, where: str) -> None:
+    """Overwrite part of a SQLite file with garbage: the 100-byte header
+    ("not a database"), or every page after the first, leaving the header
+    and schema intact ("database disk image is malformed")."""
+    data = bytearray(db.read_bytes())
+    start, end = (0, 100) if where == "header" else (4096, len(data))
+    assert end > start, "fixture must span more than one page"
+    data[start:end] = b"\xa5" * (end - start)
+    db.write_bytes(bytes(data))
+
+
+@pytest.mark.parametrize("where", ["header", "interior"])
+def test_a_damaged_cache_rebuilds_itself(master, monkeypatch, where):
+    """A damaged dedup.db must not cost a full recompute on every cycle
+    forever: the writer rebuilds it once, says so, and the next cycle is
+    warm again."""
+    from .test_doctor import _count_signatures, _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 12)
+    first = run_triage(master, today="2026-07-24")
+    _damage(master / "_meta/cache/dedup.db", where)
+
+    rebuilt = run_triage(master, today="2026-07-25")
+    assert any("dedup.db" in w and "rebuilt" in w for w in rebuilt.warnings)
+    assert rebuilt.finding_counts == first.finding_counts
+
+    calls = _count_signatures(monkeypatch)
+    again = run_triage(master, today="2026-07-26")
+    assert calls == []
+    assert not again.warnings
+    assert sorted(p.name for p in (master / "_meta/cache").iterdir()) == ["dedup.db"]
+
+
+def test_standalone_doctor_leaves_a_damaged_cache_alone(master):
+    from brain.doctor import run_doctor
+
+    from .test_doctor import _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 12)
+    expected = run_doctor(master)
+    run_triage(master, today="2026-07-24")
+    db = master / "_meta/cache/dedup.db"
+    _damage(db, "interior")
+    before = db.read_bytes()
+    assert run_doctor(master) == expected
+    assert db.read_bytes() == before
+    assert sorted(p.name for p in db.parent.iterdir()) == ["dedup.db"]
 
 
 # ---- near-duplicate groups through triage --------------------------------- #

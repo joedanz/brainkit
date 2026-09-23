@@ -102,6 +102,13 @@ _DDL = (
 )
 
 
+def _damaged(e: sqlite3.Error) -> bool:
+    """A file that is not, or is no longer, a readable database — as opposed
+    to one that is only busy or locked, which the next run can read fine."""
+    code = getattr(e, "sqlite_errorcode", None)
+    return code is not None and code & 0xFF in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB)
+
+
 def signature_version() -> str:
     """Everything a signature depends on besides the note's text: the scheme,
     the shingle width, the word pattern, and the permutations themselves, so
@@ -131,14 +138,23 @@ class SignatureCache:
       refuses a master whose .gitignore does not cover `_meta/cache/`, as the
       health snapshot does: a cache git can see would ride along in the next
       commit.
+
+    A damaged file (SQLITE_CORRUPT, SQLITE_NOTADB) is only ever rebuilt by
+    the writer, once, with a line in `warnings`; otherwise every later cycle
+    would compute every signature again, forever. The read-only side just
+    computes, as it does for any unreadable cache.
     """
 
-    def __init__(self, conn: sqlite3.Connection, *, writable: bool) -> None:
+    def __init__(self, conn: sqlite3.Connection, *, writable: bool,
+                 path: Path | None = None) -> None:
         self._conn = conn
+        self._path = path
         self.writable = writable
         self.version = signature_version()
+        self.warnings: list[str] = []  # for the writer's caller to report
         self._computed: dict[str, bytes] = {}
         self._asked: set[str] | None = None  # None: no lookup yet, so no pruning
+        self._read_damaged = False
 
     @classmethod
     def open_readonly(cls, master: Path) -> SignatureCache | None:
@@ -164,14 +180,15 @@ class SignatureCache:
             return None
         path = master / DEDUP_CACHE_REL
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
         try:
-            conn.execute(_DDL)
-            conn.commit()
-        except sqlite3.Error:
-            conn.close()
-            raise
-        return cls(conn, writable=True)
+            conn = _connect_writable(path)
+        except sqlite3.Error as e:
+            if not _damaged(e):
+                raise
+            cache = cls(_rebuild(path), writable=True, path=path)
+            cache.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
+            return cache
+        return cls(conn, writable=True, path=path)
 
     def get_many(self, shas: list[str]) -> dict[str, tuple[int, ...]]:
         """The remembered signature for each sha that has one. Never raises:
@@ -193,8 +210,13 @@ class SignatureCache:
                 for sha, blob in rows:
                     if len(blob) == size:
                         out[sha] = struct.unpack(f"<{len(_PERMS)}Q", blob)
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as e:
+            if self.writable and _damaged(e):
+                # Every signature is then computed and put(), so save() can
+                # rebuild the file from this run alone.
+                self._read_damaged = True
+                self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
+                return {}
         return out
 
     def put(self, sha: str, sig: tuple[int, ...]) -> None:
@@ -207,6 +229,22 @@ class SignatureCache:
         looked anything up prunes nothing. Raises sqlite3.Error."""
         if not self.writable:
             return
+        if not self._read_damaged:
+            try:
+                self._write()
+                return
+            except sqlite3.Error as e:
+                if not _damaged(e):
+                    raise
+                if not self.warnings:
+                    self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
+        # Damaged: this run computed every signature it asked for (a failed
+        # read returns nothing), so a fresh file holding _computed is whole.
+        self._conn.close()
+        self._conn = _rebuild(self._path)
+        self._write()
+
+    def _write(self) -> None:
         with self._conn:
             self._conn.executemany(
                 "INSERT OR REPLACE INTO signatures (sha, version, sig) VALUES (?, ?, ?)",
@@ -222,6 +260,24 @@ class SignatureCache:
 
     def close(self) -> None:
         self._conn.close()
+
+
+def _connect_writable(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(_DDL)
+        conn.commit()
+    except sqlite3.Error:
+        conn.close()
+        raise
+    return conn
+
+
+def _rebuild(path: Path) -> sqlite3.Connection:
+    """Delete a damaged cache (and any journal beside it) and start empty."""
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        Path(f"{path}{suffix}").unlink(missing_ok=True)
+    return _connect_writable(path)
 
 
 def signatures(
