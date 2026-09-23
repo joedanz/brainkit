@@ -11,6 +11,26 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **A crowded folder now names its read-only spaces when those are the few.**
+  Since 0.7.0 a folder with more than 20 readable spaces takes one line in
+  `AGENTS.md`, followed by the person's writable spaces there when there are
+  20 or fewer. Someone who could write most of such a folder got no names at
+  all, so nothing in their vault said which spaces were off-limits, and one
+  write to them got their whole write-back rejected. When more than 20 are
+  writable and 20 or fewer are read-only, the read-only ones are now listed
+  by name instead. Vaults without a crowded folder are unchanged.
+
+### Fixed
+
+- **Approving an "append" promotion into a note with a stray non-UTF-8 byte
+  now works.** The approval read the shared note as text, so one pasted
+  Windows smart quote made `brain promotions approve` fail with a traceback,
+  and a lead's approval from their own vault was skipped on every cycle. The
+  new text is now appended to the note's raw bytes, so everything already in
+  it stays exactly as it was.
+
 ## [0.7.0] - 2026-09-23
 
 ### Changed

@@ -691,6 +691,29 @@ def test_approve_append_adds_block_with_attribution(master: Path):
     assert "source: People/bob/Notes/pt.md*" in text
 
 
+def test_approve_append_keeps_a_non_utf8_target_byte_for_byte(master: Path):
+    """Appending decoded the shared target first, so one pasted Windows-1252
+    byte raised UnicodeDecodeError (outside HANDLED) and the approval never
+    landed; decoding with errors="replace" instead would have rewritten that
+    byte for every reader. The append works on raw bytes, so everything
+    already in the note stays exactly as it was."""
+    _seed_org(master)
+    page = master / "Company/Intel/Portugal.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    original = b"# Portugal\nIt\x92s sunny in Lisbon.\n"
+    page.write_bytes(original)
+    draft_promotion(
+        master, person_id="bob", target_path="Company/Intel/Portugal.md",
+        source="People/bob/Notes/pt.md", body="New ferry route.\n",
+        promo_id="p-a2", created="2026-07-21", mode="append",
+    )
+    approve(master, "p-a2", approver="alice", date="2026-07-21")
+    raw = page.read_bytes()
+    assert raw.startswith(original.rstrip(b"\n") + b"\n\n---\n\n")  # 0x92 kept
+    assert b"New ferry route." in raw
+    assert b"*Promoted by Bob Rivera, approved by Alice Nguyen, 2026-07-21" in raw
+
+
 def test_approve_append_requires_existing_target(master: Path):
     _seed_org(master)
     draft_promotion(

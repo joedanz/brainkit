@@ -365,13 +365,19 @@ def approve(master: Path, promo_id: str, approver: str, date: str,
         _require_existing(target, promo.target_path)
         promoter = people.get(promo.person_id)
         promoter_name = promoter.name if promoter else promo.person_id
-        current = target.read_text()
-        target.write_text(
-            current.rstrip("\n")
-            + "\n\n---\n\n"
-            + promo.body.strip()
-            + f"\n\n*Promoted by {promoter_name}, approved by "
-              f"{people[approver].name}, {date} — source: {promo.source}*\n"
+        # Raw bytes, not text: this is a shared note. Decoding it raised on one
+        # pasted Windows-1252 byte (a ValueError outside HANDLED), and decoding
+        # with errors="replace" would rewrite that byte for every reader.
+        # Appending to the bytes leaves everything already there untouched.
+        current = target.read_bytes()
+        target.write_bytes(
+            current.rstrip(b"\n")
+            + (
+                "\n\n---\n\n"
+                + promo.body.strip()
+                + f"\n\n*Promoted by {promoter_name}, approved by "
+                  f"{people[approver].name}, {date} — source: {promo.source}*\n"
+            ).encode("utf-8")
         )
     else:  # patch — _parse already rejected anything outside _MODES
         _require_existing(target, promo.target_path)
