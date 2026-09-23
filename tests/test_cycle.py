@@ -974,6 +974,30 @@ def test_a_normal_cycle_reports_no_health_warnings(master, tmp_path):
     assert run_cycle(master, out, today="2026-07-07").health_warnings == []
 
 
+def test_a_failed_compile_turns_the_health_snapshot_red(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "bob")
+
+    run_cycle(master, out, today="2026-09-22")
+
+    snap = json.loads((master / "_meta/cache/health.json").read_text())
+    assert snap["ok"] is False
+    assert snap["counts"]["error:compile-failed"] == 1
+
+
+def test_a_clean_compile_has_no_compile_failed_key_in_the_snapshot(master, tmp_path):
+    seed_meta(master)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+    out = _first_compile(master, tmp_path)
+
+    run_cycle(master, out, today="2026-09-22")
+
+    snap = json.loads((master / "_meta/cache/health.json").read_text())
+    assert "error:compile-failed" not in snap["counts"]
+
+
 # ---- Task 3: one person's failure can't stop the fleet --------------------- #
 
 from tests.test_compiler import _failing_for

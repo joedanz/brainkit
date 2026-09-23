@@ -29,8 +29,9 @@ explicitly under **Changed**, with what to do about it.
   last good vault, everyone else is refreshed, `brain compile` names each
   failure and exits 1, and `brain cycle` still indexes, triages and writes
   its health snapshot. The cycle lists each failure in a new
-  `compile_failures` field and reports `ok: false`, so monitoring that
-  watches `ok` sees it.
+  `compile_failures` field and reports `ok: false`, and the health snapshot
+  counts them as `error:compile-failed`, so monitoring that watches either
+  one sees it.
 
 ### Added
 

@@ -248,9 +248,16 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # see as "not reporting" needs a reason SOMEWHERE, and this is the
         # only output that has one.
         try:
+            counts = dict(triage.finding_counts)
+            if compile_failures:
+                # Doctor cannot see a failed compile (a broken vault repo, a
+                # disk error), so without this the snapshot Fleet reads would
+                # say ok while the cycle itself says otherwise. A count only:
+                # the names stay in the cycle's own output.
+                counts["error:compile-failed"] = len(compile_failures)
             written = write_health(
                 master,
-                triage.finding_counts,
+                counts,
                 {
                     "clients": clients_tampering,
                     "shares": shares_tampering,
