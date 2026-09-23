@@ -864,14 +864,13 @@ def test_no_provider_means_no_embedding_signal(master):
     assert not _severities(findings, "dup-near")
 
 
-def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch):
+def _warm_embeddings(master, tmp_path, monkeypatch, rels):
+    """Point doctor at a fake-32 embedding cache holding every chunk of `rels`
+    — the provider is configured but never called."""
     import hashlib as _hashlib
 
     from brain.chunker import chunk_markdown, embedding_input
     from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider, pack_vector
-
-    seed_meta(master)
-    rels = _shuffled_pair(master)
 
     cache_path = tmp_path / "emb-cache.db"
     monkeypatch.setenv("BRAIN_EMBED_CACHE", str(cache_path))
@@ -888,10 +887,42 @@ def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch
         cache.put_many(list(zip(shas, vecs)), "fake-32")
     cache.close()
 
+
+def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    _warm_embeddings(master, tmp_path, monkeypatch, rels)
+
     findings = run_doctor(master)
     assert "warn" in _severities(findings, "dup-near")
     hit = next(f for f in findings if f.check == "dup-near" and f.severity == "warn")
     assert "Shuffle A" in hit.message and "Shuffle B" in hit.message
+
+
+def test_semantic_findings_match_the_per_pair_cosine(master, tmp_path, monkeypatch):
+    """Norms computed once per vector must decide exactly what the old
+    per-pair cosine decided, on the semantic fixtures: a pair above the
+    threshold, and notes that share words but sit below it."""
+    import brain.dedup
+
+    from .test_dedup import _generator_cosine
+
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    ws = [f"word{i}" for i in range(40)]
+    for name, words in (("Half", ws[:20] + [f"other{i}" for i in range(20)]),
+                        ("Apart", [f"far{i}" for i in range(40)])):
+        (master / f"Company/{name}.md").write_text(f"# {name}\n\n" + " ".join(words) + "\n")
+        rels.append(f"Company/{name}.md")
+    _warm_embeddings(master, tmp_path, monkeypatch, rels)
+
+    fast = run_doctor(master)
+    monkeypatch.setattr(brain.dedup, "cosine_with_norms",
+                        lambda a, b, _na, _nb: _generator_cosine(a, b))
+    per_pair = run_doctor(master)
+    assert fast == per_pair
+    assert [f.paths for f in fast if f.check == "dup-near"] == [
+        ("Company/Shuffle A.md", "Company/Shuffle B.md")]
 
 
 def test_warn_dup_findings_never_pair_disjoint_readers(master):
@@ -977,6 +1008,180 @@ def test_findings_carry_structured_paths(master):
     assert sorted(dup.paths) == ["Company/CopyA.md", "Company/CopyB.md"]
     # non-routed checks keep the default
     assert all(f.paths == () for f in findings if f.check == "meta")
+
+
+# ---- the MinHash signature cache (<master>/_meta/cache/dedup.db) ----------- #
+
+
+def _templated(master, folder, n, prefix="Report"):
+    """n notes stamped from one template, one word apart: every pair is a
+    near-duplicate, none is identical, and each has its own title stem."""
+    base = [f"tok{i}" for i in range(60)]
+    rels = []
+    for i in range(n):
+        words = list(base)
+        words[30] = f"variant{i}"
+        rel = f"{folder}/{prefix} {i:02d}.md"
+        (master / rel).parent.mkdir(parents=True, exist_ok=True)
+        (master / rel).write_text(f"# {prefix} {i:02d}\n\n" + " ".join(words) + "\n")
+        rels.append(rel)
+    return rels
+
+
+def _ignore_cache(master):
+    # What `brain init` writes; without it the cache must never be created.
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+
+def _count_signatures(monkeypatch):
+    """Every signature doctor computes (rather than reads from the cache)."""
+    import brain.dedup
+
+    calls = []
+    real = brain.dedup.minhash_signature
+
+    def spy(shingle_set):
+        calls.append(len(shingle_set))
+        return real(shingle_set)
+
+    monkeypatch.setattr(brain.dedup, "minhash_signature", spy)
+    return calls
+
+
+def _writable_run(master):
+    """One doctor run the way the cycle does it: triage opens the cache
+    writable, doctor reads and fills it, triage saves it."""
+    from brain.dedup import SignatureCache
+
+    cache = SignatureCache.open_writable(master)
+    assert cache is not None
+    try:
+        findings = run_doctor(master, dedup_cache=cache)
+        cache.save()
+    finally:
+        cache.close()
+    return findings
+
+
+def test_a_warm_cache_computes_no_signature_for_an_unchanged_note(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 4)
+    first = _writable_run(master)
+    calls = _count_signatures(monkeypatch)
+    second = _writable_run(master)
+    assert calls == []
+    assert second == first
+
+
+def test_a_changed_note_is_the_only_signature_recomputed(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    rels = _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    note = master / rels[0]
+    note.write_text(note.read_text().replace("tok10", "edited"))
+    calls = _count_signatures(monkeypatch)
+    _writable_run(master)
+    assert len(calls) == 1
+
+
+def test_a_signature_parameter_change_invalidates_the_cache(master, monkeypatch):
+    import brain.dedup
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    calls = _count_signatures(monkeypatch)
+    scheme = brain.dedup.SIGNATURE_SCHEME
+    monkeypatch.setattr(brain.dedup, "SIGNATURE_SCHEME", scheme + 1)
+    _writable_run(master)
+    assert len(calls) == 4
+    # The old version's rows were pruned by that run, not kept alongside:
+    # going back recomputes everything again.
+    monkeypatch.setattr(brain.dedup, "SIGNATURE_SCHEME", scheme)
+    calls.clear()
+    _writable_run(master)
+    assert len(calls) == 4
+
+
+def test_the_cache_forgets_notes_that_are_gone(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    rels = _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    gone = master / rels[0]
+    text = gone.read_text()
+    gone.unlink()
+    _writable_run(master)  # prunes the vanished note's row
+    gone.write_text(text)
+    calls = _count_signatures(monkeypatch)
+    _writable_run(master)
+    assert len(calls) == 1
+
+
+def test_standalone_doctor_never_creates_the_cache(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 3)
+    run_doctor(master)
+    assert not (master / "_meta/cache").exists()
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root reads through any permission")
+def test_an_unreadable_cache_folder_falls_back_to_computing(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 3)
+    expected = run_doctor(master)
+    _writable_run(master)
+    folder = master / "_meta/cache"
+    folder.chmod(0)
+    try:
+        assert run_doctor(master) == expected
+    finally:
+        folder.chmod(0o755)
+
+
+def test_standalone_doctor_reads_the_cache_but_never_writes_it(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    rels = _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    db = master / "_meta/cache/dedup.db"
+    before = (db.read_bytes(), db.stat().st_mtime_ns)
+    note = master / rels[0]
+    note.write_text(note.read_text().replace("tok10", "edited"))
+    calls = _count_signatures(monkeypatch)
+    run_doctor(master)
+    assert len(calls) == 1  # the three unchanged notes came from the cache
+    assert (db.read_bytes(), db.stat().st_mtime_ns) == before
+    assert sorted(p.name for p in db.parent.iterdir()) == ["dedup.db"]
+
+
+def test_findings_are_identical_with_and_without_the_cache(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 5)
+    _templated(master, "People/bob/Notes", 3, prefix="Log")
+    for name in ("Copy One", "Copy Two"):
+        (master / f"Company/{name}.md").write_text(BODY_A)
+    cold = run_doctor(master)  # no cache file yet
+    assert _writable_run(master) == cold
+    assert run_doctor(master) == cold  # read-only, every signature a hit
+
+
+def test_an_unusable_cache_file_falls_back_to_computing(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 3)
+    expected = run_doctor(master)
+    db = master / "_meta/cache/dedup.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"this is not a database" * 64)
+    assert run_doctor(master) == expected
 
 
 requires_nonroot = pytest.mark.skipif(

@@ -385,3 +385,47 @@ def test_cli_triage_json(master, capsys):
     assert payload["ok"] is True
     assert payload["routed"] >= 1 and payload["unrouted"] == 0
     assert _digest(master, "alice").exists()
+
+
+# ---- triage is the one writer of the signature cache ---------------------- #
+
+
+def test_triage_keeps_the_signature_cache_warm(master, monkeypatch):
+    from .test_doctor import _count_signatures, _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 4)
+    first = run_triage(master, today="2026-07-24")
+    assert (master / "_meta/cache/dedup.db").is_file()
+    assert not first.warnings
+    calls = _count_signatures(monkeypatch)
+    again = run_triage(master, today="2026-07-25")
+    assert calls == []
+    assert again.finding_counts == first.finding_counts
+
+
+def test_triage_never_creates_a_cache_git_would_see(master):
+    # seed_meta writes no .gitignore: an older master, predating the template.
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _templated(master, "People/bob/Notes", 4)
+    report = run_triage(master, today="2026-07-24")
+    assert not (master / "_meta/cache").exists()
+    assert not report.warnings
+
+
+def test_an_unusable_cache_warns_and_triage_still_routes(master):
+    from .test_doctor import _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 4)
+    db = master / "_meta/cache/dedup.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"this is not a database" * 64)
+    report = run_triage(master, today="2026-07-24")
+    assert any("dedup.db" in w for w in report.warnings)
+    assert report.routed >= 1
+    assert "dup-near" in _digest(master, "bob").read_text()

@@ -20,12 +20,14 @@ human-approved promotions); triage never applies one.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
+from brain.dedup import DEDUP_CACHE_REL, SignatureCache
 from brain.doctor import DIGEST_NAME, Finding, run_doctor
 from brain.frontmatter import split_frontmatter
 from brain.resolver import can_read, can_write_path, space_of_path
@@ -236,6 +238,27 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _doctor_with_cache(master: Path, out_root: Path | None,
+                       warnings: list[str]) -> list[Finding]:
+    """run_doctor with the signature cache open for writing, then saved."""
+    try:
+        cache = SignatureCache.open_writable(master)
+    except (sqlite3.Error, OSError) as e:
+        warnings.append(f"{DEDUP_CACHE_REL}: {e} — not updated this run")
+        cache = None
+    if cache is None:
+        return run_doctor(master, out_root)
+    try:
+        findings = run_doctor(master, out_root, dedup_cache=cache)
+        try:
+            cache.save()
+        except sqlite3.Error as e:
+            warnings.append(f"{DEDUP_CACHE_REL}: {e} — not updated this run")
+    finally:
+        cache.close()
+    return findings
+
+
 def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> TriageReport:
     """Run doctor, route findings, and reconcile every recipient's digest.
 
@@ -245,8 +268,14 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
     rolling reconciliation target, not an append-only intake — so identical
     finding sets (same fingerprint) skip the write entirely and an emptied
     set deletes the file. One commit covers the whole run.
+
+    Triage is also the one writer of doctor's MinHash signature cache (see
+    `dedup.SignatureCache`): it opens it writable, lets doctor fill it, and
+    saves it. A cache that cannot be opened or saved is a warning, never a
+    failure: doctor computes whatever it cannot read, as it did before.
     """
-    findings = run_doctor(master, out_root)
+    warnings: list[str] = []
+    findings = _doctor_with_cache(master, out_root, warnings)
     finding_counts = count_findings(findings)
     try:
         org = load_org(master / "_meta/org.yaml")
@@ -254,14 +283,13 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
         shared = load_config(master).shared
     except (SchemaError, OSError, yaml.YAMLError) as e:
         return TriageReport(0, 0, 0, len(findings),
-                            [f"meta unreadable — nothing routed: {e}"],
+                            [*warnings, f"meta unreadable — nothing routed: {e}"],
                             finding_counts)
 
     routed, unrouted = route_findings(findings, org, rules, shared)
     delivered = len({f for fs in routed.values() for f in fs})
     written = removed = 0
     changed: list[str] = []
-    warnings: list[str] = []
 
     for person in org.people.values():
         rel = f"People/{person.id}/Inbox/{DIGEST_NAME}"

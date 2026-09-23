@@ -10,6 +10,7 @@ time in git).
 
 from __future__ import annotations
 
+import bisect
 import calendar
 import json as _json
 import re
@@ -199,15 +200,26 @@ def find_fact_conflicts(
 
     Closed facts never participate; identical statements have an empty
     divergence, so no pair is ever both dup and conflict.
+
+    Only facts sharing a key can pair, so each fact is compared with the
+    later facts in its keys' buckets rather than with every later fact —
+    the all-pairs scan was most of this check's time on a large brain. The
+    pairs come out in the same (x, y) order the scan produced.
     """
     live = sorted((e for e in entries if e[1].until_date is None),
                   key=lambda e: (e[0], e[1].line))
+    by_key: dict[str, list[int]] = {}
+    for i, (_rel, _fact, keys) in enumerate(live):
+        for key in keys:
+            by_key.setdefault(key, []).append(i)  # ascending: i only grows
     out: list[tuple[str, tuple, tuple]] = []
-    for x in range(len(live)):
-        for y in range(x + 1, len(live)):
-            a, b = live[x], live[y]
-            if not (a[2] & b[2]):
-                continue
+    for x, a in enumerate(live):
+        later: set[int] = set()
+        for key in a[2]:
+            bucket = by_key[key]
+            later.update(bucket[bisect.bisect_right(bucket, x):])
+        for y in sorted(later):
+            b = live[y]
             if (a[1].statement.casefold() == b[1].statement.casefold()
                     and a[2] == b[2]):
                 out.append(("dup", a, b))

@@ -396,3 +396,77 @@ def test_closed_facts_still_need_a_source():
     from brain.facts import lint_uncited_facts
     text = "- Acme was in Munich [from:: 2025-01] [until:: 2026-01]\n"
     assert lint_uncited_facts(text) == [(1, "fact has no [source::]")]
+
+
+# find_fact_conflicts buckets facts by entity key; the output must be exactly
+# what the all-pairs scan produced, pair for pair and in the same order.
+
+import random
+
+from brain.facts import _diverges
+
+
+def _all_pairs_oracle(entries):
+    """Verbatim copy of find_fact_conflicts before it bucketed by key (0.7.1)."""
+    live = sorted((e for e in entries if e[1].until_date is None),
+                  key=lambda e: (e[0], e[1].line))
+    out = []
+    for x in range(len(live)):
+        for y in range(x + 1, len(live)):
+            a, b = live[x], live[y]
+            if not (a[2] & b[2]):
+                continue
+            if (a[1].statement.casefold() == b[1].statement.casefold()
+                    and a[2] == b[2]):
+                out.append(("dup", a, b))
+            elif _diverges(a[1].statement, b[1].statement):
+                out.append(("conflict", a, b))
+    return out
+
+
+_STATEMENTS = (
+    "{s}'s plan is {v}", "{s} plan: {v}", "renewal = {v}", "{s} hired [[{v}]]",
+    "{s} is a client", "the {s} tier is {v}", "{s}'s owner is {v}",
+)
+
+
+def _random_entry(rng):
+    stmt = rng.choice(_STATEMENTS).format(
+        s=rng.choice(["Acme", "Initech", "acme"]),
+        v=rng.choice(["Enterprise", "Growth", "enterprise", "2026-03", "Bob"]))
+    if rng.random() < 0.2:
+        stmt = stmt.upper()
+    keys = frozenset(rng.sample(["Clients/Acme.md", "Clients/Initech.md",
+                                 "ghost", "Company/Plans.md"], rng.randint(1, 3)))
+    return _entry(rng.choice(["a.md", "b.md", "Clients/Acme.md"]),
+                  rng.randint(1, 12), stmt, keys,
+                  until=rng.choice([None, None, None, "2026-12-31"]))
+
+
+def test_bucketed_conflicts_match_the_all_pairs_oracle():
+    found = set()
+    for seed in range(200):
+        rng = random.Random(seed)
+        entries = [_random_entry(rng) for _ in range(rng.randint(0, 40))]
+        got = find_fact_conflicts(entries)
+        assert got == _all_pairs_oracle(entries), f"seed {seed}"
+        found.update(kind for kind, *_ in got)
+    assert found == {"dup", "conflict"}  # the inputs exercise both kinds
+
+
+def test_facts_sharing_no_entity_are_never_compared():
+    compared = 0
+
+    class Keys(frozenset):
+        def __and__(self, other):
+            nonlocal compared
+            compared += 1
+            return frozenset.__and__(self, other)
+
+    entries = [(f"n{i}.md", Fact(line=1, statement=f"E{i}'s plan is Growth",
+                                 from_date="2026-01-01", until_date=None,
+                                 sources=[], targets=[]),
+                Keys({f"Clients/E{i}.md"}))
+               for i in range(200)]
+    assert find_fact_conflicts(entries) == []
+    assert compared == 0

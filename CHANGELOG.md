@@ -11,6 +11,24 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`brain doctor` is much faster on a large brain, so `brain cycle` fits
+  its schedule again.** On a brain of about 10,000 notes, a `brain cycle`
+  that runs every 5 minutes took about 20 minutes, and 19 of them went to
+  the doctor pass inside it. Three quarters of the cycle was spent looking
+  for near-duplicate notes, mostly by working out a fingerprint for every
+  note on every run, and another seventh by comparing every fact with every
+  other fact. Now the cycle remembers each note's fingerprint in
+  `_meta/cache/dedup.db`, next to the embedding cache and `health.json` and
+  kept out of git the same way, so only new and edited notes get a new one.
+  Facts are compared only with facts about the same thing, and the check for
+  notes with similar meaning does less arithmetic per pair. The findings are
+  the same as before. Only `brain cycle` and `brain triage` write the cache;
+  `brain doctor` and the dashboard read it when it exists and never write
+  it. A master whose `.gitignore` does not cover `_meta/cache/` gets no
+  cache and runs as it did.
+
 ## [0.7.1] - 2026-09-23
 
 ### Added
