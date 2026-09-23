@@ -21,7 +21,7 @@ explicitly under **Changed**, with what to do about it.
   most of it a list of 668 spaces. A top-level folder with more than 20
   readable spaces now shows as a single line with its counts ("668 spaces:
   12 writable, 656 read-only"), followed by the writable ones by name when
-  there are only a few. Vaults without a crowded folder are unchanged, byte
+  there are 20 or fewer. Vaults without a crowded folder are unchanged, byte
   for byte. `Map.md` and `brain_search` still cover every space.
 - **`brain compile` keeps going when one person's vault fails to build.**
   It used to stop at the first failure, and a protocol over the size limit
