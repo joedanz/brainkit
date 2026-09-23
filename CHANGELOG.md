@@ -11,6 +11,34 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-23
+
+### Changed
+
+- **A crowded folder now takes one line in each person's `AGENTS.md`.**
+  The protocol used to list every space a person can read, so it grew with
+  the brain: one real vault reached 93.7% of the 50,000-character limit,
+  most of it a list of 668 spaces. A top-level folder with more than 20
+  readable spaces now shows as a single line with its counts ("668 spaces:
+  12 writable, 656 read-only"), followed by the writable ones by name when
+  there are only a few. Vaults without a crowded folder are unchanged, byte
+  for byte. `Map.md` and `brain_search` still cover every space.
+- **`brain compile` keeps going when one person's vault fails to build.**
+  It used to stop at the first failure, and a protocol over the size limit
+  stopped every compile after it, every cycle. Now that person keeps their
+  last good vault, everyone else is refreshed, `brain compile` names each
+  failure and exits 1, and `brain cycle` still indexes, triages and writes
+  its health snapshot. The cycle lists each failure in a new
+  `compile_failures` field and reports `ok: false`, so monitoring that
+  watches `ok` sees it.
+
+### Added
+
+- **`brain doctor` measures every person's generated protocol**
+  (`protocol-size`): a warning at 80% of the limit, an error at 95%.
+  These findings, and `protocol-stale` warnings, now reach the admins'
+  inbox digest; before, `protocol-stale` warnings reached nobody.
+
 ## [0.6.9] - 2026-09-22
 
 ### Fixed
