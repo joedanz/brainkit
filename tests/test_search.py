@@ -18,6 +18,40 @@ def indexed_alice(master, tmp_path):
     return vault
 
 
+def _riverside(master):
+    """A hand-made client folder whose note never says its own name, the
+    shape that made "`brain_search` finds any of them by name" untrue."""
+    note = master / "Clients/Riverside Property 0123/Home.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# Lease\nRenewal is due in March.\n")
+
+
+def test_keyword_search_finds_a_space_by_its_name(master, tmp_path):
+    """A space's own name matches every note in it, even when the text and
+    headings never mention it. AGENTS.md's crowded-folder summary line tells
+    agents to find spaces this way."""
+    _riverside(master)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    hits = search_index(vault, "Riverside 0123", keyword_only=True).hits
+    assert hits and hits[0].rel_path == "Clients/Riverside Property 0123/Home.md"
+    assert "keyword" in hits[0].sources
+
+
+def test_the_shared_space_name_is_not_a_search_term(master, tmp_path):
+    """The shared space's name sits on every shared note and is an everyday
+    word ("company"), so it stays out of the index: matching it would pull
+    every shared note into any query that says it."""
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    rels = [h.rel_path for h in search_index(vault, "Company", keyword_only=True).hits]
+    assert "Company/Decisions/Big Deal Decision.md" not in rels
+
+
 def test_rrf_item_in_both_legs_wins():
     scores = rrf([[1, 2, 3], [2, 4, 5]])
     # id 2 appears in both legs, id 1 only in one — 2 must outscore 1

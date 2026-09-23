@@ -204,6 +204,41 @@ def test_schema_migration_forces_full_rebuild(master, tmp_path):
     assert _links(vault)  # links repopulated
 
 
+def test_a_schema_4_index_keeps_searching_then_rebuilds_with_space_names(
+        master, tmp_path):
+    """Schema 5 adds the space_name search column. An index built by 0.7.x
+    (schema 4) keeps answering searches until its next build, which rebuilds
+    it in full; after that, a space's name finds its notes."""
+    import sqlite3
+
+    from brain.search import search_index
+
+    note = master / "Clients/Riverside Property 0123/Home.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# Lease\nRenewal is due in March.\n")
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    # Roll the index back to schema 4's two-column full-text table.
+    conn = sqlite3.connect(vault / ".brain/index.db")
+    conn.execute("DROP TABLE chunks_fts")
+    conn.execute("CREATE VIRTUAL TABLE chunks_fts USING fts5(text, heading_path)")
+    conn.execute("INSERT INTO chunks_fts(rowid, text, heading_path) "
+                 "SELECT id, text, heading_path FROM chunks")
+    conn.execute("PRAGMA user_version = 4")
+    conn.commit()
+    conn.close()
+
+    old = search_index(vault, "renewal", keyword_only=True).hits
+    assert [h.rel_path for h in old] == ["Clients/Riverside Property 0123/Home.md"]
+    assert not search_index(vault, "Riverside 0123", keyword_only=True).hits
+
+    assert build_index(vault, provider=None, cache=None).files_indexed > 0  # full rebuild
+    hits = search_index(vault, "Riverside 0123", keyword_only=True).hits
+    assert hits and hits[0].rel_path == "Clients/Riverside Property 0123/Home.md"
+
+
 def test_cli_index_json_and_missing_manifest(master, tmp_path, capsys):
     vault = tmp_path / "alice"
     compile_vault(master, ALICE, RULES, vault)

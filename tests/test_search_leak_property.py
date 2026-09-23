@@ -63,6 +63,28 @@ def test_query_probes_stay_in_readable_spaces(tmp_path):
                         f"LEAK(query {query!r}) {person.id}: {h.rel_path} ({h.space})")
 
 
+def test_unreadable_space_names_find_nothing_outside_readable_spaces(tmp_path):
+    """A space's name is a search term (schema 5). The name comes from each
+    note's own `space`, which the index holds only for spaces in that
+    person's vault, so searching for a space they cannot read must never
+    surface anything outside the spaces they can."""
+    for seed in range(5):
+        master, org, out_root, rules, shared = _build_world(tmp_path, seed)
+        every = {space_of_path(p.relative_to(master).as_posix(), shared)
+                 for p in master.rglob("*.md")} - {None}
+        for person in org.people.values():
+            allowed = set(readable_spaces(master, person, rules, shared))
+            for space in sorted(every - allowed):
+                name = space.partition("/")[2]
+                if not name:
+                    continue
+                report = search_index(out_root / person.id, name, k=50,
+                                      provider=FakeEmbeddingProvider())
+                for h in report.hits:
+                    assert h.space in allowed, (
+                        f"LEAK(space name {name!r}) {person.id}: {h.rel_path} ({h.space})")
+
+
 def test_cross_person_private_content_is_unreachable(tmp_path):
     _master, org, out_root, _rules, _shared = _build_world(tmp_path, 3)
     people = list(org.people.values())
