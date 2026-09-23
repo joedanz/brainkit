@@ -364,6 +364,25 @@ def render_root_protocol(
     return text
 
 
+def render_person_protocol(
+    corrections_root: Path,
+    person: Person,
+    spaces_rw: list[tuple[str, bool]],
+    config: VaultConfig = VaultConfig(),
+) -> str:
+    """A person's root AGENTS.md/CLAUDE.md text: the one path to it.
+
+    `corrections_root` is any tree holding People/<pid>/Corrections/: the
+    building vault at compile time, the master when doctor measures. The
+    bytes are the same either way, because a person's own space is always
+    writable to them and the compiler stubs links only in read-only files.
+    """
+    from brain.corrections import load_corrections, render_corrections
+
+    block = render_corrections(load_corrections(corrections_root, person.id))
+    return render_root_protocol(person, spaces_rw, config, corrections_block=block)
+
+
 def render_space_note(space: str, writable: bool, owner: bool) -> str:
     if owner:
         text = (
@@ -409,12 +428,9 @@ def generate_context_files(
 ) -> list[str]:
     written: list[str] = []
 
-    from brain.corrections import load_corrections, render_corrections
-
     # The compiler has already copied this person's spaces into `vault`
     # (compiler.py) before calling us, so their Corrections/ are on disk here.
-    block = render_corrections(load_corrections(vault, person.id))
-    root_text = render_root_protocol(person, spaces_rw, config, corrections_block=block)
+    root_text = render_person_protocol(vault, person, spaces_rw, config)
     for fname in ("AGENTS.md", "CLAUDE.md"):
         (vault / fname).write_text(root_text)
         written.append(fname)

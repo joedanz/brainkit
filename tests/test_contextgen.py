@@ -842,3 +842,22 @@ def test_intel_routing_without_charter_points_at_the_admission_tests():
     text = render_root_protocol(BOB, [("Company", False), ("People/bob", True)])
     assert "destination" not in text.lower()
     assert "outside intel that passes the admission tests above" in text
+
+
+def test_generated_protocol_is_the_one_render_path(master: Path, tmp_path: Path):
+    """Doctor measures a person's protocol through render_person_protocol, so
+    the compiler must write exactly that text: two render paths would let the
+    number doctor reports drift from the file an agent loads."""
+    from brain.contextgen import render_person_protocol, writable_spaces
+    from brain.resolver import readable_spaces
+
+    corr = master / "People/bob/Corrections/tone.md"
+    corr.parent.mkdir(parents=True)
+    corr.write_text("---\nrule: Answer in plain English.\nfrom: 2026-09-01\n---\n")
+    out = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, out)
+    spaces_rw = writable_spaces(readable_spaces(master, BOB, RULES), BOB, RULES)
+    expected = render_person_protocol(master, BOB, spaces_rw)
+    assert "- Answer in plain English." in expected
+    assert (out / "AGENTS.md").read_text() == expected
+    assert (out / "CLAUDE.md").read_text() == expected
