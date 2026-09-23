@@ -42,6 +42,43 @@ from brain.contextgen import LIST_CAP, ProtocolTooLarge, render_space_section
 _TAIL = "`Map.md` has the overview; `brain_search` finds any of them by name."
 
 
+def test_small_vaults_render_like_0_6_9_across_random_layouts():
+    """The spec's byte-identity property, fuzzed rather than pinned at three
+    fixed shapes: any vault where no top-level folder holds more than
+    LIST_CAP OTHER readable spaces (not counting the person's own) must
+    render exactly like 0.6.9, before the space list was bounded.
+
+    space_lines_0_6_9 is a verbatim inline copy of the space-line expression
+    from contextgen.render_root_protocol at 3cb5d57 -- the commit just
+    before the space list was bounded."""
+    import random
+
+    def space_lines_0_6_9(spaces_rw):
+        return "\n".join(
+            f"- `{space}/` — {'writable' if writable else 'read-only'}"
+            for space, writable in spaces_rw
+        )
+
+    pid = "bob"
+    tops = ("Clients", "People", "Projects", "Teams")
+    for seed in range(300):
+        rnd = random.Random(seed)
+        shared = rnd.choice(("Company", "Family"))
+        names: list[str] = [shared]
+        for top in tops:
+            count = rnd.randint(0, LIST_CAP)
+            names += [f"{top}/{top}{i:03d}" for i in range(count)]
+        if rnd.random() < 0.9:  # most of the time: People/<pid> on top of
+            # People/'s other spaces above, so a full-to-the-cap People/
+            # still holds LIST_CAP others plus the own space and must not
+            # collapse.
+            names.append(f"People/{pid}")
+        names = sorted(names)
+        spaces_rw = [(name, rnd.random() < 0.5) for name in names]
+        assert (render_space_section(pid, spaces_rw, shared=shared)
+                == space_lines_0_6_9(spaces_rw)), seed
+
+
 def test_a_crowded_folder_collapses_to_one_line():
     spaces = [("Company", False), ("People/bob", True)] + [
         (f"Clients/C{i:03d}", False) for i in range(LIST_CAP + 1)]

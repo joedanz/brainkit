@@ -1030,6 +1030,37 @@ def test_cycle_survives_every_compile_failing(master, tmp_path, monkeypatch):
     assert report.doctor_counts
 
 
+def test_a_middle_persons_failure_does_not_stop_the_people_after_them(
+        master, tmp_path, monkeypatch):
+    """Org order is alice, bob, carol. bob (the middle person) fails; alice
+    (before him) and carol (after him) must both still be refreshed, and
+    bob's vault -- including its git history -- must be untouched."""
+    import subprocess
+
+    seed_meta(master)
+    _add_carol_to_org(master)
+    out = _first_compile(master, tmp_path)
+    bob_head = subprocess.run(
+        ["git", "-C", str(out / "bob"), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip()
+
+    (master / "Company/New.md").write_text("fresh for everyone\n")
+    _failing_for(monkeypatch, "bob")
+
+    report = run_cycle(master, out, today="2026-09-22")
+
+    assert [f.split(":")[0] for f in report.compile_failures] == ["bob"]
+    assert report.compiled == 2
+    assert (out / "alice/Company/New.md").is_file()
+    assert (out / "carol/Company/New.md").is_file()
+    assert not (out / "bob/Company/New.md").exists()
+    new_bob_head = subprocess.run(
+        ["git", "-C", str(out / "bob"), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert new_bob_head == bob_head
+    assert report.ok is False
+
+
 def test_cli_compile_names_the_failed_person_and_exits_1(master, tmp_path, monkeypatch, capsys):
     seed_meta(master)
     out = _first_compile(master, tmp_path)

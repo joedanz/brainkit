@@ -22,7 +22,8 @@ explicitly under **Changed**, with what to do about it.
   readable spaces now shows as a single line with its counts ("668 spaces:
   12 writable, 656 read-only"), followed by the writable ones by name when
   there are 20 or fewer. Vaults without a crowded folder are unchanged, byte
-  for byte. `Map.md` and `brain_search` still cover every space.
+  for byte. Every space is still in the vault, and `brain_search` still
+  searches them all.
 - **`brain compile` keeps going when one person's vault fails to build.**
   It used to stop at the first failure, and a protocol over the size limit
   stopped every compile after it, every cycle. Now that person keeps their

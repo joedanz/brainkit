@@ -25,8 +25,9 @@ ROOT_LIMIT = 50_000
 SPACE_LIMIT = 8_000
 
 # Individual space lines per top-level folder before the folder collapses to
-# one summary line. vaultmap.SPACE_CAP is this same number, so the map and the
-# protocol agree on what a crowded folder is.
+# one summary line. vaultmap.SPACE_CAP reuses this number: one constant for
+# "too many to list", though Map.md applies it to its whole plain-space
+# table rather than to each folder.
 LIST_CAP = 20
 
 
