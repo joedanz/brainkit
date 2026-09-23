@@ -183,3 +183,17 @@ def test_clusters_are_connected_components():
     assert clusters([]) == []
     # Order-independent: the same graph, however its edges arrive.
     assert clusters(reversed(edges)) == clusters(edges)
+
+
+def test_signature_version_notices_a_change_to_the_algorithm(monkeypatch):
+    """A probe signature is part of the version, so changing how shingles
+    are hashed (or normalized, or min-hashed) invalidates the cache even if
+    nobody remembers to bump SIGNATURE_SCHEME."""
+    import brain.dedup as dedup
+
+    base = dedup.signature_version()
+    monkeypatch.setattr(dedup, "_shingle_hash", lambda s: len(s))
+    assert dedup.signature_version() != base
+    monkeypatch.undo()
+    monkeypatch.setattr(dedup, "_WORD_RE", dedup.re.compile(r"[^\w\s']+"))
+    assert dedup.signature_version() != base

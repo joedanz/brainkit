@@ -62,17 +62,24 @@ def shingles(words: list[str], k: int = SHINGLE_WORDS) -> set[str]:
     return {" ".join(words[i:i + k]) for i in range(len(words) - k + 1)}
 
 
-def minhash_signature(shingle_set: set[str]) -> tuple[int, ...] | None:
-    """NUM_PERMS-slot MinHash signature, or None for a shingle-less text."""
+def _shingle_hash(shingle: str) -> int:
+    return int.from_bytes(
+        hashlib.blake2b(shingle.encode("utf-8"), digest_size=8).digest(), "big")
+
+
+def _signature(shingle_set: set[str]) -> tuple[int, ...] | None:
     if not shingle_set:
         return None
-    hashes = [
-        int.from_bytes(
-            hashlib.blake2b(s.encode("utf-8"), digest_size=8).digest(), "big")
-        for s in shingle_set
-    ]
+    hashes = [_shingle_hash(s) for s in shingle_set]
     return tuple(
         min((a * h + b) % _MERSENNE for h in hashes) for a, b in _PERMS)
+
+
+def minhash_signature(shingle_set: set[str]) -> tuple[int, ...] | None:
+    """NUM_PERMS-slot MinHash signature, or None for a shingle-less text.
+    The work is in _signature, which signature_version() probes directly, so
+    that a count of calls to this function counts notes and nothing else."""
+    return _signature(shingle_set)
 
 
 def band_keys(sig: tuple[int, ...]) -> list[tuple[int, tuple[int, ...]]]:
@@ -89,9 +96,19 @@ def jaccard_estimate(a: tuple[int, ...], b: tuple[int, ...]) -> float:
 # ---- signatures remembered between runs ------------------------------------
 
 # Bump when normalize_text, shingles or minhash_signature change what they
-# compute in a way signature_version() cannot see. Every remembered signature
-# then misses, is recomputed, and the old row is pruned.
+# compute in a way signature_version() cannot see (its probe text below
+# catches most such changes). Every remembered signature then misses, is
+# recomputed, and the old row is pruned.
 SIGNATURE_SCHEME = 1
+
+# Run through the whole pipeline by signature_version(): a change anywhere in
+# normalization, shingling, shingle hashing or min-hashing changes its
+# signature, so the cache invalidates itself.
+_PROBE = (
+    "---\ntitle: Probe\n---\n# Signature probe\n\nThe quick brown fox's "
+    "Q3 plan: jumps over 12 lazy dogs, then naïve café-goers re-read "
+    "\"Ünïcode\" notes — twice, at 9:30 (UTC) & again.\n"
+)
 
 DEDUP_CACHE_REL = "_meta/cache/dedup.db"
 
@@ -111,11 +128,13 @@ def _damaged(e: sqlite3.Error) -> bool:
 
 def signature_version() -> str:
     """Everything a signature depends on besides the note's text: the scheme,
-    the shingle width, the word pattern, and the permutations themselves, so
-    a change to their count or their seeds is caught without anyone having
-    to remember to bump SIGNATURE_SCHEME."""
+    the shingle width, the word pattern, the permutations themselves (their
+    count and seeds), and the signature of a fixed probe text, so a change
+    to the code that computes signatures is caught without anyone having to
+    remember to bump SIGNATURE_SCHEME."""
+    probe = _signature(shingles(normalize_text(_PROBE)))
     material = repr((SIGNATURE_SCHEME, SHINGLE_WORDS, NUM_PERMS, _MERSENNE,
-                     _WORD_RE.pattern, _PERMS))
+                     _WORD_RE.pattern, _PERMS, probe))
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
