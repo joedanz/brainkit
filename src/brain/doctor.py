@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import posixpath
 import re
 import time
 from dataclasses import dataclass
@@ -279,13 +280,9 @@ def _skeleton_pair(a: str, b: str, shared: str) -> bool:
 
 def _common_folder(paths: tuple[str, ...]) -> str:
     """The deepest folder holding every path. A group never crosses a space,
-    so this is its space or a folder inside it."""
-    common: list[str] = []
-    for level in zip(*(p.split("/")[:-1] for p in paths)):
-        if any(part != level[0] for part in level):
-            break
-        common.append(level[0])
-    return "/".join(common)
+    so this is its space or a folder inside it. Members are distinct files,
+    so their common path is always a folder, never one of them."""
+    return posixpath.commonpath(paths)
 
 
 def _dup_near_message(severity: str, members: tuple[str, ...], signal: str) -> str:
