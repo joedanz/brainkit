@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from brain.compiler import extract_wikilinks
+from brain.contextgen import LIST_CAP
 from brain.frontmatter import split_frontmatter
 from brain.schemas import DEFAULT_SHARED, Person, VaultConfig
 
@@ -32,7 +33,7 @@ MAP_NAME = "Map.md"
 # and truncation below bound the document by construction; MAP_LIMIT is a
 # test assertion over them, not a runtime behavior.
 MAP_LIMIT = 8_000
-SPACE_CAP = 20
+SPACE_CAP = LIST_CAP  # one number for "a crowded folder", shared with AGENTS.md
 TYPE_CAP = 12
 EXEMPLARS = 3
 HUB_CAP = 10

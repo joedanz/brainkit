@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from brain.errors import BrainError
 from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, VaultConfig
 
 # `## Spaces in this vault` renders one line per second-level entity
@@ -22,6 +23,21 @@ from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, VaultConfig
 # entity growth; still a small fraction of any modern model's dynamic cap.
 ROOT_LIMIT = 50_000
 SPACE_LIMIT = 8_000
+
+# Individual space lines per top-level folder before the folder collapses to
+# one summary line. vaultmap.SPACE_CAP is this same number, so the map and the
+# protocol agree on what a crowded folder is.
+LIST_CAP = 20
+
+
+class ProtocolTooLarge(BrainError, ValueError):
+    """A generated protocol file outgrew its limit.
+
+    A BrainError, so it is HANDLED: compile_all reports it against the one
+    person whose file it is and keeps compiling everyone else. The bare
+    ValueError this replaces escaped the fleet compile and the cycle.
+    """
+
 
 _ROOT_TEMPLATE = """\
 # Brain Protocol — vault of {name} ({pid})
@@ -276,18 +292,64 @@ def render_intel_scope(config: VaultConfig) -> str:
     return "that passes the admission tests above"
 
 
+def _space_line(space: str, writable: bool) -> str:
+    return f"- `{space}/` — {'writable' if writable else 'read-only'}"
+
+
+def render_space_section(
+    person_id: str, spaces_rw: list[tuple[str, bool]], shared: str = DEFAULT_SHARED,
+) -> str:
+    """The `## Spaces in this vault` lines, bounded by construction.
+
+    One line per space, as always, until a top-level folder holds more than
+    LIST_CAP readable spaces. That folder then renders as one summary line,
+    counts by access, followed by its writable spaces by name when they are
+    the few an agent writes to directly. Order is the enumerate order, a
+    summary taking its folder's first slot, so a vault with no crowded folder
+    renders byte-identical to before. The shared space and the person's own
+    space are always listed, and the own space never counts toward a crowd.
+    """
+    own = f"People/{person_id}"
+    by_top: dict[str, list[tuple[str, bool]]] = {}
+    for space, writable in spaces_rw:
+        if space != shared and space != own and "/" in space:
+            by_top.setdefault(space.split("/", 1)[0], []).append((space, writable))
+    crowded = {top for top, members in by_top.items() if len(members) > LIST_CAP}
+    lines: list[str] = []
+    summarized: set[str] = set()
+    for space, writable in spaces_rw:
+        top = space.split("/", 1)[0] if "/" in space else None
+        if space in (shared, own) or top not in crowded:
+            lines.append(_space_line(space, writable))
+            continue
+        if top in summarized:
+            continue
+        summarized.add(top)
+        members = by_top[top]
+        mine = [(s, w) for s, w in members if w]
+        n, nw = len(members), len(mine)
+        if nw == n:
+            counts = f"{n} spaces, all writable"
+        elif nw == 0:
+            counts = f"{n} spaces, all read-only"
+        else:
+            counts = f"{n} spaces: {nw} writable, {n - nw} read-only"
+        lines.append(f"- `{top}/` — {counts}. `Map.md` has the overview; "
+                     "`brain_search` finds any of them by name.")
+        if 0 < nw <= LIST_CAP and nw < n:
+            lines.extend(_space_line(s, w) for s, w in mine)
+    return "\n".join(lines)
+
+
 def render_root_protocol(
     person: Person,
     spaces_rw: list[tuple[str, bool]],
     config: VaultConfig = VaultConfig(),
     corrections_block: str = "",
 ) -> str:
-    space_lines = "\n".join(
-        f"- `{space}/` — {'writable' if writable else 'read-only'}"
-        for space, writable in spaces_rw
-    )
     text = _ROOT_TEMPLATE.format(
-        name=person.name, pid=person.id, space_lines=space_lines,
+        name=person.name, pid=person.id,
+        space_lines=render_space_section(person.id, spaces_rw, config.shared),
         entities=config.entities, entity=config.entity,
         entity_title=config.entity[:1].upper() + config.entity[1:],
         requests=config.requests_folder, name_key=config.name_key,
@@ -296,7 +358,9 @@ def render_root_protocol(
         corrections_block=(corrections_block + "\n") if corrections_block else "",
     )
     if len(text) > ROOT_LIMIT:
-        raise ValueError(f"root protocol exceeds {ROOT_LIMIT} chars")
+        raise ProtocolTooLarge(
+            f"{person.id}: root protocol is {len(text):,} chars, over the "
+            f"{ROOT_LIMIT:,} limit")
     return text
 
 
@@ -318,7 +382,9 @@ def render_space_note(space: str, writable: bool, owner: bool) -> str:
             "facts recorded here.\n"
         )
     if len(text) > SPACE_LIMIT:
-        raise ValueError(f"space note for {space} exceeds {SPACE_LIMIT} chars")
+        raise ProtocolTooLarge(
+            f"space note for {space} is {len(text):,} chars, over the "
+            f"{SPACE_LIMIT:,} limit")
     return text
 
 
