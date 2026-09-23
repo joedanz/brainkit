@@ -250,7 +250,12 @@ def _post_process(
         if rel.endswith(".md") and not can_write_path(rel, person, rules,
                                                       shared=config.shared):
             f = building / rel
-            f.write_text(stub_links(f.read_text(), included_stems, master_stems))
+            # errors="replace", as doctor and corrections read notes: one pasted
+            # Windows-1252 byte must not raise UnicodeDecodeError (a ValueError, not
+            # HANDLED) out of the compile and stop the fleet. The reader sees U+FFFD
+            # where the byte was; links are still rewritten on the decoded text.
+            text = f.read_text(encoding="utf-8", errors="replace")
+            f.write_text(stub_links(text, included_stems, master_stems))
 
     from brain.contextgen import generate_context_files, writable_spaces
 

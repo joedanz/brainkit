@@ -40,6 +40,14 @@ explicitly under **Changed**, with what to do about it.
   These findings, and `protocol-stale` warnings, now reach the admins'
   inbox digest; before, `protocol-stale` warnings reached nobody.
 
+### Fixed
+
+- **A stray non-UTF-8 byte in a note no longer stops every compile.** One
+  Windows smart quote pasted into a shared note crashed the compile for
+  everyone after the first person who could read it. The note now
+  compiles; people who can only read it see a replacement character (�)
+  where the byte was. The note's owner keeps the original bytes.
+
 ## [0.6.9] - 2026-09-22
 
 ### Fixed

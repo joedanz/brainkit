@@ -515,16 +515,34 @@ def test_undecodable_writable_note_degrades_instead_of_failing(
     assert (out / "People/bob/Memory.md").read_bytes() == raw
 
 
-def test_undecodable_read_only_note_still_fails_closed(
+def test_undecodable_read_only_note_no_longer_fails_closed(
     master: Path, tmp_path: Path
 ):
-    """Unchanged from before this feature: a note that cannot be decoded
-    cannot be link-stubbed, and shipping it unstubbed could leak a live
-    cross-boundary link. Company is read-only for bob, so it gets stubbed."""
-    (master / "Company/Home.md").write_bytes(b"# Home\n\xff\xfe\n")
+    """Superseded by the errors="replace" fix below (see
+    test_a_stray_non_utf8_byte_does_not_stop_the_compile): a read-only note
+    with a byte that cannot be decoded no longer raises. It decodes with a
+    replacement character where the byte was, and stub_links still runs on
+    the decoded text, so a live cross-boundary link is still caught rather
+    than shipped raw. Company is read-only for bob, so it goes through the
+    stub loop."""
+    (master / "Company/Home.md").write_bytes(
+        b"# Home\n\xff\xfe\nSee [[Q3 Pipeline]].\n")
     out = tmp_path / "bob-vault"
-    with pytest.raises(UnicodeDecodeError):
-        compile_vault(master, BOB, RULES, out)
+    compile_vault(master, BOB, RULES, out)  # must not raise
+    home = (out / "Company/Home.md").read_text(encoding="utf-8")
+    assert "�" in home
+    assert "[[Q3 Pipeline]]" not in home  # bob can't read Teams/sales -> stubbed
+    assert "Q3 Pipeline" in home          # display text remains
+
+
+def test_a_stray_non_utf8_byte_does_not_stop_the_compile(master: Path, tmp_path: Path):
+    """One Windows-1252 smart quote pasted into a shared note used to raise
+    UnicodeDecodeError out of the compile, a ValueError that nothing
+    catches, and stop every compile after it."""
+    (master / "Company/Pasted.md").write_bytes(b"It\x92s here.\n")
+    out = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, out)
+    assert "It�s here." in (out / "Company/Pasted.md").read_text(encoding="utf-8")
 
 
 def test_manifest_shared_key_only_when_nondefault(master: Path, tmp_path: Path):
