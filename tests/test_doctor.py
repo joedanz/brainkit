@@ -1419,3 +1419,36 @@ def test_entity_vocabulary_flags_a_type_the_vault_never_declared(tmp_path):
     mem.write_text(mem.read_text() + "- `People/` — everyone's own notes\n")
     (tmp_path / "Company/Playbook/Bob.md").write_text("---\nentity: person\n---\n# Bob\n")
     assert not [f for f in run_doctor(tmp_path) if f.check == "entity-vocabulary"]
+
+
+def _size_findings(master, pid):
+    from brain.doctor import run_doctor
+
+    return [f for f in run_doctor(master)
+            if f.check == "protocol-size" and f.message.startswith(f"{pid}:")]
+
+
+def test_protocol_size_warns_then_errors_as_a_protocol_nears_the_limit(master, monkeypatch):
+    import brain.contextgen as cg
+    from brain.contextgen import render_person_protocol, writable_spaces
+    from brain.resolver import readable_spaces
+    from brain.schemas import load_config, load_org, load_spaces
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    org, rules = load_org(master / "_meta/org.yaml"), load_spaces(master / "_meta/spaces.yaml")
+    bob = org.people["bob"]
+    size = len(render_person_protocol(
+        master, bob, writable_spaces(readable_spaces(master, bob, rules), bob, rules),
+        load_config(master)))
+
+    assert _size_findings(master, "bob") == []                       # 26%: silent
+    monkeypatch.setattr(cg, "ROOT_LIMIT", int(size / 0.85))
+    [f] = _size_findings(master, "bob")
+    assert f.severity == "warn" and "(85%)" in f.message
+    monkeypatch.setattr(cg, "ROOT_LIMIT", int(size / 0.97))
+    [f] = _size_findings(master, "bob")
+    assert f.severity == "error" and "(97%)" in f.message
+    monkeypatch.setattr(cg, "ROOT_LIMIT", size - 1)
+    [f] = _size_findings(master, "bob")
+    assert f.severity == "error" and "compile fails until it shrinks" in f.message
