@@ -3,6 +3,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from brain.cli import main
 from brain.doctor import Finding
 from brain.schemas import Org, Person
@@ -385,3 +387,177 @@ def test_cli_triage_json(master, capsys):
     assert payload["ok"] is True
     assert payload["routed"] >= 1 and payload["unrouted"] == 0
     assert _digest(master, "alice").exists()
+
+
+# ---- triage is the one writer of the signature cache ---------------------- #
+
+
+def test_triage_keeps_the_signature_cache_warm(master, monkeypatch):
+    from .test_doctor import _count_signatures, _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 4)
+    first = run_triage(master, today="2026-07-24")
+    assert (master / "_meta/cache/dedup.db").is_file()
+    assert not first.warnings
+    calls = _count_signatures(monkeypatch)
+    again = run_triage(master, today="2026-07-25")
+    assert calls == []
+    assert again.finding_counts == first.finding_counts
+
+
+def test_triage_never_creates_a_cache_git_would_see(master):
+    # seed_meta writes no .gitignore: an older master, predating the template.
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _templated(master, "People/bob/Notes", 4)
+    report = run_triage(master, today="2026-07-24")
+    assert not (master / "_meta/cache").exists()
+    assert not report.warnings
+
+
+def test_an_unusable_cache_warns_and_triage_still_routes(master):
+    from .test_doctor import _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 4)
+    db = master / "_meta/cache/dedup.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"this is not a database" * 64)
+    report = run_triage(master, today="2026-07-24")
+    assert any("dedup.db" in w and "rebuilt" in w for w in report.warnings)
+    assert report.routed >= 1
+    assert "dup-near" in _digest(master, "bob").read_text()
+
+
+
+def _damage(db: Path, where: str) -> None:
+    """Overwrite part of a SQLite file with garbage: the 100-byte header
+    ("not a database"), or every page after the first, leaving the header
+    and schema intact ("database disk image is malformed")."""
+    data = bytearray(db.read_bytes())
+    start, end = (0, 100) if where == "header" else (4096, len(data))
+    assert end > start, "fixture must span more than one page"
+    data[start:end] = b"\xa5" * (end - start)
+    db.write_bytes(bytes(data))
+
+
+@pytest.mark.parametrize("where", ["header", "interior"])
+def test_a_damaged_cache_rebuilds_itself(master, monkeypatch, where):
+    """A damaged dedup.db must not cost a full recompute on every cycle
+    forever: the writer rebuilds it once, says so, and the next cycle is
+    warm again."""
+    from .test_doctor import _count_signatures, _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 12)
+    first = run_triage(master, today="2026-07-24")
+    _damage(master / "_meta/cache/dedup.db", where)
+
+    rebuilt = run_triage(master, today="2026-07-25")
+    assert any("dedup.db" in w and "rebuilt" in w for w in rebuilt.warnings)
+    assert rebuilt.finding_counts == first.finding_counts
+
+    calls = _count_signatures(monkeypatch)
+    again = run_triage(master, today="2026-07-26")
+    assert calls == []
+    assert not again.warnings
+    assert sorted(p.name for p in (master / "_meta/cache").iterdir()) == ["dedup.db"]
+
+
+def test_standalone_doctor_leaves_a_damaged_cache_alone(master):
+    from brain.doctor import run_doctor
+
+    from .test_doctor import _ignore_cache, _templated
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "People/bob/Notes", 12)
+    expected = run_doctor(master)
+    run_triage(master, today="2026-07-24")
+    db = master / "_meta/cache/dedup.db"
+    _damage(db, "interior")
+    before = db.read_bytes()
+    assert run_doctor(master) == expected
+    assert db.read_bytes() == before
+    assert sorted(p.name for p in db.parent.iterdir()) == ["dedup.db"]
+
+
+# ---- near-duplicate groups through triage --------------------------------- #
+
+
+def test_a_group_in_one_persons_space_routes_to_that_person_only(master):
+    from brain.doctor import run_doctor
+
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _templated(master, "People/bob/Notes", 5)
+    near = [f for f in run_doctor(master) if f.check == "dup-near"]
+    assert len(near) == 1 and len(near[0].paths) == 5
+    routed, unrouted = route_findings(near, ORG, RULES)
+    assert routed == {"bob": near}
+    assert unrouted == 0
+
+
+def test_a_large_group_is_one_short_digest_line(master):
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _templated(master, "People/bob/Notes", 30)
+    run_triage(master, today="2026-07-24")
+    digest = _digest(master, "bob").read_text()
+    section = digest.split("## dup-near\n\n", 1)[1].split("\n\n## ", 1)[0]
+    lines = [ln for ln in section.splitlines() if ln.startswith("- ")]
+    assert len(lines) == 1
+    assert lines[0].startswith("- 30 notes are near-duplicates of each other in People/bob/Notes: ")
+    assert len(lines[0]) < 300
+    alice = _digest(master, "alice")
+    assert not alice.exists() or "dup-near" not in alice.read_text()
+
+
+def test_a_redacted_group_line_names_at_most_three_paths():
+    """A non-admin who cannot read one member gets the redacted line, built
+    from the paths they can read — capped, or a group of hundreds would be
+    hundreds of paths on one line."""
+    from brain.triage import _display
+
+    mine = [f"People/bob/Notes/Report {i:02d}.md" for i in range(10)]
+    f = Finding("warn", "dup-near", "11 notes are near-duplicates of each other: ...",
+                paths=tuple(sorted([*mine, "People/carol/Notes/Report 00.md"])))
+    line = _display(f, BOB, RULES, is_admin=False)
+    assert line == (
+        "People/bob/Notes/Report 00.md, People/bob/Notes/Report 01.md, "
+        "People/bob/Notes/Report 02.md, and 7 more: dup-near involving a note "
+        "in a space you cannot read — the admins' digest has the detail")
+    assert "carol" not in line
+    # Three or fewer readable paths are all named, as before.
+    two = Finding("warn", "dup-near", "...", paths=(mine[0], mine[1], "People/carol/x.md"))
+    assert _display(two, BOB, RULES, is_admin=False).startswith(
+        f"{mine[0]}, {mine[1]}: dup-near involving")
+
+
+def test_a_shared_note_does_not_bridge_two_private_spaces(master):
+    """bob's and carol's private copies share no reader, but each is a
+    near-duplicate of the same shared note. Groups stay within one space,
+    so each owner gets their own pair with the shared note, in full, and
+    never the other's path."""
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _add_carol(master)
+    (shared,) = _templated(master, "Company/Reports", 1)
+    (bobs,) = _templated(master, "People/bob/Notes", 1, prefix="Copy")
+    (carols,) = _templated(master, "People/carol/Notes", 1, prefix="Draft")
+    run_triage(master, today="2026-07-24")
+
+    bob_digest = _digest(master, "bob").read_text()
+    carol_digest = _digest(master, "carol").read_text()
+    assert f"{shared} and {bobs} are near-duplicates (text overlap)" in bob_digest
+    assert "People/carol" not in bob_digest and "cannot read" not in bob_digest
+    assert f"{shared} and {carols} are near-duplicates (text overlap)" in carol_digest
+    assert "People/bob" not in carol_digest and "cannot read" not in carol_digest

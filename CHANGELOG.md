@@ -11,6 +11,47 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **Near-duplicate notes in the same space are reported as groups, not
+  pairs.** `brain doctor` reported every pair of near-duplicate notes, so 90
+  notes made from one template came out as about 4,000 findings, and one
+  person's doctor digest grew to 1.37 MB with 5,167 lines of them. Now each
+  group of notes in one space that are near-duplicates of each other is one
+  `dup-near` finding and one line,
+  giving the number of notes, the folder they share and a few of their
+  names, for example "90 notes are near-duplicates of each other in
+  Clients/acme/Reports: 2026-01.md, 2026-02.md, 2026-03.md, and 87 more —
+  merge them, or if they share a template on purpose, make them distinct".
+  A group of two still reads the way a pair always did, and a match between
+  notes in two different spaces is still reported as a pair, so one shared
+  template never pulls everyone's notes into a single group. Groups keep the
+  rule pairs had: notes someone can read together are a warning, and notes
+  in spaces no one shares are information only. The dashboard, the
+  digests and the health snapshot's `dup-near` counts shrink to match,
+  since they now count groups. Identical notes (`dup-exact`) and clashing
+  titles (`stem-collision`) are still reported in pairs.
+
+### Fixed
+
+- **`brain doctor` is much faster on a large brain.** On a brain of about
+  10,000 notes, a `brain cycle` that runs every 5 minutes took about 20
+  minutes, and 19 of them went to the doctor pass inside it. Three quarters
+  of the cycle was spent looking for near-duplicate notes, mostly by working
+  out a short summary of every note on every run, and another seventh by
+  comparing every fact with every other fact. Now the cycle remembers each
+  note's summary in `_meta/cache/dedup.db`, next to the embedding cache and
+  `health.json` and kept out of git the same way, so only new and edited
+  notes get a new one. Facts are compared only with facts about the same
+  thing, and the check for notes with similar meaning does less arithmetic
+  per pair. On a test brain of 3,550 notes, doctor went from about 44
+  seconds to about 7. The findings are the same as before. The first cycle
+  after upgrading is still slow, because it fills the cache; the ones after
+  it are fast. A damaged cache file is rebuilt by the next cycle. Only `brain cycle` and `brain triage` write the cache;
+  `brain doctor` and the dashboard read it when it exists and never write
+  it. A master whose `.gitignore` does not cover `_meta/cache/` gets no
+  cache and runs as it did.
+
 ## [0.7.1] - 2026-09-23
 
 ### Added

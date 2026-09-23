@@ -11,11 +11,13 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import posixpath
 import re
 import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
@@ -35,6 +37,9 @@ from brain.schemas import (
     load_org,
     load_spaces,
 )
+
+if TYPE_CHECKING:
+    from brain.dedup import SignatureCache
 
 # Canonical filename for triage's rolling per-person digest note
 # (People/<id>/Inbox/doctor-digest.md). Lives here, not in brain.triage,
@@ -273,6 +278,39 @@ def _skeleton_pair(a: str, b: str, shared: str) -> bool:
     return a[len(sa):] == b[len(sb):]
 
 
+def _common_folder(paths: tuple[str, ...]) -> str:
+    """The deepest folder holding every path. A group never crosses a space,
+    so this is its space or a folder inside it. Members are distinct files,
+    so their common path is always a folder, never one of them."""
+    return posixpath.commonpath(paths)
+
+
+def _dup_near_message(severity: str, members: tuple[str, ...], signal: str) -> str:
+    """One line for a group of near-duplicates, as long for 3 notes as for
+    300: the count, the folder they share, and at most three names. A pair
+    reads as pairs always have, `signal` naming the tier that found it."""
+    if len(members) == 2:
+        a, b = members
+        if severity == "warn":
+            return (f"{a} and {b} are near-duplicates ({signal}) — fold one "
+                    "into the other via a mode: patch promotion")
+        return (f"{a} and {b} cover similar content in unshared spaces — "
+                "promotion candidate")
+    folder = _common_folder(members)
+    names = [m[len(folder) + 1:] for m in members]
+    if len(names) > 3:
+        listed = f"{', '.join(names[:3])}, and {len(names) - 3} more"
+    else:
+        listed = f"{', '.join(names[:-1])}, and {names[-1]}"
+    where = f" in {folder}"
+    if severity == "warn":
+        return (f"{len(members)} notes are near-duplicates of each other{where}: "
+                f"{listed} — merge them, or if they share a template on purpose, "
+                "make them distinct")
+    return (f"{len(members)} notes in unshared spaces cover similar "
+            f"content{where}: {listed} — promotion candidate")
+
+
 def _cached_file_vectors(
     rels: list[str], texts: dict[str, str], shared: str,
 ) -> dict[str, list[float]]:
@@ -318,7 +356,8 @@ def _cached_file_vectors(
 
 
 def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
-                      shared: str) -> list[Finding]:
+                      shared: str,
+                      dedup_cache: SignatureCache | None = None) -> list[Finding]:
     """Duplicate and near-duplicate notes, in three tiers: identical bytes
     (dup-exact), colliding title stems (stem-collision — bare wikilinks
     resolve by stem, first match wins), and near-duplicate content
@@ -326,8 +365,20 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     sides of is real rot (warn — double retrieval votes, ambiguous links);
     a pair with no common reader never meets in any vault, so it is only a
     duplicated-effort hint (info: promotion candidate). Warn-on-disjoint is
-    an invariant tested like the leak properties."""
-    from brain.dedup import DUP_MIN_WORDS, normalize_text
+    an invariant tested like the leak properties.
+
+    Near-duplicates within one space are reported as groups, not pairs: a
+    template stamped n times is n*(n-1)/2 pairs, and one person's digest
+    once held 5,167 of them. Those pairs are the edges of two graphs, one
+    of pairs with a common reader and one of pairs without, so a group's
+    severity means what a pair's did; each connected group is one finding.
+    A pair across two spaces stays a pair: one shared template must not
+    merge every person's notes into one group nobody may read in full.
+
+    MinHash signatures come from `dedup_cache` when the caller passes one
+    (triage, which may write it); otherwise from the cache file read-only if
+    it exists. Either way a signature is what would have been computed."""
+    from brain.dedup import DUP_MIN_WORDS, SignatureCache, normalize_text
 
     texts: dict[str, str] = {}
     for r in _content_files(master, shared):
@@ -358,11 +409,30 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         else:
             findings.append(Finding("info", check, info_msg, paths=(a, b)))
 
+    # Near-duplicate pairs inside one space, by severity: each sorted pair ->
+    # the signal that found it. Their groups become findings after Tier 3b.
+    near_edges: dict[str, dict[tuple[str, str], str]] = {"warn": {}, "info": {}}
+
+    def near(a: str, b: str, signal: str) -> None:
+        a, b = min(a, b), max(a, b)
+        if space_of_path(a, shared) != space_of_path(b, shared):
+            emit(a, b, "dup-near", _dup_near_message("warn", (a, b), signal),
+                 _dup_near_message("info", (a, b), signal))
+            return
+        pair = frozenset((a, b))
+        if pair in flagged or _skeleton_pair(a, b, shared):
+            return
+        flagged.add(pair)
+        severity = "warn" if space_readers(a) & space_readers(b) else "info"
+        near_edges[severity][(a, b)] = signal
+
     # Tier 1: identical bytes. Chained pairs (a,b),(b,c) — one finding per
     # adjacent pair in a group is signal enough without O(n^2) noise.
     by_sha: dict[str, list[str]] = {}
+    digests: dict[str, str] = {}  # also the signature cache's key (Tier 3a)
     for rel in substantive:
         digest = hashlib.sha256(texts[rel].encode("utf-8")).hexdigest()
+        digests[rel] = digest
         by_sha.setdefault(digest, []).append(rel)
     for _digest, group in sorted(by_sha.items()):
         for a, b in itertools.pairwise(group):
@@ -419,21 +489,23 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         DUP_HAMMING_FRAC,
         DUP_JACCARD,
         band_keys,
-        cosine,
+        clusters,
+        cosine_with_norms,
         hamming,
         jaccard_estimate,
-        minhash_signature,
-        shingles,
+        norm,
         sign_bits,
+        signatures,
     )
 
-    sigs: dict[str, tuple[int, ...]] = {}
+    cache = dedup_cache if dedup_cache is not None else SignatureCache.open_readonly(master)
+    try:
+        sigs = signatures({rel: (digests[rel], words[rel]) for rel in substantive}, cache)
+    finally:
+        if cache is not None and cache is not dedup_cache:
+            cache.close()
     buckets: dict[tuple[int, tuple[int, ...]], list[str]] = {}
-    for rel in substantive:
-        sig = minhash_signature(shingles(words[rel]))
-        if sig is None:
-            continue
-        sigs[rel] = sig
+    for rel, sig in sigs.items():
         for key in band_keys(sig):
             buckets.setdefault(key, []).append(rel)
     candidates: set[frozenset[str]] = set()
@@ -446,35 +518,37 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         if pair in flagged:
             continue
         if jaccard_estimate(sigs[a], sigs[b]) >= DUP_JACCARD:
-            emit(
-                a, b, "dup-near",
-                f"{a} and {b} are near-duplicates (text overlap) — fold one "
-                "into the other via a mode: patch promotion",
-                f"{a} and {b} cover similar content in unshared spaces — "
-                "promotion candidate")
+            near(a, b, "text overlap")
 
     # Tier 3b: semantic near-duplicates from cached embeddings. Sign-bit
-    # hamming prefilters the O(n^2) pair loop; exact cosine confirms.
+    # hamming prefilters the O(n^2) pair loop; exact cosine confirms, with
+    # each vector's norm computed once rather than once per pair.
     vecs = _cached_file_vectors(substantive, texts, shared)
     bits = {rel: sign_bits(v) for rel, v in vecs.items()}
+    norms = {rel: norm(v) for rel, v in vecs.items()}
     dim = len(next(iter(vecs.values()))) if vecs else 0
     max_ham = int(dim * DUP_HAMMING_FRAC)
     ordered = sorted(vecs)
     for i, a in enumerate(ordered):
         for b in ordered[i + 1:]:
-            pair = frozenset((a, b))
-            if pair in flagged:
-                continue
+            # The prefilter first: nearly every pair fails it, and it is
+            # cheaper than building the pair to look up in `flagged`.
             if hamming(bits[a], bits[b]) > max_ham:
                 continue
-            if cosine(vecs[a], vecs[b]) >= DUP_COSINE:
-                emit(
-                    a, b, "dup-near",
-                    f"{a} and {b} are near-duplicates (semantic similarity) "
-                    "— fold one into the other via a mode: patch promotion",
-                    f"{a} and {b} cover similar content in unshared spaces — "
-                    "promotion candidate")
+            if frozenset((a, b)) in flagged:
+                continue
+            if cosine_with_norms(vecs[a], vecs[b], norms[a], norms[b]) >= DUP_COSINE:
+                near(a, b, "semantic similarity")
 
+    for severity, edges in near_edges.items():
+        for members in clusters(edges):
+            # A group of two is a single edge, and its message names the
+            # tier that found it, as a pair's always has.
+            signal = edges[members] if len(members) == 2 else ""
+            findings.append(Finding(
+                severity, "dup-near",
+                _dup_near_message(severity, members, signal),
+                paths=members))
     return findings
 
 
@@ -1574,11 +1648,18 @@ def _check_delegated_decisions(master: Path) -> list[Finding]:
 
 def run_doctor(
     master: Path, out_root: Path | None = None, *, net: bool = False,
+    dedup_cache: SignatureCache | None = None,
 ) -> list[Finding]:
     """Every check, in order. `net` is opt-in and off by default: doctor's
     contract is read-only AND offline, so scheduled callers (cycle's triage,
     the dashboard) stay deterministic and CI-friendly without knowing this
-    parameter exists."""
+    parameter exists.
+
+    `dedup_cache` is the one exception to read-only, and it is the caller's:
+    triage opens the MinHash signature cache writable and passes it in, and
+    saves it afterwards. Without it, doctor reads that cache if it exists and
+    never creates or writes it — standalone `brain doctor` and the dashboard
+    run this way."""
     findings, org, rules = _check_meta(master)
     if org is None or rules is None:
         return findings  # dependent checks are meaningless on broken meta
@@ -1601,7 +1682,7 @@ def run_doctor(
     findings += _check_unreadable_files(master, shared)
     findings += _check_orphan_files(master, shared)
     findings += _check_unlinked_notes(master, shared)
-    findings += _check_duplicates(master, org, rules, shared)
+    findings += _check_duplicates(master, org, rules, shared, dedup_cache)
     findings += _check_cross_space_refs(master, org, rules, shared)
     findings += _check_plain_refs(master, org, rules, shared)
     findings += _check_facts(master, shared)

@@ -864,14 +864,13 @@ def test_no_provider_means_no_embedding_signal(master):
     assert not _severities(findings, "dup-near")
 
 
-def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch):
+def _warm_embeddings(master, tmp_path, monkeypatch, rels):
+    """Point doctor at a fake-32 embedding cache holding every chunk of `rels`
+    — the provider is configured but never called."""
     import hashlib as _hashlib
 
     from brain.chunker import chunk_markdown, embedding_input
     from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider, pack_vector
-
-    seed_meta(master)
-    rels = _shuffled_pair(master)
 
     cache_path = tmp_path / "emb-cache.db"
     monkeypatch.setenv("BRAIN_EMBED_CACHE", str(cache_path))
@@ -888,10 +887,42 @@ def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch
         cache.put_many(list(zip(shas, vecs)), "fake-32")
     cache.close()
 
+
+def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    _warm_embeddings(master, tmp_path, monkeypatch, rels)
+
     findings = run_doctor(master)
     assert "warn" in _severities(findings, "dup-near")
     hit = next(f for f in findings if f.check == "dup-near" and f.severity == "warn")
     assert "Shuffle A" in hit.message and "Shuffle B" in hit.message
+
+
+def test_semantic_findings_match_the_per_pair_cosine(master, tmp_path, monkeypatch):
+    """Norms computed once per vector must decide exactly what the old
+    per-pair cosine decided, on the semantic fixtures: a pair above the
+    threshold, and notes that share words but sit below it."""
+    import brain.dedup
+
+    from .test_dedup import _generator_cosine
+
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    ws = [f"word{i}" for i in range(40)]
+    for name, words in (("Half", ws[:20] + [f"other{i}" for i in range(20)]),
+                        ("Apart", [f"far{i}" for i in range(40)])):
+        (master / f"Company/{name}.md").write_text(f"# {name}\n\n" + " ".join(words) + "\n")
+        rels.append(f"Company/{name}.md")
+    _warm_embeddings(master, tmp_path, monkeypatch, rels)
+
+    fast = run_doctor(master)
+    monkeypatch.setattr(brain.dedup, "cosine_with_norms",
+                        lambda a, b, _na, _nb: _generator_cosine(a, b))
+    per_pair = run_doctor(master)
+    assert fast == per_pair
+    assert [f.paths for f in fast if f.check == "dup-near"] == [
+        ("Company/Shuffle A.md", "Company/Shuffle B.md")]
 
 
 def test_warn_dup_findings_never_pair_disjoint_readers(master):
@@ -977,6 +1008,325 @@ def test_findings_carry_structured_paths(master):
     assert sorted(dup.paths) == ["Company/CopyA.md", "Company/CopyB.md"]
     # non-routed checks keep the default
     assert all(f.paths == () for f in findings if f.check == "meta")
+
+
+# ---- the MinHash signature cache (<master>/_meta/cache/dedup.db) ----------- #
+
+
+def _templated(master, folder, n, prefix="Report", word="tok"):
+    """n notes stamped from one template, one word apart: every pair is a
+    near-duplicate, none is identical, and each has its own title stem.
+    Templates built from different `word`s share nothing."""
+    base = [f"{word}{i}" for i in range(60)]
+    rels = []
+    for i in range(n):
+        words = list(base)
+        words[30] = f"variant{i}"
+        rel = f"{folder}/{prefix} {i:02d}.md"
+        (master / rel).parent.mkdir(parents=True, exist_ok=True)
+        (master / rel).write_text(f"# {prefix} {i:02d}\n\n" + " ".join(words) + "\n")
+        rels.append(rel)
+    return rels
+
+
+def _ignore_cache(master):
+    # What `brain init` writes; without it the cache must never be created.
+    (master / ".gitignore").write_text("_meta/cache/\n")
+
+
+def _count_signatures(monkeypatch):
+    """Every signature doctor computes (rather than reads from the cache)."""
+    import brain.dedup
+
+    calls = []
+    real = brain.dedup.minhash_signature
+
+    def spy(shingle_set):
+        calls.append(len(shingle_set))
+        return real(shingle_set)
+
+    monkeypatch.setattr(brain.dedup, "minhash_signature", spy)
+    return calls
+
+
+def _writable_run(master):
+    """One doctor run the way the cycle does it: triage opens the cache
+    writable, doctor reads and fills it, triage saves it."""
+    from brain.dedup import SignatureCache
+
+    cache = SignatureCache.open_writable(master)
+    assert cache is not None
+    try:
+        findings = run_doctor(master, dedup_cache=cache)
+        cache.save()
+    finally:
+        cache.close()
+    return findings
+
+
+def test_a_warm_cache_computes_no_signature_for_an_unchanged_note(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 4)
+    first = _writable_run(master)
+    calls = _count_signatures(monkeypatch)
+    second = _writable_run(master)
+    assert calls == []
+    assert second == first
+
+
+def test_a_changed_note_is_the_only_signature_recomputed(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    rels = _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    note = master / rels[0]
+    note.write_text(note.read_text().replace("tok10", "edited"))
+    calls = _count_signatures(monkeypatch)
+    _writable_run(master)
+    assert len(calls) == 1
+
+
+def test_a_signature_parameter_change_invalidates_the_cache(master, monkeypatch):
+    import brain.dedup
+
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    calls = _count_signatures(monkeypatch)
+    scheme = brain.dedup.SIGNATURE_SCHEME
+    monkeypatch.setattr(brain.dedup, "SIGNATURE_SCHEME", scheme + 1)
+    _writable_run(master)
+    assert len(calls) == 4
+    # The old version's rows were pruned by that run, not kept alongside:
+    # going back recomputes everything again.
+    monkeypatch.setattr(brain.dedup, "SIGNATURE_SCHEME", scheme)
+    calls.clear()
+    _writable_run(master)
+    assert len(calls) == 4
+
+
+def test_the_cache_forgets_notes_that_are_gone(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    rels = _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    gone = master / rels[0]
+    text = gone.read_text()
+    gone.unlink()
+    _writable_run(master)  # prunes the vanished note's row
+    gone.write_text(text)
+    calls = _count_signatures(monkeypatch)
+    _writable_run(master)
+    assert len(calls) == 1
+
+
+def test_standalone_doctor_never_creates_the_cache(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 3)
+    run_doctor(master)
+    assert not (master / "_meta/cache").exists()
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root reads through any permission")
+def test_an_unreadable_cache_folder_falls_back_to_computing(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 3)
+    expected = run_doctor(master)
+    _writable_run(master)
+    folder = master / "_meta/cache"
+    folder.chmod(0)
+    try:
+        assert run_doctor(master) == expected
+    finally:
+        folder.chmod(0o755)
+
+
+def test_standalone_doctor_reads_the_cache_but_never_writes_it(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    rels = _templated(master, "Company/Reports", 4)
+    _writable_run(master)
+    db = master / "_meta/cache/dedup.db"
+    before = (db.read_bytes(), db.stat().st_mtime_ns)
+    note = master / rels[0]
+    note.write_text(note.read_text().replace("tok10", "edited"))
+    calls = _count_signatures(monkeypatch)
+    run_doctor(master)
+    assert len(calls) == 1  # the three unchanged notes came from the cache
+    assert (db.read_bytes(), db.stat().st_mtime_ns) == before
+    assert sorted(p.name for p in db.parent.iterdir()) == ["dedup.db"]
+
+
+def test_findings_are_identical_with_and_without_the_cache(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 5)
+    _templated(master, "People/bob/Notes", 3, prefix="Log")
+    for name in ("Copy One", "Copy Two"):
+        (master / f"Company/{name}.md").write_text(BODY_A)
+    cold = run_doctor(master)  # no cache file yet
+    assert _writable_run(master) == cold
+    assert run_doctor(master) == cold  # read-only, every signature a hit
+
+
+def test_an_unusable_cache_file_falls_back_to_computing(master):
+    seed_meta(master)
+    _ignore_cache(master)
+    _templated(master, "Company/Reports", 3)
+    expected = run_doctor(master)
+    db = master / "_meta/cache/dedup.db"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"this is not a database" * 64)
+    assert run_doctor(master) == expected
+
+
+# ---- near-duplicates are reported as groups, not pairs -------------------- #
+
+
+def _near(findings):
+    return [f for f in findings if f.check == "dup-near"]
+
+
+def test_templated_notes_are_one_near_duplicate_group(master):
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports", 6)
+    near = _near(run_doctor(master))
+    assert len(near) == 1
+    f = near[0]
+    assert f.severity == "warn"
+    assert f.paths == tuple(sorted(rels))
+    assert f.message == (
+        "6 notes are near-duplicates of each other in Company/Reports: "
+        "Report 00.md, Report 01.md, Report 02.md, and 3 more — merge them, "
+        "or if they share a template on purpose, make them distinct")
+
+
+def test_a_group_of_three_names_all_three(master):
+    seed_meta(master)
+    _templated(master, "Company/Reports", 3)
+    (f,) = _near(run_doctor(master))
+    assert f.message.startswith(
+        "3 notes are near-duplicates of each other in Company/Reports: "
+        "Report 00.md, Report 01.md, and Report 02.md — ")
+
+
+def test_a_pair_still_reads_like_a_pair(master):
+    # Two notes are a group of two: the message is the one pairs always had.
+    seed_meta(master)
+    a, b = _templated(master, "Company/Reports", 2)
+    (f,) = _near(run_doctor(master))
+    assert f.paths == (a, b)
+    assert f.message == (
+        f"{a} and {b} are near-duplicates (text overlap) — fold one into the "
+        "other via a mode: patch promotion")
+
+
+def test_two_unrelated_templates_are_two_groups(master):
+    seed_meta(master)
+    reports = _templated(master, "Company/Reports", 4)
+    calls = _templated(master, "Teams/sales/Calls", 3, prefix="Call", word="call")
+    near = _near(run_doctor(master))
+    assert sorted(f.paths for f in near) == [tuple(sorted(reports)), tuple(sorted(calls))]
+
+
+def test_near_duplicates_across_spaces_stay_pairs(master):
+    """Groups never cross a space: matches between two spaces are reported
+    pair by pair, exactly as before groups existed."""
+    seed_meta(master)
+    r0, r1 = _templated(master, "Company/Reports", 2)
+    m0, m1 = _templated(master, "Clients/acme", 2, prefix="Memo")
+    near = _near(run_doctor(master))
+    assert all(f.severity == "warn" for f in near)  # everyone reads both
+    assert sorted(f.paths for f in near) == sorted([
+        (m0, m1), (r0, r1),                      # a group of two per space
+        (m0, r0), (m0, r1), (m1, r0), (m1, r1),  # and the cross-space pairs
+    ])
+    cross = next(f for f in near if f.paths == (m0, r0))
+    assert cross.message == (
+        f"{m0} and {r0} are near-duplicates (text overlap) — fold one into the "
+        "other via a mode: patch promotion")
+
+
+def test_a_shared_template_does_not_merge_everyones_notes(master):
+    """One template in Company/ near-duplicates notes in several people's
+    spaces. Each person's own notes are their group, routed to them alone;
+    matches with the shared note, or across people, stay pairs."""
+    from brain.schemas import load_org, load_spaces
+    from brain.triage import route_findings
+
+    seed_meta(master)
+    (tpl,) = _templated(master, "Company", 1, prefix="Template")
+    alices = _templated(master, "People/alice/Notes", 3, prefix="Mine")
+    bobs = _templated(master, "People/bob/Notes", 3, prefix="Log")
+    near = _near(run_doctor(master))
+    groups = [f for f in near if len(f.paths) > 2]
+    assert sorted(f.paths for f in groups) == [tuple(alices), tuple(bobs)]
+    assert all(f.severity == "warn" for f in groups)
+    pairs = [f for f in near if len(f.paths) == 2]
+    assert {f.paths for f in pairs if tpl in f.paths} == {
+        tuple(sorted((tpl, p))) for p in alices + bobs}
+    assert all(f.severity == "warn" for f in pairs if tpl in f.paths)
+    assert {f.paths for f in pairs if tpl not in f.paths} == {
+        (a, b) for a in alices for b in bobs}
+    assert all(f.severity == "info" for f in pairs if tpl not in f.paths)
+
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    routed, _ = route_findings(groups, org, rules)
+    bob_group = next(f for f in groups if f.paths == tuple(bobs))
+    assert routed["bob"] == [bob_group]
+    assert bob_group not in routed["alice"]
+
+
+def test_a_group_splits_by_readership(master):
+    """Severity is still per pair: bob's two notes (a pair bob reads both
+    sides of) are warn; alice's copy, in another space with no common
+    reader, is an info-level promotion hint against each, as pairs."""
+    seed_meta(master)
+    (bob_a, bob_b) = _templated(master, "People/bob/Notes", 2)
+    (alice,) = _templated(master, "People/alice/Notes", 1, prefix="Copy")
+    near = _near(run_doctor(master))
+    warn = [f for f in near if f.severity == "warn"]
+    info = [f for f in near if f.severity == "info"]
+    assert [f.paths for f in warn] == [(bob_a, bob_b)]
+    assert sorted(f.paths for f in info) == [(alice, bob_a), (alice, bob_b)]
+    assert info[0].message == (
+        f"{info[0].paths[0]} and {info[0].paths[1]} cover similar content in "
+        "unshared spaces — promotion candidate")
+
+
+def test_an_info_group_within_one_space(master):
+    """Pairs in a space nobody reads have no common reader: an info group."""
+    seed_meta(master)
+    rels = _templated(master, "Teams/ghosts", 3)  # no one is on team ghosts
+    (f,) = _near(run_doctor(master))
+    assert (f.severity, f.paths) == ("info", tuple(rels))
+    assert f.message == (
+        "3 notes in unshared spaces cover similar content in Teams/ghosts: "
+        "Report 00.md, Report 01.md, and Report 02.md — promotion candidate")
+
+
+def test_a_near_duplicate_group_message_stays_short(master):
+    """Three names however big the group: the line does not grow with it."""
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports/Weekly", 40,
+                      prefix="Weekly status report for the operations team")
+    (f,) = _near(run_doctor(master))
+    assert len(f.paths) == 40
+    assert f.message.startswith("40 notes are near-duplicates of each other in "
+                                "Company/Reports/Weekly: ")
+    assert ", and 37 more — " in f.message
+    assert len([r for r in rels if r.rsplit("/", 1)[1] in f.message]) == 3
+    for rel in rels[4:]:
+        (master / rel).unlink()
+    (four,) = _near(run_doctor(master))
+    assert len(four.paths) == 4
+    assert len(f.message) - len(four.message) == 2  # "40" vs "4", "37" vs "1"
 
 
 requires_nonroot = pytest.mark.skipif(
