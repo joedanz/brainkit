@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-23
+
 ### Added
 
 - **`brain_search` finds a space by its name.** A search for a client's
