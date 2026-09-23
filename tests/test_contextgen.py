@@ -98,13 +98,27 @@ def test_the_writable_minority_is_still_listed_by_name():
     assert lines[3:] == [f"- `Clients/C{i:03d}/` — writable" for i in range(3)]
 
 
-def test_all_writable_or_a_writable_majority_lists_no_names():
+def test_all_writable_lists_no_names():
     admin = [(f"Clients/C{i:03d}", True) for i in range(668)]
     assert render_space_section("admin", admin, "Company").splitlines() == [
         f"- `Clients/` — 668 spaces, all writable. {_TAIL}"]
+
+
+def test_a_writable_majority_names_the_read_only_few():
+    """Mostly writable, so the few an agent must NOT write to are the ones
+    worth naming: a write to one of them gets the whole write-back rejected,
+    and nothing else in the vault says which they are (per-space notes cover
+    only the entity folder and the person's own space)."""
     many = [(f"Clients/C{i:03d}", i <= LIST_CAP) for i in range(40)]  # 21 writable
     lines = render_space_section("bob", many, "Company").splitlines()
-    assert lines == [f"- `Clients/` — 40 spaces: 21 writable, 19 read-only. {_TAIL}"]
+    assert lines == [f"- `Clients/` — 40 spaces: 21 writable, 19 read-only. {_TAIL}"] + [
+        f"- `Clients/C{i:03d}/` — read-only" for i in range(LIST_CAP + 1, 40)]
+
+
+def test_no_names_when_neither_side_is_a_few():
+    half = [(f"Clients/C{i:03d}", i % 2 == 0) for i in range(50)]  # 25 and 25
+    assert render_space_section("bob", half, "Company").splitlines() == [
+        f"- `Clients/` — 50 spaces: 25 writable, 25 read-only. {_TAIL}"]
 
 
 def test_the_own_space_is_listed_even_in_a_crowded_people_folder():

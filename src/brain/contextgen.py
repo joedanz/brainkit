@@ -304,8 +304,10 @@ def render_space_section(
 
     One line per space, as always, until a top-level folder holds more than
     LIST_CAP readable spaces. That folder then renders as one summary line,
-    counts by access, followed by its writable spaces by name when they are
-    the few an agent writes to directly. Order is the enumerate order, a
+    counts by access, followed by whichever side is the few, by name: its
+    writable spaces when an agent writes to only a handful, or its read-only
+    spaces when it may write almost everywhere, since a write to one of those
+    gets the whole write-back rejected. Order is the enumerate order, a
     summary taking its folder's first slot, so a vault with no crowded folder
     renders byte-identical to before. The shared space and the person's own
     space are always listed, and the own space never counts toward a crowd.
@@ -339,6 +341,8 @@ def render_space_section(
                      "`brain_search` finds any of them by name.")
         if 0 < nw <= LIST_CAP:  # n > LIST_CAP here, so these are never all of them
             lines.extend(_space_line(s, w) for s, w in mine)
+        elif 0 < n - nw <= LIST_CAP:
+            lines.extend(_space_line(s, w) for s, w in members if not w)
     return "\n".join(lines)
 
 
