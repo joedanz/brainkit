@@ -478,8 +478,8 @@ notes. Fixes flow back through the normal gates — write-back for a person's
 own spaces, `mode: patch` promotions for shared pages. `brain cycle` runs
 this automatically after each compile; the standalone verb exists for manual
 runs. Triage also keeps `doctor`'s near-duplicate cache,
-`_meta/cache/dedup.db`, up to date, so the next run only works out
-fingerprints for new and edited notes; `brain doctor` on its own reads that
+`_meta/cache/dedup.db`, up to date: it holds a short summary of each note,
+so the next run only works one out for new and edited notes; `brain doctor` on its own reads that
 file but never writes it, and a master whose `.gitignore` does not cover
 `_meta/cache/` gets no cache at all.
 
