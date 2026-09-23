@@ -176,8 +176,14 @@ async def handle_graph(request: web.Request) -> web.Response:
     from brain.stats import _build_graph, ro_connect
 
     vault = _target_vault(request.app, request)
+    # `full` asks for the maximum by name, so the Graph tab never has to carry
+    # a copy of the number (a copied cap goes stale when this one moves).
+    if request.query.get("full"):
+        raw = _MAX_GRAPH_CAP
+    else:
+        raw = request.query.get("cap", _DEFAULT_GRAPH_CAP)
     try:
-        cap = int(request.query.get("cap", _DEFAULT_GRAPH_CAP))
+        cap = int(raw)
     except ValueError:
         cap = _DEFAULT_GRAPH_CAP
     if cap <= 0:

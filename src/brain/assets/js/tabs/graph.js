@@ -11,7 +11,6 @@ import { mountGraph } from "../graph/engine.js";
 
 let S = null;
 const PHONE = "(max-width: 820px)";
-const FULL_CAP = 2000;
 
 // The engine paints with whatever the page's stylesheet says the theme is,
 // so a theme flip repaints the graph to match the chrome around it.
@@ -39,7 +38,7 @@ export function render(container, ctx) {
   clear(container);
   S = {
     ctx, container,
-    engine: null, data: null,
+    engine: null, data: null, sig: null, full: false,
     phone: matchMedia(PHONE).matches,
     loads: latest(), factLoads: latest(), facts: null,
     host: null, panel: null,
@@ -76,6 +75,7 @@ function buildChrome() {
       S.ctx.person = sel.value;
       if (S.engine) { S.engine.destroy(); S.engine = null; }
       S.facts = null;
+      S.full = false;
       renderCard(null, []);
       load();
     });
@@ -100,8 +100,12 @@ function watchTheme() {
   S.mq.addEventListener("change", S.onTheme);
 }
 
-function params(cap) {
-  const p = { cap };
+// No cap numbers here: the server owns the default and, behind `full`, the
+// maximum (server.py). A number sent from here would silently override them,
+// which is how 0.6.6's raise to 1,000 never reached this view.
+function params() {
+  const p = {};
+  if (S.full) p.full = 1;
   if (S.ctx.meta.kind === "master") p.person = S.ctx.person;
   return p;
 }
@@ -110,7 +114,7 @@ async function load() {
   const token = S.loads.begin();
   let g;
   try {
-    g = await api.graph(params(300));
+    g = await api.graph(params());
   } catch (e) {
     if (!S || !S.loads.current(token)) return;
     // The banner replaces the whole host, canvas included, so a mounted engine
@@ -123,6 +127,11 @@ async function load() {
     return;
   }
   if (!S || !S.loads.current(token)) return;
+  // A live push re-fetches whenever the vault moves, but most leave this graph
+  // as it was; re-settling ~1,000 nodes for nothing costs seconds of main thread.
+  const sig = JSON.stringify(g);
+  if (S.engine && sig === S.sig) return;
+  S.sig = sig;
   S.data = g;
   if (S.engine) { S.engine.update({ data: g }); return; }   // live reload: positions and view stay
   clear(S.host);
@@ -133,10 +142,14 @@ async function load() {
     lens: S.ctx.meta.kind === "master" ? "master" : "vault",
     onSelect: (node, neighbours) => renderCard(node, neighbours),
     onOpen: (node) => S.ctx.openNote(node.rel_path),
-    // Full graph: the engine shows the button while `truncated`, we fetch.
+    // Full graph: the engine shows the button while `truncated`, we fetch. The
+    // choice sticks, so live pushes keep the full view; begin() drops any
+    // default-size load still in flight so it cannot land after this one.
     loadFull: async () => {
-      const full = await api.graph(params(FULL_CAP));
-      if (S) S.data = full;
+      S.full = true;
+      S.loads.begin();
+      const full = await api.graph(params());
+      if (S) { S.data = full; S.sig = JSON.stringify(full); }
       return full;
     },
   });

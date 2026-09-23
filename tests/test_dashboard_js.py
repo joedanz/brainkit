@@ -71,6 +71,17 @@ def test_graph_tab_render_disposes_a_previous_singleton_before_building():
     assert teardown < reassign, "the previous singleton must be disposed BEFORE render() reassigns S"
 
 
+def test_graph_tab_leaves_every_cap_to_the_server():
+    """The server owns both node caps and obeys any `cap` it is sent, so a
+    number carried here silently wins over it: 0.6.6 raised the default to
+    1000 and this tab kept asking for 300. Full graph asks for the maximum by
+    name (`full`). The rule, not one spelling of it: no cap in the code."""
+    src = (JS / "tabs" / "graph.js").read_text(encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", src, flags=re.S)
+    caps = re.findall(r"(?i)[a-z_]*cap\b", code)
+    assert not caps, f"graph.js carries a cap, which overrides the server's: {caps}"
+
+
 def test_note_view_resolver_matches_path_stem_or_trailing_segment():
     """buildResolver is pure, so the wikilink → rel_path rule is asserted here
     against the shipped module (both tabs now share it)."""

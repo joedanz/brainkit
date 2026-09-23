@@ -11,6 +11,27 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-09-22
+
+### Fixed
+
+- **The Graph tab now actually uses the 1,000-node default that 0.6.6
+  announced.** 0.6.6 raised the server's default cap from 300 to 1,000, but
+  the tab still asked for 300 explicitly on every load, and the server
+  honours a cap it is given. So 0.6.6's entry described a fix the default
+  view never got: grown vaults kept showing well-linked pages cut off from
+  their neighbors. The tab now sends no cap and the server's default
+  applies. The static `brain dashboard --html` snapshot stays at 300 on
+  purpose: its simpler layout compares every pair of nodes, so 1,000 nodes
+  would be about 11 times the work.
+- **Full graph asks the server for its maximum instead of carrying its own
+  copy of the number** (`GET /api/graph?full=1`), so a future change to the
+  maximum reaches the button too. The full view now also survives live
+  updates; it used to snap back to the default size on the next refresh.
+- **A live update that leaves the graph unchanged no longer restarts the
+  layout.** At 1,000 nodes, re-settling an identical graph on every refresh
+  cost seconds of main-thread work each time.
+
 ## [0.6.8] - 2026-09-18
 
 ### Fixed

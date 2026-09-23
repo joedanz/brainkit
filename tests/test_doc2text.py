@@ -106,8 +106,8 @@ def text_pdf(lines):
     return pdf_bytes([
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+         b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"),
         stream(b"", ops),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ])
@@ -134,8 +134,8 @@ def scanned_pdf(tmp_path, lines):
     return pdf_bytes([
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-        b"/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+        (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+         b"/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>"),
         stream(b"", b"q 612 0 0 792 0 0 cm /Im0 Do Q"),
         stream(b"/Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray "
                b"/BitsPerComponent 8 /Filter /FlateDecode" % (w, h), img),

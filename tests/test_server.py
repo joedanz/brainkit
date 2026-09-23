@@ -435,6 +435,18 @@ async def test_input_clamps(aiohttp_client, master, tmp_path):
     assert "nodes" in graph
 
 
+async def test_graph_caps_belong_to_the_server(aiohttp_client, master, tmp_path, monkeypatch):
+    """The Graph tab sends no number: no param means the default, `full` the max."""
+    # fixture vault: 5 notes, 3 of them linked, so both caps must cut
+    monkeypatch.setattr("brain.server._DEFAULT_GRAPH_CAP", 2)
+    monkeypatch.setattr("brain.server._MAX_GRAPH_CAP", 3)
+    client = await aiohttp_client(_vault_app(_vault(master, tmp_path)))
+    default = await (await client.get("/api/graph")).json()
+    full = await (await client.get("/api/graph", params={"full": "1"})).json()
+    assert len(default["nodes"]) == 2 and default["truncated"] is True
+    assert len(full["nodes"]) == 3 and full["truncated"] is True
+
+
 # ---- facts endpoint ----------------------------------------------------------
 
 def _facts_vault(master, tmp_path):
