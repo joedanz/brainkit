@@ -3,10 +3,13 @@ from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_vault
 from brain.contextgen import (
+    LIST_CAP,
     ROOT_LIMIT,
     SPACE_LIMIT,
+    ProtocolTooLarge,
     generate_context_files,
     render_root_protocol,
+    render_space_section,
 )
 from brain.schemas import Person, VaultConfig, make_config
 from tests.conftest import BOB, RULES
@@ -36,8 +39,6 @@ def test_small_vaults_render_byte_identical_to_0_6_9():
         corrections_block="## Standing corrections\n\n- Always answer in plain English.\n",
     )) == "c5a30bf08d0334fde0326a741b10c854ff0ca35f275f84b63b12c7a438961a1a"
 
-
-from brain.contextgen import LIST_CAP, ProtocolTooLarge, render_space_section
 
 _TAIL = "`Map.md` has the overview; `brain_search` finds any of them by name."
 

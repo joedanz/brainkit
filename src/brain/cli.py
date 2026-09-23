@@ -40,16 +40,17 @@ def cmd_compile(args) -> int:
         )
         print(f"compiled {person.id} -> {out / person.id}")
     else:
+        failures: tuple[tuple[str, str], ...] = ()
         try:
             results = compile_all(master, org, rules, out, today=date.today().isoformat())
         except CompileError as e:
-            for r in e.completed:
-                print(f"compiled {r.person_id}: {len(r.files)} files")
-            for pid, why in e.failures:
-                print(f"failed {pid}: {why}", file=sys.stderr)
-            return 1
+            results, failures = e.completed, e.failures
         for r in results:
             print(f"compiled {r.person_id}: {len(r.files)} files")
+        for pid, why in failures:
+            print(f"failed {pid}: {why}", file=sys.stderr)
+        if failures:
+            return 1
     return 0
 
 

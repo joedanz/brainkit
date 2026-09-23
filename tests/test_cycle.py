@@ -4,6 +4,7 @@ from pathlib import Path
 from brain.cli import main
 from brain.cycle import CycleReport, run_cycle
 from tests.conftest import requires_vectors
+from tests.test_compiler import _failing_for
 
 from .test_cli import seed_meta  # ORG/SPACES yaml + git init helper
 
@@ -999,8 +1000,6 @@ def test_a_clean_compile_has_no_compile_failed_key_in_the_snapshot(master, tmp_p
 
 
 # ---- Task 3: one person's failure can't stop the fleet --------------------- #
-
-from tests.test_compiler import _failing_for
 
 
 def test_cycle_survives_a_failed_compile_and_still_triages(master, tmp_path, monkeypatch):

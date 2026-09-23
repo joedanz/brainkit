@@ -1428,19 +1428,29 @@ def _size_findings(master, pid):
             if f.check == "protocol-size" and f.message.startswith(f"{pid}:")]
 
 
-def test_protocol_size_warns_then_errors_as_a_protocol_nears_the_limit(master, monkeypatch):
-    import brain.contextgen as cg
+def _seeded_bob_protocol_size(master):
+    """seed_meta's org, rules and config, plus the size of bob's protocol at
+    the real ROOT_LIMIT: the baseline both size tests scale the limit from."""
     from brain.contextgen import render_person_protocol, writable_spaces
     from brain.resolver import readable_spaces
     from brain.schemas import load_config, load_org, load_spaces
     from tests.test_cli import seed_meta
 
     seed_meta(master)
-    org, rules = load_org(master / "_meta/org.yaml"), load_spaces(master / "_meta/spaces.yaml")
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    config = load_config(master)
     bob = org.people["bob"]
     size = len(render_person_protocol(
         master, bob, writable_spaces(readable_spaces(master, bob, rules), bob, rules),
-        load_config(master)))
+        config))
+    return org, rules, config, size
+
+
+def test_protocol_size_warns_then_errors_as_a_protocol_nears_the_limit(master, monkeypatch):
+    import brain.contextgen as cg
+
+    *_, size = _seeded_bob_protocol_size(master)
 
     assert _size_findings(master, "bob") == []                       # 26%: silent
     monkeypatch.setattr(cg, "ROOT_LIMIT", int(size / 0.85))
@@ -1462,19 +1472,8 @@ def test_protocol_size_percent_always_matches_its_severity(master, monkeypatch):
     always derived from the same number."""
     import brain.contextgen as cg
     import brain.doctor as doctor_mod
-    from brain.contextgen import render_person_protocol, writable_spaces
-    from brain.resolver import readable_spaces
-    from brain.schemas import load_config, load_org, load_spaces
-    from tests.test_cli import seed_meta
 
-    seed_meta(master)
-    org = load_org(master / "_meta/org.yaml")
-    rules = load_spaces(master / "_meta/spaces.yaml")
-    config = load_config(master)
-    bob = org.people["bob"]
-    size = len(render_person_protocol(
-        master, bob, writable_spaces(readable_spaces(master, bob, rules), bob, rules),
-        config))
+    org, rules, config, size = _seeded_bob_protocol_size(master)
 
     for pct_target in (79, 80, 94, 95):
         for d in (-1, 0, 1):

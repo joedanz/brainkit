@@ -337,7 +337,7 @@ def render_space_section(
             counts = f"{n} spaces: {nw} writable, {n - nw} read-only"
         lines.append(f"- `{top}/` — {counts}. `Map.md` has the overview; "
                      "`brain_search` finds any of them by name.")
-        if 0 < nw <= LIST_CAP and nw < n:
+        if 0 < nw <= LIST_CAP:  # n > LIST_CAP here, so these are never all of them
             lines.extend(_space_line(s, w) for s, w in mine)
     return "\n".join(lines)
 
