@@ -285,8 +285,11 @@ def patch_diff(master: Path, promo: Promotion,
     target = master / promo.target_path
     if target.is_symlink() or not target.is_file():
         return None
+    # errors="replace": this renders inside every compile (the decider
+    # section), and a strict read let one pasted Windows-1252 byte stop the
+    # fleet. Display only; approval's hash check reads the raw bytes.
     return "".join(difflib.unified_diff(
-        target.read_text().splitlines(keepends=True),
+        target.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True),
         promo.body.splitlines(keepends=True),
         fromfile=f"{promo.target_path} (current)",
         tofile=f"{promo.target_path} (proposed)",

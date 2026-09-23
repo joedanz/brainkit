@@ -47,8 +47,9 @@ from brain.schemas import (
 # it available as brain.triage.DIGEST_NAME for existing callers/tests.
 
 # Content findings an agent can act on. Everything else is either infra
-# (routed to admins at error severity only) or has its own queue already
-# (pending shares, promotions) and is never routed.
+# (routed to admins at error severity only; ADMIN_CHECKS below reach them at
+# warn too) or has its own queue already (pending shares, promotions) and is
+# never routed.
 TRIAGE_CHECKS = frozenset({
     "unlinked-notes", "orphan-files", "intel",
     "dup-exact", "dup-near", "stem-collision",
@@ -64,6 +65,12 @@ TRIAGE_CHECKS = frozenset({
 # Deliberately absent: link-rot. Triage always runs doctor offline, so it can
 # never see one — `brain doctor --net` is a human-invoked diagnostic that
 # reports to the terminal.
+
+# Findings about the generated protocols themselves. Only an admin can act on
+# them (org, config, the master's AGENTS.md), and a warning that routes to
+# nobody is how protocol-stale went unseen; so these reach the admins at
+# warn and error alike.
+ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale"})
 
 
 def count_findings(findings: list[Finding]) -> dict[str, int]:
@@ -97,9 +104,10 @@ def route_findings(
     `_display`), and someone with fuller view (the admins) still sees the
     whole picture. Info-level findings are never routed — the disjoint-space
     dup tier is a hint, not work. Error-severity findings from non-content
-    checks are escalations for the admins. With no admins configured,
-    findings that needed one count as unrouted (surfaced in the report,
-    never a crash).
+    checks are escalations for the admins. ADMIN_CHECKS (findings about the
+    generated protocols) reach the admins at warn as well, since only an
+    admin can act on them. With no admins configured, findings that needed
+    one count as unrouted (surfaced in the report, never a crash).
     """
     admins = sorted(p.id for p in org.people.values() if p.is_admin)
     routed: dict[str, list[Finding]] = {}
@@ -116,6 +124,10 @@ def route_findings(
                 bucket.append(finding)
 
     for f in findings:
+        if f.check in ADMIN_CHECKS:
+            if f.severity in ("warn", "error"):
+                assign(f, admins)
+            continue
         if f.check in TRIAGE_CHECKS:
             if f.severity != "warn":
                 continue

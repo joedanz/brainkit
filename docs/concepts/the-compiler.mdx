@@ -15,7 +15,9 @@ Everything else in the system — sync, agents, devices — is downstream of it 
 ## What a slice contains
 
 - Only the spaces the person may **read**, resolved from `spaces.yaml`.
-- Generated agent context files (`AGENTS.md`, `CLAUDE.md`) scoped to that person.
+- Generated agent context files (`AGENTS.md`, `CLAUDE.md`) scoped to that
+  person. A folder with more than 20 spaces is summarized in one line, so
+  the file no longer grows with every space added to that folder.
 - A generated `Map.md`: what that vault holds right now — spaces with note
   counts, entity types, the most-connected notes, and what is pending. It is
   computed from the built tree, so it structurally cannot name anything the
@@ -35,6 +37,8 @@ It runs on every master commit, and the output is committed to that person's per
 </Callout>
 
 Concretely, the compiler builds each new vault beside the old one and swaps them with a two-phase rename. If the process dies mid-swap, the previous vault (its content **and** its `.git`) is fully restored. A half-written slice never becomes the live one.
+
+Failure is per person: one vault that fails to build keeps its previous copy while everyone else's is refreshed.
 
 ## The tenant boundary is enforced, not trusted
 

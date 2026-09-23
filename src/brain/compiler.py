@@ -80,27 +80,29 @@ class CompileResult:
 
 
 class CompileError(BrainError):
-    """A fleet compile stopped part-way through.
+    """Part of a fleet compile failed.
 
-    Reported with a count rather than a warning, because the two-phase swap
-    already answers the operator's real question. A vault is renamed into
-    place only once it is fully built, so the vaults ahead of the failure hold
-    a complete new compile, the ones behind it hold a complete previous one,
-    and none is half-written. Saying which person failed and how far the run
-    got is therefore the whole story — there is no cleanup to describe.
+    compile_all keeps going past a person whose vault fails to build, so one
+    oversized protocol or unreadable note cannot stop everyone else's
+    refresh; 0.6.x stopped at the first failure. A vault is swapped in only
+    once it is fully built, so none is ever half-written: a build failure
+    leaves that person's previous vault in place, and a failure in the git
+    step after the swap leaves the new build there, uncommitted. `failures`
+    names each failed person with the reason; `completed` is everyone who
+    was refreshed.
     """
 
-    def __init__(self, person_id: str, cause: BaseException,
+    def __init__(self, failures: list[tuple[str, str]],
                  completed: list[CompileResult], total: int) -> None:
-        self.person_id = person_id
+        self.failures = tuple(failures)
         self.completed = tuple(completed)
         self.total = total
-        super().__init__(
-            f"compiling {person_id}: {describe(cause)}\n"
-            f"  {len(completed)} of {total} vault(s) refreshed before this; the "
-            f"rest still hold their previous compile (vaults swap atomically, "
-            f"so none is half-written)"
-        )
+        lines = [f"compiling {pid}: {why}" for pid, why in self.failures]
+        lines.append(
+            f"  {len(self.completed)} of {total} vault(s) refreshed; "
+            f"{len(self.failures)} failed (vaults swap atomically, so none is "
+            f"half-written)")
+        super().__init__("\n".join(lines))
 
 
 def _iter_space_files(master: Path, space: str):
@@ -248,7 +250,12 @@ def _post_process(
         if rel.endswith(".md") and not can_write_path(rel, person, rules,
                                                       shared=config.shared):
             f = building / rel
-            f.write_text(stub_links(f.read_text(), included_stems, master_stems))
+            # errors="replace", as doctor and corrections read notes: one pasted
+            # Windows-1252 byte must not raise UnicodeDecodeError (a ValueError, not
+            # HANDLED) out of the compile and stop the fleet. The reader sees U+FFFD
+            # where the byte was; links are still rewritten on the decoded text.
+            text = f.read_text(encoding="utf-8", errors="replace")
+            f.write_text(stub_links(text, included_stems, master_stems))
 
     from brain.contextgen import generate_context_files, writable_spaces
 
@@ -328,6 +335,7 @@ def compile_all(
 
         pending = list_pending(master)
     results: list[CompileResult] = []
+    failures: list[tuple[str, str]] = []
     total = len(org.people)
     for person in org.people.values():
         out = out_root / person.id
@@ -346,6 +354,9 @@ def compile_all(
                     "commit", "-m", f"compile: refresh vault for {person.id}",
                 )
         except HANDLED as e:
-            raise CompileError(person.id, e, results, total) from e
+            failures.append((person.id, describe(e)))
+            continue
         results.append(result)
+    if failures:
+        raise CompileError(failures, results, total)
     return results

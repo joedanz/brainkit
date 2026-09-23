@@ -1419,3 +1419,77 @@ def test_entity_vocabulary_flags_a_type_the_vault_never_declared(tmp_path):
     mem.write_text(mem.read_text() + "- `People/` — everyone's own notes\n")
     (tmp_path / "Company/Playbook/Bob.md").write_text("---\nentity: person\n---\n# Bob\n")
     assert not [f for f in run_doctor(tmp_path) if f.check == "entity-vocabulary"]
+
+
+def _size_findings(master, pid):
+    from brain.doctor import run_doctor
+
+    return [f for f in run_doctor(master)
+            if f.check == "protocol-size" and f.message.startswith(f"{pid}:")]
+
+
+def _seeded_bob_protocol_size(master):
+    """seed_meta's org, rules and config, plus the size of bob's protocol at
+    the real ROOT_LIMIT: the baseline both size tests scale the limit from."""
+    from brain.contextgen import render_person_protocol, writable_spaces
+    from brain.resolver import readable_spaces
+    from brain.schemas import load_config, load_org, load_spaces
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    config = load_config(master)
+    bob = org.people["bob"]
+    size = len(render_person_protocol(
+        master, bob, writable_spaces(readable_spaces(master, bob, rules), bob, rules),
+        config))
+    return org, rules, config, size
+
+
+def test_protocol_size_warns_then_errors_as_a_protocol_nears_the_limit(master, monkeypatch):
+    import brain.contextgen as cg
+
+    *_, size = _seeded_bob_protocol_size(master)
+
+    assert _size_findings(master, "bob") == []                       # 26%: silent
+    monkeypatch.setattr(cg, "ROOT_LIMIT", int(size / 0.85))
+    [f] = _size_findings(master, "bob")
+    assert f.severity == "warn" and "(85%)" in f.message
+    monkeypatch.setattr(cg, "ROOT_LIMIT", int(size / 0.97))
+    [f] = _size_findings(master, "bob")
+    assert f.severity == "error" and "(97%)" in f.message
+    monkeypatch.setattr(cg, "ROOT_LIMIT", size - 1)
+    [f] = _size_findings(master, "bob")
+    assert f.severity == "error" and "compile fails until it shrinks" in f.message
+
+
+def test_protocol_size_percent_always_matches_its_severity(master, monkeypatch):
+    """The percent doctor prints must never disagree with the severity it
+    chose: 94.6% is a warning, and it must never print as "(95%)". Sweep
+    ROOT_LIMIT across both the 80% and 95% boundaries, one character to
+    either side, and check that the printed percent and the severity are
+    always derived from the same number."""
+    import brain.contextgen as cg
+    import brain.doctor as doctor_mod
+
+    org, rules, config, size = _seeded_bob_protocol_size(master)
+
+    for pct_target in (79, 80, 94, 95):
+        for d in (-1, 0, 1):
+            limit = size * 100 // pct_target + d
+            monkeypatch.setattr(cg, "ROOT_LIMIT", limit)
+            pct = size * 100 // limit
+            findings = [
+                f for f in doctor_mod._check_protocol_size(master, org, rules, config)
+                if f.check == "protocol-size" and f.message.startswith("bob:")
+            ]
+            if pct < 80:
+                assert findings == [], (pct_target, d, pct)
+                continue
+            [f] = findings
+            assert f"({pct}%)" in f.message, (pct_target, d, pct, f.message)
+            if pct >= 95:
+                assert f.severity == "error", (pct_target, d, pct)
+            else:
+                assert f.severity == "warn", (pct_target, d, pct)

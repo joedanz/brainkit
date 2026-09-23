@@ -191,3 +191,35 @@ def test_map_never_names_a_path_outside_readable_spaces(tmp_path: Path):
             if space and space not in readable:
                 assert space not in text, (
                     f"{person.id}'s Map.md names unreadable space {space}")
+
+
+def test_doctor_measures_the_protocol_the_compiler_writes(tmp_path: Path):
+    """Across random worlds (some with a crowded client folder, some people
+    with standing corrections), doctor's render of each person's protocol is
+    byte-for-byte the AGENTS.md the compiler wrote."""
+    from brain.contextgen import render_person_protocol, writable_spaces
+    from brain.schemas import load_config
+
+    for seed in range(10):
+        rng = random.Random(seed)
+        master = tmp_path / f"master{seed}"
+        master.mkdir()
+        org, shared = random_world(rng, master)
+        rules = rules_for(shared)
+        for i in range(rng.choice([0, 0, 25])):
+            note = master / "Clients" / f"bulk{i:02d}" / "note.md"
+            note.parent.mkdir(parents=True, exist_ok=True)
+            note.write_text("bulk client\n")
+        for pid in org.people:
+            if rng.random() < 0.5:
+                c = master / "People" / pid / "Corrections" / "tone.md"
+                c.parent.mkdir(parents=True, exist_ok=True)
+                c.write_text(f"---\nrule: Keep answers short for {pid}.\nfrom: 2026-09-01\n---\n")
+        config = load_config(master)
+        for person in org.people.values():
+            out = tmp_path / f"out{seed}" / person.id
+            compile_vault(master, person, rules, out)
+            spaces = readable_spaces(master, person, rules, shared=shared)
+            spaces_rw = writable_spaces(spaces, person, rules, shared=shared)
+            assert (out / "AGENTS.md").read_text() == \
+                render_person_protocol(master, person, spaces_rw, config)

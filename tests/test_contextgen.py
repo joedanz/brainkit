@@ -1,16 +1,172 @@
+import hashlib
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, compile_vault
 from brain.contextgen import (
+    LIST_CAP,
     ROOT_LIMIT,
     SPACE_LIMIT,
+    ProtocolTooLarge,
     generate_context_files,
     render_root_protocol,
+    render_space_section,
 )
-from brain.schemas import Person, VaultConfig
+from brain.schemas import Person, VaultConfig, make_config
 from tests.conftest import BOB, RULES
 
 FAM = VaultConfig(entities="Families", entity="family")
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_small_vaults_render_byte_identical_to_0_6_9():
+    """Pinned against the renderer as it shipped in 0.6.9, before the space
+    list was bounded. No folder here exceeds LIST_CAP (the second case sits
+    exactly on it), so none of these renders may change by a single byte."""
+    assert _sha(render_root_protocol(
+        BOB, [("Company", False), ("Teams/ops", True), ("People/bob", True)]
+    )) == "d081f072b7776b4a9f7c086a86be370d3055faaa334649d7853ac89c80af5821"
+    assert _sha(render_root_protocol(
+        BOB, [("Company", False), ("People/bob", True)]
+        + [(f"Clients/Client{i:02d}", i % 3 == 0) for i in range(20)]
+    )) == "8af08d14e3b1a3d9833fca87862f4f8289e8f2d559c32b798d1218490171aac2"
+    assert _sha(render_root_protocol(
+        BOB, [("Family", False), ("People/bob", True), ("Families/Danziger", True)],
+        config=make_config("Families", "family", "Family",
+                           "Everything about running the household."),
+        corrections_block="## Standing corrections\n\n- Always answer in plain English.\n",
+    )) == "c5a30bf08d0334fde0326a741b10c854ff0ca35f275f84b63b12c7a438961a1a"
+
+
+_TAIL = "`Map.md` has the overview; `brain_search` finds any of them by name."
+
+
+def test_small_vaults_render_like_0_6_9_across_random_layouts():
+    """The spec's byte-identity property, fuzzed rather than pinned at three
+    fixed shapes: any vault where no top-level folder holds more than
+    LIST_CAP OTHER readable spaces (not counting the person's own) must
+    render exactly like 0.6.9, before the space list was bounded.
+
+    space_lines_0_6_9 is a verbatim inline copy of the space-line expression
+    from contextgen.render_root_protocol at 3cb5d57 -- the commit just
+    before the space list was bounded."""
+    import random
+
+    def space_lines_0_6_9(spaces_rw):
+        return "\n".join(
+            f"- `{space}/` — {'writable' if writable else 'read-only'}"
+            for space, writable in spaces_rw
+        )
+
+    pid = "bob"
+    tops = ("Clients", "People", "Projects", "Teams")
+    for seed in range(300):
+        rnd = random.Random(seed)
+        shared = rnd.choice(("Company", "Family"))
+        names: list[str] = [shared]
+        for top in tops:
+            count = rnd.randint(0, LIST_CAP)
+            names += [f"{top}/{top}{i:03d}" for i in range(count)]
+        if rnd.random() < 0.9:  # most of the time: People/<pid> on top of
+            # People/'s other spaces above, so a full-to-the-cap People/
+            # still holds LIST_CAP others plus the own space and must not
+            # collapse.
+            names.append(f"People/{pid}")
+        names = sorted(names)
+        spaces_rw = [(name, rnd.random() < 0.5) for name in names]
+        assert (render_space_section(pid, spaces_rw, shared=shared)
+                == space_lines_0_6_9(spaces_rw)), seed
+
+
+def test_a_crowded_folder_collapses_to_one_line():
+    spaces = [("Company", False), ("People/bob", True)] + [
+        (f"Clients/C{i:03d}", False) for i in range(LIST_CAP + 1)]
+    assert render_space_section("bob", spaces, "Company").splitlines() == [
+        "- `Company/` — read-only",
+        "- `People/bob/` — writable",
+        f"- `Clients/` — {LIST_CAP + 1} spaces, all read-only. {_TAIL}",
+    ]
+
+
+def test_the_writable_minority_is_still_listed_by_name():
+    clients = [(f"Clients/C{i:03d}", i < 3) for i in range(30)]
+    lines = render_space_section(
+        "bob", [("Company", False), ("People/bob", True), *clients], "Company").splitlines()
+    assert lines[2] == f"- `Clients/` — 30 spaces: 3 writable, 27 read-only. {_TAIL}"
+    assert lines[3:] == [f"- `Clients/C{i:03d}/` — writable" for i in range(3)]
+
+
+def test_all_writable_or_a_writable_majority_lists_no_names():
+    admin = [(f"Clients/C{i:03d}", True) for i in range(668)]
+    assert render_space_section("admin", admin, "Company").splitlines() == [
+        f"- `Clients/` — 668 spaces, all writable. {_TAIL}"]
+    many = [(f"Clients/C{i:03d}", i <= LIST_CAP) for i in range(40)]  # 21 writable
+    lines = render_space_section("bob", many, "Company").splitlines()
+    assert lines == [f"- `Clients/` — 40 spaces: 21 writable, 19 read-only. {_TAIL}"]
+
+
+def test_the_own_space_is_listed_even_in_a_crowded_people_folder():
+    others = [(f"People/p{i:02d}", False) for i in range(25)]
+    spaces = [("Company", False), *others[:10], ("People/bob", True), *others[10:]]
+    lines = render_space_section("bob", spaces, "Company").splitlines()
+    assert lines == [
+        "- `Company/` — read-only",
+        f"- `People/` — 25 spaces, all read-only. {_TAIL}",
+        "- `People/bob/` — writable",
+    ]
+
+
+def test_summary_takes_its_folders_place_in_the_order():
+    spaces = ([("Clients/A", True)] + [(f"Clients/B{i:02d}", False) for i in range(21)]
+              + [("Company", False), ("People/bob", True), ("Teams/ops", True)])
+    lines = render_space_section("bob", spaces, "Company").splitlines()
+    assert [ln.split("`")[1] for ln in lines] == [
+        "Clients/", "Clients/A/", "Company/", "People/bob/", "Teams/ops/"]
+
+
+def test_non_ascii_names_list_and_count_like_any_other():
+    small = [("Company", False), ("Clients/Café Müller", True)]
+    assert render_space_section("bob", small, "Company").splitlines()[1] == \
+        "- `Clients/Café Müller/` — writable"
+    crowded = [(f"Clients/Café {i:02d}", False) for i in range(LIST_CAP + 1)]
+    assert render_space_section("bob", crowded, "Company").splitlines() == [
+        f"- `Clients/` — {LIST_CAP + 1} spaces, all read-only. {_TAIL}"]
+
+
+def test_protocol_stays_bounded_at_a_thousand_spaces():
+    """Replaces the old fits-at-max test, which measured 39% of the limit at
+    60 spaces and could never catch the real growth. Measured at plan time:
+    this worst case renders 24,866 chars (49.7%) with an 86-line section."""
+    from brain.corrections import CORRECTIONS_LIMIT
+
+    cfg = make_config("Clients", None, "Company", "x" * 400)
+    block = "## Standing corrections\n\n" + ("- " + "y" * 78 + "\n") * 49
+    assert len(block) <= CORRECTIONS_LIMIT
+    name = "N" * 60
+    spaces = [("Company", False), ("People/bob", True)]
+    for top in ("Clients", "Properties", "Vendors", "Teams"):
+        spaces += [(f"{top}/{name}{i:03d}", i < LIST_CAP) for i in range(250)]
+    section = render_space_section("bob", spaces, "Company")
+    assert len(section.splitlines()) <= 2 + 4 * (1 + LIST_CAP)
+    text = render_root_protocol(BOB, spaces, config=cfg, corrections_block=block)
+    assert len(text) < ROOT_LIMIT * 0.6
+
+
+def test_an_oversized_protocol_raises_a_handled_error_naming_the_person(monkeypatch):
+    import brain.contextgen as cg
+    from brain.errors import HANDLED
+
+    monkeypatch.setattr(cg, "ROOT_LIMIT", 1_000)
+    try:
+        render_root_protocol(BOB, [("Company", False), ("People/bob", True)])
+    except ProtocolTooLarge as e:
+        assert isinstance(e, HANDLED)
+        assert str(e).startswith("bob: root protocol is ")
+        assert str(e).endswith(" chars, over the 1,000 limit")
+    else:
+        raise AssertionError("expected ProtocolTooLarge")
 
 
 def test_root_protocol_content():
@@ -533,26 +689,6 @@ def test_intel_wiki_is_not_hardcoded_to_one_industry():
     assert "travel wiki" not in ASSISTANT_PROTOCOL
 
 
-def test_protocol_fits_at_every_budget_maxed_at_once():
-    """The three inputs that grow the protocol are independent, so the worst
-    case is all three at maximum together: a max-length charter, a full
-    corrections budget, and a person who owns many spaces. Each is tested
-    alone elsewhere; only this one catches copy that fits until they combine.
-    """
-    from brain.corrections import CORRECTIONS_LIMIT
-    from brain.schemas import make_config
-
-    cfg = make_config("Clients", None, "Company", "x" * 400)
-    block = "## Standing corrections\n\n" + ("- " + "y" * 78 + "\n") * 49
-    assert len(block) <= CORRECTIONS_LIMIT
-    spaces = [("Company", False)] + [(f"Clients/Client{i:03d}", True)
-                                     for i in range(60)]
-
-    text = render_root_protocol(BOB, spaces, config=cfg, corrections_block=block)
-
-    assert len(text) <= ROOT_LIMIT
-
-
 def test_protocol_copy_never_parses_as_real_facts():
     """The protocol teaches fact-line syntax, and `[from::]` in a bullet IS a
     fact line — `query_facts_at` parses every .md in the vault's git tree,
@@ -744,3 +880,22 @@ def test_intel_routing_without_charter_points_at_the_admission_tests():
     text = render_root_protocol(BOB, [("Company", False), ("People/bob", True)])
     assert "destination" not in text.lower()
     assert "outside intel that passes the admission tests above" in text
+
+
+def test_generated_protocol_is_the_one_render_path(master: Path, tmp_path: Path):
+    """Doctor measures a person's protocol through render_person_protocol, so
+    the compiler must write exactly that text: two render paths would let the
+    number doctor reports drift from the file an agent loads."""
+    from brain.contextgen import render_person_protocol, writable_spaces
+    from brain.resolver import readable_spaces
+
+    corr = master / "People/bob/Corrections/tone.md"
+    corr.parent.mkdir(parents=True)
+    corr.write_text("---\nrule: Answer in plain English.\nfrom: 2026-09-01\n---\n")
+    out = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, out)
+    spaces_rw = writable_spaces(readable_spaces(master, BOB, RULES), BOB, RULES)
+    expected = render_person_protocol(master, BOB, spaces_rw)
+    assert "- Answer in plain English." in expected
+    assert (out / "AGENTS.md").read_text() == expected
+    assert (out / "CLAUDE.md").read_text() == expected

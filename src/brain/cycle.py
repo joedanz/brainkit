@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from brain.compiler import MANIFEST_NAME, compile_all
+from brain.compiler import MANIFEST_NAME, CompileError, compile_all
 from brain.promotions import list_pending, sweep
 from brain.schemas import load_config, load_org, load_spaces
 from brain.writeback import ManifestError, apply_writeback
@@ -42,6 +42,10 @@ class CycleReport:
     clients_created: int = 0
     clients_rejected: int = 0
     clients_tampering: int = 0  # owner-mismatch client rejections — a tamper signal
+    # People whose vault failed to build this cycle, "<pid>: <reason>". Each
+    # keeps their previous vault; everyone else is refreshed, and the cycle
+    # still indexes, triages, and writes its health snapshot.
+    compile_failures: list[str] = field(default_factory=list)
     shares_queued: int = 0
     shares_revoked: int = 0
     shares_tampering: int = 0  # non-owner share/revoke requests — a tamper signal
@@ -82,12 +86,14 @@ class CycleReport:
         # the cycle. A rejected writeback (a security-relevant event) fails it,
         # as does an owner-mismatch client request (a tamper signal). Routine
         # "name taken" client rejections do NOT — they're a normal user outcome
-        # surfaced via the requester's inbox note.
+        # surfaced via the requester's inbox note. A person whose vault failed
+        # to compile fails it too: that agent is working from a stale vault.
         return (
             all(w.status != "rejected" for w in self.writebacks)
             and self.clients_tampering == 0
             and self.shares_tampering == 0
             and self.promotion_tampering == 0
+            and not self.compile_failures
         )
 
 
@@ -175,8 +181,15 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     # sweep_promotion_approvals() consumed the ones just decided. One parse
     # from here serves both the fleet compile and the report count.
     pending_promotions = list_pending(master)
-    compiled = len(compile_all(master, org, rules, out_root, today=today,
-                               config=config, pending=pending_promotions))
+    compile_failures: list[str] = []
+    try:
+        compiled = len(compile_all(master, org, rules, out_root, today=today,
+                                   config=config, pending=pending_promotions))
+    except CompileError as e:
+        # One person's failure is theirs alone: they keep their last good
+        # vault, and indexing, triage and the health snapshot still run.
+        compiled = len(e.completed)
+        compile_failures = [f"{pid}: {why}" for pid, why in e.failures]
     pending = len(pending_promotions)
 
     indexed = 0
@@ -235,9 +248,16 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # see as "not reporting" needs a reason SOMEWHERE, and this is the
         # only output that has one.
         try:
+            counts = dict(triage.finding_counts)
+            if compile_failures:
+                # Doctor cannot see a failed compile (a broken vault repo, a
+                # disk error), so without this the snapshot Fleet reads would
+                # say ok while the cycle itself says otherwise. A count only:
+                # the names stay in the cycle's own output.
+                counts["error:compile-failed"] = len(compile_failures)
             written = write_health(
                 master,
-                triage.finding_counts,
+                counts,
                 {
                     "clients": clients_tampering,
                     "shares": shares_tampering,
@@ -257,7 +277,8 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     return CycleReport(
         duration_ms=duration_ms,
-        writebacks=writebacks, swept=swept, compiled=compiled, pending=pending,
+        writebacks=writebacks, swept=swept, compiled=compiled,
+        compile_failures=compile_failures, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),
         clients_rejected=sum(1 for p in provisioned if p.status == "rejected"),
         clients_tampering=clients_tampering,

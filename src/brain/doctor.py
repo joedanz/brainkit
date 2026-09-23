@@ -753,6 +753,48 @@ def _check_protocol(master: Path, config: VaultConfig) -> list[Finding]:
                     f"--master {master} --write`", paths=("AGENTS.md",))]
 
 
+# Percent of contextgen.ROOT_LIMIT, compared as whole percents computed in
+# integers, so the number a finding shows always matches its severity.
+PROTOCOL_WARN = 80
+PROTOCOL_ERROR = 95
+
+
+def _check_protocol_size(master: Path, org: Org, rules: tuple[SpaceRule, ...],
+                         config: VaultConfig) -> list[Finding]:
+    """Every person's generated AGENTS.md, measured before a compile has to.
+
+    Past ROOT_LIMIT a person's compile fails, and until 0.7.0 that stopped
+    the whole fleet. The space list used to make the file grow with the
+    brain; it is bounded now, so this is the early warning for whatever else
+    grows. It renders through render_person_protocol, the compiler's own
+    path, so the number here is the compiler's number.
+    """
+    from brain import contextgen
+    from brain.resolver import readable_spaces
+
+    findings: list[Finding] = []
+    for person in org.people.values():
+        spaces = readable_spaces(master, person, rules, shared=config.shared)
+        spaces_rw = contextgen.writable_spaces(spaces, person, rules, shared=config.shared)
+        try:
+            n = len(contextgen.render_person_protocol(master, person, spaces_rw, config))
+        except contextgen.ProtocolTooLarge as e:
+            findings.append(Finding(
+                "error", "protocol-size",
+                f"{e} — this person's compile fails until it shrinks"))
+            continue
+        pct = n * 100 // contextgen.ROOT_LIMIT
+        if pct < PROTOCOL_WARN:
+            continue
+        level = "error" if pct >= PROTOCOL_ERROR else "warn"
+        findings.append(Finding(
+            level, "protocol-size",
+            f"{person.id}: generated protocol is {n:,} of "
+            f"{contextgen.ROOT_LIMIT:,} characters ({pct}%) — "
+            f"{len(spaces_rw)} readable spaces"))
+    return findings
+
+
 def _check_charter(config: VaultConfig) -> list[Finding]:
     """Name the relevance lever once, where an admin is already looking.
 
@@ -1565,6 +1607,7 @@ def run_doctor(
     findings += _check_facts(master, shared)
     if config_ok:
         findings += _check_protocol(master, config)
+        findings += _check_protocol_size(master, org, rules, config)
         findings += _check_charter(config)
         findings += _check_taxonomy(master, config)
     findings += _check_fact_sources(master, shared)

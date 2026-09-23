@@ -155,7 +155,7 @@ text quotes note paths and can name a restricted client, so the reduction
 happens at the source rather than being filtered downstream by whoever reads
 the file.
 
-Three things worth knowing if you consume it:
+Four things worth knowing if you consume it:
 
 - **It lives under `_meta/cache/`, which `brain init` gitignores**, so the
   snapshot never enters git, never compiles into anyone's vault, and never
@@ -167,6 +167,10 @@ Three things worth knowing if you consume it:
   mistake this file exists to prevent.
 - **`ok` is derived** — it is false exactly when some `error:` key is present,
   so it never disagrees with `counts`.
+- **One count doesn't come from `doctor`: `error:compile-failed`**, the number
+  of people whose vault failed to build in that cycle. The cycle's own output
+  names them (`compile_failures`); the snapshot carries only the count. Like
+  any `error:` key, it makes `ok` false.
 
 ## `.brain/retrieval-stats.json` — the generated retrieval snapshot
 

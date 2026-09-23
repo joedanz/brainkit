@@ -4,6 +4,7 @@ from pathlib import Path
 from brain.cli import main
 from brain.cycle import CycleReport, run_cycle
 from tests.conftest import requires_vectors
+from tests.test_compiler import _failing_for
 
 from .test_cli import seed_meta  # ORG/SPACES yaml + git init helper
 
@@ -972,3 +973,124 @@ def test_a_normal_cycle_reports_no_health_warnings(master, tmp_path):
     (master / ".gitignore").write_text("_meta/cache/\n")
 
     assert run_cycle(master, out, today="2026-07-07").health_warnings == []
+
+
+def test_a_failed_compile_turns_the_health_snapshot_red(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "bob")
+
+    run_cycle(master, out, today="2026-09-22")
+
+    snap = json.loads((master / "_meta/cache/health.json").read_text())
+    assert snap["ok"] is False
+    assert snap["counts"]["error:compile-failed"] == 1
+
+
+def test_a_clean_compile_has_no_compile_failed_key_in_the_snapshot(master, tmp_path):
+    seed_meta(master)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+    out = _first_compile(master, tmp_path)
+
+    run_cycle(master, out, today="2026-09-22")
+
+    snap = json.loads((master / "_meta/cache/health.json").read_text())
+    assert "error:compile-failed" not in snap["counts"]
+
+
+# ---- Task 3: one person's failure can't stop the fleet --------------------- #
+
+
+def test_cycle_survives_a_failed_compile_and_still_triages(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "bob")
+
+    report = run_cycle(master, out, today="2026-09-22")
+
+    assert report.compile_failures == [
+        "bob: bob: root protocol is 60,000 chars, over the 50,000 limit"]
+    assert report.compiled == 1
+    assert report.ok is False
+    assert report.doctor_counts  # triage ran: before 0.7.0 the cycle raised first
+
+
+def test_cycle_survives_every_compile_failing(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "alice", "bob")
+
+    report = run_cycle(master, out, today="2026-09-22")
+
+    assert [f.split(":")[0] for f in report.compile_failures] == ["alice", "bob"]
+    assert report.compiled == 0
+    assert report.ok is False
+    assert report.doctor_counts
+
+
+def test_a_middle_persons_failure_does_not_stop_the_people_after_them(
+        master, tmp_path, monkeypatch):
+    """Org order is alice, bob, carol. bob (the middle person) fails; alice
+    (before him) and carol (after him) must both still be refreshed, and
+    bob's vault -- including its git history -- must be untouched."""
+    import subprocess
+
+    seed_meta(master)
+    _add_carol_to_org(master)
+    out = _first_compile(master, tmp_path)
+    bob_head = subprocess.run(
+        ["git", "-C", str(out / "bob"), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip()
+
+    (master / "Company/New.md").write_text("fresh for everyone\n")
+    _failing_for(monkeypatch, "bob")
+
+    report = run_cycle(master, out, today="2026-09-22")
+
+    assert [f.split(":")[0] for f in report.compile_failures] == ["bob"]
+    assert report.compiled == 2
+    assert (out / "alice/Company/New.md").is_file()
+    assert (out / "carol/Company/New.md").is_file()
+    assert not (out / "bob/Company/New.md").exists()
+    new_bob_head = subprocess.run(
+        ["git", "-C", str(out / "bob"), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert new_bob_head == bob_head
+    assert report.ok is False
+
+
+def test_cli_compile_names_the_failed_person_and_exits_1(master, tmp_path, monkeypatch, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    capsys.readouterr()
+    _failing_for(monkeypatch, "bob")
+
+    assert main(["compile", "--master", str(master), "--out", str(out)]) == 1
+    captured = capsys.readouterr()
+    assert "compiled alice:" in captured.out
+    assert "failed bob: bob: root protocol is 60,000 chars" in captured.err
+
+
+def test_cli_single_person_compile_reports_an_oversized_protocol_cleanly(
+        master, tmp_path, monkeypatch, capsys):
+    import brain.contextgen as cg
+
+    seed_meta(master)
+    monkeypatch.setattr(cg, "ROOT_LIMIT", 1_000)
+    code = main(["compile", "--master", str(master), "--out", str(tmp_path / "c"),
+                 "--person", "bob"])
+    err = capsys.readouterr().err
+    assert code == 1
+    assert err.startswith("brain compile: bob: root protocol is ")
+    assert "Traceback" not in err
+
+
+def test_cli_cycle_prints_compile_failures(master, tmp_path, monkeypatch, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    capsys.readouterr()
+    _failing_for(monkeypatch, "bob")
+
+    assert main(["cycle", "--master", str(master), "--out", str(out)]) == 1
+    assert "compile failed: bob: bob: root protocol is 60,000 chars" in capsys.readouterr().err

@@ -66,26 +66,27 @@ def test_unwritable_output_reports_the_path(master: Path, tmp_path: Path, capsys
         locked.chmod(0o700)
 
 
-def test_compile_failure_reports_how_far_the_fleet_got(master: Path, tmp_path: Path,
-                                                       capsys):
+def test_compile_failure_reports_every_persons_outcome(master: Path, tmp_path: Path,
+                                                        capsys):
     """With N vaults the operator's first question is "what state is the fleet
-    in?" — so the failure has to answer it, not just name the exception."""
+    in?" — so the output answers it for every person, not just the exception."""
     seed_meta(master)
     out = tmp_path / "compiled"
     assert main(["compile", "--master", str(master), "--out", str(out)]) == 0
     capsys.readouterr()
 
-    # Break the second person's repo so the git step fails mid-fleet. org.yaml
-    # lists alice then bob, and dicts preserve insertion order.
-    subprocess.run(["rm", "-rf", str(out / "bob/.git")], check=True)
-    (out / "bob/.git").write_text("not a gitfile\n")
+    # Break the FIRST person's repo so their git step fails. org.yaml lists
+    # alice then bob, and dicts preserve insertion order, so bob compiling
+    # after it shows the fleet carries on past a failure.
+    subprocess.run(["rm", "-rf", str(out / "alice/.git")], check=True)
+    (out / "alice/.git").write_text("not a gitfile\n")
 
     assert main(["compile", "--master", str(master), "--out", str(out)]) == 1
-    err = capsys.readouterr().err
-    assert "Traceback" not in err
-    assert "compiling bob" in err          # which person
-    assert "1 of 2 vault(s)" in err        # how far it got
-    assert "invalid gitfile" in err        # git's own complaint, not "exit status 128"
+    captured = capsys.readouterr()
+    assert "Traceback" not in captured.err
+    assert "failed alice:" in captured.err      # which person
+    assert "compiled bob:" in captured.out      # everyone else still refreshed
+    assert "invalid gitfile" in captured.err    # git's own complaint, not "exit status 128"
 
 
 def test_a_bug_still_raises(monkeypatch, tmp_path: Path):

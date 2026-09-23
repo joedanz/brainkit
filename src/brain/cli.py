@@ -10,7 +10,7 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
-from brain.compiler import compile_all, compile_vault
+from brain.compiler import CompileError, compile_all, compile_vault
 from brain.cycle import run_cycle
 from brain.doctor import run_doctor
 from brain.errors import HANDLED, describe
@@ -40,9 +40,17 @@ def cmd_compile(args) -> int:
         )
         print(f"compiled {person.id} -> {out / person.id}")
     else:
-        results = compile_all(master, org, rules, out, today=date.today().isoformat())
+        failures: tuple[tuple[str, str], ...] = ()
+        try:
+            results = compile_all(master, org, rules, out, today=date.today().isoformat())
+        except CompileError as e:
+            results, failures = e.completed, e.failures
         for r in results:
             print(f"compiled {r.person_id}: {len(r.files)} files")
+        for pid, why in failures:
+            print(f"failed {pid}: {why}", file=sys.stderr)
+        if failures:
+            return 1
     return 0
 
 
@@ -327,6 +335,8 @@ def cmd_cycle(args) -> int:
         print(f"swept {report.swept} draft(s); "
               f"compiled {report.compiled} vault(s); "
               f"{report.pending} promotion(s) pending")
+        for f in report.compile_failures:
+            print(f"  compile failed: {f}", file=sys.stderr)
         if report.promotion_decisions_applied or report.promotion_decisions_refused:
             print(f"promotion decisions: {report.promotion_decisions_applied} applied, "
                   f"{report.promotion_decisions_refused} refused")

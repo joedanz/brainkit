@@ -36,6 +36,19 @@ def test_corrections_budget_finding_routes_to_its_owner():
     assert unrouted == 0
 
 
+def test_protocol_findings_reach_the_admins_even_as_warnings():
+    """protocol-stale warnings used to reach nobody: triage routed only
+    errors outside TRIAGE_CHECKS. Only an admin can act on a protocol, so
+    these go to the admins at warn and error alike."""
+    size = Finding("warn", "protocol-size",
+                   "bob: generated protocol is 41,000 of 50,000 characters (82%)")
+    stale = Finding("warn", "protocol-stale", "AGENTS.md differs from the shipped protocol",
+                    paths=("AGENTS.md",))
+    routed, unrouted = route_findings([size, stale], ORG, RULES)
+    assert routed == {"alice": [size, stale]}
+    assert unrouted == 0
+
+
 def test_shared_space_and_unresolvable_route_to_admins():
     shared = Finding("warn", "intel", "Company/Intel/X.md: stale",
                      paths=("Company/Intel/X.md",))
