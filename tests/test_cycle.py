@@ -972,3 +972,71 @@ def test_a_normal_cycle_reports_no_health_warnings(master, tmp_path):
     (master / ".gitignore").write_text("_meta/cache/\n")
 
     assert run_cycle(master, out, today="2026-07-07").health_warnings == []
+
+
+# ---- Task 3: one person's failure can't stop the fleet --------------------- #
+
+from tests.test_compiler import _failing_for
+
+
+def test_cycle_survives_a_failed_compile_and_still_triages(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "bob")
+
+    report = run_cycle(master, out, today="2026-09-22")
+
+    assert report.compile_failures == [
+        "bob: bob: root protocol is 60,000 chars, over the 50,000 limit"]
+    assert report.compiled == 1
+    assert report.ok is False
+    assert report.doctor_counts  # triage ran: before 0.7.0 the cycle raised first
+
+
+def test_cycle_survives_every_compile_failing(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "alice", "bob")
+
+    report = run_cycle(master, out, today="2026-09-22")
+
+    assert [f.split(":")[0] for f in report.compile_failures] == ["alice", "bob"]
+    assert report.compiled == 0
+    assert report.ok is False
+    assert report.doctor_counts
+
+
+def test_cli_compile_names_the_failed_person_and_exits_1(master, tmp_path, monkeypatch, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    capsys.readouterr()
+    _failing_for(monkeypatch, "bob")
+
+    assert main(["compile", "--master", str(master), "--out", str(out)]) == 1
+    captured = capsys.readouterr()
+    assert "compiled alice:" in captured.out
+    assert "failed bob: bob: root protocol is 60,000 chars" in captured.err
+
+
+def test_cli_single_person_compile_reports_an_oversized_protocol_cleanly(
+        master, tmp_path, monkeypatch, capsys):
+    import brain.contextgen as cg
+
+    seed_meta(master)
+    monkeypatch.setattr(cg, "ROOT_LIMIT", 1_000)
+    code = main(["compile", "--master", str(master), "--out", str(tmp_path / "c"),
+                 "--person", "bob"])
+    err = capsys.readouterr().err
+    assert code == 1
+    assert err.startswith("brain compile: bob: root protocol is ")
+    assert "Traceback" not in err
+
+
+def test_cli_cycle_prints_compile_failures(master, tmp_path, monkeypatch, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    capsys.readouterr()
+    _failing_for(monkeypatch, "bob")
+
+    assert main(["cycle", "--master", str(master), "--out", str(out)]) == 1
+    assert "compile failed: bob: bob: root protocol is 60,000 chars" in capsys.readouterr().err

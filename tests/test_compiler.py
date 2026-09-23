@@ -3,8 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from brain.compiler import MANIFEST_NAME, compile_vault
+from brain.compiler import MANIFEST_NAME, CompileError, compile_all, compile_vault
+from brain.schemas import load_org, load_spaces
 from tests.conftest import BOB, RULES, familyize, rules_for
+from tests.test_cli import seed_meta
 
 
 def test_compiles_only_readable_spaces(master: Path, tmp_path: Path):
@@ -608,3 +610,40 @@ def test_stem_strips_only_a_markdown_suffix(target, expected):
 
 def test_stem_agrees_for_file_and_link_forms_of_a_dotted_title():
     assert _stem("X/Foo v. Bar.md") == _stem("Foo v. Bar")
+
+
+def _failing_for(monkeypatch, *pids: str) -> None:
+    """Make the named people's protocol generation fail the way an
+    oversized protocol does, leaving everyone else's compile untouched."""
+    import brain.contextgen as cg
+
+    real = cg.generate_context_files
+
+    def flaky(vault, person, spaces_rw, config=cg.VaultConfig()):
+        if person.id in pids:
+            raise cg.ProtocolTooLarge(
+                f"{person.id}: root protocol is 60,000 chars, over the 50,000 limit")
+        return real(vault, person, spaces_rw, config=config)
+
+    monkeypatch.setattr(cg, "generate_context_files", flaky)
+
+
+def test_one_person_failing_does_not_stop_the_fleet(master: Path, tmp_path: Path, monkeypatch):
+    seed_meta(master)
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    out = tmp_path / "compiled"
+    compile_all(master, org, rules, out)
+    bob_before = (out / "bob" / "AGENTS.md").read_text()
+    (master / "Company/New.md").write_text("fresh for everyone\n")
+    _failing_for(monkeypatch, "bob")
+
+    with pytest.raises(CompileError) as ei:
+        compile_all(master, org, rules, out)
+
+    assert [pid for pid, _ in ei.value.failures] == ["bob"]
+    assert [r.person_id for r in ei.value.completed] == ["alice"]
+    assert (out / "alice" / "Company/New.md").is_file()      # alice refreshed
+    assert not (out / "bob" / "Company/New.md").exists()     # bob kept his last good vault
+    assert (out / "bob" / "AGENTS.md").read_text() == bob_before
+    assert "compiling bob: bob: root protocol is 60,000 chars" in str(ei.value)
