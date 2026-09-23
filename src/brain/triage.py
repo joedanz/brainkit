@@ -171,7 +171,9 @@ def _display(f: Finding, person: Person, rules: tuple[SpaceRule, ...], *,
     statement from a space they cannot read: if every path's space is
     readable, the message passes through unchanged; otherwise the line is
     rebuilt from ONLY the readable path(s), pointing to the admins' digest
-    for the rest. An unresolvable space counts as unreadable (fail closed)."""
+    for the rest. An unresolvable space counts as unreadable (fail closed).
+    The rebuilt line names at most three paths: a near-duplicate group can
+    hold hundreds, and its line must stay one line."""
     if is_admin:
         return f.message
 
@@ -182,7 +184,10 @@ def _display(f: Finding, person: Person, rules: tuple[SpaceRule, ...], *,
     if f.paths and all(readable(p) for p in f.paths):
         return f.message
     own_paths = [p for p in f.paths if readable(p)]
-    own = ", ".join(own_paths) if own_paths else "a note of yours"
+    if len(own_paths) > 3:
+        own = f"{', '.join(own_paths[:3])}, and {len(own_paths) - 3} more"
+    else:
+        own = ", ".join(own_paths) if own_paths else "a note of yours"
     return (f"{own}: {f.check} involving a note in a space you cannot "
             "read — the admins' digest has the detail")
 

@@ -17,6 +17,7 @@ import math
 import re
 import sqlite3
 import struct
+from collections.abc import Iterable
 from pathlib import Path
 
 from brain.frontmatter import split_frontmatter
@@ -285,3 +286,26 @@ def sign_bits(vec: list[float]) -> int:
 
 def hamming(a: int, b: int) -> int:
     return (a ^ b).bit_count()
+
+
+def clusters(edges: Iterable[tuple[str, str]]) -> list[tuple[str, ...]]:
+    """Connected components of the graph `edges` draws: each a sorted tuple
+    of members, and the list sorted, whatever order the edges come in. A
+    chain a~b~c is one group even where a and c are not close themselves."""
+    parent: dict[str, str] = {}
+
+    def root(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]  # path halving
+            x = parent[x]
+        return x
+
+    for a, b in edges:
+        ra, rb = root(a), root(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+    groups: dict[str, list[str]] = {}
+    for x in parent:
+        groups.setdefault(root(x), []).append(x)
+    return sorted(tuple(sorted(g)) for g in groups.values())

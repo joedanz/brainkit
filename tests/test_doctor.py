@@ -1013,10 +1013,11 @@ def test_findings_carry_structured_paths(master):
 # ---- the MinHash signature cache (<master>/_meta/cache/dedup.db) ----------- #
 
 
-def _templated(master, folder, n, prefix="Report"):
+def _templated(master, folder, n, prefix="Report", word="tok"):
     """n notes stamped from one template, one word apart: every pair is a
-    near-duplicate, none is identical, and each has its own title stem."""
-    base = [f"tok{i}" for i in range(60)]
+    near-duplicate, none is identical, and each has its own title stem.
+    Templates built from different `word`s share nothing."""
+    base = [f"{word}{i}" for i in range(60)]
     rels = []
     for i in range(n):
         words = list(base)
@@ -1182,6 +1183,103 @@ def test_an_unusable_cache_file_falls_back_to_computing(master):
     db.parent.mkdir(parents=True)
     db.write_bytes(b"this is not a database" * 64)
     assert run_doctor(master) == expected
+
+
+# ---- near-duplicates are reported as groups, not pairs -------------------- #
+
+
+def _near(findings):
+    return [f for f in findings if f.check == "dup-near"]
+
+
+def test_templated_notes_are_one_near_duplicate_group(master):
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports", 6)
+    near = _near(run_doctor(master))
+    assert len(near) == 1
+    f = near[0]
+    assert f.severity == "warn"
+    assert f.paths == tuple(sorted(rels))
+    assert f.message == (
+        "6 notes are near-duplicates of each other in Company/Reports: "
+        "Report 00.md, Report 01.md, Report 02.md, and 3 more — merge them, "
+        "or if they share a template on purpose, make them distinct")
+
+
+def test_a_group_of_three_names_all_three(master):
+    seed_meta(master)
+    _templated(master, "Company/Reports", 3)
+    (f,) = _near(run_doctor(master))
+    assert f.message.startswith(
+        "3 notes are near-duplicates of each other in Company/Reports: "
+        "Report 00.md, Report 01.md, and Report 02.md — ")
+
+
+def test_a_pair_still_reads_like_a_pair(master):
+    # Two notes are a group of two: the message is the one pairs always had.
+    seed_meta(master)
+    a, b = _templated(master, "Company/Reports", 2)
+    (f,) = _near(run_doctor(master))
+    assert f.paths == (a, b)
+    assert f.message == (
+        f"{a} and {b} are near-duplicates (text overlap) — fold one into the "
+        "other via a mode: patch promotion")
+
+
+def test_two_unrelated_templates_are_two_groups(master):
+    seed_meta(master)
+    reports = _templated(master, "Company/Reports", 4)
+    calls = _templated(master, "Teams/sales/Calls", 3, prefix="Call", word="call")
+    near = _near(run_doctor(master))
+    assert sorted(f.paths for f in near) == [tuple(sorted(reports)), tuple(sorted(calls))]
+
+
+def test_a_group_without_a_common_space_names_full_paths(master):
+    seed_meta(master)
+    rels = (_templated(master, "Company/Reports", 2)
+            + _templated(master, "Clients/acme", 2, prefix="Memo"))
+    (f,) = _near(run_doctor(master))
+    assert f.severity == "warn"  # everyone reads Company and Clients/*
+    assert f.paths == tuple(sorted(rels))
+    assert f.message.startswith(
+        "4 notes are near-duplicates of each other: Clients/acme/Memo 00.md, "
+        "Clients/acme/Memo 01.md, Company/Reports/Report 00.md, and 1 more — ")
+
+
+def test_a_group_splits_by_readership(master):
+    """Warn and info are separate graphs, so a group's severity means what a
+    pair's did: bob's two notes (a pair bob reads both sides of) are warn;
+    alice's copy shares no reader with either, so the three together are
+    only an info-level promotion hint."""
+    seed_meta(master)
+    (bob_a, bob_b) = _templated(master, "People/bob/Notes", 2)
+    (alice,) = _templated(master, "People/alice/Notes", 1, prefix="Copy")
+    near = _near(run_doctor(master))
+    warn = [f for f in near if f.severity == "warn"]
+    info = [f for f in near if f.severity == "info"]
+    assert [f.paths for f in warn] == [(bob_a, bob_b)]
+    assert [f.paths for f in info] == [tuple(sorted((alice, bob_a, bob_b)))]
+    assert info[0].message == (
+        f"3 notes in unshared spaces cover similar content: {alice}, {bob_a}, "
+        f"and {bob_b} — promotion candidate")
+
+
+def test_a_near_duplicate_group_message_stays_short(master):
+    """Three names however big the group: the line does not grow with it."""
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports/Weekly", 40,
+                      prefix="Weekly status report for the operations team")
+    (f,) = _near(run_doctor(master))
+    assert len(f.paths) == 40
+    assert f.message.startswith("40 notes are near-duplicates of each other in "
+                                "Company/Reports/Weekly: ")
+    assert ", and 37 more — " in f.message
+    assert len([r for r in rels if r.rsplit("/", 1)[1] in f.message]) == 3
+    for rel in rels[4:]:
+        (master / rel).unlink()
+    (four,) = _near(run_doctor(master))
+    assert len(four.paths) == 4
+    assert len(f.message) - len(four.message) == 2  # "40" vs "4", "37" vs "1"
 
 
 requires_nonroot = pytest.mark.skipif(

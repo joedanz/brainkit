@@ -277,6 +277,49 @@ def _skeleton_pair(a: str, b: str, shared: str) -> bool:
     return a[len(sa):] == b[len(sb):]
 
 
+def _common_folder(paths: tuple[str, ...], shared: str) -> str | None:
+    """The deepest folder holding every path, if that folder is a space or
+    lies inside one; None when the paths span spaces."""
+    common: list[str] = []
+    for level in zip(*(p.split("/")[:-1] for p in paths)):
+        if any(part != level[0] for part in level):
+            break
+        common.append(level[0])
+    folder = "/".join(common)
+    space = space_of_path(paths[0], shared)
+    if space is not None and (folder == space or folder.startswith(space + "/")):
+        return folder
+    return None
+
+
+def _dup_near_message(severity: str, members: tuple[str, ...], signal: str,
+                      shared: str) -> str:
+    """One line for a group of near-duplicates, as long for 3 notes as for
+    300: the count, the folder they share (when they share a space), and at
+    most three names. A group of two reads as a pair always has, `signal`
+    naming the tier that found it."""
+    if len(members) == 2:
+        a, b = members
+        if severity == "warn":
+            return (f"{a} and {b} are near-duplicates ({signal}) — fold one "
+                    "into the other via a mode: patch promotion")
+        return (f"{a} and {b} cover similar content in unshared spaces — "
+                "promotion candidate")
+    folder = _common_folder(members, shared)
+    names = [m[len(folder) + 1:] for m in members] if folder else list(members)
+    if len(names) > 3:
+        listed = f"{', '.join(names[:3])}, and {len(names) - 3} more"
+    else:
+        listed = f"{', '.join(names[:-1])}, and {names[-1]}"
+    where = f" in {folder}" if folder else ""
+    if severity == "warn":
+        return (f"{len(members)} notes are near-duplicates of each other{where}: "
+                f"{listed} — merge them, or if they share a template on purpose, "
+                "make them distinct")
+    return (f"{len(members)} notes in unshared spaces cover similar "
+            f"content{where}: {listed} — promotion candidate")
+
+
 def _cached_file_vectors(
     rels: list[str], texts: dict[str, str], shared: str,
 ) -> dict[str, list[float]]:
@@ -333,6 +376,12 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     duplicated-effort hint (info: promotion candidate). Warn-on-disjoint is
     an invariant tested like the leak properties.
 
+    Near-duplicates are reported as groups, not pairs: a template stamped n
+    times is n*(n-1)/2 pairs, and one person's digest once held 5,167 of
+    them. The pairs both near tiers find are the edges of two graphs, one
+    of pairs with a common reader and one of pairs without, so a group's
+    severity means what a pair's did; each connected group is one finding.
+
     MinHash signatures come from `dedup_cache` when the caller passes one
     (triage, which may write it); otherwise from the cache file read-only if
     it exists. Either way a signature is what would have been computed."""
@@ -366,6 +415,18 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
             findings.append(Finding("warn", check, warn_msg, paths=(a, b)))
         else:
             findings.append(Finding("info", check, info_msg, paths=(a, b)))
+
+    # Near-duplicate pairs by severity, each sorted pair -> the signal that
+    # found it. Findings are made from their groups after Tier 3b.
+    near_edges: dict[str, dict[tuple[str, str], str]] = {"warn": {}, "info": {}}
+
+    def near(a: str, b: str, signal: str) -> None:
+        pair = frozenset((a, b))
+        if pair in flagged or _skeleton_pair(a, b, shared):
+            return
+        flagged.add(pair)
+        severity = "warn" if space_readers(a) & space_readers(b) else "info"
+        near_edges[severity][(min(a, b), max(a, b))] = signal
 
     # Tier 1: identical bytes. Chained pairs (a,b),(b,c) — one finding per
     # adjacent pair in a group is signal enough without O(n^2) noise.
@@ -430,6 +491,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         DUP_HAMMING_FRAC,
         DUP_JACCARD,
         band_keys,
+        clusters,
         cosine_with_norms,
         hamming,
         jaccard_estimate,
@@ -458,12 +520,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         if pair in flagged:
             continue
         if jaccard_estimate(sigs[a], sigs[b]) >= DUP_JACCARD:
-            emit(
-                a, b, "dup-near",
-                f"{a} and {b} are near-duplicates (text overlap) — fold one "
-                "into the other via a mode: patch promotion",
-                f"{a} and {b} cover similar content in unshared spaces — "
-                "promotion candidate")
+            near(a, b, "text overlap")
 
     # Tier 3b: semantic near-duplicates from cached embeddings. Sign-bit
     # hamming prefilters the O(n^2) pair loop; exact cosine confirms, with
@@ -483,13 +540,17 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
             if frozenset((a, b)) in flagged:
                 continue
             if cosine_with_norms(vecs[a], vecs[b], norms[a], norms[b]) >= DUP_COSINE:
-                emit(
-                    a, b, "dup-near",
-                    f"{a} and {b} are near-duplicates (semantic similarity) "
-                    "— fold one into the other via a mode: patch promotion",
-                    f"{a} and {b} cover similar content in unshared spaces — "
-                    "promotion candidate")
+                near(a, b, "semantic similarity")
 
+    for severity, edges in near_edges.items():
+        for members in clusters(edges):
+            # A group of two is a single edge, and its message names the
+            # tier that found it, as a pair's always has.
+            signal = edges[members] if len(members) == 2 else ""
+            findings.append(Finding(
+                severity, "dup-near",
+                _dup_near_message(severity, members, signal, shared),
+                paths=members))
     return findings
 
 

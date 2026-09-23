@@ -429,3 +429,82 @@ def test_an_unusable_cache_warns_and_triage_still_routes(master):
     assert any("dedup.db" in w for w in report.warnings)
     assert report.routed >= 1
     assert "dup-near" in _digest(master, "bob").read_text()
+
+
+# ---- near-duplicate groups through triage --------------------------------- #
+
+
+def test_a_group_in_one_persons_space_routes_to_that_person_only(master):
+    from brain.doctor import run_doctor
+
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _templated(master, "People/bob/Notes", 5)
+    near = [f for f in run_doctor(master) if f.check == "dup-near"]
+    assert len(near) == 1 and len(near[0].paths) == 5
+    routed, unrouted = route_findings(near, ORG, RULES)
+    assert routed == {"bob": near}
+    assert unrouted == 0
+
+
+def test_a_large_group_is_one_short_digest_line(master):
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _templated(master, "People/bob/Notes", 30)
+    run_triage(master, today="2026-07-24")
+    digest = _digest(master, "bob").read_text()
+    section = digest.split("## dup-near\n\n", 1)[1].split("\n\n## ", 1)[0]
+    lines = [ln for ln in section.splitlines() if ln.startswith("- ")]
+    assert len(lines) == 1
+    assert lines[0].startswith("- 30 notes are near-duplicates of each other in People/bob/Notes: ")
+    assert len(lines[0]) < 300
+    alice = _digest(master, "alice")
+    assert not alice.exists() or "dup-near" not in alice.read_text()
+
+
+def test_a_redacted_group_line_names_at_most_three_paths():
+    """A non-admin who cannot read one member gets the redacted line, built
+    from the paths they can read — capped, or a group of hundreds would be
+    hundreds of paths on one line."""
+    from brain.triage import _display
+
+    mine = [f"People/bob/Notes/Report {i:02d}.md" for i in range(10)]
+    f = Finding("warn", "dup-near", "11 notes are near-duplicates of each other: ...",
+                paths=tuple(sorted([*mine, "People/carol/Notes/Report 00.md"])))
+    line = _display(f, BOB, RULES, is_admin=False)
+    assert line == (
+        "People/bob/Notes/Report 00.md, People/bob/Notes/Report 01.md, "
+        "People/bob/Notes/Report 02.md, and 7 more: dup-near involving a note "
+        "in a space you cannot read — the admins' digest has the detail")
+    assert "carol" not in line
+    # Three or fewer readable paths are all named, as before.
+    two = Finding("warn", "dup-near", "...", paths=(mine[0], mine[1], "People/carol/x.md"))
+    assert _display(two, BOB, RULES, is_admin=False).startswith(
+        f"{mine[0]}, {mine[1]}: dup-near involving")
+
+
+def test_a_group_bridging_two_private_spaces_shows_each_owner_only_their_side(master):
+    """bob's and carol's private copies share no reader, but each is a
+    near-duplicate of the same shared note, so the three are one warn
+    group. Neither non-admin owner may see the other's path; the admins
+    get the whole group."""
+    from .test_doctor import _templated
+
+    seed_meta(master)
+    _add_carol(master)
+    (shared,) = _templated(master, "Company/Reports", 1)
+    (bobs,) = _templated(master, "People/bob/Notes", 1, prefix="Copy")
+    (carols,) = _templated(master, "People/carol/Notes", 1, prefix="Draft")
+    run_triage(master, today="2026-07-24")
+
+    bob_digest = _digest(master, "bob").read_text()
+    carol_digest = _digest(master, "carol").read_text()
+    alice_digest = _digest(master, "alice").read_text()
+    assert f"{shared}, {bobs}: dup-near involving a note in a space you cannot read" in bob_digest
+    assert "People/carol" not in bob_digest
+    assert f"{shared}, {carols}: dup-near involving a note in a space you cannot read" in carol_digest
+    assert "People/bob" not in carol_digest
+    assert (f"3 notes are near-duplicates of each other: {shared}, {bobs}, and {carols}"
+            in alice_digest)

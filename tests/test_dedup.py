@@ -173,3 +173,13 @@ def test_an_unreadable_cache_reads_as_empty(tmp_path):
     finally:
         if ro is not None:
             ro.close()
+
+
+def test_clusters_are_connected_components():
+    from brain.dedup import clusters
+
+    edges = [("b", "c"), ("a", "b"), ("x", "y"), ("d", "e"), ("e", "c")]
+    assert clusters(edges) == [("a", "b", "c", "d", "e"), ("x", "y")]
+    assert clusters([]) == []
+    # Order-independent: the same graph, however its edges arrive.
+    assert clusters(reversed(edges)) == clusters(edges)
