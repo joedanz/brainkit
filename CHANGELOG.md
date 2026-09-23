@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-23
+
 ### Changed
 
 - **Near-duplicate notes in the same space are reported as groups, not
