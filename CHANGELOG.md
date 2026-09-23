@@ -13,16 +13,19 @@ explicitly under **Changed**, with what to do about it.
 
 ### Changed
 
-- **Near-duplicate notes are reported as groups, not pairs.** `brain doctor`
-  reported every pair of near-duplicate notes, so 90 notes made from one
-  template came out as about 4,000 findings, and one person's doctor digest
-  grew to 1.37 MB with 5,167 lines of them. Now each group of notes that are
-  near-duplicates of each other is one `dup-near` finding and one line,
+- **Near-duplicate notes in the same space are reported as groups, not
+  pairs.** `brain doctor` reported every pair of near-duplicate notes, so 90
+  notes made from one template came out as about 4,000 findings, and one
+  person's doctor digest grew to 1.37 MB with 5,167 lines of them. Now each
+  group of notes in one space that are near-duplicates of each other is one
+  `dup-near` finding and one line,
   giving the number of notes, the folder they share and a few of their
   names, for example "90 notes are near-duplicates of each other in
   Clients/acme/Reports: 2026-01.md, 2026-02.md, 2026-03.md, and 87 more —
   merge them, or if they share a template on purpose, make them distinct".
-  A group of two still reads the way a pair always did. Groups keep the
+  A group of two still reads the way a pair always did, and a match between
+  notes in two different spaces is still reported as a pair, so one shared
+  template never pulls everyone's notes into a single group. Groups keep the
   rule pairs had: notes someone can read together are a warning, and notes
   in spaces no one shares are information only. The dashboard, the
   digests and the health snapshot's `dup-near` counts shrink to match,

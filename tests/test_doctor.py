@@ -1234,23 +1234,59 @@ def test_two_unrelated_templates_are_two_groups(master):
     assert sorted(f.paths for f in near) == [tuple(sorted(reports)), tuple(sorted(calls))]
 
 
-def test_a_group_without_a_common_space_names_full_paths(master):
+def test_near_duplicates_across_spaces_stay_pairs(master):
+    """Groups never cross a space: matches between two spaces are reported
+    pair by pair, exactly as before groups existed."""
     seed_meta(master)
-    rels = (_templated(master, "Company/Reports", 2)
-            + _templated(master, "Clients/acme", 2, prefix="Memo"))
-    (f,) = _near(run_doctor(master))
-    assert f.severity == "warn"  # everyone reads Company and Clients/*
-    assert f.paths == tuple(sorted(rels))
-    assert f.message.startswith(
-        "4 notes are near-duplicates of each other: Clients/acme/Memo 00.md, "
-        "Clients/acme/Memo 01.md, Company/Reports/Report 00.md, and 1 more — ")
+    r0, r1 = _templated(master, "Company/Reports", 2)
+    m0, m1 = _templated(master, "Clients/acme", 2, prefix="Memo")
+    near = _near(run_doctor(master))
+    assert all(f.severity == "warn" for f in near)  # everyone reads both
+    assert sorted(f.paths for f in near) == sorted([
+        (m0, m1), (r0, r1),                      # a group of two per space
+        (m0, r0), (m0, r1), (m1, r0), (m1, r1),  # and the cross-space pairs
+    ])
+    cross = next(f for f in near if f.paths == (m0, r0))
+    assert cross.message == (
+        f"{m0} and {r0} are near-duplicates (text overlap) — fold one into the "
+        "other via a mode: patch promotion")
+
+
+def test_a_shared_template_does_not_merge_everyones_notes(master):
+    """One template in Company/ near-duplicates notes in several people's
+    spaces. Each person's own notes are their group, routed to them alone;
+    matches with the shared note, or across people, stay pairs."""
+    from brain.schemas import load_org, load_spaces
+    from brain.triage import route_findings
+
+    seed_meta(master)
+    (tpl,) = _templated(master, "Company", 1, prefix="Template")
+    alices = _templated(master, "People/alice/Notes", 3, prefix="Mine")
+    bobs = _templated(master, "People/bob/Notes", 3, prefix="Log")
+    near = _near(run_doctor(master))
+    groups = [f for f in near if len(f.paths) > 2]
+    assert sorted(f.paths for f in groups) == [tuple(alices), tuple(bobs)]
+    assert all(f.severity == "warn" for f in groups)
+    pairs = [f for f in near if len(f.paths) == 2]
+    assert {f.paths for f in pairs if tpl in f.paths} == {
+        tuple(sorted((tpl, p))) for p in alices + bobs}
+    assert all(f.severity == "warn" for f in pairs if tpl in f.paths)
+    assert {f.paths for f in pairs if tpl not in f.paths} == {
+        (a, b) for a in alices for b in bobs}
+    assert all(f.severity == "info" for f in pairs if tpl not in f.paths)
+
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    routed, _ = route_findings(groups, org, rules)
+    bob_group = next(f for f in groups if f.paths == tuple(bobs))
+    assert routed["bob"] == [bob_group]
+    assert bob_group not in routed["alice"]
 
 
 def test_a_group_splits_by_readership(master):
-    """Warn and info are separate graphs, so a group's severity means what a
-    pair's did: bob's two notes (a pair bob reads both sides of) are warn;
-    alice's copy shares no reader with either, so the three together are
-    only an info-level promotion hint."""
+    """Severity is still per pair: bob's two notes (a pair bob reads both
+    sides of) are warn; alice's copy, in another space with no common
+    reader, is an info-level promotion hint against each, as pairs."""
     seed_meta(master)
     (bob_a, bob_b) = _templated(master, "People/bob/Notes", 2)
     (alice,) = _templated(master, "People/alice/Notes", 1, prefix="Copy")
@@ -1258,10 +1294,21 @@ def test_a_group_splits_by_readership(master):
     warn = [f for f in near if f.severity == "warn"]
     info = [f for f in near if f.severity == "info"]
     assert [f.paths for f in warn] == [(bob_a, bob_b)]
-    assert [f.paths for f in info] == [tuple(sorted((alice, bob_a, bob_b)))]
+    assert sorted(f.paths for f in info) == [(alice, bob_a), (alice, bob_b)]
     assert info[0].message == (
-        f"3 notes in unshared spaces cover similar content: {alice}, {bob_a}, "
-        f"and {bob_b} — promotion candidate")
+        f"{info[0].paths[0]} and {info[0].paths[1]} cover similar content in "
+        "unshared spaces — promotion candidate")
+
+
+def test_an_info_group_within_one_space(master):
+    """Pairs in a space nobody reads have no common reader: an info group."""
+    seed_meta(master)
+    rels = _templated(master, "Teams/ghosts", 3)  # no one is on team ghosts
+    (f,) = _near(run_doctor(master))
+    assert (f.severity, f.paths) == ("info", tuple(rels))
+    assert f.message == (
+        "3 notes in unshared spaces cover similar content in Teams/ghosts: "
+        "Report 00.md, Report 01.md, and Report 02.md — promotion candidate")
 
 
 def test_a_near_duplicate_group_message_stays_short(master):

@@ -277,27 +277,21 @@ def _skeleton_pair(a: str, b: str, shared: str) -> bool:
     return a[len(sa):] == b[len(sb):]
 
 
-def _common_folder(paths: tuple[str, ...], shared: str) -> str | None:
-    """The deepest folder holding every path, if that folder is a space or
-    lies inside one; None when the paths span spaces."""
+def _common_folder(paths: tuple[str, ...]) -> str:
+    """The deepest folder holding every path. A group never crosses a space,
+    so this is its space or a folder inside it."""
     common: list[str] = []
     for level in zip(*(p.split("/")[:-1] for p in paths)):
         if any(part != level[0] for part in level):
             break
         common.append(level[0])
-    folder = "/".join(common)
-    space = space_of_path(paths[0], shared)
-    if space is not None and (folder == space or folder.startswith(space + "/")):
-        return folder
-    return None
+    return "/".join(common)
 
 
-def _dup_near_message(severity: str, members: tuple[str, ...], signal: str,
-                      shared: str) -> str:
+def _dup_near_message(severity: str, members: tuple[str, ...], signal: str) -> str:
     """One line for a group of near-duplicates, as long for 3 notes as for
-    300: the count, the folder they share (when they share a space), and at
-    most three names. A group of two reads as a pair always has, `signal`
-    naming the tier that found it."""
+    300: the count, the folder they share, and at most three names. A pair
+    reads as pairs always have, `signal` naming the tier that found it."""
     if len(members) == 2:
         a, b = members
         if severity == "warn":
@@ -305,13 +299,13 @@ def _dup_near_message(severity: str, members: tuple[str, ...], signal: str,
                     "into the other via a mode: patch promotion")
         return (f"{a} and {b} cover similar content in unshared spaces — "
                 "promotion candidate")
-    folder = _common_folder(members, shared)
-    names = [m[len(folder) + 1:] for m in members] if folder else list(members)
+    folder = _common_folder(members)
+    names = [m[len(folder) + 1:] for m in members]
     if len(names) > 3:
         listed = f"{', '.join(names[:3])}, and {len(names) - 3} more"
     else:
         listed = f"{', '.join(names[:-1])}, and {names[-1]}"
-    where = f" in {folder}" if folder else ""
+    where = f" in {folder}"
     if severity == "warn":
         return (f"{len(members)} notes are near-duplicates of each other{where}: "
                 f"{listed} — merge them, or if they share a template on purpose, "
@@ -376,11 +370,13 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     duplicated-effort hint (info: promotion candidate). Warn-on-disjoint is
     an invariant tested like the leak properties.
 
-    Near-duplicates are reported as groups, not pairs: a template stamped n
-    times is n*(n-1)/2 pairs, and one person's digest once held 5,167 of
-    them. The pairs both near tiers find are the edges of two graphs, one
+    Near-duplicates within one space are reported as groups, not pairs: a
+    template stamped n times is n*(n-1)/2 pairs, and one person's digest
+    once held 5,167 of them. Those pairs are the edges of two graphs, one
     of pairs with a common reader and one of pairs without, so a group's
     severity means what a pair's did; each connected group is one finding.
+    A pair across two spaces stays a pair: one shared template must not
+    merge every person's notes into one group nobody may read in full.
 
     MinHash signatures come from `dedup_cache` when the caller passes one
     (triage, which may write it); otherwise from the cache file read-only if
@@ -416,17 +412,22 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         else:
             findings.append(Finding("info", check, info_msg, paths=(a, b)))
 
-    # Near-duplicate pairs by severity, each sorted pair -> the signal that
-    # found it. Findings are made from their groups after Tier 3b.
+    # Near-duplicate pairs inside one space, by severity: each sorted pair ->
+    # the signal that found it. Their groups become findings after Tier 3b.
     near_edges: dict[str, dict[tuple[str, str], str]] = {"warn": {}, "info": {}}
 
     def near(a: str, b: str, signal: str) -> None:
+        a, b = min(a, b), max(a, b)
+        if space_of_path(a, shared) != space_of_path(b, shared):
+            emit(a, b, "dup-near", _dup_near_message("warn", (a, b), signal),
+                 _dup_near_message("info", (a, b), signal))
+            return
         pair = frozenset((a, b))
         if pair in flagged or _skeleton_pair(a, b, shared):
             return
         flagged.add(pair)
         severity = "warn" if space_readers(a) & space_readers(b) else "info"
-        near_edges[severity][(min(a, b), max(a, b))] = signal
+        near_edges[severity][(a, b)] = signal
 
     # Tier 1: identical bytes. Chained pairs (a,b),(b,c) — one finding per
     # adjacent pair in a group is signal enough without O(n^2) noise.
@@ -549,7 +550,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
             signal = edges[members] if len(members) == 2 else ""
             findings.append(Finding(
                 severity, "dup-near",
-                _dup_near_message(severity, members, signal, shared),
+                _dup_near_message(severity, members, signal),
                 paths=members))
     return findings
 

@@ -541,11 +541,11 @@ def test_a_redacted_group_line_names_at_most_three_paths():
         f"{mine[0]}, {mine[1]}: dup-near involving")
 
 
-def test_a_group_bridging_two_private_spaces_shows_each_owner_only_their_side(master):
+def test_a_shared_note_does_not_bridge_two_private_spaces(master):
     """bob's and carol's private copies share no reader, but each is a
-    near-duplicate of the same shared note, so the three are one warn
-    group. Neither non-admin owner may see the other's path; the admins
-    get the whole group."""
+    near-duplicate of the same shared note. Groups stay within one space,
+    so each owner gets their own pair with the shared note, in full, and
+    never the other's path."""
     from .test_doctor import _templated
 
     seed_meta(master)
@@ -557,10 +557,7 @@ def test_a_group_bridging_two_private_spaces_shows_each_owner_only_their_side(ma
 
     bob_digest = _digest(master, "bob").read_text()
     carol_digest = _digest(master, "carol").read_text()
-    alice_digest = _digest(master, "alice").read_text()
-    assert f"{shared}, {bobs}: dup-near involving a note in a space you cannot read" in bob_digest
-    assert "People/carol" not in bob_digest
-    assert f"{shared}, {carols}: dup-near involving a note in a space you cannot read" in carol_digest
-    assert "People/bob" not in carol_digest
-    assert (f"3 notes are near-duplicates of each other: {shared}, {bobs}, and {carols}"
-            in alice_digest)
+    assert f"{shared} and {bobs} are near-duplicates (text overlap)" in bob_digest
+    assert "People/carol" not in bob_digest and "cannot read" not in bob_digest
+    assert f"{shared} and {carols} are near-duplicates (text overlap)" in carol_digest
+    assert "People/bob" not in carol_digest and "cannot read" not in carol_digest
