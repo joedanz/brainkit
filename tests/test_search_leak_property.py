@@ -17,7 +17,7 @@ from brain.indexer import build_index
 from brain.mcp import _tool_read
 from brain.resolver import readable_spaces, space_of_path
 from brain.search import search_index
-from brain.store import IndexStore
+from brain.store import IndexStore, _space_name
 from brain.writeback import vault_shared
 from tests.test_leak_property import random_world, rules_for
 
@@ -61,6 +61,28 @@ def test_query_probes_stay_in_readable_spaces(tmp_path):
                 for h in report.hits:
                     assert h.space in allowed, (
                         f"LEAK(query {query!r}) {person.id}: {h.rel_path} ({h.space})")
+
+
+def test_unreadable_space_names_find_nothing_outside_readable_spaces(tmp_path):
+    """A space's name is a search term (schema 5). The name comes from each
+    note's own `space`, which the index holds only for spaces in that
+    person's vault, so searching for a space they cannot read must never
+    surface anything outside the spaces they can."""
+    for seed in range(5):
+        master, org, out_root, rules, shared = _build_world(tmp_path, seed)
+        every = {space_of_path(p.relative_to(master).as_posix(), shared)
+                 for p in master.rglob("*.md")} - {None}
+        for person in org.people.values():
+            allowed = set(readable_spaces(master, person, rules, shared))
+            for space in sorted(every - allowed):
+                name = _space_name(space)
+                if not name:
+                    continue
+                report = search_index(out_root / person.id, name, k=50,
+                                      keyword_only=True)
+                for h in report.hits:
+                    assert h.space in allowed, (
+                        f"LEAK(space name {name!r}) {person.id}: {h.rel_path} ({h.space})")
 
 
 def test_cross_person_private_content_is_unreachable(tmp_path):

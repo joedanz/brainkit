@@ -63,7 +63,9 @@ _TOOLS = [
                        "relative path, e.g. the note you are working from) to rank results "
                        "near it in the wikilink graph higher. Results may include notes linked "
                        "to your query's entities through the note graph even when they don't "
-                       "textually match; such hits are attributed to the 'graph' source.",
+                       "textually match; such hits are attributed to the 'graph' source. "
+                       "A space's name (e.g. a client's folder) finds the notes inside it "
+                       "even when they never mention it.",
         "inputSchema": {
             "type": "object",
             "properties": {

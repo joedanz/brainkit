@@ -11,6 +11,16 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **`brain_search` finds a space by its name.** A search for a client's
+  name now returns the notes in that client's folder even when none of them
+  mentions the name, which is what the crowded-folder line in `AGENTS.md`
+  tells agents to do. The first `brain index` (or `brain cycle --index`) after
+  upgrading rebuilds each index once, because the search index gains a column
+  (schema 5). Its embeddings come from the embedding cache, so the rebuild
+  normally makes no embedding calls.
+
 ### Changed
 
 - **A crowded folder now names its read-only spaces when those are the few.**

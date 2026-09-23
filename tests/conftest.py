@@ -77,6 +77,15 @@ ACME = (
 )
 
 
+def add_riverside_client(master: Path) -> str:
+    """A hand-made client folder whose only note never says the client's
+    name: the shape a space-name search has to find. Returns its path."""
+    note = master / "Clients/Riverside Property 0123/Home.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# Lease\nRenewal is due in March.\n")
+    return "Clients/Riverside Property 0123/Home.md"
+
+
 @pytest.fixture
 def master(tmp_path: Path) -> Path:
     m = tmp_path / "master"

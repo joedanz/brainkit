@@ -25,7 +25,8 @@ import sqlite_vec
 from brain.chunker import Chunk
 from brain.errors import BrainError
 
-SCHEMA_VERSION = 4
+# 5: chunks_fts gains space_name, so a space's own name finds its notes.
+SCHEMA_VERSION = 5
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -51,7 +52,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     text         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chunks_by_path ON chunks(rel_path);
-CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, heading_path);
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, heading_path, space_name);
 CREATE TABLE IF NOT EXISTS entities (
     rel_path TEXT PRIMARY KEY,
     type     TEXT NOT NULL,
@@ -164,6 +165,18 @@ def _try_load_vec(conn: sqlite3.Connection) -> bool:
         # Any failure (no enable_load_extension, missing wheel, OperationalError)
         # means we run keyword-only. Never let it crash indexing or search.
         return False
+
+
+def _space_name(space: str) -> str:
+    """A space's own name as a search term: `Clients/Acme` -> `Acme`.
+
+    A hand-made client folder's notes often never say the client's name, so
+    without this column a search for it found them only by luck. Empty for the
+    shared space (the one single-part space, e.g. `Company`): its name sits on
+    every shared note and is an everyday word, so matching it would pull every
+    shared note into any query that says it.
+    """
+    return space.partition("/")[2]
 
 
 def _sanitize_fts(query: str) -> str:
@@ -479,6 +492,7 @@ class IndexStore:
                 [(fid, t) for t in resolved_targets],
             )
         ids: list[int] = []
+        space_name = _space_name(space)
         for ch, csha in zip(chunks, chunk_shas):
             cur.execute(
                 "INSERT INTO chunks(rel_path, space, heading_path, pos, chunk_sha, text) "
@@ -488,8 +502,9 @@ class IndexStore:
             cid = cur.lastrowid
             ids.append(cid)
             cur.execute(
-                "INSERT INTO chunks_fts(rowid, text, heading_path) VALUES (?, ?, ?)",
-                (cid, ch.text, ch.heading_path),
+                "INSERT INTO chunks_fts(rowid, text, heading_path, space_name) "
+                "VALUES (?, ?, ?, ?)",
+                (cid, ch.text, ch.heading_path, space_name),
             )
         if vectors:
             self.vectors.add(ids, vectors)

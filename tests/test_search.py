@@ -7,7 +7,7 @@ from brain.compiler import compile_vault
 from brain.embeddings import FakeEmbeddingProvider
 from brain.indexer import build_index
 from brain.search import NO_PROVIDER_WARNING, rrf, search_index
-from tests.conftest import ALICE, RULES, requires_vectors
+from tests.conftest import ALICE, RULES, add_riverside_client, requires_vectors
 
 
 @pytest.fixture
@@ -16,6 +16,28 @@ def indexed_alice(master, tmp_path):
     compile_vault(master, ALICE, RULES, vault)
     build_index(vault, provider=FakeEmbeddingProvider(), cache=None)
     return vault
+
+
+def test_keyword_search_finds_a_space_by_its_name(master, tmp_path):
+    """A space's own name matches every note in it, even when the text and
+    headings never mention it. AGENTS.md's crowded-folder summary line tells
+    agents to find spaces this way."""
+    note = add_riverside_client(master)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+
+    hits = search_index(vault, "Riverside 0123", keyword_only=True).hits
+    assert hits and hits[0].rel_path == note
+    assert "keyword" in hits[0].sources
+
+
+def test_the_shared_space_name_is_not_a_search_term(indexed_alice):
+    """The shared space's name sits on every shared note and is an everyday
+    word ("company"), so it stays out of the index: matching it would pull
+    every shared note into any query that says it."""
+    rels = [h.rel_path for h in search_index(indexed_alice, "Company", keyword_only=True).hits]
+    assert "Company/Decisions/Big Deal Decision.md" not in rels
 
 
 def test_rrf_item_in_both_legs_wins():

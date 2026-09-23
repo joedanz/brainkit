@@ -57,7 +57,10 @@ which episode established the claim; it just will not resolve to a hit.
 Search fuses three independent legs by reciprocal-rank fusion (RRF), and needs
 no score calibration between them:
 
-- **Keyword** — SQLite FTS5 (BM25) over chunk text.
+- **Keyword** — SQLite FTS5 (BM25) over chunk text, headings, and the name of
+  the space each chunk sits in, so `Acme` finds the notes under `Clients/Acme/`
+  even when none of them says "Acme". The shared space's name is left out: it
+  is on every shared note, and is usually an everyday word like "company".
 - **Vector** — semantic nearest-neighbours via [sqlite-vec](https://github.com/asg017/sqlite-vec).
 - **Graph** — personalized PageRank over the note graph: wikilinks, fact
   co-mentions, and typed relations, seeded by entity names and aliases matched
@@ -159,7 +162,7 @@ differently, and the asymmetry is the point:
 
   ```
   index at <path> was built by a newer brainkit
-  (schema 5 > 4); rebuild with: brain index --full
+  (schema 6 > 5); rebuild with: brain index --full
   ```
 
   This is the fail-closed direction. A newer schema may hold columns this code
