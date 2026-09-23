@@ -1452,3 +1452,45 @@ def test_protocol_size_warns_then_errors_as_a_protocol_nears_the_limit(master, m
     monkeypatch.setattr(cg, "ROOT_LIMIT", size - 1)
     [f] = _size_findings(master, "bob")
     assert f.severity == "error" and "compile fails until it shrinks" in f.message
+
+
+def test_protocol_size_percent_always_matches_its_severity(master, monkeypatch):
+    """The percent doctor prints must never disagree with the severity it
+    chose: 94.6% is a warning, and it must never print as "(95%)". Sweep
+    ROOT_LIMIT across both the 80% and 95% boundaries, one character to
+    either side, and check that the printed percent and the severity are
+    always derived from the same number."""
+    import brain.contextgen as cg
+    import brain.doctor as doctor_mod
+    from brain.contextgen import render_person_protocol, writable_spaces
+    from brain.resolver import readable_spaces
+    from brain.schemas import load_config, load_org, load_spaces
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    config = load_config(master)
+    bob = org.people["bob"]
+    size = len(render_person_protocol(
+        master, bob, writable_spaces(readable_spaces(master, bob, rules), bob, rules),
+        config))
+
+    for pct_target in (79, 80, 94, 95):
+        for d in (-1, 0, 1):
+            limit = size * 100 // pct_target + d
+            monkeypatch.setattr(cg, "ROOT_LIMIT", limit)
+            pct = size * 100 // limit
+            findings = [
+                f for f in doctor_mod._check_protocol_size(master, org, rules, config)
+                if f.check == "protocol-size" and f.message.startswith("bob:")
+            ]
+            if pct < 80:
+                assert findings == [], (pct_target, d, pct)
+                continue
+            [f] = findings
+            assert f"({pct}%)" in f.message, (pct_target, d, pct, f.message)
+            if pct >= 95:
+                assert f.severity == "error", (pct_target, d, pct)
+            else:
+                assert f.severity == "warn", (pct_target, d, pct)

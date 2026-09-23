@@ -753,8 +753,10 @@ def _check_protocol(master: Path, config: VaultConfig) -> list[Finding]:
                     f"--master {master} --write`", paths=("AGENTS.md",))]
 
 
-PROTOCOL_WARN = 0.80
-PROTOCOL_ERROR = 0.95
+# Percent of contextgen.ROOT_LIMIT, compared as whole percents computed in
+# integers, so the number a finding shows always matches its severity.
+PROTOCOL_WARN = 80
+PROTOCOL_ERROR = 95
 
 
 def _check_protocol_size(master: Path, org: Org, rules: tuple[SpaceRule, ...],
@@ -781,14 +783,14 @@ def _check_protocol_size(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                 "error", "protocol-size",
                 f"{e} — this person's compile fails until it shrinks"))
             continue
-        share = n / contextgen.ROOT_LIMIT
-        if share < PROTOCOL_WARN:
+        pct = n * 100 // contextgen.ROOT_LIMIT
+        if pct < PROTOCOL_WARN:
             continue
-        level = "error" if share >= PROTOCOL_ERROR else "warn"
+        level = "error" if pct >= PROTOCOL_ERROR else "warn"
         findings.append(Finding(
             level, "protocol-size",
             f"{person.id}: generated protocol is {n:,} of "
-            f"{contextgen.ROOT_LIMIT:,} characters ({share:.0%}) — "
+            f"{contextgen.ROOT_LIMIT:,} characters ({pct}%) — "
             f"{len(spaces_rw)} readable spaces"))
     return findings
 
