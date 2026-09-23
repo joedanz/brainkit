@@ -257,8 +257,9 @@ class SignatureCache:
                     raise
                 if not self.warnings:
                     self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
-        # Damaged: this run computed every signature it asked for (a failed
-        # read returns nothing), so a fresh file holding _computed is whole.
+        # Damaged: rebuild from _computed. After a failed read that is every
+        # signature; after a good read and a failed write it is only the new
+        # ones, and the next cycle recomputes the rest.
         self._conn.close()
         self._conn = _rebuild(self._path)
         self._write()
