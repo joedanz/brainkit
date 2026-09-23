@@ -11,6 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-09-22
+
+### Fixed
+
+- **The Graph tab now actually uses the 1,000-node default that 0.6.6
+  announced.** 0.6.6 raised the server's default cap from 300 to 1,000, but
+  the tab still asked for 300 explicitly on every load, and the server
+  honours a cap it is given. So 0.6.6's entry described a fix the default
+  view never got: grown vaults kept showing well-linked pages cut off from
+  their neighbors. The tab now sends no cap and the server's default
+  applies. The static `brain dashboard --html` snapshot stays at 300 on
+  purpose: its simpler layout compares every pair of nodes, so 1,000 nodes
+  would be about 11 times the work.
+
 ## [0.6.8] - 2026-09-18
 
 ### Fixed

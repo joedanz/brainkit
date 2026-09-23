@@ -236,6 +236,9 @@ def collect_vault_stats(
     include_graph: bool = False,
     include_facts: bool = False,
     git_limit: int = 20,
+    # Stays at 300 on purpose: only the static `--html` snapshot draws this
+    # graph, and its layout compares every pair of nodes on every tick, so 1000
+    # nodes would be ~11x the work. The live Graph tab uses the server's default.
     graph_cap: int = 300,
 ) -> VaultStats:
     vault = Path(vault)

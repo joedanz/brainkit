@@ -110,7 +110,8 @@ async function load() {
   const token = S.loads.begin();
   let g;
   try {
-    g = await api.graph(params(300));
+    // No cap: the server owns the default (_DEFAULT_GRAPH_CAP in server.py).
+    g = await api.graph(params());
   } catch (e) {
     if (!S || !S.loads.current(token)) return;
     // The banner replaces the whole host, canvas included, so a mounted engine
