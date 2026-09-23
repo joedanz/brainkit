@@ -1112,6 +1112,21 @@ def test_decider_section_patch_renders_diff(master: Path):
     assert "-line two" in text and "+line two changed" in text
 
 
+def test_decider_section_patch_diff_survives_a_non_utf8_target(master: Path):
+    """The decider section renders inside every compile, so a strict read of
+    a patch target let one pasted Windows-1252 byte raise UnicodeDecodeError
+    (a ValueError, outside HANDLED) out of compile_all and stop the fleet.
+    The diff is display-only; approval's hash check reads raw bytes."""
+    (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
+    (master / "Teams/ops/Runbook.md").write_bytes(b"Ops runbook.\nit\x92s line two\n")
+    draft_promotion(master, person_id="bob", target_path="Teams/ops/Runbook.md",
+                    source="s", body="Ops runbook.\nline two changed\n",
+                    promo_id="p-patch", created="2026-08-17", mode="patch")
+    text = generate_promotion_decider_section(master, "lead_ops", "2026-08-17",
+                                              rules=RULES)
+    assert "-it�s line two" in text and "+line two changed" in text
+
+
 def test_decider_section_truncates_with_notice(master: Path):
     from brain.promotions import _REVIEW_CAP
     (master / "_meta/org.yaml").write_text(ORG_YAML_LEADS)
