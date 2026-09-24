@@ -117,6 +117,15 @@ RUN uv venv /opt/doctools --python 3.13 \
     && uv pip install --python /opt/doctools/bin/python \
        "openpyxl==3.1.5" "xlrd==2.0.2" "python-docx==1.2.0" "pypdf==6.1.1"
 COPY deploy/agents-box/scripts/doc2text /usr/local/bin/doc2text
+
+# openpyxl AGAIN, into hermes' own venv this time. hermes ships a bundled
+# `xlsx` skill whose scripts run as plain `python` — /opt/hermes/.venv — and
+# that interpreter cannot see /opt/doctools. Without this the skill fails on
+# its first import, and an agent asked for a spreadsheet has nothing to send
+# (Jalen, 2026-09-23). /opt/hermes is immutable at RUNTIME, not at build, and
+# a runtime install is lost on the next rebuild. Same pin as doctools above.
+RUN uv pip install --python /opt/hermes/.venv/bin/python "openpyxl==3.1.5" \
+    && /opt/hermes/.venv/bin/python -c "import openpyxl"
 RUN chmod 755 /usr/local/bin/doc2text && /usr/local/bin/doc2text --help >/dev/null
 
 # The company-brain profile (SOUL.md, config defaults, brain-protocol skill).

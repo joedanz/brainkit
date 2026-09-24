@@ -11,6 +11,15 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-09-24
+
+### Fixed
+
+- **Agents can build spreadsheets.** hermes' bundled `xlsx` skill runs its
+  scripts with hermes' own Python, which had no `openpyxl`, so every request
+  for a spreadsheet failed on the first import. The agents-box image now
+  installs `openpyxl==3.1.5` into that Python at build time.
+
 ## [0.7.2] - 2026-09-23
 
 ### Changed
