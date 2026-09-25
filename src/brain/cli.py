@@ -154,10 +154,14 @@ def cmd_corrections(args) -> int:
                 cs = load_corrections(master, pid)
                 if cs.record_error:
                     print(f"{pid}  record  {cs.record_error}")
+                pending_slugs = {c.slug for c in cs.pending}
                 for c in cs.pending:
                     print(f"{pid}  {c.slug}  pending  {c.rule}")
-                for c in (*cs.rendered, *cs.omitted, *cs.oversized, *cs.flagged):
-                    print(f"{pid}  {c.slug}  active  {c.rule}")
+                for c in cs.active:
+                    if c.slug not in pending_slugs:
+                        print(f"{pid}  {c.slug}  active  {c.rule}")
+                for c in cs.flagged:
+                    print(f"{pid}  {c.slug}  withheld (blocked by the Hermes filter)")
                 for r in cs.rejected:
                     print(f"{pid}  {r.slug}  rejected ({r.reason})")
             return 0

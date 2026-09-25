@@ -549,3 +549,22 @@ def test_corrections_list_confirm_dismiss(master: Path, capsys):
     assert main(["corrections", "confirm", "bob", "../x", "--by", "alice", *m]) == 1
     assert "not a correction name" in capsys.readouterr().err
     assert main(["corrections", "list", "--person", "mallory", *m]) == 1
+
+
+def test_corrections_list_shows_a_flagged_rule_as_withheld_not_active(master: Path, capsys):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "maria.md").write_text(
+        "---\nrule: Check in with Maria before scheduling.\nfrom: 2026-09-01\n---\n")
+    seed_meta(master)
+    m = ["--master", str(master)]
+
+    assert main(["corrections", "list", "--person", "bob", *m]) == 0
+    out = capsys.readouterr().out
+    assert "bob  maria  withheld" in out
+    assert "bob  maria  active" not in out
+    assert "bob  maria  pending" not in out
+
+    assert main(["corrections", "confirm", "bob", "maria", "--by", "alice", *m]) == 1
+    assert "Hermes" in capsys.readouterr().err
+    assert not (master / "People/bob/.corrections.json").exists()

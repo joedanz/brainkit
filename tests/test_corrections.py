@@ -462,3 +462,51 @@ def test_dismiss_works_on_a_rejected_rule_and_a_broken_record(master):
     dismiss(master, "bob", "link", "bob")
     assert not (master / "People/bob/Corrections/link.md").exists()
     assert (master / "People/bob/.corrections.json").read_text() == "{broken"
+
+
+def test_confirm_refuses_a_flagged_rule(master):
+    _write(master, "bob", "maria",
+           _correction("Check in with Maria before scheduling."), confirm=False)
+    seed_meta(master)
+    with pytest.raises(CorrectionError, match="Hermes"):
+        confirm(master, "bob", "maria", "bob")
+    assert not (master / "People/bob/.corrections.json").exists()
+
+
+def test_a_symlinked_correction_file_is_never_followed(master, tmp_path):
+    _seeded(master)
+    outside = tmp_path / "outside.md"
+    outside.write_text(_correction("Exfiltrated rule."))
+    link = master / "People/bob/Corrections/evil.md"
+    link.symlink_to(outside)
+    cs = load_corrections(master, "bob")
+    assert "evil.md" in cs.misfiled
+    assert all(c.slug != "evil" for c in (*cs.pending, *cs.rendered))
+    with pytest.raises(CorrectionError, match="no correction"):
+        confirm(master, "bob", "evil", "bob")
+    with pytest.raises(CorrectionError, match="no correction"):
+        dismiss(master, "bob", "evil", "bob")
+    assert link.is_symlink()  # dismiss never touched it
+
+
+def test_a_symlinked_corrections_directory_is_treated_as_absent(master, tmp_path):
+    seed_meta(master)
+    outside = tmp_path / "outside-corrections"
+    outside.mkdir()
+    (outside / "tone.md").write_text(_correction("Exfiltrated rule."))
+    d = master / "People/bob/Corrections"
+    d.symlink_to(outside)
+    cs = load_corrections(master, "bob")
+    assert cs.rendered == () and cs.pending == () and cs.misfiled == ()
+
+
+def test_confirm_refuses_to_write_through_a_symlinked_record(master, tmp_path):
+    _seeded(master)
+    real = master / "People/bob/.corrections.json"
+    real.unlink(missing_ok=True)
+    outside = tmp_path / "outside.corrections.json"
+    outside.write_text("{}")
+    real.symlink_to(outside)
+    with pytest.raises(CorrectionError, match="symlink"):
+        confirm(master, "bob", "tone", "bob")
+    assert outside.read_text() == "{}"

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -203,7 +204,9 @@ def load_corrections(
     (fail closed) with `record_error` set for doctor.
     """
     d = vault / "People" / pid / CORRECTIONS_DIR
-    if not d.is_dir():
+    # A symlinked Corrections/ could point anywhere on disk; treated as
+    # absent rather than followed, same as a missing directory.
+    if d.is_symlink() or not d.is_dir():
         return CorrectionSet((), (), (), (), (), (), ())
 
     record_error: str | None = None
@@ -221,6 +224,11 @@ def load_corrections(
     loaded: set[Path] = set()
 
     for f in sorted(d.glob("*.md")):
+        if f.is_symlink():
+            # Never followed -- it could point outside the vault. Left out
+            # of `loaded` so it surfaces as `misfiled` rather than silently
+            # vanishing.
+            continue
         if not f.is_file():
             continue
         loaded.add(f)
@@ -359,8 +367,17 @@ def render_pending_note(cs: CorrectionSet) -> str | None:
 def _write_record(master: Path, pid: str, record: Mapping[str, dict]) -> str:
     rel = RECORD_REL.format(person_id=pid)
     path = master / rel
+    if path.is_symlink():
+        # Never written through -- it could point outside master.
+        raise CorrectionError(f"{rel} is a symlink; refusing to write through it")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(dict(record), indent=2, sort_keys=True) + "\n")
+    text = json.dumps(dict(record), indent=2, sort_keys=True) + "\n"
+    # Write beside the target and rename into place, so a crash mid-write
+    # never leaves a truncated record -- worst case the temp file is orphaned
+    # and the old (or absent) record stands, which fails closed.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
     return rel
 
 
@@ -424,7 +441,7 @@ def confirm(master: Path, pid: str, slug: str, by: str, *,
     _known(org, pid, "person")
     actor = _known(org, by, "confirmer")
     _rel, path = _slug_path(master, pid, slug)
-    if not path.is_file():
+    if path.is_symlink() or not path.is_file():
         raise CorrectionError(f"{pid} has no correction {slug!r}")
     cs = load_corrections(master, pid)
     if cs.record_error:
@@ -432,8 +449,10 @@ def confirm(master: Path, pid: str, slug: str, by: str, *,
     for r in cs.rejected:
         if r.slug == slug:
             raise CorrectionError(f"{pid}/{slug} cannot be confirmed: {r.reason}")
-    found = next((c for c in (*cs.pending, *cs.rendered, *cs.omitted, *cs.oversized,
-                              *cs.flagged) if c.slug == slug), None)
+    if any(c.slug == slug for c in cs.flagged):
+        raise CorrectionError(
+            f"{pid}/{slug} cannot be confirmed: withheld by the Hermes filter")
+    found = next((c for c in cs.active if c.slug == slug), None)
     if found is None:
         raise CorrectionError(f"{pid}/{slug} has no usable `rule:` to confirm")
     digest = rule_hash(found.rule)
@@ -463,6 +482,8 @@ def dismiss(master: Path, pid: str, slug: str, by: str) -> None:
     except CorrectionError:
         record = None
     in_record = record is not None and slug in record
+    if path.is_symlink():
+        raise CorrectionError(f"{pid} has no correction {slug!r}")
     if not path.is_file() and not in_record:
         raise CorrectionError(f"{pid} has no correction {slug!r}")
     paths = [rel]
