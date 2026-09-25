@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-09-25
+
 ### Changed
 
 - **A standing correction takes effect only after its person confirms it.**
