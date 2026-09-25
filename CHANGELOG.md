@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-09-25
+
 ### Changed
 
 - **A few ordinary words can no longer switch off an agent's instructions.**
