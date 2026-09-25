@@ -129,23 +129,23 @@ PATTERNS: tuple[tuple[str, str], ...] = (
 # Zero-width space/non-joiner/joiner, word joiner, invisible times/separator/
 # plus, BOM, LTR/RTL embedding, pop, overrides, and the four isolates.
 INVISIBLE_CHARS = frozenset((
-    "​",  # zero width space
-    "‌",  # zero width non-joiner
-    "‍",  # zero width joiner
-    "⁠",  # word joiner
-    "⁢",  # invisible times
-    "⁣",  # invisible separator
-    "⁤",  # invisible plus
-    "﻿",  # byte order mark / zero width no-break space
-    "‪",  # left-to-right embedding
-    "‫",  # right-to-left embedding
-    "‬",  # pop directional formatting
-    "‭",  # left-to-right override
-    "‮",  # right-to-left override
-    "⁦",  # left-to-right isolate
-    "⁧",  # right-to-left isolate
-    "⁨",  # first strong isolate
-    "⁩",  # pop directional isolate
+    "\u200B",  # zero width space
+    "\u200C",  # zero width non-joiner
+    "\u200D",  # zero width joiner
+    "\u2060",  # word joiner
+    "\u2062",  # invisible times
+    "\u2063",  # invisible separator
+    "\u2064",  # invisible plus
+    "\uFEFF",  # byte order mark / zero width no-break space
+    "\u202A",  # left-to-right embedding
+    "\u202B",  # right-to-left embedding
+    "\u202C",  # pop directional formatting
+    "\u202D",  # left-to-right override
+    "\u202E",  # right-to-left override
+    "\u2066",  # left-to-right isolate
+    "\u2067",  # right-to-left isolate
+    "\u2068",  # first strong isolate
+    "\u2069",  # pop directional isolate
 ))
 
 _COMPILED = tuple((pid, re.compile(rx, re.IGNORECASE)) for pid, rx in PATTERNS)

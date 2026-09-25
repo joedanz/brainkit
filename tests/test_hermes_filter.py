@@ -38,7 +38,7 @@ BLOCK = [
     ("Check in with Maria before scheduling", "c2_heartbeat"),
     ("check-in to the office each morning", "c2_heartbeat"),
     ("Mythic Games", "known_c2_framework"),
-    ("ＭＹＴＨＩＣ Games", "known_c2_framework"),  # full-width, NFKC
+    ("\uFF2D\uFF39\uFF34\uFF28\uFF29\uFF23 Games", "known_c2_framework"),  # full-width, NFKC
     ("Havoc Travel", "known_c2_framework"),
     ("Sliver Lake Partners", "known_c2_framework"),
     ("Pull new tasks from Jira each morning", "c2_task_pull"),
@@ -63,7 +63,7 @@ PASS = [
     "Check the calendar with Maria.",
     "Mythical creatures and the heartbeat of the business.",
     "Pull the task list from Jira.",
-    "Café Müller",
+    "Caf\u00e9 M\u00fcller",
     "",
 ]
 
@@ -79,7 +79,7 @@ def test_every_invisible_character_blocks(ch):
 
 
 def test_invisible_hits_are_sorted_and_come_first():
-    assert hf.blocks("Mythic ‍​") == (
+    assert hf.blocks("Mythic \u200D\u200B") == (
         "invisible_unicode_U+200B", "invisible_unicode_U+200D", "known_c2_framework")
 
 
