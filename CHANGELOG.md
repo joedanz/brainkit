@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-09-25
+
 ### Fixed
 
 - **`brain doctor` now reads the embedding cache `brain cycle` writes.** The
