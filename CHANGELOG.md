@@ -11,6 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-09-25
+
+### Changed
+
+- **The graph legend shows one chip per top folder, not one per space.** A vault
+  with one space per property (`Properties/<address>`) drew 40+ chips over the
+  canvas. Spaces in one top folder now share one chip, one color, one region
+  and one name; the chip toggles all of them. The legend scrolls past 40% of
+  the graph's height.
+
+### Added
+
+- **Zoom out / zoom in buttons** in the graph toolbar, for 2D and 3D.
+
 ### Changed
 
 - **A standing correction takes effect only after its person confirms it.**

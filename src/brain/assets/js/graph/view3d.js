@@ -14,7 +14,7 @@ import { OrbitControls } from "../../vendor/OrbitControls.js";
 import { layout } from "./layout3d.js";
 import { labelBudget, labelShown } from "./labels.js";
 import { centroidOf } from "./hull.js";
-import { colorFor } from "./palette.js";
+import { colorFor, groupOf } from "./palette.js";
 import { medianNearestGap } from "../dom.js";
 
 const FADE = 0.15;
@@ -222,9 +222,9 @@ export function createView3d(E) {
         depthWrite: false, blending: THREE.AdditiveBlending, size: baseR * 7, sizeAttenuation: true });
       halos = add(new THREE.Points(hg, hm), () => { hg.dispose(); hm.dispose(); });
     } else {
-      // Regions: a soft translucent sphere per space, radius from the cluster's spread.
+      // Regions: a soft translucent sphere per family, radius from the cluster's spread.
       const bySpace = new Map();
-      data.nodes.forEach((node, i) => { if (!E.visible(i)) return; let a = bySpace.get(node.space); if (!a) bySpace.set(node.space, a = []); a.push(pos[i]); });
+      data.nodes.forEach((node, i) => { if (!E.visible(i)) return; const f = groupOf(node.space); let a = bySpace.get(f); if (!a) bySpace.set(f, a = []); a.push(pos[i]); });
       for (const [space, pts] of bySpace) {
         const c = centroidOf(pts);
         let spread = 0;
@@ -238,15 +238,19 @@ export function createView3d(E) {
     }
 
     // Space names: billboarded sprites at each centroid, translucent, always on.
-    const bySpaceAll = new Map();
-    data.nodes.forEach((node, i) => { let a = bySpaceAll.get(node.space); if (!a) bySpaceAll.set(node.space, a = []); a.push(pos[i]); });
+    const bySpaceAll = new Map(), shown = new Set();
+    data.nodes.forEach((node, i) => {
+      const f = groupOf(node.space);
+      let a = bySpaceAll.get(f); if (!a) bySpaceAll.set(f, a = []); a.push(pos[i]);
+      if (!E.hidden.has(node.space)) shown.add(f);
+    });
     const nameH = Math.max(baseR * 6, gap * 1.4);
     for (const [space, pts] of bySpaceAll) {
       const c = centroidOf(pts);
       const t = textSprite(space, { px: 26, color: colorFor(space), alpha: dark ? 0.35 : 0.5, font: E.font, weight: 600 });
       t.sprite.position.set(c.x, c.y, c.z);
       t.sprite.scale.set(nameH * t.sprite.userData.aspect, nameH, 1);
-      t.sprite.visible = !E.hidden.has(space);
+      t.sprite.visible = shown.has(space);
       add(t.sprite, t.dispose);
     }
 
@@ -396,6 +400,13 @@ export function createView3d(E) {
     focus() { if (!mesh) return; paintFocus(); relabel(true); },
     setTokens: build,                 // sprites and halos/regions are redrawn on a theme change
     fit() { autoFit = true; fitNow(); },
+    zoomBy(f) {
+      // Dolly toward the orbit target: zooming in by f shortens the distance by f.
+      autoFit = false;
+      const off = camera.position.clone().sub(controls.target).divideScalar(f);
+      camera.position.copy(controls.target).add(off);
+      controls.update();
+    },
     destroy() {
       running = false;
       ro.disconnect();

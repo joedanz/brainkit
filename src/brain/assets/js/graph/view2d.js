@@ -5,7 +5,7 @@
 // positions survive a data update, and calls E.setHover / E.select / E.open.
 import { labelBudget, labelShown } from "./labels.js";
 import { hullFor, centroidOf } from "./hull.js";
-import { colorFor } from "./palette.js";
+import { colorFor, groupOf } from "./palette.js";
 import { medianNearestGap } from "../dom.js";
 
 const FIT_PAD = 24;          // clear space kept on every edge
@@ -253,9 +253,10 @@ export function createView2d(E, d3) {
     const vis = [];
     for (const n of nodes) if (Number.isFinite(n.x) && Number.isFinite(n.y) && E.visible(n.i)) vis.push(n);
     const bySpace = new Map();
-    for (const n of vis) { let a = bySpace.get(n.space); if (!a) bySpace.set(n.space, a = []); a.push(n); }
+    // Keyed by family (top folder), so forty sibling spaces draw one region and one name.
+    for (const n of vis) { const f = groupOf(n.space); let a = bySpace.get(f); if (!a) bySpace.set(f, a = []); a.push(n); }
 
-    // Regions — the light theme's territory map: one tinted hull per space.
+    // Regions — the light theme's territory map: one tinted hull per family.
     if (!dark) {
       g.globalAlpha = 0.13;
       for (const [space, pts] of bySpace) {
@@ -322,6 +323,7 @@ export function createView2d(E, d3) {
     refresh: schedule,
     setTokens: schedule,
     fit(animate) { autoFit = true; fitNow(animate); },
+    zoomBy(f) { autoFit = false; zoom.scaleBy(sel.transition().duration(180), f); },
     destroy() {
       ro.disconnect();
       if (sim) sim.stop();

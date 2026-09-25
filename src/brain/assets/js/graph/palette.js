@@ -11,7 +11,17 @@ export const PALETTE = ["#d48b85", "#92b074", "#bcab67", "#78a3cf", "#64b5b0",
                         "#b88cc1", "#adac68", "#a48fcb", "#6db38e", "#d0878c"];
 const spaceColors = {};
 let nextColor = 0;
+// A space's family is its top folder: "Properties/815 Ave J" -> "Properties".
+// A vault can hold one space per deal or per property; the legend shows one
+// chip per family and the family shares one color, so forty spaces read as
+// one group instead of forty colors and forty chips.
+export function groupOf(space) {
+  const s = String(space);
+  const cut = s.indexOf("/");
+  return cut > 0 ? s.slice(0, cut) : s;
+}
 export function colorFor(space) {
-  if (!(space in spaceColors)) spaceColors[space] = PALETTE[nextColor++ % PALETTE.length];
-  return spaceColors[space];
+  const key = groupOf(space);
+  if (!(key in spaceColors)) spaceColors[key] = PALETTE[nextColor++ % PALETTE.length];
+  return spaceColors[key];
 }

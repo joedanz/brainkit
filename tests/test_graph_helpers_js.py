@@ -35,6 +35,20 @@ def js_import(name: str) -> str:
 
 # ---- palette -----------------------------------------------------------------
 
+def test_spaces_in_one_top_folder_share_a_family_and_a_color():
+    res = run_js(f"""
+const {{ colorFor, groupOf }} = await import({js_import("palette.js")});
+console.log(JSON.stringify({{
+  fam: [groupOf("Properties/815 Ave J"), groupOf("Properties/a/b"), groupOf("people"), groupOf("/x")],
+  same: colorFor("Properties/815 Ave J") === colorFor("Properties/86 Delancey St"),
+  famColor: colorFor("Properties") === colorFor("Properties/815 Ave J"),
+  differs: colorFor("Teams/deals") !== colorFor("Properties/815 Ave J"),
+}}));
+""")
+    assert res["fam"] == ["Properties", "Properties", "people", "/x"]
+    assert res["same"] and res["famColor"] and res["differs"]
+
+
 def test_color_for_is_stable_and_shared():
     res = run_js(f"""
 const {{ colorFor }} = await import({js_import("palette.js")});

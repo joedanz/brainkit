@@ -36,9 +36,10 @@ export const ENGINE_CSS = `
 .ge-btn { background: var(--ge-panel); color: var(--ge-fg); border: 1px solid var(--ge-line);
           border-radius: 6px; padding: 4px 9px; font: inherit; cursor: pointer; white-space: nowrap; }
 .ge-btn:hover { border-color: var(--ge-fg); }
+.ge-btn.ge-zoom { min-width: 30px; padding: 4px 0; text-align: center; }
 .ge-btn.on { border-color: var(--ge-fg); box-shadow: inset 0 0 0 1px var(--ge-fg); }
 .ge-legend { position: absolute; left: 8px; bottom: 8px; z-index: 3; display: flex; flex-wrap: wrap;
-             gap: 6px; max-width: 70%; }
+             gap: 6px; max-width: 70%; max-height: 40%; overflow-y: auto; }
 .ge-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
            border: 1px solid var(--ge-line); background: var(--ge-panel); color: var(--ge-fg);
            cursor: pointer; font: inherit; white-space: nowrap; }

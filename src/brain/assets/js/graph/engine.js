@@ -13,7 +13,7 @@
 import { el } from "../dom.js";
 import { healthFlags } from "./health.js";
 import { STOPS } from "./labels.js";
-import { colorFor } from "./palette.js";
+import { colorFor, groupOf } from "./palette.js";
 import { adoptStyles } from "./styles.js";
 
 export const ENGINE_VERSION = 1;
@@ -158,6 +158,16 @@ export function mountGraph(host, options) {
   fitBtn.addEventListener("click", () => E.view && E.view.fit(true));
   toolbar.appendChild(fitBtn);
 
+  // Zoom buttons: the wheel and pinch still work, these are for a trackpad
+  // that scrolls the page and for anyone who never finds the gesture.
+  for (const [label, name, f] of [["−", "Zoom out", 1 / 1.5], ["+", "Zoom in", 1.5]]) {
+    const b = el("button", "ge-btn ge-zoom", label);
+    b.type = "button";
+    b.setAttribute("aria-label", name);
+    b.addEventListener("click", () => E.view && E.view.zoomBy && E.view.zoomBy(f));
+    toolbar.appendChild(b);
+  }
+
   // Full graph: only when the host can fetch more (loadFull) and the payload
   // says the cap cut it. The engine applies the result like any update.
   const fullBtn = el("button", "ge-btn ge-desktop-only", "Full graph");
@@ -283,20 +293,30 @@ export function mountGraph(host, options) {
 
   function buildLegend() {
     legend.textContent = "";
-    const counts = new Map();
-    for (const n of E.data.nodes) counts.set(n.space, (counts.get(n.space) || 0) + 1);
-    for (const space of [...counts.keys()].sort()) {
-      const chip = el("button", "ge-chip" + (E.hidden.has(space) ? " off" : ""));
+    // One chip per family (top folder), not per space: a chip toggles every
+    // space in its family. The family is off only when all its spaces are.
+    const families = new Map();   // family -> { spaces: Set, n: notes }
+    for (const n of E.data.nodes) {
+      const g = groupOf(n.space);
+      if (!families.has(g)) families.set(g, { spaces: new Set(), n: 0 });
+      const f = families.get(g); f.spaces.add(n.space); f.n++;
+    }
+    for (const fam of [...families.keys()].sort()) {
+      const { spaces, n } = families.get(fam);
+      const allOff = () => [...spaces].every((s) => E.hidden.has(s));
+      const chip = el("button", "ge-chip" + (allOff() ? " off" : ""));
       chip.type = "button";
-      chip.setAttribute("aria-pressed", E.hidden.has(space) ? "false" : "true");
-      const dot = el("span", "dot"); dot.style.setProperty("--ge-dot", colorFor(space));
+      chip.setAttribute("aria-pressed", allOff() ? "false" : "true");
+      if (spaces.size > 1) chip.title = spaces.size + " spaces";
+      const dot = el("span", "dot"); dot.style.setProperty("--ge-dot", colorFor(fam));
       chip.appendChild(dot);
-      chip.appendChild(el("span", null, space));
-      chip.appendChild(el("span", "n", String(counts.get(space))));
+      chip.appendChild(el("span", null, fam));
+      chip.appendChild(el("span", "n", String(n)));
       chip.addEventListener("click", () => {
-        if (E.hidden.has(space)) E.hidden.delete(space); else E.hidden.add(space);
-        chip.classList.toggle("off", E.hidden.has(space));
-        chip.setAttribute("aria-pressed", E.hidden.has(space) ? "false" : "true");
+        const show = allOff();
+        for (const s of spaces) { if (show) E.hidden.delete(s); else E.hidden.add(s); }
+        chip.classList.toggle("off", !show);
+        chip.setAttribute("aria-pressed", show ? "true" : "false");
         persist();
         // Hiding the space that holds the current selection clears focus,
         // but select(null) now only repaints focus — the hidden space's name
