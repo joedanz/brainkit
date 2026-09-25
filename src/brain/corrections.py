@@ -22,21 +22,24 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from brain import hermes_filter
 from brain.compiler import CONFIRMED_NAME
-from brain.errors import BrainError
+from brain.errors import HANDLED, BrainError
 from brain.frontmatter import split_frontmatter
+from brain.holds import CYCLE_EMAIL, CYCLE_NAME
+from brain.writeback import commit_paths
 
 CORRECTIONS_LIMIT = 4000
 CORRECTIONS_DIR = "Corrections"
 RULE_MAX = 280
 RECORD_REL = f"People/{{person_id}}/{CONFIRMED_NAME}"
 GRANDFATHERED = "grandfathered"
+PENDING_NOTE_REL = "People/{person_id}/Pending-corrections.md"
 
 _HEADING = "## Standing corrections\n\n"
 _WEB_ADDRESS = re.compile(r"https?://|www\.", re.IGNORECASE)
@@ -322,3 +325,71 @@ def render_corrections(cs: CorrectionSet) -> str:
     if not cs.rendered:
         return ""
     return _HEADING + "".join(_bullet(c) for c in cs.rendered)
+
+
+def render_pending_note(cs: CorrectionSet) -> str | None:
+    """The person's read-only notice, or None when nothing waits on them.
+
+    Pending rules are listed with their text, because the person has to read
+    exactly what they are confirming. Rejected ones show only why: their text
+    is the part that failed the limits."""
+    if not cs.pending and not cs.rejected:
+        return None
+    lines = [
+        "---", "generated: true", "---",
+        "# Corrections waiting for you", "",
+        "Your agent wrote these corrections. A correction only reaches your",
+        "agent after you confirm it, so none of these is in effect yet.", "",
+        "Open your dashboard and use the Corrections tab to confirm or dismiss",
+        "each one. This file is rebuilt every time your vault is refreshed, so",
+        "edits here are discarded.", "",
+    ]
+    if cs.pending:
+        lines += ["## Waiting for you", "",
+                  *(f"- {c.slug}: {c.rule}" for c in cs.pending), ""]
+    if cs.rejected:
+        lines += ["## Cannot be used", "",
+                  "These can't be confirmed. Dismiss them, or ask your agent to",
+                  "rewrite each as one short sentence.", "",
+                  *(f"- {r.slug}: {r.reason}" for r in cs.rejected), ""]
+    return "\n".join(lines)
+
+
+def _write_record(master: Path, pid: str, record: Mapping[str, dict]) -> str:
+    rel = RECORD_REL.format(person_id=pid)
+    path = master / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(record), indent=2, sort_keys=True) + "\n")
+    return rel
+
+
+def grandfather(master: Path, person_ids: Iterable[str], *, now: str) -> list[str]:
+    """Record every current well-shaped rule as confirmed, once per person.
+
+    Runs at the start of a cycle, before write-back, so only rules already in
+    master on upgrade day are kept in force. A person with no corrections
+    still gets `{}`: without it, the first rule their agent wrote later would
+    be grandfathered on the next cycle. A record that exists -- even one that
+    cannot be read -- means this already happened; doctor reports a broken
+    one, and it is never overwritten here."""
+    written: list[str] = []
+    for pid in person_ids:
+        if (master / RECORD_REL.format(person_id=pid)).exists():
+            continue
+        cs = load_corrections(master, pid, confirmed={})
+        record = {c.slug: {"sha256": rule_hash(c.rule), "by": GRANDFATHERED, "at": now}
+                  for c in (*cs.pending, *cs.flagged)}
+        written.append(_write_record(master, pid, record))
+    if not written:
+        return written
+    try:
+        commit_paths(master, written, name=CYCLE_NAME, email=CYCLE_EMAIL,
+                     message=f"corrections: keep existing corrections for "
+                             f"{len(written)} person(s) in force")
+    except HANDLED:
+        # Leave nothing half-done: with the records gone, every rule stays
+        # pending (fail closed) and the next cycle tries again.
+        for rel in written:
+            (master / rel).unlink(missing_ok=True)
+        raise
+    return written

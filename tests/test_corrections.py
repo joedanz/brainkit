@@ -308,6 +308,11 @@ def test_a_newline_in_a_rule_is_rejected_by_shape_problem():
     assert "one line" in shape_problem("Line one.\nLine two.")
 
 
+def test_a_carriage_return_in_a_rule_is_rejected_by_shape_problem():
+    assert shape_problem("a\rb") is not None
+    assert "one line" in shape_problem("a\rb")
+
+
 def test_a_rule_of_exactly_280_characters_is_allowed():
     assert shape_problem("x" * 280) is None
     assert shape_problem("x" * 281) is not None

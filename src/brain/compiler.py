@@ -257,7 +257,8 @@ def _post_process(
 ) -> list[str]:
     """Post-process the built vault: stub cross-boundary links, generate the
     AGENTS.md/CLAUDE.md context files, and generate the read-only
-    People/<pid>/Shares.md promotion-status note. Returns the list of
+    People/<pid>/Shares.md promotion-status note and
+    People/<pid>/Pending-corrections.md note. Returns the list of
     generated rel paths for the manifest (excluded from the write-back baseline).
     """
     from brain.resolver import can_write_path
@@ -331,6 +332,18 @@ def _post_process(
         dest = building / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(note)
+        generated.append(rel)
+
+    from brain.corrections import PENDING_NOTE_REL, load_corrections, render_pending_note
+
+    # People/<pid>/Pending-corrections.md: a reserved generated filename, like
+    # Shares.md -- rebuilt from master each compile, absent when nothing waits.
+    pending_note = render_pending_note(load_corrections(master, person.id))
+    if pending_note is not None:
+        rel = PENDING_NOTE_REL.format(person_id=person.id)
+        dest = building / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(pending_note)
         generated.append(rel)
     return generated
 

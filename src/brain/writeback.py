@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
-from brain.compiler import HELD_NAME, MANIFEST_NAME
+from brain.compiler import HELD_NAME, MANIFEST_NAME, SERVER_ONLY_NAMES
 from brain.errors import BrainError, describe
 from brain.resolver import can_write_path
 from brain.schemas import DEFAULT_SHARED, Person, SpaceRule
@@ -157,7 +157,7 @@ def diff_vault(vault: Path, manifest: dict | None = None) -> list[Change]:
         # them surface as out-of-scope changes.
         if rel.split("/", 1)[0].startswith("."):
             continue
-        if rel in generated or is_junk(f.name) or f.name == HELD_NAME:
+        if rel in generated or is_junk(f.name) or f.name in SERVER_ONLY_NAMES:
             continue
         data = _read_nofollow(f)
         if data is None:
