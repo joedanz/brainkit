@@ -149,6 +149,7 @@ RUN mkdir -p /etc/ssh/ssh_config.d && printf '%s\n' \
 # 01-hermes-setup seeds defaults); vault-sync is a supervised longrun.
 COPY deploy/agents-box/scripts/03-brain-first-boot /etc/cont-init.d/03-brain-first-boot
 COPY deploy/agents-box/scripts/vault-sync /usr/local/bin/vault-sync
+COPY deploy/agents-box/scripts/brain-context-scan /usr/local/bin/brain-context-scan
 COPY deploy/agents-box/scripts/vault-sync-run /etc/services.d/vault-sync/run
 COPY deploy/agents-box/scripts/serve-starter /usr/local/bin/serve-starter
 COPY deploy/agents-box/scripts/serve-starter-run /etc/services.d/serve-starter/run
@@ -157,10 +158,16 @@ COPY deploy/agents-box/scripts/serve-starter-run /etc/services.d/serve-starter/r
 COPY deploy/agents-box/scripts/tmp-reaper-run /etc/services.d/tmp-reaper/run
 RUN chmod 755 /etc/cont-init.d/03-brain-first-boot \
               /usr/local/bin/vault-sync \
+              /usr/local/bin/brain-context-scan \
               /etc/services.d/vault-sync/run \
               /usr/local/bin/serve-starter \
               /etc/services.d/serve-starter/run \
               /etc/services.d/tmp-reaper/run
+
+# vault-sync's safety net imports hermes' own filter. Warn, never fail: if
+# hermes moved it, the net goes quiet (the script exits 0) and the build ships.
+RUN /opt/hermes/.venv/bin/python -c "from tools.threat_patterns import scan_for_threats" \
+    || echo "WARNING: tools.threat_patterns not importable — brain-context-scan will be a no-op"
 
 # No trailing USER directive: s6-overlay's /init must start as root — it fixes
 # volume ownership on boot, then drops to the `hermes` user (uid 10000) for
