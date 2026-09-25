@@ -11,6 +11,42 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **A few ordinary words can no longer switch off an agent's instructions.**
+  Hermes Agent refuses to load a context file (`AGENTS.md`, `CLAUDE.md`,
+  `SOUL.md`) when any line matches its list of suspicious phrases. It
+  replaces the whole file with a one-line notice, and the agent carries on
+  without its rules. Everyday text can match: a standing correction such as
+  "Check in with Maria before scheduling", a client called "Mythic Games", or
+  an invisible joiner inside an emoji. brainkit now checks what it writes
+  into those files against a copy of that list and works around a match:
+  - a standing correction that matches is left out, the rest still render,
+    and its author's doctor digest names the file and what matched, with a
+    hint on rewording it;
+  - a space whose name matches is counted in its folder's summary line
+    instead of listed by name;
+  - a person whose name matches is shown by their id;
+  - a charter that matches is left out of every protocol and the master
+    `AGENTS.md`, and the admins get an error asking them to rephrase it.
+- **Per-space `AGENTS.md`/`CLAUDE.md` notes now start with `# This space`**
+  instead of the space's path, so a space's name can never get one dropped.
+  Every per-space note changes once on the next compile. The text below the
+  heading is unchanged.
+- **New client names can't contain invisible characters** (zero-width
+  joiners and non-joiners, direction marks, a byte-order mark), because
+  Hermes Agent refuses a whole protocol that contains one. Existing names
+  aren't renamed; `brain doctor` lists them.
+
+### Added
+
+- **`brain doctor` reports protocols Hermes Agent would refuse**
+  (`protocol-blocked`). It's an error when a name brainkit can't work around
+  matches the list: the shared space, the entities folder or a person id, or
+  the master's own `AGENTS.md`. The file still ships, and the admins are told
+  what to rename. What brainkit worked around shows at info. Errors reach the
+  admins' inbox digest.
+
 ## [0.7.5] - 2026-09-25
 
 ### Fixed
