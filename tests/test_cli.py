@@ -522,3 +522,65 @@ def test_compile_single_person_goes_through_failure_isolation(master: Path, tmp_
     assert main(["compile", "--master", str(master), "--out", str(out_root),
                  "--person", "bob"]) == 1
     assert "failed bob:" in capsys.readouterr().err
+
+
+def test_corrections_list_confirm_dismiss(master: Path, capsys):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "tone.md").write_text("---\nrule: Keep it short.\nfrom: 2026-09-01\n---\n")
+    (d / "link.md").write_text("---\nrule: See www.x.example.\nfrom: 2026-09-01\n---\n")
+    seed_meta(master)
+    m = ["--master", str(master)]
+
+    assert main(["corrections", "list", *m]) == 0
+    out = capsys.readouterr().out
+    assert "bob  tone  pending  Keep it short." in out
+    assert "bob  link  rejected (it contains a web address)" in out
+
+    assert main(["corrections", "confirm", "bob", "tone", "--by", "alice", *m]) == 0
+    assert "confirmed bob/tone: Keep it short." in capsys.readouterr().out
+    assert main(["corrections", "list", "--person", "bob", *m]) == 0
+    assert "bob  tone  active  Keep it short." in capsys.readouterr().out
+
+    assert main(["corrections", "dismiss", "bob", "link", "--by", "alice", *m]) == 0
+    assert not (d / "link.md").exists()
+
+    assert main(["corrections", "confirm", "bob", "tone", *m]) == 2  # --by missing
+    assert main(["corrections", "confirm", "bob", "../x", "--by", "alice", *m]) == 1
+    assert "not a correction name" in capsys.readouterr().err
+    assert main(["corrections", "list", "--person", "mallory", *m]) == 1
+
+
+def test_corrections_list_shows_a_flagged_rule_as_withheld_not_active(master: Path, capsys):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "maria.md").write_text(
+        "---\nrule: Check in with Maria before scheduling.\nfrom: 2026-09-01\n---\n")
+    seed_meta(master)
+    m = ["--master", str(master)]
+
+    assert main(["corrections", "list", "--person", "bob", *m]) == 0
+    out = capsys.readouterr().out
+    assert "bob  maria  withheld" in out
+    assert "bob  maria  active" not in out
+    assert "bob  maria  pending" not in out
+
+    assert main(["corrections", "confirm", "bob", "maria", "--by", "alice", *m]) == 1
+    assert "Hermes" in capsys.readouterr().err
+    assert not (master / "People/bob/.corrections.json").exists()
+
+
+def test_dashboard_corrections_master_only_with_a_served_vault(tmp_path, capsys):
+    assert main(["dashboard", "--master", str(tmp_path), "--corrections-master",
+                 str(tmp_path)]) == 2
+    assert "--corrections-master only applies to --vault" in capsys.readouterr().err
+    assert main(["dashboard", "--vault", str(tmp_path), "--html", str(tmp_path / "d.html"),
+                 "--corrections-master", str(tmp_path)]) == 2
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "10.0.0.5", "::"])
+def test_dashboard_corrections_master_needs_a_loopback_host(tmp_path, capsys, host):
+    assert main(["dashboard", "--vault", str(tmp_path), "--host", host,
+                 "--corrections-master", str(tmp_path), "--no-open"]) == 2
+    err = capsys.readouterr().err
+    assert "--corrections-master" in err and "127.0.0.1" in err

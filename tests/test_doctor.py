@@ -5,7 +5,9 @@ from datetime import date as _date
 import pytest
 
 from brain.cli import main
+from brain.corrections import RECORD_REL
 from brain.doctor import _check_citations, _check_intel, _citation_urls, run_doctor
+from tests.conftest import confirm_all
 
 from .test_cli import SPACES_YAML, seed_meta
 
@@ -1588,6 +1590,7 @@ def test_corrections_over_budget_are_reported_to_their_owner(master):
         (d / f"r{i:02d}.md").write_text(
             f"---\nrule: Rule {i} " + "x" * 60 + "\nfrom: 2026-08-19\n---\nwhy\n"
         )
+    confirm_all(master, "bob")
 
     findings = run_doctor(master)
     budget = [f for f in findings if f.check == "corrections-budget"]
@@ -1612,14 +1615,9 @@ def test_a_rule_too_long_to_ever_render_is_reported_as_its_own_problem(master):
     (d / "short.md").write_text(
         "---\nrule: Keep it direct.\nfrom: 2026-01-01\n---\nwhy\n")
 
-    findings = [f for f in run_doctor(master) if f.check == "corrections-budget"]
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.paths == ("People/bob/Corrections/essay.md",)  # short.md still renders
-    assert "essay.md" in f.message           # named, so it can be found
-    assert "shorten" in f.message
-    assert "no longer apply" not in f.message
-    assert "x" * 20 not in f.message         # the count, never the rule text
+    confirm_all(master, "bob")
+    budget = [f for f in run_doctor(master) if f.check == "corrections-budget"]
+    assert budget == []  # too long is a shape problem now, reported in Task 6
 
 
 def test_a_misfiled_correction_is_named_rather_than_lost(master):
@@ -1664,6 +1662,52 @@ def test_a_healthy_correction_set_reports_nothing(master):
 
     findings = run_doctor(master)
     assert not [f for f in findings if f.check == "corrections-budget"]
+
+
+def _rules(master, **rules):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    for slug, rule in rules.items():
+        (d / f"{slug}.md").write_text(f"---\nrule: {rule}\nfrom: 2026-09-01\n---\n")
+
+
+def test_pending_corrections_are_one_finding_per_person(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.", b="Answer in French.")
+    found = [f for f in run_doctor(master) if f.check == "corrections-pending"]
+    assert len(found) == 1
+    f = found[0]
+    assert f.severity == "warn"
+    assert f.paths == ("People/bob/Corrections/a.md", "People/bob/Corrections/b.md")
+    assert "2 correction(s)" in f.message and "dashboard" in f.message
+    assert "Keep it short." not in f.message  # counts and names, never rule text
+
+
+def test_each_rejected_correction_is_named_with_its_reason(master):
+    seed_meta(master)
+    _rules(master, link="See www.x.example.", tick="Run `ls`.")
+    found = sorted((f for f in run_doctor(master) if f.check == "corrections-rejected"),
+                   key=lambda f: f.paths)
+    assert [f.paths for f in found] == [("People/bob/Corrections/link.md",),
+                                        ("People/bob/Corrections/tick.md",)]
+    assert "web address" in found[0].message and "backtick" in found[1].message
+
+
+def test_a_broken_record_is_a_corrections_record_finding(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    (master / RECORD_REL.format(person_id="bob")).write_text("{broken")
+    found = [f for f in run_doctor(master) if f.check == "corrections-record"]
+    assert len(found) == 1 and "bob" in found[0].message
+    assert found[0].paths == ("People/bob/.corrections.json",)
+
+
+def test_a_confirmed_set_has_no_confirmation_findings(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    confirm_all(master, "bob")
+    checks = {f.check for f in run_doctor(master)}
+    assert not checks & {"corrections-pending", "corrections-rejected", "corrections-record"}
 
 
 def test_a_correction_with_an_unusable_date_is_reported(master):
@@ -2071,3 +2115,24 @@ def test_corrupt_hold_record_is_reported_not_raised(master):
     (master / "People/bob/.held.json").write_text("{not json")
     held = [f for f in run_doctor(master, None) if f.check == "held-edits"]
     assert len(held) == 1 and "unreadable" in held[0].message
+
+
+def test_the_pending_finding_never_invites_the_agent_to_act(master):
+    # The finding reaches the agent's digest; clearing it by dismissing or
+    # confirming would undo the person's own review.
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    f = next(f for f in run_doctor(master) if f.check == "corrections-pending")
+    msg = f.message.lower()
+    assert "confirm or dismiss" not in msg and "dismiss" not in msg
+    assert "only bob can confirm" in msg and "dashboard" in msg
+
+
+def test_the_record_finding_says_fix_it_and_never_remove_it(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    (master / RECORD_REL.format(person_id="bob")).write_text("{broken")
+    f = next(f for f in run_doctor(master) if f.check == "corrections-record")
+    msg = f.message.lower()
+    assert "fix" in msg and "remov" not in msg and "delet" not in msg
+    assert "missing record" in msg and "waiting" in msg

@@ -5,7 +5,7 @@ import pytest
 
 from brain.compiler import MANIFEST_NAME, CompileError, compile_all, compile_vault
 from brain.schemas import load_org, load_spaces
-from tests.conftest import BOB, RULES, familyize, rules_for
+from tests.conftest import BOB, RULES, confirm_all, familyize, rules_for
 from tests.test_cli import seed_meta
 
 
@@ -637,11 +637,11 @@ def _failing_for(monkeypatch, *pids: str) -> None:
 
     real = cg.generate_context_files
 
-    def flaky(vault, person, spaces_rw, config=cg.VaultConfig()):
+    def flaky(vault, person, spaces_rw, config=cg.VaultConfig(), **kwargs):
         if person.id in pids:
             raise cg.ProtocolTooLarge(
                 f"{person.id}: root protocol is 60,000 chars, over the 50,000 limit")
-        return real(vault, person, spaces_rw, config=config)
+        return real(vault, person, spaces_rw, config=config, **kwargs)
 
     monkeypatch.setattr(cg, "generate_context_files", flaky)
 
@@ -665,3 +665,39 @@ def test_one_person_failing_does_not_stop_the_fleet(master: Path, tmp_path: Path
     assert not (out / "bob" / "Company/New.md").exists()     # bob kept his last good vault
     assert (out / "bob" / "AGENTS.md").read_text() == bob_before
     assert "compiling bob: bob: root protocol is 60,000 chars" in str(ei.value)
+
+
+def test_pending_corrections_note_is_generated_then_removed(master, tmp_path):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "tone.md").write_text("---\nrule: Keep it short.\nfrom: 2026-09-01\n---\n")
+    (d / "link.md").write_text("---\nrule: See https://x.example first.\nfrom: 2026-09-01\n---\n")
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+
+    note = vault / "People/bob/Pending-corrections.md"
+    text = note.read_text()
+    assert "generated: true" in text
+    assert "Keep it short." in text and "dashboard" in text
+    assert "link: it contains a web address" in text
+    assert "https://x.example" not in text  # rejected rules show why, not the text
+    manifest = json.loads((vault / MANIFEST_NAME).read_text())
+    assert "People/bob/Pending-corrections.md" in manifest["generated"]
+    assert "Keep it short." not in (vault / "AGENTS.md").read_text()
+
+    confirm_all(master, "bob")
+    (d / "link.md").unlink()
+    compile_vault(master, BOB, RULES, vault)
+    assert not note.exists()
+    assert "- Keep it short." in (vault / "AGENTS.md").read_text()
+
+
+def test_compile_reads_confirmations_from_master_not_the_vault(master, tmp_path):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "tone.md").write_text("---\nrule: Keep it short.\nfrom: 2026-09-01\n---\n")
+    confirm_all(master, "bob")
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    assert "- Keep it short." in (vault / "AGENTS.md").read_text()
+    assert not (vault / "People/bob/.corrections.json").exists()

@@ -32,6 +32,12 @@ async function postJSON(path, body) {
 
 export const api = {
   meta: () => getJSON("/api/meta"),
+  corrections: () => getJSON("/api/corrections"),
+  confirmCorrection: (slug, body) => postJSON(`/api/corrections/${encodeURIComponent(slug)}/confirm`, body),
+  dismissCorrection: (slug, body) => postJSON(`/api/corrections/${encodeURIComponent(slug)}/dismiss`, body),
+  adminCorrections: () => getJSON("/api/corrections"),
+  confirmPersonCorrection: (person, slug, body) => postJSON(`/api/corrections/${encodeURIComponent(person)}/${encodeURIComponent(slug)}/confirm`, body),
+  dismissPersonCorrection: (person, slug, body) => postJSON(`/api/corrections/${encodeURIComponent(person)}/${encodeURIComponent(slug)}/dismiss`, body),
   stats: () => getJSON("/api/stats"),
   graph: (params) => getJSON("/api/graph", params),
   search: (params) => getJSON("/api/search", params),

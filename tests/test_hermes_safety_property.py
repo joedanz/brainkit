@@ -10,6 +10,7 @@ from brain.contextgen import render_person_protocol_report, render_space_note
 from brain.corrections import load_corrections
 from brain.schemas import Person, VaultConfig
 from brain.templates import assistant_protocol
+from tests.conftest import confirm_all
 
 TRAPS = ["Mythic Games", "Havoc Travel", "Sliver Lake", "check in with Maria",
          "Check-in to the office", "Pull new tasks daily", "Maria\u200dJones",
@@ -33,6 +34,7 @@ def _world(rng, root):
     d.mkdir(parents=True)
     for i in range(rng.randint(0, 5)):
         (d / f"r{i}.md").write_text(f"---\nrule: {_pick(rng)}.\nfrom: 2026-08-{10 + i}\n---\n")
+    confirm_all(root, "p1")
     return cfg, person, spaces, structural
 
 

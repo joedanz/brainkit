@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 
@@ -66,6 +67,22 @@ def familyize(master: Path, dest: Path, shared: str = "Family") -> Path:
 ALICE = Person(id="alice", name="Alice Nguyen", roles=("admin",), teams=("sales",))
 BOB = Person(id="bob", name="Bob Rivera", roles=(), teams=("ops",))
 ORG = Org(people={"alice": ALICE, "bob": BOB})
+
+
+def confirm_all(root: Path, pid: str) -> None:
+    """Record every well-shaped rule under People/<pid>/Corrections/ as
+    confirmed, the way a person clicking Confirm would. Test setup only: the
+    gate is what production runs, so a test that wants a rule rendered says
+    so explicitly."""
+    from brain.corrections import RECORD_REL, load_corrections, rule_hash
+
+    cs = load_corrections(root, pid, confirmed={})
+    record = {c.slug: {"sha256": rule_hash(c.rule), "by": "test",
+                       "at": "2026-09-25T00:00:00Z"}
+              for c in (*cs.pending, *cs.flagged)}
+    path = root / RECORD_REL.format(person_id=pid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
 
 # A typed entity page (client) with two aliases and a live + an ended fact —
 # shared by the stats, server, and dashboard suites that exercise schema-v3

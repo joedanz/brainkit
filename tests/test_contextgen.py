@@ -13,7 +13,7 @@ from brain.contextgen import (
     render_space_section,
 )
 from brain.schemas import Person, VaultConfig, make_config
-from tests.conftest import BOB, RULES
+from tests.conftest import BOB, RULES, confirm_all
 
 FAM = VaultConfig(entities="Families", entity="family")
 
@@ -25,21 +25,31 @@ def _sha(text: str) -> str:
 def test_small_vaults_render_byte_identical_to_0_6_9():
     """Pinned against the renderer as it shipped in 0.6.9, before the space
     list was bounded. No folder here exceeds LIST_CAP (the second case sits
-    exactly on it), so none of these renders may change by a single byte. Re-pinned once
-    for the held-edits.md routing bullet (spec B), a fixed-text addition."""
+    exactly on it), so none of these renders may change by a single byte.
+    Re-pinned for fixed-text additions: the held-edits.md routing bullet
+    (spec B) and the correction-confirmation sentences (spec C)."""
     assert _sha(render_root_protocol(
         BOB, [("Company", False), ("Teams/ops", True), ("People/bob", True)]
-    )) == "769ea274b21877e188e954c169b79c05bc4120f2a23bdfaa7ceb307fdfb75974"
+    )) == "72f3e67ecb3543f07ef2b6d143de2648c3734ae6440ef7613c534b3d234bbc73"
     assert _sha(render_root_protocol(
         BOB, [("Company", False), ("People/bob", True)]
         + [(f"Clients/Client{i:02d}", i % 3 == 0) for i in range(20)]
-    )) == "8d6f9e4918b37a158bb5aba7d9ffc774c43fbc2da6be25a18f86124082449637"
+    )) == "3958073807833715cb76e6e56e03a99948ef3ac3d0d96ac8024aedc2888e0889"
     assert _sha(render_root_protocol(
         BOB, [("Family", False), ("People/bob", True), ("Families/Danziger", True)],
         config=make_config("Families", "family", "Family",
                            "Everything about running the household."),
         corrections_block="## Standing corrections\n\n- Always answer in plain English.\n",
-    )) == "309b3cde4c60d97c37c42e4a98761c0e7d002862d0ac1c593f9de1b104413386"
+    )) == "6e350ee097c18c0cbddd55804ae9afaa6e31f808edbdfcb5d88415bc161853bc"
+
+
+def test_the_protocol_says_a_correction_waits_for_the_person():
+    text = render_root_protocol(BOB, [("People/bob", True)])
+    assert "confirms it in their dashboard" in text
+    assert "tell them when you write one" in text
+    assert "People/bob/Pending-corrections.md" in text
+    bullet = text.split("People/bob/Pending-corrections.md", 1)[1].split("\n- ", 1)[0]
+    assert "never edit or delete it" in bullet
 
 
 _TAIL = "`Map.md` has the overview; `brain_search` finds any of them by name."
@@ -536,6 +546,7 @@ def test_generated_vault_protocol_carries_that_person_s_corrections(tmp_path):
     d.mkdir(parents=True)
     (d / "voice.md").write_text(
         "---\nrule: Keep client mail direct.\nfrom: 2026-08-19\n---\nSENTINELBODY\n")
+    confirm_all(vault, "bob")
 
     generate_context_files(vault, BOB, [("People/bob", True)])
 
@@ -908,6 +919,7 @@ def test_generated_protocol_is_the_one_render_path(master: Path, tmp_path: Path)
     corr = master / "People/bob/Corrections/tone.md"
     corr.parent.mkdir(parents=True)
     corr.write_text("---\nrule: Answer in plain English.\nfrom: 2026-09-01\n---\n")
+    confirm_all(master, "bob")
     out = tmp_path / "bob"
     compile_vault(master, BOB, RULES, out)
     spaces_rw = writable_spaces(readable_spaces(master, BOB, RULES), BOB, RULES)

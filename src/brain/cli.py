@@ -140,6 +140,47 @@ def cmd_held(args) -> int:
     return 0
 
 
+def cmd_corrections(args) -> int:
+    from brain.corrections import CorrectionError, confirm, dismiss, load_corrections
+
+    master = Path(args.master)
+    try:
+        if args.action == "list":
+            org = load_org(master / "_meta/org.yaml")
+            if args.only and args.only not in org.people:
+                print(f"unknown person: {args.only!r}", file=sys.stderr)
+                return 1
+            for pid in ([args.only] if args.only else sorted(org.people)):
+                cs = load_corrections(master, pid)
+                if cs.record_error:
+                    print(f"{pid}  record  {cs.record_error}")
+                pending_slugs = {c.slug for c in cs.pending}
+                for c in cs.pending:
+                    print(f"{pid}  {c.slug}  pending  {c.rule}")
+                for c in cs.active:
+                    if c.slug not in pending_slugs:
+                        print(f"{pid}  {c.slug}  active  {c.rule}")
+                for c in cs.flagged:
+                    print(f"{pid}  {c.slug}  withheld (blocked by the Hermes filter)")
+                for r in cs.rejected:
+                    print(f"{pid}  {r.slug}  rejected ({r.reason})")
+            return 0
+        if not args.person or not args.slug or not args.by:
+            print(f"usage: brain corrections {args.action} <person> <slug> --by <id>",
+                  file=sys.stderr)
+            return 2
+        if args.action == "confirm":
+            rule = confirm(master, args.person, args.slug, args.by)
+            print(f"confirmed {args.person}/{args.slug}: {rule}")
+        else:
+            dismiss(master, args.person, args.slug, args.by)
+            print(f"dismissed {args.person}/{args.slug}")
+    except CorrectionError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_shares(args) -> int:
     from brain.schemas import SchemaError
     from brain.shares import (
@@ -372,6 +413,8 @@ def cmd_cycle(args) -> int:
             print(f"  triage warning: {w}", file=sys.stderr)
         for w in report.health_warnings:
             print(f"  health warning: {w}", file=sys.stderr)
+        for w in report.corrections_warnings:
+            print(f"  corrections warning: {w}", file=sys.stderr)
     return 0 if report.ok else 1
 
 
@@ -584,6 +627,15 @@ def cmd_status(args) -> int:
 
 
 def cmd_dashboard(args) -> int:
+    if args.corrections_master and (not args.vault or args.html):
+        print("--corrections-master only applies to --vault when serving the live "
+              "dashboard", file=sys.stderr)
+        return 2
+    if args.corrections_master and args.host not in ("127.0.0.1", "::1", "localhost"):
+        print("--corrections-master only works when the dashboard listens on this "
+              "computer alone (--host 127.0.0.1, ::1 or localhost); "
+              f"got --host {args.host}", file=sys.stderr)
+        return 2
     if args.vault and args.out:
         print("--out only applies to the admin lens (--master)", file=sys.stderr)
         return 2
@@ -645,7 +697,9 @@ def _dashboard_serve(args) -> int:
         lens = Lens(kind="master", master=Path(args.master),
                     out_root=Path(args.out) if args.out else None)
     return run_server(lens, host=args.host, port=args.port,
-                      open_browser=not args.no_open)
+                      open_browser=not args.no_open,
+                      corrections_master=(Path(args.corrections_master)
+                                          if args.corrections_master else None))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -683,6 +737,17 @@ def build_parser() -> argparse.ArgumentParser:
     hp.add_argument("--master", required=True)
     hp.add_argument("--out", required=True, help="compiled output root")
     hp.set_defaults(func=cmd_held)
+
+    cr = sub.add_parser("corrections",
+                        help="list, confirm or dismiss people's standing corrections")
+    cr.add_argument("action", choices=["list", "confirm", "dismiss"])
+    cr.add_argument("person", nargs="?", help="whose correction (confirm/dismiss)")
+    cr.add_argument("slug", nargs="?", help="the correction's file name, without .md")
+    cr.add_argument("--master", required=True)
+    cr.add_argument("--by", default="", help="who is confirming or dismissing (an org id)")
+    cr.add_argument("--person", dest="only", default="",
+                    help="list only this person's corrections")
+    cr.set_defaults(func=cmd_corrections)
 
     sp = sub.add_parser("shares", help="manage space share requests")
     sp.add_argument("action", choices=["list", "approve", "reject", "revoke"])
@@ -840,6 +905,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not open a browser when serving the live dashboard")
     db.add_argument("--open", action="store_true", dest="open_browser",
                     help="open the file in a browser (static --html mode only)")
+    db.add_argument("--corrections-master", metavar="PATH",
+                    help="the master vault; lets this person confirm or dismiss their "
+                         "own standing corrections (user lens, live server only)")
     db.set_defaults(func=cmd_dashboard)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")

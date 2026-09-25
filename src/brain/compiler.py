@@ -50,8 +50,13 @@ def write_manifest(path: Path, manifest: dict) -> None:
 # nobody can edit or delete their own record through a sync.
 HELD_NAME = ".held.json"
 
+# A person's correction confirmations (People/<id>/.corrections.json): which
+# rule text they confirmed. Server-only for the same reason as the hold
+# record: an agent that could write it could confirm its own rules.
+CONFIRMED_NAME = ".corrections.json"
+
 # Filenames that are server-side bookkeeping and never shipped to a vault.
-SERVER_ONLY_NAMES = frozenset({HELD_NAME})
+SERVER_ONLY_NAMES = frozenset({HELD_NAME, CONFIRMED_NAME})
 
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
@@ -252,7 +257,8 @@ def _post_process(
 ) -> list[str]:
     """Post-process the built vault: stub cross-boundary links, generate the
     AGENTS.md/CLAUDE.md context files, and generate the read-only
-    People/<pid>/Shares.md promotion-status note. Returns the list of
+    People/<pid>/Shares.md promotion-status note and
+    People/<pid>/Pending-corrections.md note. Returns the list of
     generated rel paths for the manifest (excluded from the write-back baseline).
     """
     from brain.resolver import can_write_path
@@ -281,7 +287,8 @@ def _post_process(
     # Derived once and shared: both generators need it, and two derivations
     # would be two sources of truth for one permission fact.
     spaces_rw = writable_spaces(spaces, person, rules, shared=config.shared)
-    generated = generate_context_files(building, person, spaces_rw, config=config)
+    generated = generate_context_files(
+        building, person, spaces_rw, config=config, corrections_root=master)
 
     from brain.vaultmap import MAP_NAME, generate_map
 
@@ -318,15 +325,32 @@ def _post_process(
                 "regenerated on every compile — edits here are discarded.\n")
     for section in sections:
         note = note.rstrip("\n") + "\n\n" + section
-    if note is not None:
-        # People/<pid>/Shares.md is a reserved generated filename —
-        # regenerated from queue truth each compile.
-        rel = SHARES_NOTE_REL.format(person_id=person.id)
-        dest = building / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(note)
-        generated.append(rel)
+    # People/<pid>/Shares.md is a reserved generated filename —
+    # regenerated from queue truth each compile.
+    _write_generated_note(building, SHARES_NOTE_REL.format(person_id=person.id),
+                          note, generated)
+
+    from brain.corrections import PENDING_NOTE_REL, load_corrections, render_pending_note
+
+    # People/<pid>/Pending-corrections.md: a reserved generated filename, like
+    # Shares.md -- rebuilt from master each compile, absent when nothing waits.
+    pending_note = render_pending_note(load_corrections(master, person.id))
+    _write_generated_note(building, PENDING_NOTE_REL.format(person_id=person.id),
+                          pending_note, generated)
     return generated
+
+
+def _write_generated_note(building: Path, rel: str, note: str | None,
+                          generated: list[str]) -> None:
+    """Write a reserved generated note if there is one to write, and record
+    it in `generated` -- shared by the Shares.md and Pending-corrections.md
+    blocks above, which differ only in what builds `note`."""
+    if note is None:
+        return
+    dest = building / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(note)
+    generated.append(rel)
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:

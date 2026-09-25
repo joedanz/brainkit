@@ -6,6 +6,7 @@ from aiohttp import WSServerHandshakeError
 
 from brain.cli import main
 from brain.compiler import compile_vault
+from brain.corrections import CorrectionError, rule_hash
 from brain.indexer import build_index
 from brain.server import check_and_broadcast, create_app
 from brain.watch import Lens
@@ -572,3 +573,240 @@ def test_seed_retrieval_stats_does_not_overwrite_real_counts(tmp_path):
     (brain_dir / STATS_NAME).write_text(json.dumps({"schema": 1, "searches": 7}) + "\n")
     _seed_retrieval_stats(Lens(kind="vault", vault=vault))
     assert json.loads((brain_dir / STATS_NAME).read_text())["searches"] == 7
+
+
+def _with_corrections(master):
+    from tests.test_cli import seed_meta
+
+    for pid, slug, rule in (("alice", "tone", "Keep it short."),
+                            ("bob", "bob-rule", "Answer in French.")):
+        d = master / f"People/{pid}/Corrections"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{slug}.md").write_text(f"---\nrule: {rule}\nfrom: 2026-09-01\n---\n")
+    seed_meta(master)
+
+
+def _corrections_app(master, tmp_path):
+    _with_corrections(master)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    return create_app(Lens(kind="vault", vault=vault), poll_interval=3600,
+                      corrections_master=master)
+
+
+async def test_person_dashboard_lists_and_confirms_its_own_correction(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_corrections_app(master, tmp_path))
+    assert (await (await client.get("/api/meta")).json())["corrections"] is True
+    body = await (await client.get("/api/corrections")).json()
+    assert body["person"] == "alice"
+    assert [c["slug"] for c in body["pending"]] == ["tone"]
+    assert body["pending"][0]["sha256"] == rule_hash("Keep it short.")
+    resp = await client.post("/api/corrections/tone/confirm",
+                             json={"sha256": body["pending"][0]["sha256"]}, headers=_LOCAL)
+    assert resp.status == 200
+    rec = json.loads((master / "People/alice/.corrections.json").read_text())
+    assert rec["tone"]["by"] == "alice"
+    after = await (await client.get("/api/corrections")).json()
+    assert [c["slug"] for c in after["active"]] == ["tone"] and after["pending"] == []
+
+
+async def test_confirm_without_the_seen_hash_is_refused(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_corrections_app(master, tmp_path))
+    for body in ({}, {"sha256": rule_hash("something else")}):
+        resp = await client.post("/api/corrections/tone/confirm", json=body, headers=_LOCAL)
+        assert resp.status == 400
+    assert not (master / "People/alice/.corrections.json").exists()
+
+
+async def test_person_dashboard_cannot_reach_another_persons_correction(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_corrections_app(master, tmp_path))
+    body = await (await client.get("/api/corrections", params={"person": "bob"})).json()
+    assert body["person"] == "alice" and "Answer in French." not in json.dumps(body)
+    sha = rule_hash("Answer in French.")
+    resp = await client.post("/api/corrections/bob-rule/confirm",
+                             json={"sha256": sha, "person": "bob"}, headers=_LOCAL)
+    assert resp.status == 400  # alice has no such correction; the body's person is ignored
+    resp = await client.post("/api/corrections/bob/bob-rule/confirm",
+                             json={"sha256": sha, "by": "alice"}, headers=_LOCAL)
+    assert resp.status == 404  # the admin route shape does not exist here
+    assert not (master / "People/bob/.corrections.json").exists()
+    assert (master / "People/bob/Corrections/bob-rule.md").is_file()
+
+
+async def test_slug_traversal_is_refused_over_http(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_corrections_app(master, tmp_path))
+    for path in ("/api/corrections/..%2F..%2Fbob%2FCorrections%2Fbob-rule/dismiss",
+                 "/api/corrections/%2E%2E/dismiss",
+                 "/api/corrections/.corrections/dismiss",
+                 "/api/corrections/a%5Cb/dismiss"):
+        resp = await client.post(path, json={}, headers=_LOCAL)
+        assert resp.status in (400, 404), path
+    assert (master / "People/bob/Corrections/bob-rule.md").is_file()
+    assert (master / "People/alice/Corrections/tone.md").is_file()
+
+
+async def test_corrections_routes_do_not_exist_without_the_flag(aiohttp_client, master, tmp_path):
+    _with_corrections(master)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    client = await aiohttp_client(_vault_app(vault))
+    assert (await (await client.get("/api/meta")).json())["corrections"] is False
+    assert (await client.get("/api/corrections")).status == 404
+    for path in ("/api/corrections/tone/confirm", "/api/corrections/tone/dismiss",
+                 "/api/corrections/alice/tone/confirm"):
+        assert (await client.post(path, json={}, headers=_LOCAL)).status == 404
+    assert (master / "People/alice/Corrections/tone.md").is_file()
+
+
+def test_corrections_master_refuses_a_vault_whose_person_does_not_match(master, tmp_path):
+    _with_corrections(master)
+    vault = tmp_path / "not-alice"
+    compile_vault(master, ALICE, RULES, vault)
+    with pytest.raises(CorrectionError, match="named after"):
+        create_app(Lens(kind="vault", vault=vault), corrections_master=master)
+    forged = tmp_path / "mallory"
+    compile_vault(master, ALICE, RULES, forged)
+    m = json.loads((forged / ".brain-manifest.json").read_text())
+    m["person"] = "mallory"
+    (forged / ".brain-manifest.json").write_text(json.dumps(m))
+    with pytest.raises(CorrectionError, match=r"org\.yaml"):
+        create_app(Lens(kind="vault", vault=forged), corrections_master=master)
+
+
+def test_corrections_tab_builds_dom_from_text_only():
+    from tests.conftest import ASSETS
+
+    app_js = (ASSETS / "js/app.js").read_text(encoding="utf-8")
+    assert 'import * as corrections from "./tabs/corrections.js";' in app_js
+    assert "meta.corrections" in app_js
+    tab = (ASSETS / "js/tabs/corrections.js").read_text(encoding="utf-8")
+    assert "innerHTML" not in tab
+    assert "api.confirmCorrection" in tab and "api.dismissCorrection" in tab
+    assert "sha256" in tab
+
+
+async def test_an_overlong_slug_is_a_plain_400(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_corrections_app(master, tmp_path))
+    for action, body in (("confirm", {"sha256": rule_hash("x")}), ("dismiss", {})):
+        resp = await client.post(f"/api/corrections/{'a' * 300}/{action}",
+                                 json=body, headers=_LOCAL)
+        assert resp.status == 400, action
+
+
+async def test_the_view_lists_a_withheld_rule_as_flagged_not_active(aiohttp_client, master, tmp_path):
+    from tests.conftest import confirm_all
+
+    app = _corrections_app(master, tmp_path)
+    d = master / "People/alice/Corrections"
+    (d / "maria.md").write_text(
+        "---\nrule: Check in with Maria before scheduling.\nfrom: 2026-08-20\n---\n")
+    confirm_all(master, "alice")
+    client = await aiohttp_client(app)
+    body = await (await client.get("/api/corrections")).json()
+    assert [c["slug"] for c in body["flagged"]] == ["maria"]
+    assert "maria" not in [c["slug"] for c in body["active"] + body["pending"]]
+    assert "tone" in [c["slug"] for c in body["active"]]
+
+
+async def test_admin_lists_and_confirms_anyones_correction(aiohttp_client, master, tmp_path):
+    import subprocess
+    app, _out = _master_app(master, tmp_path)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "bob-rule.md").write_text("---\nrule: Answer in French.\nfrom: 2026-09-01\n---\n")
+    subprocess.run(["git", "-C", str(master), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-qm", "rule"], check=True, capture_output=True)
+    client = await aiohttp_client(app)
+
+    body = await (await client.get("/api/corrections")).json()
+    bob = next(v for v in body["people"] if v["person"] == "bob")
+    sha = bob["pending"][0]["sha256"]
+
+    for bad in ({"sha256": sha}, {"sha256": sha, "by": "mallory"}):
+        resp = await client.post("/api/corrections/bob/bob-rule/confirm", json=bad, headers=_LOCAL)
+        assert resp.status == 400
+    resp = await client.post("/api/corrections/mallory/bob-rule/confirm",
+                             json={"sha256": sha, "by": "alice"}, headers=_LOCAL)
+    assert resp.status == 404
+    resp = await client.post("/api/corrections/bob/bob-rule/confirm",
+                             json={"sha256": sha, "by": "alice"}, headers=_LOCAL)
+    assert resp.status == 200
+    rec = json.loads((master / "People/bob/.corrections.json").read_text())
+    assert rec["bob-rule"]["by"] == "alice"
+
+
+async def test_admin_corrections_route_shapes_are_lens_specific(aiohttp_client, master, tmp_path):
+    app, _out = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+    resp = await client.post("/api/corrections/bob-rule/confirm",
+                             json={"sha256": "x"}, headers=_LOCAL)
+    assert resp.status == 404  # the person-lens shape does not exist on the admin lens
+    resp = await client.post("/api/corrections/..%2Fbob/x/dismiss",
+                             json={"by": "alice"}, headers=_LOCAL)
+    assert resp.status in (400, 404)
+
+
+def test_admin_corrections_tab_is_wired():
+    from tests.conftest import ASSETS
+
+    admin = (ASSETS / "js/tabs/admin.js").read_text(encoding="utf-8")
+    assert "export async function renderCorrections" in admin
+    assert "api.confirmPersonCorrection" in admin and "approverSelect" in admin
+    app_js = (ASSETS / "js/app.js").read_text(encoding="utf-8")
+    assert "admin.renderCorrections" in app_js
+
+
+async def test_admin_route_by_must_be_an_admin_or_the_owner(aiohttp_client, master, tmp_path):
+    import subprocess
+    app, _out = _master_app(master, tmp_path)
+    for pid, slug, rule in (("alice", "tone", "Keep it short."),
+                            ("bob", "bob-rule", "Answer in French.")):
+        d = master / f"People/{pid}/Corrections"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{slug}.md").write_text(f"---\nrule: {rule}\nfrom: 2026-09-01\n---\n")
+    subprocess.run(["git", "-C", str(master), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-qm", "rules"], check=True, capture_output=True)
+    client = await aiohttp_client(app)
+    # bob is in the org but not an admin, and the correction is alice's.
+    resp = await client.post("/api/corrections/alice/tone/confirm",
+                             json={"sha256": rule_hash("Keep it short."), "by": "bob"},
+                             headers=_LOCAL)
+    assert resp.status == 400
+    resp = await client.post("/api/corrections/alice/tone/dismiss", json={"by": "bob"},
+                             headers=_LOCAL)
+    assert resp.status == 400
+    assert (master / "People/alice/Corrections/tone.md").is_file()
+    assert not (master / "People/alice/.corrections.json").exists()
+    # The owner may act on their own.
+    resp = await client.post("/api/corrections/bob/bob-rule/confirm",
+                             json={"sha256": rule_hash("Answer in French."), "by": "bob"},
+                             headers=_LOCAL)
+    assert resp.status == 200
+
+
+def test_corrections_master_is_refused_off_loopback(master, tmp_path):
+    from brain.server import run_server
+
+    _with_corrections(master)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    with pytest.raises(CorrectionError, match="this computer alone"):
+        create_app(Lens(kind="vault", vault=vault), loopback=False, corrections_master=master)
+    assert run_server(Lens(kind="vault", vault=vault), host="0.0.0.0", port=0,
+                      open_browser=False, corrections_master=master) == 2
+
+
+def test_admin_corrections_view_ignores_a_stale_fetch():
+    # A rapid tab switch starts a second render before the first fetch lands;
+    # the older result must be dropped, not appended to the newer list.
+    from tests.conftest import ASSETS
+
+    admin = (ASSETS / "js/tabs/admin.js").read_text(encoding="utf-8")
+    fn = admin[admin.index("export async function renderCorrections"):]
+    fn = fn[:fn.index("\n}\n")]
+    assert "const seq = ++correctionsSeq;" in fn
+    fetched = fn.index("await api.adminCorrections()")
+    assert "if (seq !== correctionsSeq) return;" in fn[fetched:]
+    assert fn.index("clear(container)") > fetched

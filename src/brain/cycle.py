@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, CompileError, compile_all, write_manifest
+from brain.corrections import grandfather
 from brain.errors import HANDLED, BrainError, describe
 from brain.holds import utc_now_iso as _utc_now_iso
 from brain.holds import writeback_person
@@ -75,6 +76,9 @@ class CycleReport:
     # as "not reporting"/"stale" and cannot tell an operator why, so the only
     # place the reason can surface is the cycle's own output.
     health_warnings: list[str] = field(default_factory=list)
+    # Grandfathering could not record this box's existing corrections; they
+    # stay pending until a later cycle records them. Never fails the cycle.
+    corrections_warnings: list[str] = field(default_factory=list)
     # Wall time for the whole cycle, in milliseconds.
     #
     # A cycle that outgrows its own cron interval is the failure mode this
@@ -241,6 +245,17 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     config = load_config(master)
+
+    # Before any write-back, so only rules already in master on upgrade day
+    # are kept in force; anything an agent pushes from now on waits for its
+    # person. A no-op once every person has a record.
+    corrections_warnings: list[str] = []
+    try:
+        grandfather(master, org.people, now=now)
+    except HANDLED as e:
+        corrections_warnings.append(
+            f"existing corrections not recorded ({describe(e)}); they stay "
+            "pending until the next cycle records them")
 
     wb: dict[str, PersonWriteback] = {}
     already: dict[str, dict[str, str | None]] = {}
@@ -420,4 +435,5 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         triage_warnings=triage.warnings,
         doctor_counts=triage.finding_counts,
         health_warnings=health_warnings,
+        corrections_warnings=corrections_warnings,
     )

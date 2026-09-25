@@ -133,6 +133,8 @@ If you are unsure whether something passes, it does not.
   decide. Never edit or archive the digest — it maintains itself.
 - `People/{pid}/Inbox/held-edits.md` lists edits that were not saved:
   tell your human about it; never delete it yourself (they dismiss it).
+- `People/{pid}/Pending-corrections.md` lists corrections waiting for your
+  human. The brain maintains it: never edit or delete it.
 - Durable facts, working preferences, and lessons that passed the tests above
   -> `People/{pid}/Memory.md`.
   Keep it a lean overview, not a running log: small facts live under its
@@ -144,6 +146,8 @@ If you are unsure whether something passes, it does not.
   compile) and `from:` (today, YYYY-MM-DD). Put what went wrong in the body;
   the body is never rendered, it is there for whoever reads the rule months
   later. Record only a correction your human actually made — never infer one.
+  It takes effect only once your human confirms it in their dashboard, so
+  tell them when you write one.
 - A **named third party** (a person, family, or company you work with or track)
   is a {entity}/contact, not you — capture it as a {entity}, never in
   `People/{pid}/`. You are {pid}: a third party who happens to share your
@@ -446,9 +450,11 @@ def render_person_protocol_report(
     and what it still trips. The one path to that text.
 
     `corrections_root` is any tree holding People/<pid>/Corrections/: the
-    building vault at compile time, the master when doctor measures. The
-    bytes are the same either way, because a person's own space is always
-    writable to them and the compiler stubs links only in read-only files.
+    rule files are byte-identical in the building vault and master, but the
+    confirmation record is server-only, so the master is what compile passes
+    at compile time; doctor passes the master too. A person's own space is
+    always writable to them, and the compiler stubs links only in read-only
+    files, so the rule text itself never differs between the two.
     """
     from brain.corrections import load_corrections, render_corrections
 
@@ -516,12 +522,17 @@ def generate_context_files(
     person: Person,
     spaces_rw: list[tuple[str, bool]],
     config: VaultConfig = VaultConfig(),
+    *, corrections_root: Path | None = None,
 ) -> list[str]:
     written: list[str] = []
 
     # The compiler has already copied this person's spaces into `vault`
     # (compiler.py) before calling us, so their Corrections/ are on disk here.
-    root_text = render_person_protocol(vault, person, spaces_rw, config)
+    # The confirmation record is server-only and never copied, though, so
+    # reading confirmations needs `corrections_root` (the master) when the
+    # caller has it; falling back to `vault` keeps direct callers (tests,
+    # anything working straight from a vault-shaped tree) working unchanged.
+    root_text = render_person_protocol(corrections_root or vault, person, spaces_rw, config)
     for fname in ("AGENTS.md", "CLAUDE.md"):
         (vault / fname).write_text(root_text)
         written.append(fname)

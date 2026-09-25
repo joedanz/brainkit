@@ -56,7 +56,7 @@ TRIAGE_CHECKS = frozenset({
     "unlinked-notes", "orphan-files", "intel",
     "dup-exact", "stem-collision",
     "fact-dup", "fact-conflict", "fact-uncited", "citations",
-    "corrections-budget",
+    "corrections-budget", "corrections-pending", "corrections-rejected",
 })
 # `corrections-budget` is routed for the same reason it exists: a correction
 # that never reaches the agent is a rule its author believes is in force. Only
@@ -74,9 +74,15 @@ TRIAGE_CHECKS = frozenset({
 # judgement — an ingest writes companion pages on purpose, and a template
 # look-alike is not redundancy — so an agent's digest never asks for it.
 # Held edits too: only an admin can apply or discard them, and the person
-# already has their own Inbox notice.
+# already has their own Inbox notice. A broken corrections record too: only
+# an admin can repair master bookkeeping.
 ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale", "protocol-blocked", "dup-near",
-                          "held-edits"})
+                          "held-edits", "corrections-record"})
+
+# Routed like a content check (to the path's owner) AND always to the admins:
+# a waiting correction is the person's to confirm, and an admin can confirm
+# or dismiss it too (spec C). The message names files, never rule text.
+OWNER_AND_ADMIN_CHECKS = frozenset({"corrections-pending"})
 
 
 def count_findings(findings: list[Finding]) -> dict[str, int]:
@@ -139,7 +145,7 @@ def route_findings(
             if f.severity != "warn":
                 continue
             recipients: list[str] = []
-            need_admins = not f.paths
+            need_admins = not f.paths or f.check in OWNER_AND_ADMIN_CHECKS
             for path in f.paths:
                 space = space_of_path(path, shared)
                 pid = space.split("/", 1)[1] if space and space.startswith("People/") else None

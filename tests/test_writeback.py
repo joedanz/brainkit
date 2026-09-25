@@ -359,3 +359,15 @@ def test_held_record_is_never_compiled_or_written_back(master: Path, tmp_path: P
     assert not (vault / "People/bob/.held.json").exists()
     (vault / "People/bob/.held.json").write_text("{}\n")  # planted by the agent
     assert all(not c.path.endswith(".held.json") for c in diff_vault(vault))
+
+
+def test_confirmation_record_is_never_compiled_or_written_back(master: Path, tmp_path: Path):
+    (master / "People/bob/.corrections.json").write_text("{}\n")
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    assert not (vault / "People/bob/.corrections.json").exists()
+    # Planted by the agent, at the person's root and nested: never a change.
+    (vault / "People/bob/.corrections.json").write_text('{"evil": {"sha256": "x"}}\n')
+    (vault / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (vault / "People/bob/Notes/.corrections.json").write_text("{}\n")
+    assert all(not c.path.endswith(".corrections.json") for c in diff_vault(vault))
