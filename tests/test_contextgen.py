@@ -7,6 +7,7 @@ from brain.contextgen import (
     ROOT_LIMIT,
     SPACE_LIMIT,
     ProtocolTooLarge,
+    Withheld,
     generate_context_files,
     render_root_protocol,
     render_space_section,
@@ -949,3 +950,73 @@ def test_space_notes_carry_no_space_name():
     assert "Mythic" not in rw + ro and "People/bob" not in own
     assert "This space is writable for the vault owner" in rw
     assert "This space is read-only for the vault owner" in ro
+
+
+_SUMMARY_TAIL = " `Map.md` has the overview; `brain_search` finds any of them by name."
+
+
+def test_a_flagged_name_in_a_small_folder_is_counted_not_listed():
+    spaces = [("Company", False), ("People/bob", True), ("Clients/Acme", False),
+              ("Clients/Mythic Games", True), ("Clients/Zeta", False)]
+    withheld: list = []
+    section = render_space_section("bob", spaces, withheld=withheld)
+    assert section.splitlines() == [
+        "- `Company/` \u2014 read-only",
+        "- `People/bob/` \u2014 writable",
+        "- `Clients/` \u2014 3 spaces: 1 writable, 2 read-only." + _SUMMARY_TAIL,
+        "- `Clients/Acme/` \u2014 read-only",
+        "- `Clients/Zeta/` \u2014 read-only",
+    ]
+    assert withheld == [Withheld("space", "Clients/Mythic Games", ("known_c2_framework",))]
+
+
+def test_a_folder_of_only_flagged_names_is_one_summary_line():
+    spaces = [("Company", False), ("People/bob", True),
+              ("Clients/Mythic", False), ("Clients/Havoc", False)]
+    assert render_space_section("bob", spaces).splitlines()[2:] == [
+        "- `Clients/` \u2014 2 spaces, all read-only." + _SUMMARY_TAIL]
+
+
+def test_an_existing_name_with_an_invisible_character_is_counted_not_listed():
+    """A name from before intake rejected invisible characters (a Persian
+    name with a ZWNJ) is summarized and reported, never listed or fatal."""
+    spaces = [("Company", False), ("People/bob", True),
+              ("Clients/Parisa\u200cNaderi", True), ("Clients/Acme", True)]
+    withheld: list = []
+    section = render_space_section("bob", spaces, withheld=withheld)
+    assert "\u200c" not in section
+    assert "- `Clients/Acme/` \u2014 writable" in section
+    assert [w.patterns for w in withheld] == [("invisible_unicode_U+200C",)]
+
+
+def test_a_flagged_name_in_a_crowded_folder_leaves_the_minority_list():
+    ro = [(f"Clients/Property {i:03d}", False) for i in range(25)]
+    spaces = [("Company", False), ("People/bob", True), *ro,
+              ("Clients/Mythic", True), ("Clients/Acme", True)]
+    lines = render_space_section("bob", spaces).splitlines()
+    assert lines[2] == "- `Clients/` \u2014 27 spaces: 2 writable, 25 read-only." + _SUMMARY_TAIL
+    assert lines[3:] == ["- `Clients/Acme/` \u2014 writable"]
+
+
+def test_a_flagged_person_name_renders_as_the_id():
+    person = Person(id="sam", name="Sam Havoc")
+    withheld: list = []
+    text = render_root_protocol(person, [("People/sam", True)], withheld=withheld)
+    assert text.startswith("# Brain Protocol \u2014 vault of sam (sam)\n")
+    assert "Havoc" not in text
+    assert withheld == [Withheld("name", "sam", ("known_c2_framework",))]
+
+
+def test_the_report_names_what_was_withheld_and_what_still_trips(tmp_path):
+    from brain.contextgen import render_person_protocol, render_person_protocol_report
+    person = Person(id="sam", name="Sam Havoc")
+    spaces = [("Company", False), ("People/sam", True), ("Clients/Mythic", False)]
+    r = render_person_protocol_report(tmp_path, person, spaces)
+    assert r.blocked == ()
+    assert sorted(w.kind for w in r.withheld) == ["name", "space"]
+    assert r.text == render_person_protocol(tmp_path, person, spaces)
+    # structural: the entities folder is in the template itself: shipped, reported
+    r2 = render_person_protocol_report(
+        tmp_path, BOB, [("Company", False), ("People/bob", True)],
+        VaultConfig(entities="Havoc", entity="client"))
+    assert "known_c2_framework" in r2.blocked
