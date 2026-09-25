@@ -332,22 +332,24 @@ def _cached_file_vectors(
         return {}
     out: dict[str, list[float]] = {}
     try:
-        cache = EmbeddingCache(cache_path)
+        cache = EmbeddingCache(cache_path, readonly=True)
     except Exception:
         return {}
     try:
+        per_note: dict[str, list[str]] = {}
         for rel in rels:
             chunks = chunk_markdown(rel, texts[rel], shared=shared)
-            if not chunks:
-                continue
-            shas = [
-                hashlib.sha256(
-                    embedding_input(c).encode("utf-8")).hexdigest()
-                for c in chunks]
-            found = cache.get_many(shas, provider.model)
-            if any(s not in found for s in shas):
-                continue
-            out[rel] = mean_pool([unpack_vector(found[s]) for s in shas])
+            if chunks:
+                per_note[rel] = [
+                    hashlib.sha256(
+                        embedding_input(c).encode("utf-8")).hexdigest()
+                    for c in chunks]
+        # One read for the whole brain; get_many chunks the IN clause itself.
+        union = list(dict.fromkeys(s for shas in per_note.values() for s in shas))
+        found = cache.get_many(union, provider.model)
+        for rel, shas in per_note.items():
+            if all(s in found for s in shas):
+                out[rel] = mean_pool([unpack_vector(found[s]) for s in shas])
     except Exception:
         return {}
     finally:

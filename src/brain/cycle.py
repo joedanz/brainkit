@@ -104,13 +104,26 @@ def _utc_now_iso() -> str:
 
 
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
+    import sqlite3
+
     from brain.embeddings import EmbeddingCache, provider_from_config
     from brain.indexer import build_index
 
     provider = provider_from_config()
-    cache = EmbeddingCache(master / "_meta/cache/embeddings.db") if provider else None
     indexed = 0
     warnings: list[str] = []
+    cache = None
+    if provider:
+        try:
+            cache = EmbeddingCache.for_master(master)
+        except (OSError, sqlite3.Error) as e:
+            warnings.append(f"embedding cache not used: {e}")
+        else:
+            if cache is None:
+                warnings.append(
+                    "embedding cache not used: master/.gitignore does not cover "
+                    "_meta/cache/ — add that line (brain init writes it) or the "
+                    "cache would be committable")
     for person in org.people.values():
         vault = out_root / person.id
         if not (vault / MANIFEST_NAME).is_file():
@@ -122,6 +135,9 @@ def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]
             continue
         indexed += 1
         warnings.extend(f"{person.id}: {w}" for w in rep.warnings)
+    if cache is not None:
+        warnings.extend(cache.warnings)
+        cache.close()
     return indexed, warnings
 
 

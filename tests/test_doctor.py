@@ -1899,3 +1899,44 @@ def test_protocol_size_percent_always_matches_its_severity(master, monkeypatch):
                 assert f.severity == "error", (pct_target, d, pct)
             else:
                 assert f.severity == "warn", (pct_target, d, pct)
+
+
+def test_cached_vectors_are_read_in_one_batch(master, tmp_path, monkeypatch):
+    """Every note's chunk shas go to the cache in one get_many, not one per
+    note; the findings are exactly what the per-note reads produced."""
+    from brain.embeddings import EmbeddingCache
+
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    (master / "Company/Other.md").write_text(
+        "# Other\n\n" + " ".join(f"far{i}" for i in range(40)) + "\n")
+    rels.append("Company/Other.md")
+    _warm_embeddings(master, tmp_path, monkeypatch, rels)
+
+    real = EmbeddingCache.get_many
+    calls: list[int] = []
+
+    def spy(self, shas, model):
+        calls.append(len(shas))
+        return real(self, shas, model)
+
+    monkeypatch.setattr(EmbeddingCache, "get_many", spy)
+    findings = run_doctor(master)
+    assert len(calls) == 1
+    assert [f.paths for f in findings if f.check == "dup-near"] == [
+        ("Company/Shuffle A.md", "Company/Shuffle B.md")]
+
+
+def test_doctor_never_touches_a_damaged_embedding_cache(master, tmp_path, monkeypatch):
+    """Doctor is read-only: a damaged cache only means no semantic signal;
+    rebuilding it is the cycle's job."""
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    _warm_embeddings(master, tmp_path, monkeypatch, rels)
+    db = tmp_path / "emb-cache.db"
+    db.write_bytes(b"this is not a database" * 64)
+    before = db.read_bytes()
+    assert not _severities(run_doctor(master), "dup-near")
+    assert db.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir() if "emb-cache" in p.name) == [
+        "emb-cache.db"]
