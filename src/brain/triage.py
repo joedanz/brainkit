@@ -108,7 +108,8 @@ def route_findings(
     whole picture. Info-level findings are never routed — the disjoint-space
     dup tier is a hint, not work. Error-severity findings from non-content
     checks are escalations for the admins. ADMIN_CHECKS (findings about the
-    generated protocols) reach the admins at warn as well, since only an
+    generated protocols, plus dup-near, since merging notes is a judgement
+    call for a person) reach the admins at warn as well, since only an
     admin can act on them. With no admins configured, findings that needed
     one count as unrouted (surfaced in the report, never a crash).
     """

@@ -1270,8 +1270,9 @@ def test_near_duplicates_across_spaces_stay_pairs(master):
 
 def test_a_shared_template_does_not_merge_everyones_notes(master):
     """One template in Company/ near-duplicates notes in several people's
-    spaces. Each person's own notes are their group, routed to them alone;
-    matches with the shared note, or across people, stay pairs."""
+    spaces. Each person's own notes are their group; matches with the shared
+    note, or across people, stay pairs. (dup-near findings now route to the
+    admins only, not to the people whose notes they name.)"""
     from brain.schemas import load_org, load_spaces
     from brain.triage import route_findings
 
@@ -1372,7 +1373,7 @@ def test_up_exemption_keeps_sibling_pairs(master):
 
 def test_up_exemption_applies_across_spaces(master):
     seed_meta(master)
-    (parent,) = _templated(master, "People/bob/Notes", 1, prefix="Aventura")
+    (_parent,) = _templated(master, "People/bob/Notes", 1, prefix="Aventura")
     (child,) = _templated(master, "Company/Neighborhoods", 1, prefix="Aventura History")
     _with_up(master, child, "Aventura 00")
     assert _near(run_doctor(master)) == []
