@@ -55,14 +55,15 @@ def main(argv: list[str]) -> int:
             return 0  # hermes changed the filter: go quiet, as for a move
         if hits:
             words.append(f"{os.path.basename(path)}:{','.join(hits)}")
-    if words:
-        print(" ".join(words))
+    summary = " ".join(words)
+    if summary:
+        print(summary)
     if marker:
-        if words:
+        if summary:
             fd, tmp = tempfile.mkstemp(dir=os.path.dirname(marker) or ".",
                                        prefix=".brain-context-blocked.")
             with os.fdopen(fd, "w") as fh:
-                fh.write(" ".join(words) + "\n")
+                fh.write(summary + "\n")
             os.replace(tmp, marker)
         else:
             with contextlib.suppress(FileNotFoundError):

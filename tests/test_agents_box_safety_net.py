@@ -63,27 +63,21 @@ def test_a_leading_bom_is_stripped_as_hermes_does(hermes, tmp_path):
     assert _scan(hermes, str(f)).returncode == 0
 
 
-def test_hermes_internals_moving_is_silent_and_leaves_the_marker(tmp_path):
-    empty = tmp_path / "nothing"
-    empty.mkdir()
-    probe = subprocess.run([sys.executable, "-c", "import tools.threat_patterns"],
-                           capture_output=True, env={**os.environ, "PYTHONPATH": str(empty)})
-    if probe.returncode == 0:
-        pytest.skip("a tools.threat_patterns is importable in this environment")
-    marker = tmp_path / ".brain-context-blocked"
-    marker.write_text("AGENTS.md:c2_heartbeat\n")
-    f = tmp_path / "AGENTS.md"
-    f.write_text("Mythic\n")
-    r = _scan(empty, "--marker", str(marker), str(f))
-    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
-    assert marker.read_text() == "AGENTS.md:c2_heartbeat\n"
-
-
-def test_hermes_changing_the_filter_signature_is_silent_and_leaves_the_marker(tmp_path):
+@pytest.mark.parametrize("threat_patterns", [
+    None,  # hermes moved the module
+    "def scan_for_threats(content):\n    return []\n",  # or changed its signature
+], ids=["moved", "new-signature"])
+def test_hermes_changing_its_filter_is_silent_and_leaves_the_marker(tmp_path, threat_patterns):
     root = tmp_path / "hermes"
     (root / "tools").mkdir(parents=True)
-    (root / "tools/__init__.py").write_text("")
-    (root / "tools/threat_patterns.py").write_text("def scan_for_threats(content):\n    return []\n")
+    if threat_patterns is None:
+        probe = subprocess.run([sys.executable, "-c", "import tools.threat_patterns"],
+                               capture_output=True, env={**os.environ, "PYTHONPATH": str(root)})
+        if probe.returncode == 0:
+            pytest.skip("a tools.threat_patterns is importable in this environment")
+    else:
+        (root / "tools/__init__.py").write_text("")
+        (root / "tools/threat_patterns.py").write_text(threat_patterns)
     marker = tmp_path / ".brain-context-blocked"
     marker.write_text("AGENTS.md:c2_heartbeat\n")
     f = tmp_path / "AGENTS.md"
