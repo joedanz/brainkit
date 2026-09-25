@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 
 from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
+from brain.hermes_filter import INVISIBLE_CHARS
 from brain.promotions import _commit, _slug, write_inbox_note
 from brain.resolver import can_write_path, space_of_path
 from brain.schemas import Org, VaultConfig, load_config, load_spaces
@@ -40,7 +41,7 @@ def _validate_owner_id(owner_id: str) -> None:
 
 
 def normalize_client_name(name: str) -> str:
-    if _UNSAFE.search(name):
+    if _UNSAFE.search(name) or any(ch in INVISIBLE_CHARS for ch in name):
         raise ClientError(f"client name {name!r} contains an illegal character")
     collapsed = " ".join(name.split())
     if not collapsed:
