@@ -203,7 +203,7 @@ brain corrections confirm <person> <slug> --by <id> --master <master>
 brain corrections dismiss <person> <slug> --by <id> --master <master>
 ```
 
-A correction an agent writes to `People/<id>/Corrections/<slug>.md` only reaches that agent after someone confirms its exact `rule:` text. `list` shows each correction as `pending`, `active` or `rejected` (with why). `confirm` records the current text as confirmed, committed under the `--by` person's name; if the text changes later, it goes back to pending. `dismiss` deletes the correction. A rule is rejected, and can't be confirmed, if it is more than one line, longer than 280 characters, or contains a web address or a backtick. People confirm their own corrections from their dashboard (see `--corrections-master` below); admins can use this command or the admin dashboard's Corrections tab.
+A correction an agent writes to `People/<id>/Corrections/<slug>.md` only reaches that agent after someone confirms its exact `rule:` text. `list` shows each correction as `pending`, `active` or `rejected` (with why). `confirm` records the current text as confirmed, committed under the `--by` person's name; if the text changes later, it goes back to pending. `dismiss` deletes the correction. Only the person the correction belongs to, or an admin, can be `--by`. A rule is rejected, and can't be confirmed, if it is more than one line, longer than 280 characters, or contains a web address, a backtick, or a hidden character (an invisible, formatting or line-breaking character). People confirm their own corrections from their dashboard (see `--corrections-master` below); admins can use this command or the admin dashboard's Corrections tab.
 
 ## `brain promotions`
 
@@ -566,7 +566,7 @@ brain dashboard --vault <vault> --html dash.html --open
 | `--port` | no | Live server port (default `8765`; `0` picks a free port). |
 | `--no-open` | no | Do not open a browser when serving. |
 | `--open` | no | Open the file in a browser (static `--html` mode only). |
-| `--corrections-master PATH` | no | The master vault. Adds a Corrections tab where this person confirms or dismisses their own corrections. User lens and live server only; the vault folder must be named after its person. |
+| `--corrections-master PATH` | no | The master vault. Adds a Corrections tab where this person confirms or dismisses their own corrections. User lens and live server only; the vault folder must be named after its person. Refused unless `--host` is 127.0.0.1, ::1 or localhost. |
 
 <Callout type="warning">
   **Behavior change:** a bare `brain dashboard --vault X` now *serves* the live

@@ -631,6 +631,11 @@ def cmd_dashboard(args) -> int:
         print("--corrections-master only applies to --vault when serving the live "
               "dashboard", file=sys.stderr)
         return 2
+    if args.corrections_master and args.host not in ("127.0.0.1", "::1", "localhost"):
+        print("--corrections-master only works when the dashboard listens on this "
+              "computer alone (--host 127.0.0.1, ::1 or localhost); "
+              f"got --host {args.host}", file=sys.stderr)
+        return 2
     if args.vault and args.out:
         print("--out only applies to the admin lens (--master)", file=sys.stderr)
         return 2

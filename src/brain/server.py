@@ -54,6 +54,9 @@ mimetypes.add_type("font/woff2", ".woff2")
 
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", ""}
 _LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+_CORRECTIONS_LOOPBACK_ONLY = (
+    "--corrections-master only works when the dashboard listens on this "
+    "computer alone (--host 127.0.0.1, ::1 or localhost)")
 # Node selection is by degree (highest first, see _build_graph), so a fixed
 # default cap covers a shrinking fraction of the vault as it grows: a real
 # vault that tripled from ~3,900 to ~9,472 pages left plenty of genuinely
@@ -898,6 +901,12 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     app["provider"] = provider_from_config()  # resolved once; None => keyword-only
     app["people"] = _org_people(Path(lens.master)) if lens.kind == "master" else {}
     app["corrections"] = None
+    if corrections_master is not None and not loopback:
+        # Off loopback the host and Origin checks are skipped and there is no
+        # login, so anyone who can reach the port could confirm a rule.
+        from brain.corrections import CorrectionError
+
+        raise CorrectionError(_CORRECTIONS_LOOPBACK_ONLY)
     if lens.kind == "vault" and corrections_master is not None:
         master = Path(corrections_master)
         app["corrections"] = (master, _corrections_person(Path(lens.vault), master))
@@ -963,6 +972,10 @@ def run_server(lens: Lens, *, host: str = "127.0.0.1", port: int = 8765,
     import webbrowser
 
     loopback = host in _LOOPBACK
+    if corrections_master is not None and not loopback:
+        print(f"brain dashboard: {_CORRECTIONS_LOOPBACK_ONLY} (got --host {host})",
+              file=sys.stderr)
+        return 2
     if not loopback:
         print(f"WARNING: binding {host} exposes this vault with NO authentication — "
               "anyone who can reach this port can read it.", file=sys.stderr)

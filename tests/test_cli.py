@@ -576,3 +576,11 @@ def test_dashboard_corrections_master_only_with_a_served_vault(tmp_path, capsys)
     assert "--corrections-master only applies to --vault" in capsys.readouterr().err
     assert main(["dashboard", "--vault", str(tmp_path), "--html", str(tmp_path / "d.html"),
                  "--corrections-master", str(tmp_path)]) == 2
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "10.0.0.5", "::"])
+def test_dashboard_corrections_master_needs_a_loopback_host(tmp_path, capsys, host):
+    assert main(["dashboard", "--vault", str(tmp_path), "--host", host,
+                 "--corrections-master", str(tmp_path), "--no-open"]) == 2
+    err = capsys.readouterr().err
+    assert "--corrections-master" in err and "127.0.0.1" in err

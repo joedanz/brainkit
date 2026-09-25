@@ -755,3 +755,58 @@ def test_admin_corrections_tab_is_wired():
     assert "api.confirmPersonCorrection" in admin and "approverSelect" in admin
     app_js = (ASSETS / "js/app.js").read_text(encoding="utf-8")
     assert "admin.renderCorrections" in app_js
+
+
+async def test_admin_route_by_must_be_an_admin_or_the_owner(aiohttp_client, master, tmp_path):
+    import subprocess
+    app, _out = _master_app(master, tmp_path)
+    for pid, slug, rule in (("alice", "tone", "Keep it short."),
+                            ("bob", "bob-rule", "Answer in French.")):
+        d = master / f"People/{pid}/Corrections"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{slug}.md").write_text(f"---\nrule: {rule}\nfrom: 2026-09-01\n---\n")
+    subprocess.run(["git", "-C", str(master), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-qm", "rules"], check=True, capture_output=True)
+    client = await aiohttp_client(app)
+    # bob is in the org but not an admin, and the correction is alice's.
+    resp = await client.post("/api/corrections/alice/tone/confirm",
+                             json={"sha256": rule_hash("Keep it short."), "by": "bob"},
+                             headers=_LOCAL)
+    assert resp.status == 400
+    resp = await client.post("/api/corrections/alice/tone/dismiss", json={"by": "bob"},
+                             headers=_LOCAL)
+    assert resp.status == 400
+    assert (master / "People/alice/Corrections/tone.md").is_file()
+    assert not (master / "People/alice/.corrections.json").exists()
+    # The owner may act on their own.
+    resp = await client.post("/api/corrections/bob/bob-rule/confirm",
+                             json={"sha256": rule_hash("Answer in French."), "by": "bob"},
+                             headers=_LOCAL)
+    assert resp.status == 200
+
+
+def test_corrections_master_is_refused_off_loopback(master, tmp_path):
+    from brain.server import run_server
+
+    _with_corrections(master)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    with pytest.raises(CorrectionError, match="this computer alone"):
+        create_app(Lens(kind="vault", vault=vault), loopback=False, corrections_master=master)
+    assert run_server(Lens(kind="vault", vault=vault), host="0.0.0.0", port=0,
+                      open_browser=False, corrections_master=master) == 2
+
+
+def test_admin_corrections_view_ignores_a_stale_fetch():
+    # A rapid tab switch starts a second render before the first fetch lands;
+    # the older result must be dropped, not appended to the newer list.
+    from tests.conftest import ASSETS
+
+    admin = (ASSETS / "js/tabs/admin.js").read_text(encoding="utf-8")
+    fn = admin[admin.index("export async function renderCorrections"):]
+    fn = fn[:fn.index("\n}\n")]
+    assert "const seq = ++correctionsSeq;" in fn
+    fetched = fn.index("await api.adminCorrections()")
+    assert "if (seq !== correctionsSeq) return;" in fn[fetched:]
+    assert fn.index("clear(container)") > fetched

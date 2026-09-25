@@ -290,15 +290,22 @@ function cardError(card, before, msg) {
 // identity the server records, as with shares (the whole org). Fetched per
 // render rather than carried in stats, so rule text never rides the
 // websocket push.
+// Rapid tab switches can start a second render before the first fetch
+// lands; only the newest render may touch the container.
+let correctionsSeq = 0;
+
 export async function renderCorrections(container, ctx) {
   const d = guard(container, ctx); if (!d) return;
+  const seq = ++correctionsSeq;
+  let body, failed;
+  try { body = await api.adminCorrections(); }
+  catch (e) { failed = e; }
+  if (seq !== correctionsSeq) return;
   clear(container);
   container.appendChild(el("h2", null, "Corrections waiting for confirmation"));
   const host = el("div");
   container.appendChild(host);
-  let body;
-  try { body = await api.adminCorrections(); }
-  catch (e) { host.appendChild(el("div", "error-banner", "Corrections unavailable: " + e.message)); return; }
+  if (failed) { host.appendChild(el("div", "error-banner", "Corrections unavailable: " + failed.message)); return; }
   if (!body.people.length) {
     host.appendChild(el("div", "meta", "Nothing waiting — every correction is confirmed or dismissed."));
     return;
