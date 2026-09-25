@@ -232,3 +232,80 @@ def test_provider_from_config_resolved_values_with_dollar_signs_survive(monkeypa
 def test_default_cache_path_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("BRAIN_EMBED_CACHE", str(tmp_path / "c.db"))
     assert default_cache_path() == tmp_path / "c.db"
+
+
+# ---- the cache under a master: gitignore gate and damage ------------------ #
+
+def _damage(db, where):
+    from .test_triage import _damage as damage
+    damage(db, where)
+
+
+def _filled(path):
+    cache = EmbeddingCache(path)
+    cache.put_many([(f"sha-{i}", pack_vector([float(i)] * 64)) for i in range(400)], "m")
+    cache.close()
+
+
+def test_for_master_refuses_a_master_that_does_not_ignore_the_cache(tmp_path):
+    assert EmbeddingCache.for_master(tmp_path) is None
+    assert not (tmp_path / "_meta").exists()
+
+
+def test_for_master_opens_the_cache_when_ignored(tmp_path):
+    (tmp_path / ".gitignore").write_text("_meta/cache/\n")
+    cache = EmbeddingCache.for_master(tmp_path)
+    assert cache is not None
+    cache.put_many([("a", pack_vector([1.0]))], "m")
+    cache.close()
+    assert (tmp_path / "_meta/cache/embeddings.db").is_file()
+
+
+@pytest.mark.parametrize("where", ["header", "interior"])
+def test_a_damaged_cache_is_rebuilt_once_with_a_warning(tmp_path, where):
+    (tmp_path / ".gitignore").write_text("_meta/cache/\n")
+    db = tmp_path / "_meta/cache/embeddings.db"
+    db.parent.mkdir(parents=True)
+    _filled(db)
+    (db.parent / "dedup.db").write_bytes(b"keep me")
+    _damage(db, where)
+
+    cache = EmbeddingCache.for_master(tmp_path)
+    assert cache.get_many([f"sha-{i}" for i in range(400)], "m") == {}
+    cache.put_many([("new", pack_vector([2.0]))], "m")
+    assert cache.get_many(["new"], "m") == {"new": pack_vector([2.0])}
+    assert len(cache.warnings) == 1
+    assert "embeddings.db" in cache.warnings[0] and "rebuilt" in cache.warnings[0]
+    cache.close()
+    assert sorted(p.name for p in db.parent.iterdir()) == ["dedup.db", "embeddings.db"]
+    assert (db.parent / "dedup.db").read_bytes() == b"keep me"
+
+    again = EmbeddingCache.for_master(tmp_path)
+    assert again.get_many(["new"], "m") == {"new": pack_vector([2.0])}
+    assert again.warnings == []
+    again.close()
+
+
+def test_a_busy_cache_is_not_deleted(tmp_path, monkeypatch):
+    import sqlite3
+
+    db = tmp_path / "emb.db"
+    _filled(db)
+    cache = EmbeddingCache(db)
+
+    class Busy:
+        def execute(self, *a, **k):
+            e = sqlite3.OperationalError("database is locked")
+            e.sqlite_errorcode = sqlite3.SQLITE_BUSY
+            raise e
+
+        def close(self):
+            pass
+
+    real = cache._conn
+    cache._conn = Busy()
+    with pytest.raises(sqlite3.OperationalError):
+        cache.get_many(["sha-1"], "m")
+    cache._conn = real
+    assert cache.get_many(["sha-1"], "m") != {}
+    cache.close()

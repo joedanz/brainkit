@@ -11,6 +11,19 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The cycle no longer creates an embedding cache git could commit.** Like
+  the health snapshot and the near-duplicate cache, `_meta/cache/embeddings.db`
+  is only written when the master's `.gitignore` covers `_meta/cache/`.
+  Otherwise indexing still runs without the cache, and the cycle prints one
+  warning saying which line to add.
+- **A damaged embedding cache rebuilds itself.** If `embeddings.db` is corrupt
+  or is not a database at all, the cycle deletes just that file (and its
+  journal files), starts it empty, and says so once in its warnings. A cache
+  that is only busy or locked is left alone. `brain doctor` never rebuilds or
+  writes the cache; it only reads it.
+
 ### Changed
 
 - **`brain doctor` reads cached embeddings in one batch.** The near-duplicate

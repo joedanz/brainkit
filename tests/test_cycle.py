@@ -1094,3 +1094,34 @@ def test_cli_cycle_prints_compile_failures(master, tmp_path, monkeypatch, capsys
 
     assert main(["cycle", "--master", str(master), "--out", str(out)]) == 1
     assert "compile failed: bob: bob: root protocol is 60,000 chars" in capsys.readouterr().err
+
+
+@requires_vectors
+def test_cycle_never_creates_an_embedding_cache_git_could_see(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    (master / ".gitignore").unlink(missing_ok=True)
+    out = _first_compile(master, tmp_path)
+    monkeypatch.setattr("brain.embeddings.provider_from_config", lambda: _CountingFake())
+
+    report = run_cycle(master, out, today="2026-07-07", index=True)
+    assert report.indexed == 2
+    assert not (master / "_meta/cache/embeddings.db").exists()
+    assert sum("embedding cache" in w and ".gitignore" in w
+               for w in report.index_warnings) == 1
+
+
+@requires_vectors
+def test_cycle_rebuilds_a_damaged_embedding_cache_and_says_so(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    (master / ".gitignore").write_text("_meta/cache/\n")
+    out = _first_compile(master, tmp_path)
+    monkeypatch.setattr("brain.embeddings.provider_from_config", lambda: _CountingFake())
+    db = master / "_meta/cache/embeddings.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.write_bytes(b"this is not a database" * 64)
+
+    report = run_cycle(master, out, today="2026-07-07", index=True)
+    assert report.indexed == 2
+    assert sum("embeddings.db" in w and "rebuilt" in w for w in report.index_warnings) == 1
+    again = run_cycle(master, out, today="2026-07-08", index=True)
+    assert not any("embeddings.db" in w for w in again.index_warnings)

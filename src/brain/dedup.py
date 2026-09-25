@@ -20,6 +20,7 @@ import struct
 from collections.abc import Iterable
 from pathlib import Path
 
+from brain import sqlite_util
 from brain.frontmatter import split_frontmatter
 
 SHINGLE_WORDS = 5
@@ -119,13 +120,6 @@ _DDL = (
 )
 
 
-def _damaged(e: sqlite3.Error) -> bool:
-    """A file that is not, or is no longer, a readable database — as opposed
-    to one that is only busy or locked, which the next run can read fine."""
-    code = getattr(e, "sqlite_errorcode", None)
-    return code is not None and code & 0xFF in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB)
-
-
 def signature_version() -> str:
     """Everything a signature depends on besides the note's text: the scheme,
     the shingle width, the word pattern, the permutations themselves (their
@@ -177,8 +171,6 @@ class SignatureCache:
 
     @classmethod
     def open_readonly(cls, master: Path) -> SignatureCache | None:
-        from brain import sqlite_util
-
         path = Path(master) / DEDUP_CACHE_REL
         try:  # is_file() raises on a folder it may not look into
             if not path.is_file():
@@ -202,7 +194,7 @@ class SignatureCache:
         try:
             conn = _connect_writable(path)
         except sqlite3.Error as e:
-            if not _damaged(e):
+            if not sqlite_util.is_damaged(e):
                 raise
             cache = cls(_rebuild(path), writable=True, path=path)
             cache.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
@@ -230,7 +222,7 @@ class SignatureCache:
                     if len(blob) == size:
                         out[sha] = struct.unpack(f"<{len(_PERMS)}Q", blob)
         except sqlite3.Error as e:
-            if self.writable and _damaged(e):
+            if self.writable and sqlite_util.is_damaged(e):
                 # Every signature is then computed and put(), so save() can
                 # rebuild the file from this run alone.
                 self._read_damaged = True
@@ -253,7 +245,7 @@ class SignatureCache:
                 self._write()
                 return
             except sqlite3.Error as e:
-                if not _damaged(e):
+                if not sqlite_util.is_damaged(e):
                     raise
                 if not self.warnings:
                     self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
@@ -294,10 +286,7 @@ def _connect_writable(path: Path) -> sqlite3.Connection:
 
 
 def _rebuild(path: Path) -> sqlite3.Connection:
-    """Delete a damaged cache (and any journal beside it) and start empty."""
-    for suffix in ("", "-journal", "-wal", "-shm"):
-        Path(f"{path}{suffix}").unlink(missing_ok=True)
-    return _connect_writable(path)
+    return sqlite_util.rebuild(path, _connect_writable)
 
 
 def signatures(

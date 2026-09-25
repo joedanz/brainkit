@@ -332,7 +332,7 @@ def _cached_file_vectors(
         return {}
     out: dict[str, list[float]] = {}
     try:
-        cache = EmbeddingCache(cache_path)
+        cache = EmbeddingCache(cache_path, readonly=True)
     except Exception:
         return {}
     try:

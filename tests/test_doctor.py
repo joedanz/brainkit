@@ -1925,3 +1925,18 @@ def test_cached_vectors_are_read_in_one_batch(master, tmp_path, monkeypatch):
     assert len(calls) == 1
     assert [f.paths for f in findings if f.check == "dup-near"] == [
         ("Company/Shuffle A.md", "Company/Shuffle B.md")]
+
+
+def test_doctor_never_touches_a_damaged_embedding_cache(master, tmp_path, monkeypatch):
+    """Doctor is read-only: a damaged cache only means no semantic signal;
+    rebuilding it is the cycle's job."""
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    _warm_embeddings(master, tmp_path, monkeypatch, rels)
+    db = tmp_path / "emb-cache.db"
+    db.write_bytes(b"this is not a database" * 64)
+    before = db.read_bytes()
+    assert not _severities(run_doctor(master), "dup-near")
+    assert db.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir() if "emb-cache" in p.name) == [
+        "emb-cache.db"]

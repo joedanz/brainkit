@@ -29,6 +29,7 @@ from typing import Protocol, runtime_checkable
 
 import yaml
 
+from brain import sqlite_util
 from brain.errors import BrainError
 
 DEFAULT_MODEL = "text-embedding-3-small"
@@ -147,41 +148,107 @@ class OpenAICompatProvider:
         raise EmbeddingError(f"embedding request failed: {last}")
 
 
-class EmbeddingCache:
-    """Content-addressed store of packed vectors keyed by (chunk_sha, model)."""
+EMBED_CACHE_REL = "_meta/cache/embeddings.db"
 
-    def __init__(self, path: Path) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.path)
-        self._conn.execute(
+
+def _connect_cache(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
             "CREATE TABLE IF NOT EXISTS embeddings ("
             "chunk_sha TEXT NOT NULL, model TEXT NOT NULL, dim INTEGER NOT NULL, "
             "vector BLOB NOT NULL, PRIMARY KEY (chunk_sha, model))"
         )
-        self._conn.commit()
+        conn.commit()
+    except sqlite3.Error:
+        conn.close()
+        raise
+    return conn
+
+
+class EmbeddingCache:
+    """Content-addressed store of packed vectors keyed by (chunk_sha, model).
+
+    A damaged file (SQLITE_CORRUPT, SQLITE_NOTADB — never merely busy or
+    locked) is deleted and started empty, once, with a line in `warnings`
+    for the caller to report. Nothing in it is irreplaceable: a lost vector
+    is only a chunk to embed again. Losing the file silently would still be
+    wrong — every later run would pay for a full re-embed without anyone
+    knowing why — so the rebuild says so.
+    """
+
+    def __init__(self, path: Path, *, readonly: bool = False) -> None:
+        """`readonly` (doctor): open an existing file only, never create,
+        write or rebuild it; any failure is the caller's to handle."""
+        self.path = Path(path)
+        self.warnings: list[str] = []
+        self._rebuilt = readonly  # a reader never rebuilds
+        if readonly:
+            self._conn = sqlite_util.connect_readonly(self.path)
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._conn = _connect_cache(self.path)
+        except sqlite3.Error as e:
+            self._conn = self._recover(e)
+
+    @classmethod
+    def for_master(cls, master: Path) -> EmbeddingCache | None:
+        """The cache at `<master>/_meta/cache/embeddings.db`, or None — no
+        file created — when master/.gitignore does not cover `_meta/cache/`:
+        a cache git can see would ride along in the next commit. Same rule
+        as the health snapshot and the dedup cache."""
+        from brain.health import _cache_is_ignored
+
+        master = Path(master)
+        if not _cache_is_ignored(master):
+            return None
+        return cls(master / EMBED_CACHE_REL)
+
+    def _recover(self, e: sqlite3.Error) -> sqlite3.Connection:
+        """A fresh, empty cache in place of a damaged one; re-raises anything
+        else, and a second failure after a rebuild."""
+        if self._rebuilt or not sqlite_util.is_damaged(e):
+            raise e
+        self._rebuilt = True
+        self.warnings.append(f"{self.path.name}: {e} — rebuilt")
+        return sqlite_util.rebuild(self.path, _connect_cache)
 
     def get_many(self, shas: list[str], model: str) -> dict[str, bytes]:
         out: dict[str, bytes] = {}
-        # chunk the IN clause to stay under SQLite's variable limit
-        for i in range(0, len(shas), 500):
-            batch = shas[i:i + 500]
-            placeholders = ",".join("?" * len(batch))
-            rows = self._conn.execute(
-                f"SELECT chunk_sha, vector FROM embeddings "
-                f"WHERE model = ? AND chunk_sha IN ({placeholders})",
-                (model, *batch),
-            ).fetchall()
-            out.update({sha: bytes(vec) for sha, vec in rows})
+        try:
+            # chunk the IN clause to stay under SQLite's variable limit
+            for i in range(0, len(shas), 500):
+                batch = shas[i:i + 500]
+                placeholders = ",".join("?" * len(batch))
+                rows = self._conn.execute(
+                    f"SELECT chunk_sha, vector FROM embeddings "
+                    f"WHERE model = ? AND chunk_sha IN ({placeholders})",
+                    (model, *batch),
+                ).fetchall()
+                out.update({sha: bytes(vec) for sha, vec in rows})
+        except sqlite3.Error as e:
+            self._replace_conn(e)
+            return {}  # all misses: the caller embeds them and puts them back
         return out
 
     def put_many(self, items: list[tuple[str, bytes]], model: str) -> None:
-        self._conn.executemany(
-            "INSERT OR REPLACE INTO embeddings (chunk_sha, model, dim, vector) "
-            "VALUES (?, ?, ?, ?)",
-            [(sha, model, len(blob) // 4, blob) for sha, blob in items],
-        )
-        self._conn.commit()
+        rows = [(sha, model, len(blob) // 4, blob) for sha, blob in items]
+        sql = ("INSERT OR REPLACE INTO embeddings (chunk_sha, model, dim, vector) "
+               "VALUES (?, ?, ?, ?)")
+        try:
+            with self._conn:
+                self._conn.executemany(sql, rows)
+        except sqlite3.Error as e:
+            self._replace_conn(e)
+            with self._conn:
+                self._conn.executemany(sql, rows)
+
+    def _replace_conn(self, e: sqlite3.Error) -> None:
+        if self._rebuilt or not sqlite_util.is_damaged(e):
+            raise e
+        self._conn.close()
+        self._conn = self._recover(e)
 
     def close(self) -> None:
         self._conn.close()
