@@ -356,8 +356,20 @@ def test_subject_copula_pairs_stay_silent():
 
 def test_terse_copula_conflict_is_a_known_recall_trade():
     # Cost of the predication guard: two-token "X is A"/"X is B" goes silent.
+    # Same trade-off as a noun-compound attribute with no 's or "of" — see
+    # test_noun_compound_attribute_without_possessive_is_a_known_recall_trade.
     a = _entry("a.md", 3, "Acme is Enterprise", {"Clients/Acme.md"})
     b = _entry("b.md", 8, "Acme is Growth", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_noun_compound_attribute_without_possessive_is_a_known_recall_trade():
+    # A noun-compound attribute ("Acme CEO is …") has no "'s" or "of" before
+    # "is", so the predication guard reads it as a bare name and lets the
+    # pair through silently — same recall trade as the terse-copula case
+    # above. Write it as "Acme's CEO is …" to keep it checked.
+    a = _entry("a.md", 3, "Acme CEO is Alice", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme CEO is Bob", {"Clients/Acme.md"})
     assert find_fact_conflicts([a, b]) == []
 
 
@@ -432,6 +444,18 @@ def test_names_of_either_page_apply_to_the_pair():
     b = _entry("y.md", 4, "Acme's Fund is open.", {"Clients/Acme.md"})
     assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
     assert find_fact_conflicts([a, b], names={"y.md": frozenset({"acme's fund"})}) == []
+
+
+def test_linked_entity_name_is_exempt_even_on_a_non_entity_page():
+    # A plain notes page mentions the entity by wikilink rather than being
+    # that entity's own page; the exemption should still apply, keyed off
+    # the resolved entity path rather than the host page's own name.
+    rel = "Company/Notes.md"
+    entity = "Notes/Bailey Grandchildren's Trust.md"
+    a = _entry(rel, 3, "[[Bailey Grandchildren's Trust]] is A.", {entity})
+    b = _entry(rel, 4, "[[Bailey Grandchildren's Trust]] is B.", {entity})
+    names = {entity: frozenset({"bailey grandchildren's trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
 
 
 def test_uncited_fact_is_reported_separately_from_malformed_ones():

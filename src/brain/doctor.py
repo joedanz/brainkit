@@ -1065,7 +1065,7 @@ def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
         entity = parse_entity(meta)
         own = {Path(rel).stem.casefold()}
         if entity is not None:
-            own |= {a.strip("\"'").casefold() for a in entity[1]}
+            own |= {a.strip("\"'\u201c\u201d\u2018\u2019").casefold() for a in entity[1]}
         names[rel] = frozenset(own)
         for fact in parse_facts(text):
             keys = {(_resolve_target(t, paths, by_stem) or t.casefold())

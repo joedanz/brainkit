@@ -219,6 +219,22 @@ def _diverges(stmt_a: str, stmt_b: str, names: frozenset[str] = frozenset()) -> 
     return last == "=" or last.endswith(":")
 
 
+def _pair_names(
+    a: tuple[str, Fact, frozenset[str]],
+    b: tuple[str, Fact, frozenset[str]],
+    names: Mapping[str, frozenset[str]] | None,
+) -> frozenset[str]:
+    """Names that exempt a subject in this pair: the two host pages' own
+    names, plus the names of any resolved entity the pair's facts link to —
+    a fact on a plain notes page about `[[Bailey Grandchildren's Trust]]`
+    is exempt by that entity page's name, not just the notes page's own."""
+    names = names or {}
+    out = names.get(a[0], frozenset()) | names.get(b[0], frozenset())
+    for key in a[2] | b[2]:
+        out |= names.get(key, frozenset())
+    return out
+
+
 def find_fact_conflicts(
     entries: list[tuple[str, Fact, frozenset[str]]],
     names: Mapping[str, frozenset[str]] | None = None,
@@ -237,7 +253,9 @@ def find_fact_conflicts(
     divergence, so no pair is ever both dup and conflict.
 
     `names` maps a rel path to its subject names (see `_diverges`); a pair
-    uses the union of both pages' names.
+    uses the union of both host pages' names and the names of any resolved
+    entity key either fact links to (see `_pair_names`), so a fact on a
+    plain page about a linked entity is still exempt by that entity's name.
 
     Only facts sharing a key can pair, so each fact is compared with the
     later facts in its keys' buckets rather than with every later fact —
@@ -261,9 +279,7 @@ def find_fact_conflicts(
             if (a[1].statement.casefold() == b[1].statement.casefold()
                     and a[2] == b[2]):
                 out.append(("dup", a, b))
-            elif _diverges(a[1].statement, b[1].statement,
-                           (names or {}).get(a[0], frozenset())
-                           | (names or {}).get(b[0], frozenset())):
+            elif _diverges(a[1].statement, b[1].statement, _pair_names(a, b, names)):
                 out.append(("conflict", a, b))
     return out
 

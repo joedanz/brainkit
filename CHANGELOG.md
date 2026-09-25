@@ -25,7 +25,9 @@ explicitly under **Changed**, with what to do about it.
   it are the page's own title or one of its aliases. `:` and `=` still mark
   a slot as before. A curly apostrophe and a straight one in a name are
   treated as the same character, so a name quoted either way is still
-  recognized and exempted.
+  recognized and exempted. A known trade-off: an attribute written without
+  "'s" or "of" ("Acme CEO is …") is no longer reported either — write it as
+  "Acme's CEO is …" to keep it checked.
 
 ### Changed
 
