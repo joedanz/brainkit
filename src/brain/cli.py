@@ -66,14 +66,15 @@ def cmd_writeback(args) -> int:
     except ManifestError as e:
         print(f"cannot write back: {e}", file=sys.stderr)
         return 1
+    if result.held:
+        print("HELD — not applied (outside this person's write scope):", file=sys.stderr)
+        for h in result.held:
+            print(f"  {h.kind} {h.path}: {h.reason}", file=sys.stderr)
     if result.error:
         print(f"write-back failed, master left as it was: {result.error}", file=sys.stderr)
         return 1
     print(f"applied {len(result.applied)} change(s)")
     if result.held:
-        print("HELD — not applied (outside this person's write scope):", file=sys.stderr)
-        for h in result.held:
-            print(f"  {h.kind} {h.path}: {h.reason}", file=sys.stderr)
         return 1
     return 0
 

@@ -320,3 +320,30 @@ def test_glob_characters_in_paths_commit_literally(master: Path, tmp_path: Path)
     assert git(master, "show", "--name-only", "--format=", "HEAD").strip() == \
         "People/bob/Notes/[draft] *.md"
     assert " M People/bob/Notes/other.md" in git(master, "status", "--porcelain")
+
+
+def test_cli_writeback_reports_held_even_on_error(master: Path, tmp_path: Path,
+                                                    monkeypatch, capsys):
+    from brain.cli import main
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Memory.md").write_text("bob edit\n")
+    (vault / "Company/Home.md").write_text("held\n")  # out of scope
+    import brain.writeback as wb
+    real = wb._git
+
+    def failing(cwd, *args):
+        if "commit" in args:
+            raise subprocess.CalledProcessError(1, ["git", *args], stderr="disk full")
+        return real(cwd, *args)
+
+    monkeypatch.setattr(wb, "_git", failing)
+    code = main(["writeback", "--master", str(master), "--vault", str(vault),
+                 "--person", "bob"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "HELD" in err and "Company/Home.md" in err
+    assert "write-back failed" in err and "disk full" in err
