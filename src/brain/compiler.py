@@ -37,10 +37,21 @@ if TYPE_CHECKING:
 
 MANIFEST_NAME = ".brain-manifest.json"
 
+
+def write_manifest(path: Path, manifest: dict) -> None:
+    """Serialize a vault manifest the one way every writer must agree on, so
+    a rewrite (e.g. clearing the busy key) reproduces the committed bytes
+    exactly."""
+    path.write_text(json.dumps(manifest, indent=2))
+
+
 # A person's hold record (People/<id>/.held.json): server-side bookkeeping
 # about edits write-back could not apply. Never compiled into any vault, so
 # nobody can edit or delete their own record through a sync.
 HELD_NAME = ".held.json"
+
+# Filenames that are server-side bookkeeping and never shipped to a vault.
+SERVER_ONLY_NAMES = frozenset({HELD_NAME})
 
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
@@ -121,7 +132,7 @@ def _iter_space_files(master: Path, space: str):
     rels: list[str] = []
     for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
         for name in filenames:
-            if name == HELD_NAME:
+            if name in SERVER_ONLY_NAMES:
                 continue
             p = Path(dirpath) / name
             if p.is_symlink():
@@ -204,7 +215,7 @@ def compile_vault(
             # parse this vault's paths. Written only when it is not the
             # default, so a default vault's manifest is byte-unchanged.
             manifest["shared"] = config.shared
-        (building / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2))
+        write_manifest(building / MANIFEST_NAME, manifest)
 
         # Two-phase swap: rename the previous vault aside, promote the new
         # tree, then move the per-person git history into it. The previous

@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from brain.compiler import MANIFEST_NAME, CompileError, compile_all
+from brain.compiler import MANIFEST_NAME, CompileError, compile_all, write_manifest
 from brain.errors import HANDLED, BrainError, describe
 from brain.holds import utc_now_iso as _utc_now_iso
 from brain.holds import writeback_person
@@ -164,7 +164,7 @@ def _rewrite_manifest(vault: Path, edit) -> None:
     if edit(manifest):
         # Same serialization as compile_vault, so clearing the key restores
         # the committed bytes exactly and the worktree is clean again.
-        path.write_text(json.dumps(manifest, indent=2))
+        write_manifest(path, manifest)
 
 
 def _set_busy(vault: Path, now: str) -> None:
@@ -189,6 +189,18 @@ def _status(applied: int, held: list[str], error: str) -> str:
     if held:
         return "partial" if applied else "held"
     return "applied"
+
+
+def _writeback_if_present(master: Path, vault: Path, person, rules, *, now: str,
+                          prior: PersonWriteback | None = None,
+                          already: dict[str, str | None] | None = None,
+                          ) -> PersonWriteback | None:
+    """Run a write-back pass, unless this person has no compiled vault yet
+    (nothing to diff against). Returns None in that case."""
+    if not (vault / MANIFEST_NAME).is_file():
+        return None
+    return _writeback_one(master, vault, person, rules, now=now, prior=prior,
+                          already=already)
 
 
 def _writeback_one(master: Path, vault: Path, person, rules, *, now: str,
@@ -243,11 +255,12 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # now instead of being overwritten by the compile. `rules` is read at
         # call time, so this sees the post-sweep reload below.
         vault = vaults[person.id]
-        if not (vault / MANIFEST_NAME).is_file():
-            return
-        wb[person.id] = _writeback_one(master, vault, person, rules, now=now,
+        result = _writeback_if_present(master, vault, person, rules, now=now,
                                        prior=wb.get(person.id),
                                        already=already.setdefault(person.id, {}))
+        if result is None:
+            return
+        wb[person.id] = result
         if wb[person.id].status == "error":
             raise WritebackFailed(
                 f"write-back failed ({wb[person.id].error}); vault left as it was "
@@ -257,11 +270,9 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     try:
         for person in org.people.values():
             vault = vaults[person.id]
-            if not (vault / MANIFEST_NAME).is_file():
-                wb[person.id] = PersonWriteback(person.id, "skipped")
-                continue
-            wb[person.id] = _writeback_one(master, vault, person, rules, now=now,
+            result = _writeback_if_present(master, vault, person, rules, now=now,
                                            already=already.setdefault(person.id, {}))
+            wb[person.id] = result or PersonWriteback(person.id, "skipped")
 
         from brain.clients import materialize_clients
         from brain.shares import sweep_approvals, sweep_shares

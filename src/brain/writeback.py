@@ -249,6 +249,10 @@ def apply_writeback(
     to_apply: list[Change] = []
     held: list[Held] = []
     for c in changes:
+        # Defense in depth: only bytes the diff read and hashed are ever
+        # written; a non-delete change without them is dropped.
+        if c.kind != "delete" and c.data is None:
+            continue
         if can_write_path(c.path, person, rules, shared=shared):
             to_apply.append(c)
         else:
@@ -272,10 +276,6 @@ def apply_writeback(
             target = master / c.path
             if c.kind == "delete":
                 target.unlink(missing_ok=True)
-            elif c.data is None:
-                # Defense in depth: only bytes the diff read and hashed are
-                # ever written; a change without them is dropped.
-                continue
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(c.data)

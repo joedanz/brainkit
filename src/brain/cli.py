@@ -37,7 +37,7 @@ def cmd_compile(args) -> int:
     failures: tuple[tuple[str, str], ...] = ()
     try:
         results = compile_all(master, org, rules, out, today=date.today().isoformat(),
-                              only=args.person or None)
+                              only=args.person)
     except CompileError as e:
         results, failures = e.completed, e.failures
     for r in results:
