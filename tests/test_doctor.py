@@ -2115,3 +2115,24 @@ def test_corrupt_hold_record_is_reported_not_raised(master):
     (master / "People/bob/.held.json").write_text("{not json")
     held = [f for f in run_doctor(master, None) if f.check == "held-edits"]
     assert len(held) == 1 and "unreadable" in held[0].message
+
+
+def test_the_pending_finding_never_invites_the_agent_to_act(master):
+    # The finding reaches the agent's digest; clearing it by dismissing or
+    # confirming would undo the person's own review.
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    f = next(f for f in run_doctor(master) if f.check == "corrections-pending")
+    msg = f.message.lower()
+    assert "confirm or dismiss" not in msg and "dismiss" not in msg
+    assert "only bob can confirm" in msg and "dashboard" in msg
+
+
+def test_the_record_finding_says_fix_it_and_never_remove_it(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    (master / RECORD_REL.format(person_id="bob")).write_text("{broken")
+    f = next(f for f in run_doctor(master) if f.check == "corrections-record")
+    msg = f.message.lower()
+    assert "fix" in msg and "remov" not in msg and "delet" not in msg
+    assert "missing record" in msg and "waiting" in msg

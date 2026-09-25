@@ -1241,10 +1241,12 @@ def _check_corrections(master: Path) -> list[Finding]:
             # confirms, and an admin can too. Names only, never the rule.
             findings.append(Finding(
                 "warn", "corrections-pending",
+                # This reaches the agent's digest too, so it names no action
+                # the agent could take to clear it: only the person decides.
                 f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.pending)} correction(s) are "
-                f"waiting to be confirmed and do not reach the agent yet — confirm "
-                f"or dismiss them in the dashboard's Corrections tab "
-                f"({', '.join(f'{c.slug}.md' for c in cs.pending)})",
+                f"waiting and do not reach the agent yet. Only {pid} can confirm "
+                f"them, in their own dashboard's Corrections tab; leave them as "
+                f"they are ({', '.join(f'{c.slug}.md' for c in cs.pending)})",
                 paths=tuple(
                     f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.pending
                 )))
@@ -1261,8 +1263,9 @@ def _check_corrections(master: Path) -> list[Finding]:
             findings.append(Finding(
                 "warn", "corrections-record",
                 f"{pid}: {cs.record_error} — every correction for {pid} stays "
-                f"pending until the file is fixed or removed (removing it re-records "
-                f"today's rules as confirmed on the next cycle)",
+                f"waiting until an admin fixes the file so it is valid JSON again. "
+                f"A missing record also leaves every rule waiting, so taking the "
+                f"file away confirms nothing",
                 paths=(RECORD_REL.format(person_id=pid),)))
 
         if cs.omitted:

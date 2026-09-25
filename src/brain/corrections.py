@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -30,7 +31,7 @@ from pathlib import Path
 
 from brain import hermes_filter
 from brain.compiler import CONFIRMED_NAME
-from brain.errors import HANDLED, BrainError
+from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 from brain.holds import CYCLE_EMAIL, CYCLE_NAME, utc_now_iso
 from brain.schemas import Org, Person, load_org
@@ -41,10 +42,18 @@ CORRECTIONS_DIR = "Corrections"
 RULE_MAX = 280
 RECORD_REL = f"People/{{person_id}}/{CONFIRMED_NAME}"
 GRANDFATHERED = "grandfathered"
+# Written once, in the same commit as the first grandfathering. _meta/ is
+# never compiled into a vault, so no agent can create or delete it. Once it
+# exists, a missing record means "nothing confirmed", never "grandfather".
+GRANDFATHERED_MARKER_REL = "_meta/corrections-grandfathered"
 PENDING_NOTE_REL = "People/{person_id}/Pending-corrections.md"
 
 _HEADING = "## Standing corrections\n\n"
-_WEB_ADDRESS = re.compile(r"https?://|www\.", re.IGNORECASE)
+_WEB_ADDRESS = re.compile(r"https?://|www\.")
+# Control, format, private-use, unassigned, and line/paragraph separators:
+# a browser shows nothing (or breaks the line), but a model reads them, so a
+# rule could look like "Be concise." while carrying words nobody confirmed.
+_HIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cn", "Zl", "Zp"})
 
 
 class CorrectionError(BrainError, ValueError):
@@ -133,7 +142,10 @@ def shape_problem(rule: str) -> str | None:
         return "it is more than one line"
     if len(rule) > RULE_MAX:
         return f"it is longer than {RULE_MAX} characters"
-    if _WEB_ADDRESS.search(rule):
+    if any(unicodedata.category(ch) in _HIDDEN_CATEGORIES for ch in rule):
+        return "it contains a hidden or invisible character"
+    # Folded first, so full-width or upper-case look-alikes are caught too.
+    if _WEB_ADDRESS.search(unicodedata.normalize("NFKC", rule).casefold()):
         return "it contains a web address"
     if "`" in rule:
         return "it contains a backtick"
@@ -382,35 +394,53 @@ def _write_record(master: Path, pid: str, record: Mapping[str, dict]) -> str:
 
 
 def grandfather(master: Path, person_ids: Iterable[str], *, now: str) -> list[str]:
-    """Record every current well-shaped rule as confirmed, once per person.
+    """Record every current well-shaped rule as confirmed, once per master.
 
     Runs at the start of a cycle, before write-back, so only rules already in
-    master on upgrade day are kept in force. A person with no corrections
-    still gets `{}`: without it, the first rule their agent wrote later would
-    be grandfathered on the next cycle. A record that exists -- even one that
-    cannot be read -- means this already happened; doctor reports a broken
-    one, and it is never overwritten here."""
+    master on upgrade day are kept in force. It happens exactly once: the
+    records and GRANDFATHERED_MARKER_REL are committed together, and once the
+    marker exists this does nothing. After that a missing record (a person
+    added later, or a record someone deleted) means every rule waits for its
+    person -- deleting a record can never re-confirm a rule an agent planted.
+    A record that already exists, even one that cannot be read, is never
+    overwritten; doctor reports a broken one.
+
+    If anything fails part-way, every file written here is removed again, so
+    nothing is left uncommitted and the next cycle tries again."""
+    marker = master / GRANDFATHERED_MARKER_REL
+    if marker.exists() or marker.is_symlink():
+        return []
     written: list[str] = []
-    for pid in person_ids:
-        if (master / RECORD_REL.format(person_id=pid)).exists():
-            continue
-        cs = load_corrections(master, pid, confirmed={})
-        record = {c.slug: {"sha256": rule_hash(c.rule), "by": GRANDFATHERED, "at": now}
-                  for c in (*cs.pending, *cs.flagged)}
-        written.append(_write_record(master, pid, record))
-    if not written:
-        return written
     try:
+        for pid in person_ids:
+            if (master / RECORD_REL.format(person_id=pid)).exists():
+                continue
+            cs = load_corrections(master, pid, confirmed={})
+            record = {c.slug: {"sha256": rule_hash(c.rule), "by": GRANDFATHERED, "at": now}
+                      for c in (*cs.pending, *cs.flagged)}
+            written.append(_write_record(master, pid, record))
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"Existing corrections were kept in force on {now}.\n"
+                          "Do not delete this file: without it, the next cycle "
+                          "would confirm every rule again.\n")
+        written.append(GRANDFATHERED_MARKER_REL)
         commit_paths(master, written, name=CYCLE_NAME, email=CYCLE_EMAIL,
                      message=f"corrections: keep existing corrections for "
-                             f"{len(written)} person(s) in force")
-    except HANDLED:
+                             f"{len(written) - 1} person(s) in force")
+    except Exception:
         # Leave nothing half-done: with the records gone, every rule stays
         # pending (fail closed) and the next cycle tries again.
         for rel in written:
             (master / rel).unlink(missing_ok=True)
         raise
     return written
+
+
+def _may_act(actor: Person, pid: str, what: str) -> None:
+    """Only the person the correction belongs to, or an admin, decides it."""
+    if actor.id != pid and not actor.is_admin:
+        raise CorrectionError(f"{actor.id} cannot {what} {pid}'s corrections: only "
+                              f"{pid} or an admin can")
 
 
 def _known(org: Org, pid: str, what: str) -> Person:
@@ -446,12 +476,14 @@ def confirm(master: Path, pid: str, slug: str, by: str, *,
     org = load_org(master / "_meta/org.yaml")
     _known(org, pid, "person")
     actor = _known(org, by, "confirmer")
+    _may_act(actor, pid, "confirm")
     _rel, path = _slug_path(master, pid, slug)
     if path.is_symlink() or not path.is_file():
         raise CorrectionError(f"{pid} has no correction {slug!r}")
     cs = load_corrections(master, pid)
     if cs.record_error:
-        raise CorrectionError(f"{cs.record_error}; fix or remove it before confirming")
+        raise CorrectionError(
+            f"{cs.record_error}; an admin must fix it before anything can be confirmed")
     for r in cs.rejected:
         if r.slug == slug:
             raise CorrectionError(f"{pid}/{slug} cannot be confirmed: {r.reason}")
@@ -482,6 +514,7 @@ def dismiss(master: Path, pid: str, slug: str, by: str) -> None:
     org = load_org(master / "_meta/org.yaml")
     _known(org, pid, "person")
     actor = _known(org, by, "person dismissing it")
+    _may_act(actor, pid, "dismiss")
     rel, path = _slug_path(master, pid, slug)
     try:
         record: dict[str, dict] | None = load_record(master, pid)
