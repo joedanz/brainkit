@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-09-25
+
 ### Added
 
 - **The agents box checks each agent's instructions with the container's
