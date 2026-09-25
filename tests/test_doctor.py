@@ -1990,3 +1990,66 @@ def test_a_withheld_correction_tells_its_owner_which_pattern(master):
     assert "Check in with Maria" not in f.message
     assert "rather than" in f.message
     assert f.paths == ("People/bob/Corrections/maria.md",)
+
+
+def _blocked(master):
+    return [f for f in run_doctor(master) if f.check == "protocol-blocked"]
+
+
+def test_protocol_blocked_is_silent_on_an_ordinary_brain(master):
+    seed_meta(master)
+    assert _blocked(master) == []
+
+
+def test_a_flagged_client_is_reported_to_admins_at_info(master):
+    seed_meta(master)
+    (master / "Clients/Mythic Games").mkdir(parents=True)
+    (master / "Clients/Mythic Games/Overview.md").write_text("Board games.\n")
+    found = _blocked(master)
+    assert found and all(f.severity == "info" for f in found)
+    assert {f.message.split(":")[0] for f in found} == {"alice", "bob"}
+    assert all("`Clients/Mythic Games/`" in f.message and "known_c2_framework" in f.message
+               for f in found)
+
+
+def test_a_flagged_charter_is_one_error_for_the_admins(master):
+    seed_meta(master)
+    (master / "_meta/config.yaml").write_text(
+        'entities: Clients\nentity: client\ncharter: "Mythic tabletop game nights."\n')
+    errors = [f for f in _blocked(master) if f.severity == "error"]
+    assert len(errors) == 1
+    assert errors[0].message.startswith("charter:")
+    assert "known_c2_framework" in errors[0].message
+    assert "rephrase" in errors[0].message.lower()
+
+
+def test_a_structural_name_is_an_error_that_names_its_source(master):
+    seed_meta(master)
+    (master / "_meta/config.yaml").write_text("entities: Havoc\nentity: client\n")
+    errors = [f for f in _blocked(master) if f.severity == "error"]
+    assert {f.message.split(":")[0] for f in errors} == {"alice", "bob"}
+    assert all("entities folder `Havoc`" in f.message for f in errors)
+    assert all("shipped anyway" in f.message.lower() for f in errors)
+
+
+def test_the_master_protocol_on_disk_is_scanned(master):
+    seed_meta(master)
+    (master / "AGENTS.md").write_text("# Protocol\n\nCheck in with the ops team daily.\n")
+    [f] = [f for f in _blocked(master) if f.paths == ("AGENTS.md",)]
+    assert f.severity == "error" and "c2_heartbeat" in f.message
+
+
+def test_protocol_checks_render_each_person_once(master, monkeypatch):
+    """protocol-size and protocol-blocked share one render pass."""
+    import brain.contextgen as cg
+    seed_meta(master)
+    calls: list[str] = []
+    real = cg.render_person_protocol_report
+
+    def spy(root, person, spaces_rw, config):
+        calls.append(person.id)
+        return real(root, person, spaces_rw, config)
+
+    monkeypatch.setattr(cg, "render_person_protocol_report", spy)
+    run_doctor(master)
+    assert sorted(calls) == ["alice", "bob"]

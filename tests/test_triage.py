@@ -578,3 +578,15 @@ def test_a_shared_note_does_not_bridge_two_private_spaces(master):
     assert not bob_digest.exists() or "dup-near" not in bob_digest.read_text()
     carol_digest = _digest(master, "carol")
     assert not carol_digest.exists() or "dup-near" not in carol_digest.read_text()
+
+
+def test_protocol_blocked_reaches_the_admins_and_info_reaches_nobody():
+    from brain.triage import ADMIN_CHECKS
+    assert "protocol-blocked" in ADMIN_CHECKS
+    err = Finding("error", "protocol-blocked",
+                  "bob: AGENTS.md and CLAUDE.md would be dropped whole by Hermes")
+    info = Finding("info", "protocol-blocked",
+                   "bob: `Clients/X/` is counted in its folder's summary line")
+    routed, unrouted = route_findings([err, info], ORG, RULES)
+    assert routed == {"alice": [err]}
+    assert unrouted == 0

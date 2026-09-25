@@ -39,7 +39,9 @@ from brain.schemas import (
 )
 
 if TYPE_CHECKING:
+    from brain.contextgen import ProtocolRender, ProtocolTooLarge
     from brain.dedup import SignatureCache
+    from brain.schemas import Person
 
 # Canonical filename for triage's rolling per-person digest note
 # (People/<id>/Inbox/doctor-digest.md). Lives here, not in brain.triage,
@@ -861,39 +863,148 @@ PROTOCOL_WARN = 80
 PROTOCOL_ERROR = 95
 
 
+@dataclass(frozen=True)
+class _Rendered:
+    """One person's protocol, rendered once for every protocol check."""
+    person: Person
+    spaces_rw: list[tuple[str, bool]]
+    render: ProtocolRender | None      # None when it raised ProtocolTooLarge
+    too_large: ProtocolTooLarge | None
+
+
+def _render_protocols(master: Path, org: Org, rules: tuple[SpaceRule, ...],
+                      config: VaultConfig) -> list[_Rendered]:
+    """Every person's root protocol through the compiler's own path, once."""
+    from brain import contextgen
+    from brain.resolver import readable_spaces
+
+    out: list[_Rendered] = []
+    for person in org.people.values():
+        spaces = readable_spaces(master, person, rules, shared=config.shared)
+        spaces_rw = contextgen.writable_spaces(spaces, person, rules, shared=config.shared)
+        try:
+            render = contextgen.render_person_protocol_report(master, person, spaces_rw, config)
+        except contextgen.ProtocolTooLarge as e:
+            out.append(_Rendered(person, spaces_rw, None, e))
+            continue
+        out.append(_Rendered(person, spaces_rw, render, None))
+    return out
+
+
 def _check_protocol_size(master: Path, org: Org, rules: tuple[SpaceRule, ...],
-                         config: VaultConfig) -> list[Finding]:
+                         config: VaultConfig,
+                         renders: list[_Rendered] | None = None) -> list[Finding]:
     """Every person's generated AGENTS.md, measured before a compile has to.
 
     Past ROOT_LIMIT a person's compile fails, and until 0.7.0 that stopped
     the whole fleet. The space list used to make the file grow with the
     brain; it is bounded now, so this is the early warning for whatever else
-    grows. It renders through render_person_protocol, the compiler's own
-    path, so the number here is the compiler's number.
+    grows. It renders through the compiler's own path, so the number here is
+    the compiler's number. `renders` lets run_doctor share one render pass
+    with protocol-blocked.
     """
     from brain import contextgen
-    from brain.resolver import readable_spaces
 
+    if renders is None:
+        renders = _render_protocols(master, org, rules, config)
     findings: list[Finding] = []
-    for person in org.people.values():
-        spaces = readable_spaces(master, person, rules, shared=config.shared)
-        spaces_rw = contextgen.writable_spaces(spaces, person, rules, shared=config.shared)
-        try:
-            n = len(contextgen.render_person_protocol(master, person, spaces_rw, config))
-        except contextgen.ProtocolTooLarge as e:
+    for r in renders:
+        if r.too_large is not None:
             findings.append(Finding(
                 "error", "protocol-size",
-                f"{e} — this person's compile fails until it shrinks"))
+                f"{r.too_large} — this person's compile fails until it shrinks"))
             continue
+        n = len(r.render.text)
         pct = n * 100 // contextgen.ROOT_LIMIT
         if pct < PROTOCOL_WARN:
             continue
         level = "error" if pct >= PROTOCOL_ERROR else "warn"
         findings.append(Finding(
             level, "protocol-size",
-            f"{person.id}: generated protocol is {n:,} of "
+            f"{r.person.id}: generated protocol is {n:,} of "
             f"{contextgen.ROOT_LIMIT:,} characters ({pct}%) — "
-            f"{len(spaces_rw)} readable spaces"))
+            f"{len(r.spaces_rw)} readable spaces"))
+    return findings
+
+
+def _blocked_source(r: _Rendered, config: VaultConfig) -> str:
+    """Which structural name makes a protocol match, where one alone does."""
+    from brain.hermes_filter import blocks
+
+    candidates = [("shared space", config.shared), ("entities folder", config.entities),
+                  ("entity word", config.entity), ("requests folder", config.requests_folder),
+                  ("name key", config.name_key), ("person id", r.person.id)]
+    candidates += [("folder", top) for top in
+                   sorted({s.split("/", 1)[0] for s, _ in r.spaces_rw if "/" in s})]
+    named = [f"{label} `{value}`" for label, value in candidates if blocks(value)]
+    if named:
+        return "from the " + ", the ".join(named)
+    return "no single name matches alone; the match spans a name and the text around it"
+
+
+def _check_protocol_blocked(master: Path, config: VaultConfig,
+                            renders: list[_Rendered]) -> list[Finding]:
+    """Generated files Hermes Agent would drop whole, and what was rendered around.
+
+    Hermes replaces a context file with a one-line notice when any line
+    matches its threat filter, and the agent then runs with no admission
+    gate, no routing and no privacy rules. The renderer avoids what it can
+    (info here, for the admins to see) and ships the rest anyway (error
+    here, since only an admin can rename a structural name or rephrase the
+    charter). Withheld corrections are reported to their owner by
+    corrections-budget instead.
+    """
+    from brain import contextgen
+    from brain.hermes_filter import blocks
+
+    findings: list[Finding] = []
+    charter = contextgen.charter_blocks(config)
+    if charter:
+        findings.append(Finding(
+            "error", "protocol-blocked",
+            f"charter: withheld from every protocol and the master AGENTS.md, because "
+            f"Hermes Agent's filter matches it ({', '.join(charter)}) — rephrase the "
+            f"charter in _meta/config.yaml; until then no agent sees it",
+            paths=("_meta/config.yaml",)))
+    for r in renders:
+        if r.render is None:
+            continue  # protocol-size reports it
+        pid = r.person.id
+        for w in r.render.withheld:
+            ids = ", ".join(w.patterns)
+            if w.kind == "space":
+                msg = (f"{pid}: `{w.detail}/` is counted in its folder's summary line "
+                       f"instead of listed, because Hermes Agent's filter matches its "
+                       f"name ({ids})")
+            else:
+                msg = (f"{pid}: the protocol shows the id instead of the person's name, "
+                       f"because Hermes Agent's filter matches the name ({ids})")
+            findings.append(Finding("info", "protocol-blocked", msg))
+        if r.render.blocked:
+            findings.append(Finding(
+                "error", "protocol-blocked",
+                f"{pid}: AGENTS.md and CLAUDE.md would be dropped whole by Hermes Agent "
+                f"({', '.join(r.render.blocked)}), {_blocked_source(r, config)}. "
+                f"Shipped anyway, so this agent runs without its protocol until the "
+                f"name is changed"))
+    for owner, writable in ((True, True), (False, True), (False, False)):
+        hits = blocks(contextgen.render_space_note("", writable, owner))
+        if hits:
+            findings.append(Finding(
+                "error", "protocol-blocked",
+                f"per-space AGENTS.md notes would be dropped by Hermes Agent "
+                f"({', '.join(hits)}) — a brainkit bug; please report it"))
+            break
+    agents = master / "AGENTS.md"
+    if agents.is_file():
+        hits = blocks(agents.read_text(encoding="utf-8", errors="replace"))
+        if hits:
+            findings.append(Finding(
+                "error", "protocol-blocked",
+                f"AGENTS.md (this master's own) would be dropped whole by Hermes Agent "
+                f"({', '.join(hits)}) — reword the matching line, or run "
+                f"`brain refresh-protocol --master {master} --write`",
+                paths=("AGENTS.md",)))
     return findings
 
 
@@ -1737,7 +1848,9 @@ def run_doctor(
     findings += _check_facts(master, shared)
     if config_ok:
         findings += _check_protocol(master, config)
-        findings += _check_protocol_size(master, org, rules, config)
+        renders = _render_protocols(master, org, rules, config)
+        findings += _check_protocol_size(master, org, rules, config, renders)
+        findings += _check_protocol_blocked(master, config, renders)
         findings += _check_charter(config)
         findings += _check_taxonomy(master, config)
     findings += _check_fact_sources(master, shared)

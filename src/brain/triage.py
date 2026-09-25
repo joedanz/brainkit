@@ -73,7 +73,7 @@ TRIAGE_CHECKS = frozenset({
 # and near-duplicate notes. Merging near-duplicates needs a person's
 # judgement — an ingest writes companion pages on purpose, and a template
 # look-alike is not redundancy — so an agent's digest never asks for it.
-ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale", "dup-near"})
+ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale", "protocol-blocked", "dup-near"})
 
 
 def count_findings(findings: list[Finding]) -> dict[str, int]:
