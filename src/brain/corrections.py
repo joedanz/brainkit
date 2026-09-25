@@ -10,21 +10,47 @@ Pure over a directory on purpose, in the spirit of `facts.py`: `contextgen`
 renders from it and `doctor` reports on it, and neither has to import the
 other. The budget lives here too, so "what the agent sees" and "what doctor
 warns about" can never be computed two different ways.
+
+A rule renders only once its person (or an admin) has confirmed that exact
+text: the record lives in master at People/<pid>/.corrections.json, which is
+never compiled into a vault, so the agent that writes a correction cannot
+also confirm it. See docs/superpowers/specs/2026-09-25-corrections-confirm-design.md.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from brain import hermes_filter
+from brain.compiler import CONFIRMED_NAME
+from brain.errors import BrainError
 from brain.frontmatter import split_frontmatter
 
 CORRECTIONS_LIMIT = 4000
 CORRECTIONS_DIR = "Corrections"
+RULE_MAX = 280
+RECORD_REL = f"People/{{person_id}}/{CONFIRMED_NAME}"
+GRANDFATHERED = "grandfathered"
 
 _HEADING = "## Standing corrections\n\n"
+_WEB_ADDRESS = re.compile(r"https?://|www\.", re.IGNORECASE)
+
+
+class CorrectionError(BrainError, ValueError):
+    """A correction or its confirmation record cannot be used as asked."""
+
+
+@dataclass(frozen=True)
+class Rejected:
+    slug: str
+    rule: str
+    reason: str  # plain language, shown to the person
 
 
 @dataclass(frozen=True)
@@ -44,6 +70,17 @@ class CorrectionSet:
     unreadable: tuple[str, ...]        # slugs the OS would not hand over
     misfiled: tuple[str, ...]          # paths under the dir the loader ignores
     flagged: tuple[Correction, ...] = ()  # Hermes would drop the protocol -- withheld
+    pending: tuple[Correction, ...] = ()   # well-shaped, not (or no longer) confirmed
+    rejected: tuple[Rejected, ...] = ()    # fails the shape limits -- never renders
+    record_error: str | None = None        # the record could not be used; all pending
+
+    @property
+    def active(self) -> tuple[Correction, ...]:
+        """Every rule still in play: it renders now, or could once confirmed
+        or once the budget allows. Used by confirm, the CLI list, and the
+        dashboard view -- none of them care about `unusable`/`undated`/
+        `unreadable`/`misfiled`, which are filing defects, not live rules."""
+        return self.rendered + self.omitted + self.oversized + self.pending
 
 
 def _read_text(path: Path) -> str | None:
@@ -76,6 +113,50 @@ def _bullet(c: Correction) -> str:
     return f"- {c.rule}\n"
 
 
+def rule_hash(rule: str) -> str:
+    """What a confirmation pins: the rule text exactly as it renders."""
+    return hashlib.sha256(rule.encode("utf-8")).hexdigest()
+
+
+def shape_problem(rule: str) -> str | None:
+    """Why this rule can never be a standing correction, or None.
+
+    A correction is one short imperative sentence. Anything else -- a
+    paragraph, a link to follow, a command to run -- is what a planted
+    instruction looks like, so it is refused even if someone confirms it."""
+    if "\n" in rule or "\r" in rule:
+        return "it is more than one line"
+    if len(rule) > RULE_MAX:
+        return f"it is longer than {RULE_MAX} characters"
+    if _WEB_ADDRESS.search(rule):
+        return "it contains a web address"
+    if "`" in rule:
+        return "it contains a backtick"
+    return None
+
+
+def load_record(root: Path, pid: str) -> dict[str, dict]:
+    """The person's confirmation record, or {} when there is none yet."""
+    rel = RECORD_REL.format(person_id=pid)
+    path = root / rel
+    if not path.is_file():
+        return {}
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise CorrectionError(f"{rel}: unreadable corrections record ({e})") from e
+    if not isinstance(rec, dict) or not all(
+        isinstance(k, str) and isinstance(v, dict) and isinstance(v.get("sha256"), str)
+        for k, v in rec.items()
+    ):
+        raise CorrectionError(f"{rel}: corrections record is the wrong shape")
+    return rec
+
+
+def confirmed_hashes(record: Mapping[str, dict]) -> dict[str, str]:
+    return {slug: entry["sha256"] for slug, entry in record.items()}
+
+
 def flag_patterns(c: Correction) -> tuple[str, ...]:
     """The Hermes filter ids this rule's rendered bullet matches, or ().
 
@@ -85,7 +166,8 @@ def flag_patterns(c: Correction) -> tuple[str, ...]:
 
 
 def load_corrections(
-    vault: Path, pid: str, *, limit: int = CORRECTIONS_LIMIT
+    vault: Path, pid: str, *, limit: int = CORRECTIONS_LIMIT,
+    confirmed: Mapping[str, str] | None = None,
 ) -> CorrectionSet:
     """Read, order and budget one person's corrections.
 
@@ -108,10 +190,24 @@ def load_corrections(
     than passed over, because a rule nobody is told about is the silent drop
     this design exists to prevent. `misfiled` is derived by subtracting the
     files this function actually read, so the two can never drift apart.
+
+    Before the budget, each rule passes three gates in order: the shape
+    limits (`rejected`, never rendered even if confirmed), the Hermes filter
+    (`flagged`), and confirmation (`pending` unless the record holds this
+    exact text's hash). `confirmed` maps slug to hash; None reads the record
+    under `vault`, and a record that cannot be read leaves every rule pending
+    (fail closed) with `record_error` set for doctor.
     """
     d = vault / "People" / pid / CORRECTIONS_DIR
     if not d.is_dir():
         return CorrectionSet((), (), (), (), (), (), ())
+
+    record_error: str | None = None
+    if confirmed is None:
+        try:
+            confirmed = confirmed_hashes(load_record(vault, pid))
+        except CorrectionError as e:
+            confirmed, record_error = {}, str(e)
 
     parsed: list[Correction] = []
     unusable: list[str] = []
@@ -161,9 +257,15 @@ def load_corrections(
     omitted: list[Correction] = []
     oversized: list[Correction] = []
     flagged: list[Correction] = []
+    pending: list[Correction] = []
+    rejected: list[Rejected] = []
     used = len(_HEADING)
     full = False
     for c in ordered:
+        problem = shape_problem(c.rule)
+        if problem is not None:
+            rejected.append(Rejected(c.slug, c.rule, problem))
+            continue
         bullet = _bullet(c)
         if hermes_filter.blocks(bullet):
             # Like oversized, this never cascades: it is a defect in one
@@ -171,6 +273,11 @@ def load_corrections(
             # because a rule that would drop the whole protocol must never
             # render, whatever its length.
             flagged.append(c)
+            continue
+        if confirmed.get(c.slug) != rule_hash(c.rule):
+            # Not confirmed, or confirmed as different text. Never cascades
+            # and never spends budget: only a rule that can render does.
+            pending.append(c)
             continue
         cost = len(bullet)
         if len(_HEADING) + cost > limit:
@@ -200,6 +307,9 @@ def load_corrections(
         unreadable=tuple(unreadable),
         misfiled=tuple(misfiled),
         flagged=tuple(flagged),
+        pending=tuple(pending),
+        rejected=tuple(rejected),
+        record_error=record_error,
     )
 
 

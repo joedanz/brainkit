@@ -637,11 +637,11 @@ def _failing_for(monkeypatch, *pids: str) -> None:
 
     real = cg.generate_context_files
 
-    def flaky(vault, person, spaces_rw, config=cg.VaultConfig()):
+    def flaky(vault, person, spaces_rw, config=cg.VaultConfig(), **kwargs):
         if person.id in pids:
             raise cg.ProtocolTooLarge(
                 f"{person.id}: root protocol is 60,000 chars, over the 50,000 limit")
-        return real(vault, person, spaces_rw, config=config)
+        return real(vault, person, spaces_rw, config=config, **kwargs)
 
     monkeypatch.setattr(cg, "generate_context_files", flaky)
 

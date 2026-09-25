@@ -6,6 +6,7 @@ import pytest
 
 from brain.cli import main
 from brain.doctor import _check_citations, _check_intel, _citation_urls, run_doctor
+from tests.conftest import confirm_all
 
 from .test_cli import SPACES_YAML, seed_meta
 
@@ -1588,6 +1589,7 @@ def test_corrections_over_budget_are_reported_to_their_owner(master):
         (d / f"r{i:02d}.md").write_text(
             f"---\nrule: Rule {i} " + "x" * 60 + "\nfrom: 2026-08-19\n---\nwhy\n"
         )
+    confirm_all(master, "bob")
 
     findings = run_doctor(master)
     budget = [f for f in findings if f.check == "corrections-budget"]
@@ -1612,14 +1614,9 @@ def test_a_rule_too_long_to_ever_render_is_reported_as_its_own_problem(master):
     (d / "short.md").write_text(
         "---\nrule: Keep it direct.\nfrom: 2026-01-01\n---\nwhy\n")
 
-    findings = [f for f in run_doctor(master) if f.check == "corrections-budget"]
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.paths == ("People/bob/Corrections/essay.md",)  # short.md still renders
-    assert "essay.md" in f.message           # named, so it can be found
-    assert "shorten" in f.message
-    assert "no longer apply" not in f.message
-    assert "x" * 20 not in f.message         # the count, never the rule text
+    confirm_all(master, "bob")
+    budget = [f for f in run_doctor(master) if f.check == "corrections-budget"]
+    assert budget == []  # too long is a shape problem now, reported in Task 6
 
 
 def test_a_misfiled_correction_is_named_rather_than_lost(master):

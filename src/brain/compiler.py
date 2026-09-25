@@ -50,8 +50,13 @@ def write_manifest(path: Path, manifest: dict) -> None:
 # nobody can edit or delete their own record through a sync.
 HELD_NAME = ".held.json"
 
+# A person's correction confirmations (People/<id>/.corrections.json): which
+# rule text they confirmed. Server-only for the same reason as the hold
+# record: an agent that could write it could confirm its own rules.
+CONFIRMED_NAME = ".corrections.json"
+
 # Filenames that are server-side bookkeeping and never shipped to a vault.
-SERVER_ONLY_NAMES = frozenset({HELD_NAME})
+SERVER_ONLY_NAMES = frozenset({HELD_NAME, CONFIRMED_NAME})
 
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
@@ -281,7 +286,8 @@ def _post_process(
     # Derived once and shared: both generators need it, and two derivations
     # would be two sources of truth for one permission fact.
     spaces_rw = writable_spaces(spaces, person, rules, shared=config.shared)
-    generated = generate_context_files(building, person, spaces_rw, config=config)
+    generated = generate_context_files(
+        building, person, spaces_rw, config=config, corrections_root=master)
 
     from brain.vaultmap import MAP_NAME, generate_map
 

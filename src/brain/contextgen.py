@@ -516,12 +516,17 @@ def generate_context_files(
     person: Person,
     spaces_rw: list[tuple[str, bool]],
     config: VaultConfig = VaultConfig(),
+    corrections_root: Path | None = None,
 ) -> list[str]:
     written: list[str] = []
 
     # The compiler has already copied this person's spaces into `vault`
     # (compiler.py) before calling us, so their Corrections/ are on disk here.
-    root_text = render_person_protocol(vault, person, spaces_rw, config)
+    # The confirmation record is server-only and never copied, though, so
+    # reading confirmations needs `corrections_root` (the master) when the
+    # caller has it; falling back to `vault` keeps direct callers (tests,
+    # anything working straight from a vault-shaped tree) working unchanged.
+    root_text = render_person_protocol(corrections_root or vault, person, spaces_rw, config)
     for fname in ("AGENTS.md", "CLAUDE.md"):
         (vault / fname).write_text(root_text)
         written.append(fname)

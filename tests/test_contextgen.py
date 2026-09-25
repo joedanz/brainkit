@@ -13,7 +13,7 @@ from brain.contextgen import (
     render_space_section,
 )
 from brain.schemas import Person, VaultConfig, make_config
-from tests.conftest import BOB, RULES
+from tests.conftest import BOB, RULES, confirm_all
 
 FAM = VaultConfig(entities="Families", entity="family")
 
@@ -536,6 +536,7 @@ def test_generated_vault_protocol_carries_that_person_s_corrections(tmp_path):
     d.mkdir(parents=True)
     (d / "voice.md").write_text(
         "---\nrule: Keep client mail direct.\nfrom: 2026-08-19\n---\nSENTINELBODY\n")
+    confirm_all(vault, "bob")
 
     generate_context_files(vault, BOB, [("People/bob", True)])
 
@@ -908,6 +909,7 @@ def test_generated_protocol_is_the_one_render_path(master: Path, tmp_path: Path)
     corr = master / "People/bob/Corrections/tone.md"
     corr.parent.mkdir(parents=True)
     corr.write_text("---\nrule: Answer in plain English.\nfrom: 2026-09-01\n---\n")
+    confirm_all(master, "bob")
     out = tmp_path / "bob"
     compile_vault(master, BOB, RULES, out)
     spaces_rw = writable_spaces(readable_spaces(master, BOB, RULES), BOB, RULES)
