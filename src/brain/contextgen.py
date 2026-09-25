@@ -386,7 +386,7 @@ def render_space_section(
             counts = f"{n} spaces, all read-only"
         else:
             counts = f"{n} spaces: {nw} writable, {n - nw} read-only"
-        lines.append(f"- `{top}/` \u2014 {counts}. `Map.md` has the overview; "
+        lines.append(f"- `{top}/` — {counts}. `Map.md` has the overview; "
                      "`brain_search` finds any of them by name.")
         if n <= LIST_CAP:  # summarized only to keep a flagged name out
             named = members

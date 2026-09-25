@@ -164,14 +164,15 @@ def load_corrections(
     used = len(_HEADING)
     full = False
     for c in ordered:
-        if flag_patterns(c):
+        bullet = _bullet(c)
+        if hermes_filter.blocks(bullet):
             # Like oversized, this never cascades: it is a defect in one
             # rule, and the rules after it still render. Checked first,
             # because a rule that would drop the whole protocol must never
             # render, whatever its length.
             flagged.append(c)
             continue
-        cost = len(_bullet(c))
+        cost = len(bullet)
         if len(_HEADING) + cost > limit:
             # This one cannot fit even an empty budget, so nothing anyone
             # prunes around it will ever render it. That is a defect in one
