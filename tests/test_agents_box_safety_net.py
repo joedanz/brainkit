@@ -108,3 +108,64 @@ def test_first_boot_scans_soul_after_the_managed_blocks_and_only_warns():
     line = src[scan: src.index("\n", src.index("||", scan))]
     assert '"$DATA/SOUL.md"' in line and "--marker" not in line
     assert "|| echo" in line  # set -eu: a hit must never fail the boot
+
+
+LIVENESS = DEPLOY / "agents-liveness.sh"
+
+FAKE_DOCKER = """#!/bin/sh
+case "$*" in
+  "compose config --services") cat "$FAKE/services" ;;
+  "compose ps --services --status running") cat "$FAKE/running" ;;
+  "compose exec -T "*) cat "$FAKE/markers/$4" 2>/dev/null || exit 1 ;;
+  *) echo "unexpected: $*" >&2; exit 9 ;;
+esac
+"""
+FAKE_CURL = """#!/bin/sh
+printf '%s\\n' "$@" > "$FAKE/curl.args"
+"""
+
+
+def _liveness(tmp_path, services, running, markers):
+    fake = tmp_path / "fake"
+    (fake / "bin").mkdir(parents=True)
+    (fake / "markers").mkdir()
+    for name, body in (("docker", FAKE_DOCKER), ("curl", FAKE_CURL)):
+        p = fake / "bin" / name
+        p.write_text(body)
+        p.chmod(0o755)
+    (fake / "services").write_text("\n".join(services) + "\n")
+    (fake / "running").write_text("\n".join(running) + "\n")
+    for svc, text in markers.items():
+        (fake / "markers" / svc).write_text(text)
+    env = {**os.environ, "FAKE": str(fake), "COMPOSE_DIR": str(tmp_path),
+           "HEALTHCHECK_URL": "https://hc.example/uuid",
+           "PATH": f"{fake / 'bin'}:{os.environ['PATH']}"}
+    r = subprocess.run(["sh", str(LIVENESS)], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    return (fake / "curl.args").read_text().splitlines()
+
+
+def test_all_up_and_clean_pings_success(tmp_path):
+    args = _liveness(tmp_path, ["agent-a", "agent-b"], ["agent-a", "agent-b"], {})
+    assert args[-1] == "https://hc.example/uuid" and "--data-raw" not in args
+
+
+def test_down_body_is_unchanged(tmp_path):
+    args = _liveness(tmp_path, ["agent-a", "agent-b"], ["agent-a"], {})
+    assert args[-1] == "https://hc.example/uuid/fail"
+    assert args[args.index("--data-raw") + 1] == "down: agent-b"
+
+
+def test_a_blocked_protocol_fails_the_check_and_names_it(tmp_path):
+    args = _liveness(tmp_path, ["agent-a", "agent-b"], ["agent-a", "agent-b"],
+                     {"agent-b": "AGENTS.md:c2_heartbeat CLAUDE.md:c2_heartbeat\n"})
+    assert args[-1] == "https://hc.example/uuid/fail"
+    assert args[args.index("--data-raw") + 1] == \
+        "blocked: agent-b(AGENTS.md:c2_heartbeat CLAUDE.md:c2_heartbeat)"
+
+
+def test_down_and_blocked_share_one_body(tmp_path):
+    args = _liveness(tmp_path, ["agent-a", "agent-b", "agent-c"], ["agent-a", "agent-b"],
+                     {"agent-a": "SOUL.md:known_c2_framework\n"})
+    assert args[args.index("--data-raw") + 1] == \
+        "down: agent-c; blocked: agent-a(SOUL.md:known_c2_framework)"
