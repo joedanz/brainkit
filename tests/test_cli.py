@@ -436,3 +436,13 @@ def test_json_output_is_one_line_per_command(master, tmp_path, capsys):
     cycle_out = capsys.readouterr().out
     assert cycle_out.count("\n") == 1, "cycle --json must be one line"
     json.loads(cycle_out)
+
+
+def test_writeback_cli_records_the_hold(master: Path, tmp_path: Path):
+    seed_meta(master)
+    out_root = tmp_path / "compiled"
+    main(["compile", "--master", str(master), "--out", str(out_root)])
+    (out_root / "bob/Company/Home.md").write_text("defaced\n")
+    assert main(["writeback", "--master", str(master),
+                 "--vault", str(out_root / "bob"), "--person", "bob"]) == 1
+    assert (master / "People/bob/.held.json").is_file()

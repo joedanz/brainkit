@@ -336,7 +336,10 @@ def test_cli_writeback_reports_held_even_on_error(master: Path, tmp_path: Path,
     real = wb._git
 
     def failing(cwd, *args):
-        if "commit" in args:
+        # Only the person's own applied-change commit fails here; the
+        # separate hold-recording commit (a different message) must still
+        # succeed so the CLI's own HELD/error reporting runs.
+        if "commit" in args and any(a.startswith("writeback:") for a in args):
             raise subprocess.CalledProcessError(1, ["git", *args], stderr="disk full")
         return real(cwd, *args)
 
@@ -347,3 +350,12 @@ def test_cli_writeback_reports_held_even_on_error(master: Path, tmp_path: Path,
     err = capsys.readouterr().err
     assert "HELD" in err and "Company/Home.md" in err
     assert "write-back failed" in err and "disk full" in err
+
+
+def test_held_record_is_never_compiled_or_written_back(master: Path, tmp_path: Path):
+    (master / "People/bob/.held.json").write_text('{"sha": null, "paths": [], "at": "x"}\n')
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    assert not (vault / "People/bob/.held.json").exists()
+    (vault / "People/bob/.held.json").write_text("{}\n")  # planted by the agent
+    assert all(not c.path.endswith(".held.json") for c in diff_vault(vault))

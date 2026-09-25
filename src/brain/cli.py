@@ -14,11 +14,12 @@ from brain.compiler import CompileError, compile_all, compile_vault
 from brain.cycle import run_cycle
 from brain.doctor import run_doctor
 from brain.errors import HANDLED, describe
+from brain.holds import writeback_person
 from brain.ingest import IngestError, ingest_note
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
 from brain.version import version_string
-from brain.writeback import ManifestError, apply_writeback
+from brain.writeback import ManifestError
 
 
 def _load(master: Path):
@@ -62,7 +63,7 @@ def cmd_writeback(args) -> int:
         print(f"unknown person: {args.person}", file=sys.stderr)
         return 1
     try:
-        result = apply_writeback(master, vault, person, rules)
+        result = writeback_person(master, vault, person, rules)
     except ManifestError as e:
         print(f"cannot write back: {e}", file=sys.stderr)
         return 1

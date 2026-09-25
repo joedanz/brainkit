@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
-from brain.compiler import MANIFEST_NAME
+from brain.compiler import HELD_NAME, MANIFEST_NAME
 from brain.errors import BrainError, describe
 from brain.resolver import can_write_path
 from brain.schemas import DEFAULT_SHARED, Person, SpaceRule
@@ -38,6 +38,10 @@ JUNK_NAMES = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
 
 def is_junk(name: str) -> bool:
     return name in JUNK_NAMES or name.startswith("._") or name.endswith(("~", ".swp"))
+
+
+HELD_REL = f"People/{{person_id}}/{HELD_NAME}"
+NOTICE_REL = "People/{person_id}/Inbox/held-edits.md"
 
 
 @dataclass
@@ -152,7 +156,7 @@ def diff_vault(vault: Path, manifest: dict | None = None) -> list[Change]:
         # them surface as out-of-scope changes.
         if rel.split("/", 1)[0].startswith("."):
             continue
-        if rel in generated or is_junk(f.name):
+        if rel in generated or is_junk(f.name) or f.name == HELD_NAME:
             continue
         data = _read_nofollow(f)
         if data is None:
@@ -242,6 +246,14 @@ def apply_writeback(
         return WritebackResult(held=held)
 
     touched = [c.path for c in to_apply]
+    # Deleting the held-edits notice is how a person dismisses a hold; the
+    # record goes in the same commit.
+    record = HELD_REL.format(person_id=person.id)
+    notice = NOTICE_REL.format(person_id=person.id)
+    dismiss = (any(c.kind == "delete" and c.path == notice for c in to_apply)
+               and (master / record).is_file())
+    if dismiss:
+        touched.append(record)
     snap = _snapshot(master, touched)
     applied: list[Change] = []
     try:
@@ -257,6 +269,8 @@ def apply_writeback(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(c.data)
             applied.append(c)
+        if dismiss:
+            (master / record).unlink(missing_ok=True)
         # The change set can net to zero against master (last-write-wins
         # converged, or a delete of a file master no longer has); then
         # commit_paths makes no commit.

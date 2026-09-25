@@ -22,9 +22,11 @@ from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, CompileError, compile_all
 from brain.errors import HANDLED, describe
+from brain.holds import utc_now_iso as _utc_now_iso
+from brain.holds import writeback_person
 from brain.promotions import list_pending, sweep
 from brain.schemas import load_config, load_org, load_spaces
-from brain.writeback import ManifestError, apply_writeback
+from brain.writeback import ManifestError
 
 
 @dataclass
@@ -102,11 +104,6 @@ class CycleReport:
         )
 
 
-def _utc_now_iso() -> str:
-    from datetime import UTC, datetime
-
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
 
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
     import sqlite3
@@ -154,9 +151,9 @@ def _status(applied: int, held: list[str], error: str) -> str:
     return "applied"
 
 
-def _writeback_one(master: Path, vault: Path, person, rules) -> PersonWriteback:
+def _writeback_one(master: Path, vault: Path, person, rules, *, now: str) -> PersonWriteback:
     try:
-        result = apply_writeback(master, vault, person, rules)
+        result = writeback_person(master, vault, person, rules, now=now)
     except ManifestError as e:
         # A present-but-corrupt manifest means no trustworthy diff baseline
         # for this person. Skip them (their edits, if any, wait for the next
@@ -176,6 +173,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     # First statement, so the measurement covers the whole run rather than
     # whatever part of it someone remembers to include.
     _started = time.monotonic()
+    now = _utc_now_iso()
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     config = load_config(master)
@@ -186,7 +184,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         if not (vault / MANIFEST_NAME).is_file():
             writebacks.append(PersonWriteback(person.id, "skipped"))
             continue
-        writebacks.append(_writeback_one(master, vault, person, rules))
+        writebacks.append(_writeback_one(master, vault, person, rules, now=now))
 
     from brain.clients import materialize_clients
     from brain.shares import sweep_approvals, sweep_shares

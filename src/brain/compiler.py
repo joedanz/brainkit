@@ -36,6 +36,11 @@ if TYPE_CHECKING:
 
 MANIFEST_NAME = ".brain-manifest.json"
 
+# A person's hold record (People/<id>/.held.json): server-side bookkeeping
+# about edits write-back could not apply. Never compiled into any vault, so
+# nobody can edit or delete their own record through a sync.
+HELD_NAME = ".held.json"
+
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
 )
@@ -115,6 +120,8 @@ def _iter_space_files(master: Path, space: str):
     rels: list[str] = []
     for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
         for name in filenames:
+            if name == HELD_NAME:
+                continue
             p = Path(dirpath) / name
             if p.is_symlink():
                 continue

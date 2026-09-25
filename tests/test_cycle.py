@@ -1174,3 +1174,77 @@ def test_one_persons_writeback_failure_does_not_stop_the_next(master, tmp_path, 
     assert by_id["alice"].status == "applied"
     assert (master / "People/alice/Memory.md").read_text() == "alice edit\n"
     assert not report.ok
+
+
+import subprocess
+
+
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                          text=True, check=True).stdout
+
+
+def _hold(master):
+    return json.loads((master / "People/bob/.held.json").read_text())
+
+
+def test_hold_writes_record_and_notice(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("bob ok edit\n")
+    (out / "bob/Company/Home.md").write_text("defaced\n")  # uncommitted in the vault
+    run_cycle(master, out, today="2026-09-25")
+
+    rec = _hold(master)
+    assert rec["paths"] == [{"kind": "modify", "path": "Company/Home.md",
+                             "reason": "outside write scope for bob"}]
+    # The held bytes are reachable by SHA in bob's vault repo, although the
+    # compile has since put his copy back.
+    assert _git(out / "bob", "show", f"{rec['sha']}:Company/Home.md") == "defaced\n"
+    assert (out / "bob/Company/Home.md").read_text() != "defaced\n"
+    notice = (master / "People/bob/Inbox/held-edits.md").read_text()
+    assert "`Company/Home.md`" in notice and "ask an admin" in notice
+    assert (out / "bob/People/bob/Inbox/held-edits.md").is_file()   # bob sees it
+    assert not (out / "bob/People/bob/.held.json").exists()          # but not the record
+    log = _git(master, "log", "-1", "--format=%an", "--", "People/bob/.held.json")
+    assert log.strip() == "Brain Cycle"
+
+
+def test_newer_hold_replaces_older(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    run_cycle(master, out, today="2026-09-25")
+    (out / "bob/Company/Decisions/Big Deal Decision.md").write_text("changed\n")
+    run_cycle(master, out, today="2026-09-26")
+    assert [p["path"] for p in _hold(master)["paths"]] == [
+        "Company/Decisions/Big Deal Decision.md"]
+    notice = (master / "People/bob/Inbox/held-edits.md").read_text()
+    assert "Big Deal Decision.md" in notice and "Home.md" not in notice
+
+
+def test_deleting_the_notice_clears_the_hold(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    run_cycle(master, out, today="2026-09-25")
+    (out / "bob/People/bob/Inbox/held-edits.md").unlink()
+    report = run_cycle(master, out, today="2026-09-26")
+    assert not (master / "People/bob/.held.json").exists()
+    assert not (master / "People/bob/Inbox/held-edits.md").exists()
+    files = _git(master, "log", "-1", "--author=Bob Rivera", "--name-only", "--format=").split("\n")
+    assert {"People/bob/.held.json", "People/bob/Inbox/held-edits.md"} <= set(files)
+    assert next(w for w in report.writebacks if w.person_id == "bob").status == "applied"
+
+
+def test_dismiss_and_new_hold_in_same_sync(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    run_cycle(master, out, today="2026-09-25")
+    (out / "bob/People/bob/Inbox/held-edits.md").unlink()
+    (out / "bob/Company/Decisions/Big Deal Decision.md").write_text("changed\n")
+    run_cycle(master, out, today="2026-09-26")
+    assert [p["path"] for p in _hold(master)["paths"]] == [
+        "Company/Decisions/Big Deal Decision.md"]
+    assert (master / "People/bob/Inbox/held-edits.md").is_file()
