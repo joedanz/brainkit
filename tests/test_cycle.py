@@ -1355,3 +1355,34 @@ def test_writeback_error_keeps_the_vault_and_skips_its_compile(master, tmp_path,
     monkeypatch.setattr(wb, "diff_vault", real)
     run_cycle(master, out, today="2026-09-26")
     assert (master / "People/bob/Memory.md").read_text() == "bob edit that must survive\n"
+
+
+def test_hold_record_failure_still_counts_pass_one_changes(master, tmp_path, monkeypatch):
+    """record_hold failing after the apply committed must not make the final
+    pass re-apply what the sweeps consumed; a clean final pass clears the
+    pass-1 error and leaves the ordinary held status."""
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    draft = out / "bob/People/bob/Promotions/sop.md"
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("---\ntarget-path: Company/Playbook/SOP.md\n"
+                     "source: People/bob/Memory.md\n---\nBody.\n")
+    (out / "bob/Company/Home.md").write_text("defaced\n")  # held
+    import brain.holds as holds
+    real = holds.record_hold
+    calls = []
+
+    def flaky(*a, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError(28, "No space left on device")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(holds, "record_hold", flaky)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert len(calls) == 2
+    assert report.swept == 1 and report.pending == 1
+    assert not list((master / "People/bob/Promotions").glob("*.md"))
+    bob = next(w for w in report.writebacks if w.person_id == "bob")
+    assert bob.error == "" and bob.status == "partial" and bob.applied == 1
+    assert (master / "People/bob/Inbox/held-edits.md").is_file()

@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME
-from brain.errors import BrainError
+from brain.errors import HANDLED, BrainError, describe
 from brain.schemas import Person, SpaceRule
 from brain.writeback import (
     HELD_REL,
@@ -86,8 +86,8 @@ def render_notice(held: list[Held]) -> str:
         "",
         "Your last sync changed files in folders you can't write to, so those",
         "changes were not saved to the shared brain. Everything else in that",
-        "sync was saved, and your copy of these files was put back to match",
-        "the shared brain.",
+        "sync was saved. Your copy of these files will be put back to match",
+        "the shared brain the next time your vault is refreshed.",
         "",
         "Held back:",
         "",
@@ -158,6 +158,12 @@ def writeback_person(master: Path, vault: Path, person: Person,
     commit_vault_strays(vault)
     result = apply_writeback(master, vault, person, rules, already=already)
     if result.held:
-        record_hold(master, person.id, vault_head(vault), result.held,
-                    now=now or utc_now_iso())
+        # The apply has already committed, so a failure here is reported on
+        # the result rather than raised: the caller must still see (and skip
+        # next pass) the changes that landed.
+        try:
+            record_hold(master, person.id, vault_head(vault), result.held,
+                        now=now or utc_now_iso())
+        except HANDLED as e:
+            result.error = result.error or describe(e)
     return result
