@@ -420,12 +420,18 @@ def _known(org: Org, pid: str, what: str) -> Person:
     return person
 
 
+SLUG_MAX = 200  # well under any filesystem's name limit once ".md" is added
+
+
 def _slug_path(master: Path, pid: str, slug: str) -> tuple[str, Path]:
     """The correction's rel path and file, for a slug that is a plain file
     name. Checked before any filesystem access, so no slug can reach outside
     People/<pid>/Corrections/."""
     if (not slug or slug.startswith(".") or any(ch in slug for ch in "/\\\x00")):
         raise CorrectionError(f"not a correction name: {slug!r}")
+    if len(slug) > SLUG_MAX:
+        raise CorrectionError(f"correction name is too long ({len(slug)} characters, "
+                              f"the most is {SLUG_MAX})")
     rel = f"People/{pid}/{CORRECTIONS_DIR}/{slug}.md"
     return rel, master / rel
 

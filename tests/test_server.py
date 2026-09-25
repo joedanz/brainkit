@@ -683,3 +683,26 @@ def test_corrections_tab_builds_dom_from_text_only():
     assert "innerHTML" not in tab
     assert "api.confirmCorrection" in tab and "api.dismissCorrection" in tab
     assert "sha256" in tab
+
+
+async def test_an_overlong_slug_is_a_plain_400(aiohttp_client, master, tmp_path):
+    client = await aiohttp_client(_corrections_app(master, tmp_path))
+    for action, body in (("confirm", {"sha256": rule_hash("x")}), ("dismiss", {})):
+        resp = await client.post(f"/api/corrections/{'a' * 300}/{action}",
+                                 json=body, headers=_LOCAL)
+        assert resp.status == 400, action
+
+
+async def test_the_view_lists_a_withheld_rule_as_flagged_not_active(aiohttp_client, master, tmp_path):
+    from tests.conftest import confirm_all
+
+    app = _corrections_app(master, tmp_path)
+    d = master / "People/alice/Corrections"
+    (d / "maria.md").write_text(
+        "---\nrule: Check in with Maria before scheduling.\nfrom: 2026-08-20\n---\n")
+    confirm_all(master, "alice")
+    client = await aiohttp_client(app)
+    body = await (await client.get("/api/corrections")).json()
+    assert [c["slug"] for c in body["flagged"]] == ["maria"]
+    assert "maria" not in [c["slug"] for c in body["active"] + body["pending"]]
+    assert "tone" in [c["slug"] for c in body["active"]]

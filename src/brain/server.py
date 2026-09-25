@@ -438,6 +438,11 @@ async def _correction_action(request: web.Request, master: Path, pid: str, by: s
         await asyncio.to_thread(_do)
     except CorrectionError as e:
         raise web.HTTPBadRequest(reason=str(e).replace("\n", " ")) from e
+    except OSError as e:
+        # A filesystem refusal (e.g. a name the OS rejects) is the request's
+        # problem, not a server fault: say so plainly, never a 500.
+        raise web.HTTPBadRequest(
+            reason=f"that correction could not be read ({e.strerror or 'file error'})") from e
     return web.json_response({"ok": True, "person": pid, "slug": slug, "action": action})
 
 

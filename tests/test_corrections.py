@@ -510,3 +510,9 @@ def test_confirm_refuses_to_write_through_a_symlinked_record(master, tmp_path):
     with pytest.raises(CorrectionError, match="symlink"):
         confirm(master, "bob", "tone", "bob")
     assert outside.read_text() == "{}"
+
+
+def test_confirm_refuses_an_overlong_slug(master):
+    _seeded(master)
+    with pytest.raises(CorrectionError, match="too long"):
+        confirm(master, "bob", "a" * 300, "bob")
