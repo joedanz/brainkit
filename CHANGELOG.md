@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-09-25
+
 ### Changed
 
 - **Write-back no longer throws away a whole sync over one file.** Changes a
