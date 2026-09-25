@@ -59,7 +59,7 @@ def test_a_hit_writes_the_marker_and_a_clean_pass_removes_it(hermes, tmp_path):
 
 def test_a_leading_bom_is_stripped_as_hermes_does(hermes, tmp_path):
     f = tmp_path / "SOUL.md"
-    f.write_text("﻿You are a helpful assistant.\n")
+    f.write_text("\ufeffYou are a helpful assistant.\n")
     assert _scan(hermes, str(f)).returncode == 0
 
 
