@@ -498,3 +498,11 @@ def test_held_show_deleted_and_non_utf8(master: Path, tmp_path: Path, capsys):
     text = capsys.readouterr().out
     assert "(deleted in the vault)" in text
     assert "caf�" in text
+
+
+def test_held_show_corrupt_record(master: Path, tmp_path: Path, capsys):
+    seed_meta(master)
+    (master / "People/bob/.held.json").write_text("{not json")
+    assert main(["held", "show", "bob", "--master", str(master),
+                 "--out", str(tmp_path)]) == 1
+    assert "unreadable hold record" in capsys.readouterr().err

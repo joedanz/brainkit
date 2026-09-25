@@ -128,10 +128,14 @@ def cmd_promotions(args) -> int:
 
 
 def cmd_held(args) -> int:
-    from brain.holds import held_content, load_hold
+    from brain.holds import HoldError, held_content, load_hold
 
     master, out = Path(args.master), Path(args.out)
-    rec = load_hold(master, args.person)
+    try:
+        rec = load_hold(master, args.person)
+    except HoldError as e:
+        print(str(e), file=sys.stderr)
+        return 1
     if rec is None:
         print(f"no held edits for {args.person}")
         return 0
