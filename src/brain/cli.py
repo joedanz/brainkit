@@ -127,6 +127,23 @@ def cmd_promotions(args) -> int:
     return 0
 
 
+def cmd_held(args) -> int:
+    from brain.holds import held_content, load_hold
+
+    master, out = Path(args.master), Path(args.out)
+    rec = load_hold(master, args.person)
+    if rec is None:
+        print(f"no held edits for {args.person}")
+        return 0
+    sha = rec.get("sha")
+    print(f"held since {rec.get('at', '?')} (vault commit {sha or 'none'})")
+    for entry in rec["paths"]:
+        print(f"\n== {entry.get('kind', '?')} {entry.get('path', '?')}"
+              f" — {entry.get('reason', '')}")
+        print(held_content(out / args.person, sha, entry).rstrip("\n"))
+    return 0
+
+
 def cmd_shares(args) -> int:
     from brain.schemas import SchemaError
     from brain.shares import (
@@ -663,6 +680,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--approver", default="")
     p.add_argument("--reason", default="")
     p.set_defaults(func=cmd_promotions)
+
+    hp = sub.add_parser("held", help="show edits held back from a person's sync")
+    hp.add_argument("action", choices=["show"])
+    hp.add_argument("person")
+    hp.add_argument("--master", required=True)
+    hp.add_argument("--out", required=True, help="compiled output root")
+    hp.set_defaults(func=cmd_held)
 
     sp = sub.add_parser("shares", help="manage space share requests")
     sp.add_argument("action", choices=["list", "approve", "reject", "revoke"])

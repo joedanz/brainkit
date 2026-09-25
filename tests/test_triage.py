@@ -590,3 +590,10 @@ def test_protocol_blocked_reaches_the_admins_and_info_reaches_nobody():
     routed, unrouted = route_findings([err, info], ORG, RULES)
     assert routed == {"alice": [err]}
     assert unrouted == 0
+
+
+def test_held_edits_reach_only_the_admins():
+    f = Finding("warn", "held-edits", "bob: 1 edit(s) held since 2026-09-25 (Company/Home.md)")
+    routed, unrouted = route_findings([f], ORG, RULES)
+    assert routed == {"alice": [f]}
+    assert unrouted == 0

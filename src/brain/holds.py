@@ -127,6 +127,27 @@ def record_hold(master: Path, person_id: str, sha: str | None, held: list[Held],
     return True
 
 
+def held_content(vault: Path, sha: str | None, entry: dict) -> str:
+    """What a held path looked like in the vault, for an admin to copy by
+    hand. Never raises: a gone commit or path is said, not thrown."""
+    if entry.get("kind") == "delete":
+        return "(deleted in the vault)"
+    if not sha:
+        return "(no vault history was recorded, so the content is not available)"
+    if not (vault / ".git").exists():
+        return f"(no vault repository at {vault})"
+    probe = subprocess.run(["git", "-C", str(vault), "cat-file", "-e", f"{sha}^{{commit}}"],
+                           capture_output=True)
+    if probe.returncode != 0:
+        return (f"(vault commit {sha[:12]} is no longer available — the vault was "
+                "re-cloned or purged)")
+    shown = subprocess.run(["git", "-C", str(vault), "show", f"{sha}:{entry.get('path', '')}"],
+                           capture_output=True)
+    if shown.returncode != 0:
+        return f"(not found at vault commit {sha[:12]})"
+    return shown.stdout.decode("utf-8", errors="replace")
+
+
 def writeback_person(master: Path, vault: Path, person: Person,
                      rules: tuple[SpaceRule, ...], *, now: str | None = None
                      ) -> WritebackResult:

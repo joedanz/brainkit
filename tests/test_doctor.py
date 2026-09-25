@@ -2053,3 +2053,21 @@ def test_protocol_checks_render_each_person_once(master, monkeypatch):
     monkeypatch.setattr(cg, "render_person_protocol_report", spy)
     run_doctor(master)
     assert sorted(calls) == ["alice", "bob"]
+
+
+def test_open_hold_is_a_held_edits_warning(master):
+    seed_meta(master)
+    (master / "People/bob/.held.json").write_text(
+        '{"sha": "abc", "paths": [{"kind": "modify", "path": "Company/Home.md",'
+        ' "reason": "outside write scope for bob"}], "at": "2026-09-25T00:00:00Z"}\n')
+    held = [f for f in run_doctor(master, None) if f.check == "held-edits"]
+    assert len(held) == 1 and held[0].severity == "warn"
+    assert "bob" in held[0].message and "Company/Home.md" in held[0].message
+    assert "brain held show bob" in held[0].message
+
+
+def test_corrupt_hold_record_is_reported_not_raised(master):
+    seed_meta(master)
+    (master / "People/bob/.held.json").write_text("{not json")
+    held = [f for f in run_doctor(master, None) if f.check == "held-edits"]
+    assert len(held) == 1 and "unreadable" in held[0].message
