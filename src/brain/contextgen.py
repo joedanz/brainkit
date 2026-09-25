@@ -131,6 +131,8 @@ If you are unsure whether something passes, it does not.
   submit shared-page fixes as `mode: patch` promotions, and record a one-line
   reason in `People/{pid}/Needs-Routing.md` for items only a human can
   decide. Never edit or archive the digest — it maintains itself.
+- `People/{pid}/Inbox/held-edits.md` lists edits that were not saved:
+  tell your human about it; never delete it yourself (they dismiss it).
 - Durable facts, working preferences, and lessons that passed the tests above
   -> `People/{pid}/Memory.md`.
   Keep it a lean overview, not a running log: small facts live under its

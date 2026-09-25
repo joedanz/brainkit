@@ -111,7 +111,7 @@ def test_cycle_materializes_client_and_isolates_it(master, tmp_path):
     assert not can_read("Clients/Danziger Family", outsider, rules)
 
 
-def test_cycle_rejection_isolated_and_reported(master, tmp_path):
+def test_cycle_hold_isolated_and_reported(master, tmp_path):
     seed_meta(master)
     out = _first_compile(master, tmp_path)
 
@@ -123,7 +123,7 @@ def test_cycle_rejection_isolated_and_reported(master, tmp_path):
     assert not report.ok
     bob = next(w for w in report.writebacks if w.person_id == "bob")
     alice = next(w for w in report.writebacks if w.person_id == "alice")
-    assert bob.status == "rejected" and bob.violations
+    assert bob.status == "held" and bob.held == ["modify Company/Home.md: outside write scope for bob"]
     assert alice.status == "applied" and alice.applied == 1
     # master never took the defaced file; alice's edit landed
     assert (master / "Company/Home.md").read_text() != "defaced\n"
@@ -404,11 +404,11 @@ def test_share_approve_delivers_space_and_read_only_is_enforced(master, tmp_path
     # bob received the whole space, including the pending-window write
     note = out / "bob/Clients/Danziger Family/Danziger Family.md"
     assert note.exists() and "written while share pending" in note.read_text()
-    # read-only: bob's edits are rejected by writeback next cycle
+    # read-only: bob's edits are held by writeback next cycle
     note.write_text("bob tries to edit\n")
     report2 = run_cycle(master, out, today="2026-07-25")
     bob_wb = next(w for w in report2.writebacks if w.person_id == "bob")
-    assert bob_wb.status == "rejected"
+    assert bob_wb.status == "held"
     assert "bob tries to edit" not in (
         master / "Clients/Danziger Family/Danziger Family.md").read_text()
 
@@ -677,11 +677,11 @@ def test_everyone_share_admin_only_end_to_end(tmp_path):
     for who in ("mary", "carol"):
         assert (out / who / "Clients/Acme/Acme.md").is_file()
 
-    # read-only: carol's edit is rejected by the next cycle's writeback
+    # read-only: carol's edit is held by the next cycle's writeback
     (out / "carol/Clients/Acme/Acme.md").write_text("tampered\n")
     r = run_cycle(master, out, "2026-07-25")
     carol_wb = next(w for w in r.writebacks if w.person_id == "carol")
-    assert carol_wb.status == "rejected"
+    assert carol_wb.status == "held"
 
 
 # ---- Task 5: cycle runs triage after compile ------------------------------- #
@@ -1082,7 +1082,7 @@ def test_cli_single_person_compile_reports_an_oversized_protocol_cleanly(
                  "--person", "bob"])
     err = capsys.readouterr().err
     assert code == 1
-    assert err.startswith("brain compile: bob: root protocol is ")
+    assert err.startswith("failed bob: bob: root protocol is ")
     assert "Traceback" not in err
 
 
@@ -1125,3 +1125,264 @@ def test_cycle_rebuilds_a_damaged_embedding_cache_and_says_so(master, tmp_path, 
     assert sum("embeddings.db" in w and "rebuilt" in w for w in report.index_warnings) == 1
     again = run_cycle(master, out, today="2026-07-08", index=True)
     assert not any("embeddings.db" in w for w in again.index_warnings)
+
+
+import pytest
+
+from brain.cycle import PersonWriteback
+
+
+@pytest.mark.parametrize("status,ok", [
+    ("applied", True), ("skipped", True),
+    ("partial", False), ("held", False), ("error", False),
+])
+def test_cycle_report_ok_by_writeback_status(status, ok):
+    report = CycleReport(writebacks=[PersonWriteback("bob", status)],
+                         swept=0, compiled=0, pending=0)
+    assert report.ok is ok
+
+
+def test_cycle_partial_status(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("bob ok edit\n")
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    report = run_cycle(master, out, today="2026-09-25")
+    bob = next(w for w in report.writebacks if w.person_id == "bob")
+    assert bob.status == "partial" and bob.applied == 1
+    assert (master / "People/bob/Memory.md").read_text() == "bob ok edit\n"
+    assert not report.ok
+
+
+def test_one_persons_writeback_failure_does_not_stop_the_next(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "alice/People/alice/Memory.md").write_text("alice edit\n")
+    (out / "bob/People/bob/Memory.md").write_text("bob edit\n")
+    import brain.writeback as wb
+    real = wb.diff_vault
+
+    def boom(vault, manifest=None):
+        if vault.name == "bob":
+            raise OSError(5, "Input/output error", str(vault))
+        return real(vault, manifest)
+
+    monkeypatch.setattr(wb, "diff_vault", boom)
+    report = run_cycle(master, out, today="2026-09-25")
+    by_id = {w.person_id: w for w in report.writebacks}
+    assert by_id["bob"].status == "error" and "Input/output error" in by_id["bob"].error
+    assert by_id["alice"].status == "applied"
+    assert (master / "People/alice/Memory.md").read_text() == "alice edit\n"
+    assert not report.ok
+
+
+import subprocess
+
+
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                          text=True, check=True).stdout
+
+
+def _hold(master):
+    return json.loads((master / "People/bob/.held.json").read_text())
+
+
+def test_hold_writes_record_and_notice(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("bob ok edit\n")
+    (out / "bob/Company/Home.md").write_text("defaced\n")  # uncommitted in the vault
+    run_cycle(master, out, today="2026-09-25")
+
+    rec = _hold(master)
+    assert rec["paths"] == [{"kind": "modify", "path": "Company/Home.md",
+                             "reason": "outside write scope for bob"}]
+    # The held bytes are reachable by SHA in bob's vault repo, although the
+    # compile has since put his copy back.
+    assert _git(out / "bob", "show", f"{rec['sha']}:Company/Home.md") == "defaced\n"
+    assert (out / "bob/Company/Home.md").read_text() != "defaced\n"
+    notice = (master / "People/bob/Inbox/held-edits.md").read_text()
+    assert "`Company/Home.md`" in notice and "ask an admin" in notice
+    assert (out / "bob/People/bob/Inbox/held-edits.md").is_file()   # bob sees it
+    assert not (out / "bob/People/bob/.held.json").exists()          # but not the record
+    log = _git(master, "log", "-1", "--format=%an", "--", "People/bob/.held.json")
+    assert log.strip() == "Brain Cycle"
+
+
+def test_newer_hold_replaces_older(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    run_cycle(master, out, today="2026-09-25")
+    (out / "bob/Company/Decisions/Big Deal Decision.md").write_text("changed\n")
+    run_cycle(master, out, today="2026-09-26")
+    assert [p["path"] for p in _hold(master)["paths"]] == [
+        "Company/Decisions/Big Deal Decision.md"]
+    notice = (master / "People/bob/Inbox/held-edits.md").read_text()
+    assert "Big Deal Decision.md" in notice and "Home.md" not in notice
+
+
+def test_deleting_the_notice_clears_the_hold(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    run_cycle(master, out, today="2026-09-25")
+    (out / "bob/People/bob/Inbox/held-edits.md").unlink()
+    report = run_cycle(master, out, today="2026-09-26")
+    assert not (master / "People/bob/.held.json").exists()
+    assert not (master / "People/bob/Inbox/held-edits.md").exists()
+    files = _git(master, "log", "-1", "--author=Bob Rivera", "--name-only", "--format=").split("\n")
+    assert {"People/bob/.held.json", "People/bob/Inbox/held-edits.md"} <= set(files)
+    assert next(w for w in report.writebacks if w.person_id == "bob").status == "applied"
+
+
+def test_dismiss_and_new_hold_in_same_sync(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    run_cycle(master, out, today="2026-09-25")
+    (out / "bob/People/bob/Inbox/held-edits.md").unlink()
+    (out / "bob/Company/Decisions/Big Deal Decision.md").write_text("changed\n")
+    run_cycle(master, out, today="2026-09-26")
+    assert [p["path"] for p in _hold(master)["paths"]] == [
+        "Company/Decisions/Big Deal Decision.md"]
+    assert (master / "People/bob/Inbox/held-edits.md").is_file()
+
+
+def _manifest(vault):
+    return json.loads((vault / ".brain-manifest.json").read_text())
+
+
+def test_vault_carries_the_busy_marker_while_the_cycle_runs(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    import brain.cycle as cyc
+    seen = {}
+    real = cyc.sweep
+
+    def spy(*a, **kw):
+        seen["busy"] = _manifest(out / "bob").get("busy")
+        seen["dirty"] = _git(out / "bob", "status", "--porcelain")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(cyc, "sweep", spy)
+    run_cycle(master, out, today="2026-09-25")
+    assert seen["busy"] and ".brain-manifest.json" in seen["dirty"]
+    assert "busy" not in _manifest(out / "bob")
+    assert _git(out / "bob", "status", "--porcelain") == ""
+
+
+def test_marker_cleared_when_that_persons_compile_fails(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "bob")
+    report = run_cycle(master, out, today="2026-09-25")
+    assert any(f.startswith("bob:") for f in report.compile_failures)
+    assert "busy" not in _manifest(out / "bob")
+
+
+def test_corrupt_manifest_never_gets_a_marker(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/.brain-manifest.json").write_text("{}")
+    import brain.cycle as cyc
+    seen = {}
+    real = cyc.sweep
+
+    def spy(*a, **kw):
+        seen["bob"] = (out / "bob/.brain-manifest.json").read_text()
+        return real(*a, **kw)
+
+    monkeypatch.setattr(cyc, "sweep", spy)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert seen["bob"] == "{}"
+    assert next(w for w in report.writebacks if w.person_id == "bob").status == "skipped"
+    assert next(w for w in report.writebacks if w.person_id == "alice").status == "applied"
+
+
+def test_final_writeback_catches_a_late_edit(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    import brain.cycle as cyc
+    real = cyc.sweep
+
+    def late(*a, **kw):  # lands after the first pass, before compile
+        (out / "bob/People/bob/Memory.md").write_text("late edit\n")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(cyc, "sweep", late)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert (master / "People/bob/Memory.md").read_text() == "late edit\n"
+    assert (out / "bob/People/bob/Memory.md").read_text() == "late edit\n"
+    assert next(w for w in report.writebacks if w.person_id == "bob").applied == 1
+
+
+def test_final_writeback_does_not_reapply_consumed_drafts(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    draft = out / "bob/People/bob/Promotions/sop.md"
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("---\ntarget-path: Company/Playbook/SOP.md\n"
+                     "source: People/bob/Memory.md\n---\nBody.\n")
+    report = run_cycle(master, out, today="2026-09-25")
+    assert report.swept == 1 and report.pending == 1
+    assert not list((master / "People/bob/Promotions").glob("*.md"))
+    assert not draft.exists()  # recompiled vault no longer carries it
+    report2 = run_cycle(master, out, today="2026-09-26")
+    assert report2.swept == 0 and report2.pending == 1
+
+
+def test_writeback_error_keeps_the_vault_and_skips_its_compile(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("bob edit that must survive\n")
+    import brain.writeback as wb
+    real = wb.diff_vault
+
+    def boom(vault, manifest=None):
+        if vault.name == "bob":
+            raise OSError(28, "No space left on device", str(vault))
+        return real(vault, manifest)
+
+    monkeypatch.setattr(wb, "diff_vault", boom)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert next(w for w in report.writebacks if w.person_id == "bob").status == "error"
+    assert any(f.startswith("bob:") and "retried next cycle" in f
+               for f in report.compile_failures)
+    assert (out / "bob/People/bob/Memory.md").read_text() == "bob edit that must survive\n"
+    assert "busy" not in _manifest(out / "bob")
+    monkeypatch.setattr(wb, "diff_vault", real)
+    run_cycle(master, out, today="2026-09-26")
+    assert (master / "People/bob/Memory.md").read_text() == "bob edit that must survive\n"
+
+
+def test_hold_record_failure_still_counts_pass_one_changes(master, tmp_path, monkeypatch):
+    """record_hold failing after the apply committed must not make the final
+    pass re-apply what the sweeps consumed; a clean final pass clears the
+    pass-1 error and leaves the ordinary held status."""
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    draft = out / "bob/People/bob/Promotions/sop.md"
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("---\ntarget-path: Company/Playbook/SOP.md\n"
+                     "source: People/bob/Memory.md\n---\nBody.\n")
+    (out / "bob/Company/Home.md").write_text("defaced\n")  # held
+    import brain.holds as holds
+    real = holds.record_hold
+    calls = []
+
+    def flaky(*a, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError(28, "No space left on device")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(holds, "record_hold", flaky)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert len(calls) == 2
+    assert report.swept == 1 and report.pending == 1
+    assert not list((master / "People/bob/Promotions").glob("*.md"))
+    bob = next(w for w in report.writebacks if w.person_id == "bob")
+    assert bob.error == "" and bob.status == "partial" and bob.applied == 1
+    assert (master / "People/bob/Inbox/held-edits.md").is_file()

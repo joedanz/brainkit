@@ -25,20 +25,21 @@ def _sha(text: str) -> str:
 def test_small_vaults_render_byte_identical_to_0_6_9():
     """Pinned against the renderer as it shipped in 0.6.9, before the space
     list was bounded. No folder here exceeds LIST_CAP (the second case sits
-    exactly on it), so none of these renders may change by a single byte."""
+    exactly on it), so none of these renders may change by a single byte. Re-pinned once
+    for the held-edits.md routing bullet (spec B), a fixed-text addition."""
     assert _sha(render_root_protocol(
         BOB, [("Company", False), ("Teams/ops", True), ("People/bob", True)]
-    )) == "d081f072b7776b4a9f7c086a86be370d3055faaa334649d7853ac89c80af5821"
+    )) == "769ea274b21877e188e954c169b79c05bc4120f2a23bdfaa7ceb307fdfb75974"
     assert _sha(render_root_protocol(
         BOB, [("Company", False), ("People/bob", True)]
         + [(f"Clients/Client{i:02d}", i % 3 == 0) for i in range(20)]
-    )) == "8af08d14e3b1a3d9833fca87862f4f8289e8f2d559c32b798d1218490171aac2"
+    )) == "8d6f9e4918b37a158bb5aba7d9ffc774c43fbc2da6be25a18f86124082449637"
     assert _sha(render_root_protocol(
         BOB, [("Family", False), ("People/bob", True), ("Families/Danziger", True)],
         config=make_config("Families", "family", "Family",
                            "Everything about running the household."),
         corrections_block="## Standing corrections\n\n- Always answer in plain English.\n",
-    )) == "c5a30bf08d0334fde0326a741b10c854ff0ca35f275f84b63b12c7a438961a1a"
+    )) == "309b3cde4c60d97c37c42e4a98761c0e7d002862d0ac1c593f9de1b104413386"
 
 
 _TAIL = "`Map.md` has the overview; `brain_search` finds any of them by name."
@@ -1020,3 +1021,11 @@ def test_the_report_names_what_was_withheld_and_what_still_trips(tmp_path):
         tmp_path, BOB, [("Company", False), ("People/bob", True)],
         VaultConfig(entities="Havoc", entity="client"))
     assert "known_c2_framework" in r2.blocked
+
+
+def test_root_protocol_keeps_the_held_edits_notice():
+    person = Person(id="bob", name="Bob Rivera", roles=(), teams=("ops",))
+    text = render_root_protocol(person, [("Company", False), ("People/bob", True)])
+    assert "People/bob/Inbox/held-edits.md" in text
+    bullet = text.split("People/bob/Inbox/held-edits.md", 1)[1].split("\n- ", 1)[0]
+    assert "tell your human" in bullet and "never delete it yourself" in bullet

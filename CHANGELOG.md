@@ -11,6 +11,40 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **Write-back no longer throws away a whole sync over one file.** Changes a
+  person may write are applied even when the same sync has changes they may
+  not. Those are held: never applied, recorded in
+  `People/<id>/.held.json` (never compiled into any vault), and the person
+  gets `People/<id>/Inbox/held-edits.md` saying which files and what to do.
+  Deleting that note clears the hold. `brain cycle` statuses are now
+  `applied`, `partial`, `held`, `skipped` and `error` (`rejected` is gone);
+  `ok` is false on any hold or error.
+- Write-back commits only the files it applied, so uncommitted admin edits
+  elsewhere in the master are no longer committed under a person's name.
+- A git or disk failure during one person's write-back is reported as that
+  person's `error` and the master files are put back; the cycle carries on
+  for everyone else, and that person's vault is not recompiled, so their
+  edits are retried next cycle.
+- OS clutter (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `._*`, `*~`,
+  `*.swp`) is ignored at any depth.
+- `brain compile --person` now handles a failed build like a full compile
+  does (exit 1 with the reason) and sets up the vault's git history.
+- `brain status` no longer counts `Sessions/` notes as awaiting reindex.
+- Docs no longer suggest running the cycle from a master git hook; use cron
+  with `flock`.
+
+### Added
+
+- `brain held show <id>`: what a person's sync had for each held file.
+- `brain doctor` check `held-edits`: one warning per open hold, sent to the
+  admins' digest.
+- While a cycle works on a vault, git refuses the agent's pushes (an
+  uncommitted `busy` key in `.brain-manifest.json`); `vault-sync` keeps the
+  commit and pushes it on its next run. The cycle also writes back once more
+  just before each compile. Older brainkit ignores the `busy` key.
+
 ## [0.7.7] - 2026-09-25
 
 ### Added

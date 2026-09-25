@@ -10,15 +10,16 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
-from brain.compiler import CompileError, compile_all, compile_vault
+from brain.compiler import CompileError, compile_all
 from brain.cycle import run_cycle
 from brain.doctor import run_doctor
 from brain.errors import HANDLED, describe
+from brain.holds import writeback_person
 from brain.ingest import IngestError, ingest_note
 from brain.promotions import PromotionError, approve, list_pending, reject, sweep
 from brain.schemas import load_org, load_spaces
 from brain.version import version_string
-from brain.writeback import ManifestError, apply_writeback
+from brain.writeback import ManifestError
 
 
 def _load(master: Path):
@@ -30,28 +31,20 @@ def _load(master: Path):
 def cmd_compile(args) -> int:
     master, out = Path(args.master), Path(args.out)
     org, rules = _load(master)
-    if args.person:
-        person = org.people.get(args.person)
-        if person is None:
-            print(f"unknown person: {args.person}", file=sys.stderr)
-            return 1
-        compile_vault(
-            master, person, rules, out / person.id, today=date.today().isoformat()
-        )
-        print(f"compiled {person.id} -> {out / person.id}")
-    else:
-        failures: tuple[tuple[str, str], ...] = ()
-        try:
-            results = compile_all(master, org, rules, out, today=date.today().isoformat())
-        except CompileError as e:
-            results, failures = e.completed, e.failures
-        for r in results:
-            print(f"compiled {r.person_id}: {len(r.files)} files")
-        for pid, why in failures:
-            print(f"failed {pid}: {why}", file=sys.stderr)
-        if failures:
-            return 1
-    return 0
+    if args.person and args.person not in org.people:
+        print(f"unknown person: {args.person}", file=sys.stderr)
+        return 1
+    failures: tuple[tuple[str, str], ...] = ()
+    try:
+        results = compile_all(master, org, rules, out, today=date.today().isoformat(),
+                              only=args.person)
+    except CompileError as e:
+        results, failures = e.completed, e.failures
+    for r in results:
+        print(f"compiled {r.person_id}: {len(r.files)} files")
+    for pid, why in failures:
+        print(f"failed {pid}: {why}", file=sys.stderr)
+    return 1 if failures else 0
 
 
 def cmd_writeback(args) -> int:
@@ -62,16 +55,20 @@ def cmd_writeback(args) -> int:
         print(f"unknown person: {args.person}", file=sys.stderr)
         return 1
     try:
-        result = apply_writeback(master, vault, person, rules)
+        result = writeback_person(master, vault, person, rules)
     except ManifestError as e:
         print(f"cannot write back: {e}", file=sys.stderr)
         return 1
-    if result.violations:
-        print("REJECTED — nothing applied:", file=sys.stderr)
-        for v in result.violations:
-            print(f"  {v}", file=sys.stderr)
+    if result.held:
+        print("HELD — not applied (outside this person's write scope):", file=sys.stderr)
+        for h in result.held:
+            print(f"  {h.kind} {h.path}: {h.reason}", file=sys.stderr)
+    if result.error:
+        print(f"write-back failed, master left as it was: {result.error}", file=sys.stderr)
         return 1
     print(f"applied {len(result.applied)} change(s)")
+    if result.held:
+        return 1
     return 0
 
 
@@ -119,6 +116,27 @@ def cmd_promotions(args) -> int:
     except (PromotionError, SchemaError) as e:
         print(str(e), file=sys.stderr)
         return 1
+    return 0
+
+
+def cmd_held(args) -> int:
+    from brain.holds import HoldError, held_content, load_hold
+
+    master, out = Path(args.master), Path(args.out)
+    try:
+        rec = load_hold(master, args.person)
+    except HoldError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    if rec is None:
+        print(f"no held edits for {args.person}")
+        return 0
+    sha = rec.get("sha")
+    print(f"held since {rec.get('at', '?')} (vault commit {sha or 'none'})")
+    for entry in rec["paths"]:
+        print(f"\n== {entry.get('kind', '?')} {entry.get('path', '?')}"
+              f" — {entry.get('reason', '')}")
+        print(held_content(out / args.person, sha, entry).rstrip("\n"))
     return 0
 
 
@@ -327,9 +345,13 @@ def cmd_cycle(args) -> int:
     else:
         for w in report.writebacks:
             line = f"writeback {w.person_id}: {w.status}"
-            if w.status == "applied":
+            if w.applied:
                 line += f" ({w.applied} change(s))"
             print(line)
+            for h in w.held:
+                print(f"  held: {h}", file=sys.stderr)
+            if w.error:
+                print(f"  error: {w.error}", file=sys.stderr)
             for v in w.violations:
                 print(f"  {v}", file=sys.stderr)
         print(f"swept {report.swept} draft(s); "
@@ -654,6 +676,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--approver", default="")
     p.add_argument("--reason", default="")
     p.set_defaults(func=cmd_promotions)
+
+    hp = sub.add_parser("held", help="show edits held back from a person's sync")
+    hp.add_argument("action", choices=["show"])
+    hp.add_argument("person")
+    hp.add_argument("--master", required=True)
+    hp.add_argument("--out", required=True, help="compiled output root")
+    hp.set_defaults(func=cmd_held)
 
     sp = sub.add_parser("shares", help="manage space share requests")
     sp.add_argument("action", choices=["list", "approve", "reject", "revoke"])

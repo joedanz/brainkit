@@ -436,3 +436,89 @@ def test_json_output_is_one_line_per_command(master, tmp_path, capsys):
     cycle_out = capsys.readouterr().out
     assert cycle_out.count("\n") == 1, "cycle --json must be one line"
     json.loads(cycle_out)
+
+
+def test_writeback_cli_records_the_hold(master: Path, tmp_path: Path):
+    seed_meta(master)
+    out_root = tmp_path / "compiled"
+    main(["compile", "--master", str(master), "--out", str(out_root)])
+    (out_root / "bob/Company/Home.md").write_text("defaced\n")
+    assert main(["writeback", "--master", str(master),
+                 "--vault", str(out_root / "bob"), "--person", "bob"]) == 1
+    assert (master / "People/bob/.held.json").is_file()
+
+
+import json as _json
+
+
+def _held_setup(master: Path, tmp_path: Path) -> Path:
+    seed_meta(master)
+    out_root = tmp_path / "compiled"
+    main(["compile", "--master", str(master), "--out", str(out_root)])
+    (out_root / "bob/Company/Home.md").write_text("defaced\n")
+    main(["cycle", "--master", str(master), "--out", str(out_root)])
+    return out_root
+
+
+def test_held_show_prints_record_and_content(master: Path, tmp_path: Path, capsys):
+    out_root = _held_setup(master, tmp_path)
+    capsys.readouterr()
+    assert main(["held", "show", "bob", "--master", str(master), "--out", str(out_root)]) == 0
+    text = capsys.readouterr().out
+    assert "modify Company/Home.md" in text and "defaced" in text
+
+
+def test_held_show_without_a_hold(master: Path, tmp_path: Path, capsys):
+    seed_meta(master)
+    assert main(["held", "show", "bob", "--master", str(master),
+                 "--out", str(tmp_path)]) == 0
+    assert "no held edits for bob" in capsys.readouterr().out
+
+
+def test_held_show_unreachable_sha(master: Path, tmp_path: Path, capsys):
+    out_root = _held_setup(master, tmp_path)
+    rec_path = master / "People/bob/.held.json"
+    rec = _json.loads(rec_path.read_text())
+    rec["sha"] = "0" * 40
+    rec_path.write_text(_json.dumps(rec))
+    capsys.readouterr()
+    assert main(["held", "show", "bob", "--master", str(master), "--out", str(out_root)]) == 0
+    assert "no longer available" in capsys.readouterr().out
+
+
+def test_held_show_deleted_and_non_utf8(master: Path, tmp_path: Path, capsys):
+    seed_meta(master)
+    out_root = tmp_path / "compiled"
+    main(["compile", "--master", str(master), "--out", str(out_root)])
+    (out_root / "bob/Company/Decisions/Big Deal Decision.md").unlink()
+    (out_root / "bob/Company/Home.md").write_bytes(b"caf\xe9\n")  # Windows-1252
+    main(["cycle", "--master", str(master), "--out", str(out_root)])
+    capsys.readouterr()
+    assert main(["held", "show", "bob", "--master", str(master), "--out", str(out_root)]) == 0
+    text = capsys.readouterr().out
+    assert "(deleted in the vault)" in text
+    assert "caf�" in text
+
+
+def test_held_show_corrupt_record(master: Path, tmp_path: Path, capsys):
+    seed_meta(master)
+    (master / "People/bob/.held.json").write_text("{not json")
+    assert main(["held", "show", "bob", "--master", str(master),
+                 "--out", str(tmp_path)]) == 1
+    assert "unreadable hold record" in capsys.readouterr().err
+
+
+def test_compile_single_person_goes_through_failure_isolation(master: Path, tmp_path: Path,
+                                                              capsys, monkeypatch):
+    from tests.test_compiler import _failing_for
+
+    seed_meta(master)
+    out_root = tmp_path / "compiled"
+    assert main(["compile", "--master", str(master), "--out", str(out_root),
+                 "--person", "bob"]) == 0
+    assert (out_root / "bob/.git").is_dir()  # same git step as a fleet compile
+    _failing_for(monkeypatch, "bob")
+    capsys.readouterr()
+    assert main(["compile", "--master", str(master), "--out", str(out_root),
+                 "--person", "bob"]) == 1
+    assert "failed bob:" in capsys.readouterr().err

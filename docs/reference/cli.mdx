@@ -7,12 +7,12 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,refresh-protocol,rename-entities,ingest,webhook,compile,writeback,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor,triage} …
+brain {init,refresh-protocol,rename-entities,ingest,webhook,compile,writeback,held,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor,triage} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error, with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
 
-"Handled" covers both the errors brain raises itself (unknown person, rejected write-back, invalid promotion, integrity error) and the environmental ones it doesn't author: a missing or unparseable `_meta` file, a path that can't be read or written, a full disk, a `git` that refuses. Those last ones name the path or the git command that failed, because that is what you act on.
+"Handled" covers both the errors brain raises itself (unknown person, held or failed write-back, invalid promotion, integrity error) and the environmental ones it doesn't author: a missing or unparseable `_meta` file, a path that can't be read or written, a full disk, a `git` that refuses. Those last ones name the path or the git command that failed, because that is what you act on.
 
 <Callout type="info">
   An unexpected exception still prints a traceback and is **not** flattened into a one-line error. That is deliberate: a traceback means you have found a bug, and dressing it up as a handled failure would hide it. If a traceback reaches your logs, it belongs in [an issue](https://github.com/joedanz/brainkit/issues).
@@ -181,7 +181,17 @@ brain writeback --master <master> --vault <vault> --person <id>
 | `--vault` | yes | The person's edited (synced) vault. |
 | `--person` | yes | Whose edits these are — determines the write scope. |
 
-Every changed path is checked against the person's write permissions server-side. If **any** path is out of scope, the whole change set is rejected: nothing is applied, the violations print to stderr, and the command exits `1`. This is deliberate — there is no partial write that could leave the master half-updated.
+Every changed path is checked against the person's write permissions on the server, one change at a time. Changes they may write are applied and committed as that person, and only those files: an admin's uncommitted edit elsewhere in the master is never swept into the commit. Changes outside their write scope are **held**: they are not applied, they are listed on stderr, and the command exits `1`. The person gets a note at `People/<id>/Inbox/held-edits.md`, and the record at `People/<id>/.held.json` points to the vault commit that has the content (see [`brain held`](#brain-held)). OS clutter (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `._*`, `*~`, `*.swp`) is ignored at any depth. If git or the disk fails partway through, the master files it touched are put back and the command exits `1`.
+
+## `brain held`
+
+Show the edits held back from a person's sync.
+
+```bash
+brain held show <id> --master <master> --out <out>
+```
+
+Prints when the hold was recorded, which vault commit it points to, and for each held file what the person's vault had (or that it was deleted). There is no apply command: an admin copies what should be kept into the master by hand. A person has at most one open hold. A newer one replaces it, and deleting `People/<id>/Inbox/held-edits.md` from their vault clears it. If the vault was re-cloned or purged since, the command says the commit is no longer available. `brain doctor` lists every open hold as a `held-edits` warning, which goes to the admins' digest.
 
 ## `brain promotions`
 
@@ -253,7 +263,7 @@ brain cycle --master <master> --out <out> [--json] [--index]
 
 | Field | Meaning |
 |---|---|
-| `writebacks` | Per-person write-back results (`person_id`, `status`, `applied` count, `violations`). |
+| `writebacks` | Per-person write-back results: `person_id`, `status` (`applied`, `partial` (some applied, some held), `held` (nothing applied, something held), `skipped`, or `error`), `applied` count, `held` (one `<kind> <path>: <reason>` line per held change), `error`, and `violations` (why a person was skipped). |
 | `swept` | Promotion drafts pulled into the pending queue this cycle. |
 | `compiled` | Vaults recompiled this cycle. |
 | `compile_failures` | People whose vault failed to build this cycle, as `<id>: <reason>`. Each keeps their previous vault; everyone else is refreshed. Any entry makes `ok` false. |
@@ -275,16 +285,18 @@ brain cycle --master <master> --out <out> [--json] [--index]
 | `triage_digests` | Digest notes written or removed this cycle. |
 | `triage_unrouted` | Findings with no eligible recipient (no admin configured). |
 | `triage_warnings` | Warnings from the triage step (skipped digests, git failures) — surfaced on stderr in text mode, never flips `ok`. |
-| `ok` | `false` if any write-back was rejected, a vault failed to compile, or a tampering signal fired — see below. |
+| `ok` | `false` if any write-back held an edit or failed, a vault failed to compile, or a tampering signal fired — see below. |
 
-The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, share, and decision requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes — and `sweep_approvals` applies any delegated decisions sitting in `People/*/Approvals/`, re-checking eligibility against the live rule before touching anything. All of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, then `sweep_promotion_approvals` applies any delegated promotion decisions sitting in `People/*/PromotionApprovals/` — re-checking eligibility against the live rule and refusing any decision that targets the shared space, even an admin's — and the recompile runs *last* so every vault reflects the fully updated master. A rejected write-back never halts the cycle — the rest of the pipeline still runs, and the fresh compile reverts the rejected edits server-side (fail closed). After the compile, triage runs doctor and reconciles each person's `People/<id>/Inbox/doctor-digest.md` — the digests land in master this cycle and compile into vaults on the next. Triage warnings never flip `ok`.
+The ordering is load-bearing: write-back lands each person's edits (including freshly synced promotion, client, share, and decision requests) in the master *first*. `materialize_clients` provisions any self-service client spaces next, so a freshly granted space is visible this same cycle. `sweep_shares` then routes share/revoke requests — queuing shares, auto-applying revokes — and `sweep_approvals` applies any delegated decisions sitting in `People/*/Approvals/`, re-checking eligibility against the live rule before touching anything. All of those steps can append to `spaces.yaml`, which is reloaded before the promotions sweep and the compile so they see the fresh rules. The promotions sweep runs after that, then `sweep_promotion_approvals` applies any delegated promotion decisions sitting in `People/*/PromotionApprovals/` — re-checking eligibility against the live rule and refusing any decision that targets the shared space, even an admin's — and the recompile runs *last* so every vault reflects the fully updated master. A hold or a write-back failure never halts the cycle. Held edits are never applied, and the recompile puts the person's copy back; a person whose write-back failed is not recompiled that cycle, so their edits are retried on the next one. While the cycle works on a vault, it marks that vault busy (an uncommitted `busy` key in `.brain-manifest.json`), and git refuses the agent's pushes until the compile clears the mark. `vault-sync` keeps those commits and pushes them on its next run. Just before each person's compile, the cycle runs their write-back once more. After the compile, triage runs doctor and reconciles each person's `People/<id>/Inbox/doctor-digest.md` — the digests land in master this cycle and compile into vaults on the next. Triage warnings never flip `ok`.
 
-`ok` is `false` when any write-back is rejected, when a person's vault fails to compile (see `compile_failures`), or when a client, share, or promotion request is flagged as **tampering** — an owner-mismatch client request, a share/revoke request from someone who turns out not to own the space when the cycle runs, or a delegated decision note (`Approvals/` or `PromotionApprovals/`) with a forged `owner`. Routine outcomes don't flip it: a client request that loses a name collision (`clients_rejected`), a share request rejected for an ordinary reason (unknown recipient, already shared, nothing to revoke), or a delegated decision refused for an ordinary reason (an ineligible decider, an already-decided share or promotion, a promotion targeting a team the decider doesn't lead, or one targeting the shared space) is a normal user outcome, surfaced via the requester's or decider's own inbox note — not a security event. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns and never flips `ok`.
+`ok` is `false` when any write-back holds an edit or fails, when a person's vault fails to compile (see `compile_failures`), or when a client, share, or promotion request is flagged as **tampering** — an owner-mismatch client request, a share/revoke request from someone who turns out not to own the space when the cycle runs, or a delegated decision note (`Approvals/` or `PromotionApprovals/`) with a forged `owner`. Routine outcomes don't flip it: a client request that loses a name collision (`clients_rejected`), a share request rejected for an ordinary reason (unknown recipient, already shared, nothing to revoke), or a delegated decision refused for an ordinary reason (an ineligible decider, an already-decided share or promotion, a promotion targeting a team the decider doesn't lead, or one targeting the shared space) is a normal user outcome, surfaced via the requester's or decider's own inbox note — not a security event. `--index` adds `indexed` and `index_warnings` to the summary; because retrieval is a convenience layer and compile is the security layer, a failed index only warns and never flips `ok`.
 
 <Callout type="info">
-  This is the one command to run on a schedule — a cron entry or a git
-  post-receive hook. It replaces running `writeback`, `promotions sweep`, and
-  `compile` by hand. A person whose vault has never been compiled is `skipped`
+  This is the one command to run on a schedule, from cron under `flock`
+  (below). Do not run it from a master git hook: a hook fires in the middle
+  of a cycle's own commits. It replaces running `writeback`,
+  `promotions sweep`, and `compile` by hand. A person whose vault has never
+  been compiled is `skipped`
   (not an error); the recompile creates it. A person whose manifest is corrupt
   is likewise `skipped` (with the reason in `violations`) rather than aborting
   everyone else's refresh — the recompile rewrites a clean manifest, so the
@@ -584,5 +596,5 @@ As `brain cycle`/`brain index` run (or you commit to a vault), the page updates 
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Handled error — unknown person or sender, rejected write-back, invalid/missing promotion, an unwritable ingest target, or (for `doctor`) an `error`-severity finding. The message is on stderr. |
+| `1` | Handled error — unknown person or sender, a held or failed write-back, invalid/missing promotion, an unwritable ingest target, or (for `doctor`) an `error`-severity finding. The message is on stderr. |
 | `2` | Usage error from argument parsing (unknown subcommand, missing required flag). |

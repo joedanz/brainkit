@@ -1322,6 +1322,29 @@ def _check_corrections(master: Path) -> list[Finding]:
     return findings
 
 
+def _check_held_edits(master: Path, org: Org) -> list[Finding]:
+    """One warning per person with an open hold: edits their sync carried
+    that write-back could not apply. Admin digest only (triage.ADMIN_CHECKS);
+    the person already has their own Inbox notice."""
+    from brain.holds import HoldError, load_hold
+
+    findings: list[Finding] = []
+    for pid in sorted(org.people):
+        try:
+            rec = load_hold(master, pid)
+        except HoldError as e:
+            findings.append(Finding("warn", "held-edits", str(e)))
+            continue
+        if rec is None:
+            continue
+        paths = [p.get("path", "?") for p in rec["paths"] if isinstance(p, dict)]
+        findings.append(Finding(
+            "warn", "held-edits",
+            f"{pid}: {len(paths)} edit(s) held since {rec.get('at', '?')} "
+            f"({', '.join(paths)}) — `brain held show {pid}` shows them"))
+    return findings
+
+
 def _check_symlinks(master: Path) -> list[Finding]:
     findings: list[Finding] = []
     for p in sorted(master.rglob("*")):
@@ -1856,6 +1879,7 @@ def run_doctor(
     findings += _check_fact_sources(master, shared)
     findings += _check_fact_conflicts(master, shared)
     findings += _check_corrections(master)
+    findings += _check_held_edits(master, org)
     findings += _check_symlinks(master)
     findings += _check_promotions(master, shared)
     findings += _check_created_clients(master, config)

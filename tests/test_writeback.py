@@ -37,38 +37,32 @@ def test_diff_detects_add_modify_delete(master: Path, tmp_path: Path):
     assert not any(p.endswith(("AGENTS.md", "CLAUDE.md")) for _, p in changes)
 
 
-def test_out_of_scope_change_rejects_everything(master: Path, tmp_path: Path):
+def test_mixed_batch_applies_in_scope_and_holds_the_rest(master: Path, tmp_path: Path):
     setup_master_git(master)
     vault = tmp_path / "bob"
     compile_vault(master, BOB, RULES, vault)
     (vault / "People/bob/Memory.md").write_text("legit change\n")
     (vault / "Company/Home.md").write_text("bob defaces the homepage\n")  # not writable
     result = apply_writeback(master, vault, BOB, RULES)
-    assert result.applied == []
-    assert any("Company/Home.md" in v for v in result.violations)
-    # Nothing applied — master untouched, including the legit change
-    assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"
+    assert [(c.kind, c.path) for c in result.applied] == [("modify", "People/bob/Memory.md")]
+    assert result.held == [("modify", "Company/Home.md", "outside write scope for bob")]
+    assert result.error == ""
+    assert (master / "People/bob/Memory.md").read_text() == "legit change\n"
+    assert (master / "Company/Home.md").read_text() != "bob defaces the homepage\n"
+    assert git(master, "show", "--name-only", "--format=%an", "HEAD").split() == [
+        "Bob", "Rivera", "People/bob/Memory.md"]
 
 
-def test_out_of_scope_delete_rejects_everything(master: Path, tmp_path: Path):
+def test_out_of_scope_delete_is_held_not_applied(master: Path, tmp_path: Path):
     setup_master_git(master)
     vault = tmp_path / "bob"
     compile_vault(master, BOB, RULES, vault)
-    (vault / "People/bob/Memory.md").write_text("legit change\n")
-    # Bob can read Company but not write it — deleting the file from his
-    # vault copy must be rejected server-side like any other change.
     (vault / "Company/Decisions/Big Deal Decision.md").unlink()
     result = apply_writeback(master, vault, BOB, RULES)
     assert result.applied == []
-    assert any(
-        "delete" in v and "Company/Decisions/Big Deal Decision.md" in v
-        for v in result.violations
-    )
-    # Master untouched: the read-only file survives with original content,
-    # and the legit edit is NOT applied either.
-    master_file = master / "Company/Decisions/Big Deal Decision.md"
-    assert master_file.read_text() == "We chose option A.\n"
-    assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"
+    assert result.held == [("delete", "Company/Decisions/Big Deal Decision.md",
+                            "outside write scope for bob")]
+    assert (master / "Company/Decisions/Big Deal Decision.md").read_text() == "We chose option A.\n"
 
 
 def test_valid_writeback_applies_and_commits(master: Path, tmp_path: Path):
@@ -77,7 +71,7 @@ def test_valid_writeback_applies_and_commits(master: Path, tmp_path: Path):
     compile_vault(master, BOB, RULES, vault)
     (vault / "People/bob/Memory.md").write_text("Bob updated memory.\n")
     result = apply_writeback(master, vault, BOB, RULES)
-    assert result.violations == []
+    assert result.held == []
     assert [c.kind for c in result.applied] == ["modify"]
     assert (master / "People/bob/Memory.md").read_text() == "Bob updated memory.\n"
     log = git(master, "log", "-1", "--format=%an %ae %s")
@@ -90,7 +84,7 @@ def test_noop_writeback_makes_no_commit(master: Path, tmp_path: Path):
     compile_vault(master, BOB, RULES, vault)
     before = git(master, "rev-parse", "HEAD")
     result = apply_writeback(master, vault, BOB, RULES)
-    assert result.applied == [] and result.violations == []
+    assert result.applied == [] and result.held == []
     assert git(master, "rev-parse", "HEAD") == before
 
 
@@ -109,7 +103,7 @@ def test_modify_converged_with_master_no_crash_no_commit(master: Path, tmp_path:
     (vault / "People/bob/Memory.md").write_text("converged\n")
     before = git(master, "rev-parse", "HEAD")
     result = apply_writeback(master, vault, BOB, RULES)
-    assert result.violations == []
+    assert result.held == []
     assert [c.kind for c in result.applied] == ["modify"]
     assert (master / "People/bob/Memory.md").read_text() == "converged\n"
     assert git(master, "rev-parse", "HEAD") == before  # nothing new to record
@@ -128,7 +122,7 @@ def test_forged_baseline_delete_of_absent_file_no_crash(master: Path, tmp_path: 
     manifest_path.write_text(json.dumps(manifest))
     before = git(master, "rev-parse", "HEAD")
     result = apply_writeback(master, vault, BOB, RULES)
-    assert result.violations == []
+    assert result.held == []
     assert [(c.kind, c.path) for c in result.applied] == [
         ("delete", "People/bob/Ghost.md")
     ]
@@ -180,14 +174,13 @@ def test_local_dot_dirs_do_not_reject_writeback(master: Path, tmp_path: Path):
     changes = {c.path for c in diff_vault(vault)}
     assert not any(p.startswith((".brain", ".obsidian")) for p in changes)
     result = apply_writeback(master, vault, BOB, RULES)
-    assert result.violations == []
+    assert result.held == []
     assert any(c.path == "People/bob/Memory.md" for c in result.applied)
 
 
 def test_apply_skips_symlink_appearing_after_diff(master: Path, tmp_path: Path, monkeypatch):
-    # diff_vault never emits symlinks, but if the vault changed between diff and
-    # apply, the apply phase must still refuse to copy a symlink's target into
-    # master (arbitrary-file-read defense in depth).
+    # A change the diff hands over without captured bytes is never applied:
+    # apply writes only bytes the diff hashed, and never re-reads the vault.
     setup_master_git(master)
     vault = tmp_path / "bob"
     compile_vault(master, BOB, RULES, vault)
@@ -198,7 +191,7 @@ def test_apply_skips_symlink_appearing_after_diff(master: Path, tmp_path: Path, 
         lambda v, manifest=None: [Change("People/bob/leak.md", "modify")],
     )
     result = apply_writeback(master, vault, BOB, RULES)
-    assert result.violations == []  # path is in scope; the symlink is the issue
+    assert result.held == []  # path is in scope; the symlink is the issue
     # The secret's bytes were never written into master under Bob's path.
     assert not (master / "People/bob/leak.md").exists()
 
@@ -215,7 +208,7 @@ def test_client_request_subdir_survives_writeback(master: Path, tmp_path: Path):
     rules = load_spaces(master / "_meta/spaces.yaml")
     result = apply_writeback(master, out / "bob", person, rules)
 
-    assert not result.violations
+    assert not result.held
     assert any(c.path.startswith("People/bob/ClientRequests/") for c in result.applied)
     assert list((master / "People/bob/ClientRequests").glob("*.md"))
 
@@ -231,3 +224,138 @@ def test_shared_of_semantics():
 def test_vault_shared_missing_manifest(tmp_path):
     from brain.writeback import vault_shared
     assert vault_shared(tmp_path) == "Company"  # naming lookup, never raises
+
+
+import subprocess as _sp
+
+
+def test_junk_at_any_depth_is_ignored(master: Path, tmp_path: Path):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    for rel in ("People/bob/.DS_Store", "People/bob/Notes/._x.md", "People/bob/a.md~",
+                "People/bob/.Memory.md.swp", "Company/Thumbs.db", "Company/Decisions/desktop.ini"):
+        (vault / rel).parent.mkdir(parents=True, exist_ok=True)
+        (vault / rel).write_bytes(b"junk")
+    (vault / "People/bob/Memory.md").write_text("real edit\n")
+    assert {c.path for c in diff_vault(vault)} == {"People/bob/Memory.md"}
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert result.held == []
+    assert [c.path for c in result.applied] == ["People/bob/Memory.md"]
+    assert not (master / "People/bob/.DS_Store").exists()
+
+
+def test_committed_bytes_are_the_hashed_bytes(master: Path, tmp_path: Path, monkeypatch):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Memory.md").write_text("version one\n")
+    import brain.writeback as wb
+    real = wb.diff_vault
+
+    def racing(v, manifest=None):
+        changes = real(v, manifest)
+        (v / "People/bob/Memory.md").write_text("version two, written after the diff\n")
+        return changes
+
+    monkeypatch.setattr(wb, "diff_vault", racing)
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert result.applied[0].sha == wb._sha(b"version one\n")
+    assert (master / "People/bob/Memory.md").read_text() == "version one\n"
+    assert git(master, "show", "HEAD:People/bob/Memory.md") == "version one\n"
+
+
+def test_unrelated_dirty_master_file_stays_out_of_the_commit(master: Path, tmp_path: Path):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (master / "Company/Home.md").write_text("admin draft, not committed\n")
+    (master / "Teams/ops/Runbook.md").write_text("admin staged this\n")
+    git(master, "add", "Teams/ops/Runbook.md")
+    (vault / "People/bob/Memory.md").write_text("bob edit\n")
+    apply_writeback(master, vault, BOB, RULES)
+    assert git(master, "show", "--name-only", "--format=", "HEAD").split() == ["People/bob/Memory.md"]
+    status = git(master, "status", "--porcelain")
+    assert " M Company/Home.md" in status and "M  Teams/ops/Runbook.md" in status
+
+
+def test_git_commit_failure_restores_master_and_does_not_raise(master: Path, tmp_path: Path,
+                                                                monkeypatch):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Memory.md").write_text("bob edit\n")
+    (vault / "People/bob/New.md").write_text("new note\n")
+    (vault / "Company/Home.md").write_text("held\n")
+    import brain.writeback as wb
+    real = wb._git
+
+    def failing(cwd, *args):
+        if "commit" in args:
+            raise _sp.CalledProcessError(1, ["git", *args], stderr="disk full")
+        return real(cwd, *args)
+
+    monkeypatch.setattr(wb, "_git", failing)
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert "disk full" in result.error
+    assert result.applied == []
+    assert [h.path for h in result.held] == ["Company/Home.md"]
+    assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"
+    assert not (master / "People/bob/New.md").exists()
+    assert git(master, "status", "--porcelain") == ""
+
+
+def test_glob_characters_in_paths_commit_literally(master: Path, tmp_path: Path):
+    setup_master_git(master)
+    (master / "People/bob/Notes").mkdir(parents=True)
+    (master / "People/bob/Notes/other.md").write_text("untouched\n")
+    git(master, "add", "-A")
+    git(master, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "other")
+    (master / "People/bob/Notes/other.md").write_text("dirty, must stay out\n")
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Notes/[draft] *.md").write_text("literal name\n")
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert [c.path for c in result.applied] == ["People/bob/Notes/[draft] *.md"]
+    assert git(master, "show", "--name-only", "--format=", "HEAD").strip() == \
+        "People/bob/Notes/[draft] *.md"
+    assert " M People/bob/Notes/other.md" in git(master, "status", "--porcelain")
+
+
+def test_cli_writeback_reports_held_even_on_error(master: Path, tmp_path: Path,
+                                                    monkeypatch, capsys):
+    from brain.cli import main
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Memory.md").write_text("bob edit\n")
+    (vault / "Company/Home.md").write_text("held\n")  # out of scope
+    import brain.writeback as wb
+    real = wb._git
+
+    def failing(cwd, *args):
+        # Only the person's own applied-change commit fails here; the
+        # separate hold-recording commit (a different message) must still
+        # succeed so the CLI's own HELD/error reporting runs.
+        if "commit" in args and any(a.startswith("writeback:") for a in args):
+            raise subprocess.CalledProcessError(1, ["git", *args], stderr="disk full")
+        return real(cwd, *args)
+
+    monkeypatch.setattr(wb, "_git", failing)
+    code = main(["writeback", "--master", str(master), "--vault", str(vault),
+                 "--person", "bob"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "HELD" in err and "Company/Home.md" in err
+    assert "write-back failed" in err and "disk full" in err
+
+
+def test_held_record_is_never_compiled_or_written_back(master: Path, tmp_path: Path):
+    (master / "People/bob/.held.json").write_text('{"sha": null, "paths": [], "at": "x"}\n')
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    assert not (vault / "People/bob/.held.json").exists()
+    (vault / "People/bob/.held.json").write_text("{}\n")  # planted by the agent
+    assert all(not c.path.endswith(".held.json") for c in diff_vault(vault))

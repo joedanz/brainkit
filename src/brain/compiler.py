@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -35,6 +36,22 @@ if TYPE_CHECKING:
     from brain.promotions import Promotion
 
 MANIFEST_NAME = ".brain-manifest.json"
+
+
+def write_manifest(path: Path, manifest: dict) -> None:
+    """Serialize a vault manifest the one way every writer must agree on, so
+    a rewrite (e.g. clearing the busy key) reproduces the committed bytes
+    exactly."""
+    path.write_text(json.dumps(manifest, indent=2))
+
+
+# A person's hold record (People/<id>/.held.json): server-side bookkeeping
+# about edits write-back could not apply. Never compiled into any vault, so
+# nobody can edit or delete their own record through a sync.
+HELD_NAME = ".held.json"
+
+# Filenames that are server-side bookkeeping and never shipped to a vault.
+SERVER_ONLY_NAMES = frozenset({HELD_NAME})
 
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
@@ -115,6 +132,8 @@ def _iter_space_files(master: Path, space: str):
     rels: list[str] = []
     for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
         for name in filenames:
+            if name in SERVER_ONLY_NAMES:
+                continue
             p = Path(dirpath) / name
             if p.is_symlink():
                 continue
@@ -196,7 +215,7 @@ def compile_vault(
             # parse this vault's paths. Written only when it is not the
             # default, so a default vault's manifest is byte-unchanged.
             manifest["shared"] = config.shared
-        (building / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2))
+        write_manifest(building / MANIFEST_NAME, manifest)
 
         # Two-phase swap: rename the previous vault aside, promote the new
         # tree, then move the per-person git history into it. The previous
@@ -324,7 +343,16 @@ def compile_all(
     today: str | None = None,
     config: VaultConfig | None = None,
     pending: list[Promotion] | None = None,
+    *,
+    only: str | None = None,
+    before_each: Callable[[Person], None] | None = None,
 ) -> list[CompileResult]:
+    """Compile every person's vault (or just `only`), isolating failures.
+
+    `before_each` runs for each person immediately before their compile; a
+    handled error it raises counts as that person's failure and skips their
+    compile, leaving their vault as it was.
+    """
     today = today or date.today().isoformat()
     config = config or load_config(master)
     if pending is None:
@@ -336,10 +364,13 @@ def compile_all(
         pending = list_pending(master)
     results: list[CompileResult] = []
     failures: list[tuple[str, str]] = []
-    total = len(org.people)
-    for person in org.people.values():
+    people = [p for p in org.people.values() if only is None or p.id == only]
+    total = len(people)
+    for person in people:
         out = out_root / person.id
         try:
+            if before_each is not None:
+                before_each(person)
             result = compile_vault(master, person, rules, out, today, config=config,
                                    org=org, pending=pending)
             if not (out / ".git").exists():

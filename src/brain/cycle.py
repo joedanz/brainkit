@@ -8,29 +8,36 @@ Triage runs last, after the compile, so doctor's compiled-vault check sees
 fresh vaults; the digests it lands in master compile into vaults on the next
 cycle.
 
-A rejected writeback never halts the cycle. Rejected edits are reverted
-server-side by the fresh compile commit (fail closed); the rejection is
-reported and flips CycleReport.ok so cron alerts.
+A write-back never halts the cycle. Out-of-scope changes are held (never
+applied) while the person's in-scope changes still land; a git or disk
+failure for one person is reported as that person's `error`. Any hold or
+error flips CycleReport.ok so cron alerts.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from brain.compiler import MANIFEST_NAME, CompileError, compile_all
+from brain.compiler import MANIFEST_NAME, CompileError, compile_all, write_manifest
+from brain.errors import HANDLED, BrainError, describe
+from brain.holds import utc_now_iso as _utc_now_iso
+from brain.holds import writeback_person
 from brain.promotions import list_pending, sweep
 from brain.schemas import load_config, load_org, load_spaces
-from brain.writeback import ManifestError, apply_writeback
+from brain.writeback import ManifestError
 
 
 @dataclass
 class PersonWriteback:
     person_id: str
-    status: str  # "applied" | "rejected" | "skipped"
+    status: str  # "applied" | "partial" | "held" | "skipped" | "error"
     applied: int = 0
-    violations: list[str] = field(default_factory=list)
+    held: list[str] = field(default_factory=list)  # "<kind> <path>: <reason>"
+    error: str = ""
+    violations: list[str] = field(default_factory=list)  # why a "skipped" person was skipped
 
 
 @dataclass
@@ -83,24 +90,20 @@ class CycleReport:
     @property
     def ok(self) -> bool:
         # Retrieval is a convenience layer; a failed index warns but never fails
-        # the cycle. A rejected writeback (a security-relevant event) fails it,
-        # as does an owner-mismatch client request (a tamper signal). Routine
-        # "name taken" client rejections do NOT — they're a normal user outcome
-        # surfaced via the requester's inbox note. A person whose vault failed
-        # to compile fails it too: that agent is working from a stale vault.
+        # the cycle. A hold or a write-back error fails it: someone's edit did
+        # not land. As does an owner-mismatch client request (a tamper
+        # signal). Routine "name taken" client rejections do NOT — they're a
+        # normal user outcome surfaced via the requester's inbox note. A
+        # person whose vault failed to compile fails it too: that agent is
+        # working from a stale vault.
         return (
-            all(w.status != "rejected" for w in self.writebacks)
+            all(w.status not in ("partial", "held", "error") for w in self.writebacks)
             and self.clients_tampering == 0
             and self.shares_tampering == 0
             and self.promotion_tampering == 0
             and not self.compile_failures
         )
 
-
-def _utc_now_iso() -> str:
-    from datetime import UTC, datetime
-
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]:
@@ -141,71 +144,175 @@ def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]
     return indexed, warnings
 
 
+# A key in the vault's tracked manifest, set (uncommitted) while the cycle
+# works on that person. The worktree is then dirty, and with
+# receive.denyCurrentBranch=updateInstead git refuses agent pushes until the
+# compile commits a fresh manifest without it; vault-sync keeps the commit and
+# retries next run. Nothing reads the value to decide anything (flock already
+# serializes cycles), so a marker a crash left behind is simply overwritten.
+BUSY_KEY = "busy"
+
+
+def _rewrite_manifest(vault: Path, edit) -> None:
+    path = vault / MANIFEST_NAME
+    try:
+        manifest = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return
+    if not isinstance(manifest, dict) or "compiled" not in manifest:
+        return  # write-back skips this person anyway; leave it byte-for-byte
+    if edit(manifest):
+        # Same serialization as compile_vault, so clearing the key restores
+        # the committed bytes exactly and the worktree is clean again.
+        write_manifest(path, manifest)
+
+
+def _set_busy(vault: Path, now: str) -> None:
+    def edit(m: dict) -> bool:
+        m[BUSY_KEY] = now
+        return True
+    _rewrite_manifest(vault, edit)
+
+
+def _clear_busy(vault: Path) -> None:
+    _rewrite_manifest(vault, lambda m: m.pop(BUSY_KEY, None) is not None)
+
+
+class WritebackFailed(BrainError):
+    """A person's final write-back failed; their compile is skipped so the
+    edits it could not apply stay in their vault for the next cycle."""
+
+
+def _status(applied: int, held: list[str], error: str) -> str:
+    if error:
+        return "error"
+    if held:
+        return "partial" if applied else "held"
+    return "applied"
+
+
+def _writeback_if_present(master: Path, vault: Path, person, rules, *, now: str,
+                          prior: PersonWriteback | None = None,
+                          already: dict[str, str | None] | None = None,
+                          ) -> PersonWriteback | None:
+    """Run a write-back pass, unless this person has no compiled vault yet
+    (nothing to diff against). Returns None in that case."""
+    if not (vault / MANIFEST_NAME).is_file():
+        return None
+    return _writeback_one(master, vault, person, rules, now=now, prior=prior,
+                          already=already)
+
+
+def _writeback_one(master: Path, vault: Path, person, rules, *, now: str,
+                   prior: PersonWriteback | None = None,
+                   already: dict[str, str | None] | None = None) -> PersonWriteback:
+    """One write-back pass. A second pass (`prior` set) adds its applied
+    count to the first's; its own held list and error replace the first's,
+    because it re-diffs everything the first pass held or failed on."""
+    applied_before = prior.applied if prior else 0
+    try:
+        result = writeback_person(master, vault, person, rules, now=now, already=already)
+    except ManifestError as e:
+        # A present-but-corrupt manifest means no trustworthy diff baseline
+        # for this person. Skip them (their edits, if any, wait for the next
+        # cycle) rather than aborting everyone else's refresh — the recompile
+        # rewrites a clean manifest, so the next cycle self-heals.
+        return prior or PersonWriteback(person.id, "skipped", violations=[str(e)])
+    except HANDLED as e:
+        # One person's disk or git failure is theirs alone.
+        return PersonWriteback(person.id, "error", applied=applied_before, error=describe(e))
+    if already is not None:
+        already.update({c.path: c.sha for c in result.applied})
+    held = [f"{h.kind} {h.path}: {h.reason}" for h in result.held]
+    applied = applied_before + len(result.applied)
+    # A later pass that ran cleanly clears an earlier pass's error: a failed
+    # pass records nothing in `already`, so everything it failed on was
+    # re-diffed and retried just now.
+    error = result.error
+    return PersonWriteback(person.id, _status(applied, held, error),
+                           applied=applied, held=held, error=error)
+
+
 def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) -> CycleReport:
     # First statement, so the measurement covers the whole run rather than
     # whatever part of it someone remembers to include.
     _started = time.monotonic()
+    now = _utc_now_iso()
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     config = load_config(master)
 
-    writebacks: list[PersonWriteback] = []
-    for person in org.people.values():
-        vault = out_root / person.id
-        if not (vault / MANIFEST_NAME).is_file():
-            writebacks.append(PersonWriteback(person.id, "skipped"))
-            continue
-        try:
-            result = apply_writeback(master, vault, person, rules)
-        except ManifestError as e:
-            # A present-but-corrupt manifest means no trustworthy diff baseline
-            # for this person. Skip them (their edits, if any, wait for the next
-            # cycle) rather than aborting everyone else's refresh — the recompile
-            # below rewrites a clean manifest, so the next cycle self-heals.
-            writebacks.append(PersonWriteback(person.id, "skipped", violations=[str(e)]))
-            continue
-        if result.violations:
-            writebacks.append(
-                PersonWriteback(person.id, "rejected", violations=result.violations)
-            )
-        else:
-            writebacks.append(
-                PersonWriteback(person.id, "applied", applied=len(result.applied))
-            )
+    wb: dict[str, PersonWriteback] = {}
+    already: dict[str, dict[str, str | None]] = {}
+    vaults = {p.id: out_root / p.id for p in org.people.values()}
+    for vault in vaults.values():
+        if (vault / MANIFEST_NAME).is_file():
+            _set_busy(vault, now)
 
-    from brain.clients import materialize_clients
-    from brain.shares import sweep_approvals, sweep_shares
+    def final_writeback(person) -> None:
+        # Runs right before this person's compile: anything that landed
+        # between the first pass and the busy marker taking effect is applied
+        # now instead of being overwritten by the compile. `rules` is read at
+        # call time, so this sees the post-sweep reload below.
+        vault = vaults[person.id]
+        result = _writeback_if_present(master, vault, person, rules, now=now,
+                                       prior=wb.get(person.id),
+                                       already=already.setdefault(person.id, {}))
+        if result is None:
+            return
+        wb[person.id] = result
+        if wb[person.id].status == "error":
+            raise WritebackFailed(
+                f"write-back failed ({wb[person.id].error}); vault left as it was "
+                "so the edits are retried next cycle")
 
-    provisioned = materialize_clients(master, org, today=today, config=config)
-    share_outcomes = sweep_shares(master, org, today=today, shared=config.shared)
-    decision_outcomes = sweep_approvals(master, org, today=today,
-                                        shared=config.shared)
-    # sweep_shares/sweep_approvals may have modified spaces.yaml (revokes,
-    # delegated approvals); materialize_clients appended grants too. The
-    # compile below must see all of it, so reload.
-    rules = load_spaces(master / "_meta/spaces.yaml")
-
-    swept = len(sweep(master, today=today, shared=config.shared))
-    # Decisions can only apply to something already queued, and a lead's
-    # decision file and the draft it decides may land in the same write-back —
-    # so this runs after the draft sweep, before compile.
-    from brain.promotions import sweep_promotion_approvals
-
-    promo_decisions = sweep_promotion_approvals(master, org, today=today,
-                                                shared=config.shared)
-    # The queue is settled only now: sweep() queued this cycle's drafts and
-    # sweep_promotion_approvals() consumed the ones just decided. One parse
-    # from here serves both the fleet compile and the report count.
-    pending_promotions = list_pending(master)
     compile_failures: list[str] = []
     try:
-        compiled = len(compile_all(master, org, rules, out_root, today=today,
-                                   config=config, pending=pending_promotions))
-    except CompileError as e:
-        # One person's failure is theirs alone: they keep their last good
-        # vault, and indexing, triage and the health snapshot still run.
-        compiled = len(e.completed)
-        compile_failures = [f"{pid}: {why}" for pid, why in e.failures]
+        for person in org.people.values():
+            vault = vaults[person.id]
+            result = _writeback_if_present(master, vault, person, rules, now=now,
+                                           already=already.setdefault(person.id, {}))
+            wb[person.id] = result or PersonWriteback(person.id, "skipped")
+
+        from brain.clients import materialize_clients
+        from brain.shares import sweep_approvals, sweep_shares
+
+        provisioned = materialize_clients(master, org, today=today, config=config)
+        share_outcomes = sweep_shares(master, org, today=today, shared=config.shared)
+        decision_outcomes = sweep_approvals(master, org, today=today,
+                                            shared=config.shared)
+        # sweep_shares/sweep_approvals may have modified spaces.yaml (revokes,
+        # delegated approvals); materialize_clients appended grants too. The
+        # compile below must see all of it, so reload.
+        rules = load_spaces(master / "_meta/spaces.yaml")
+
+        swept = len(sweep(master, today=today, shared=config.shared))
+        # Decisions can only apply to something already queued, and a lead's
+        # decision file and the draft it decides may land in the same
+        # write-back — so this runs after the draft sweep, before compile.
+        from brain.promotions import sweep_promotion_approvals
+
+        promo_decisions = sweep_promotion_approvals(master, org, today=today,
+                                                    shared=config.shared)
+        # The queue is settled only now: sweep() queued this cycle's drafts
+        # and sweep_promotion_approvals() consumed the ones just decided. One
+        # parse from here serves both the fleet compile and the report count.
+        pending_promotions = list_pending(master)
+        try:
+            compiled = len(compile_all(master, org, rules, out_root, today=today,
+                                       config=config, pending=pending_promotions,
+                                       before_each=final_writeback))
+        except CompileError as e:
+            # One person's failure is theirs alone: they keep their last good
+            # vault, and indexing, triage and the health snapshot still run.
+            compiled = len(e.completed)
+            compile_failures = [f"{pid}: {why}" for pid, why in e.failures]
+    finally:
+        # A successful compile already wrote a manifest without the marker;
+        # this covers a failed compile and a crash anywhere above.
+        for vault in vaults.values():
+            _clear_busy(vault)
+    writebacks = list(wb.values())
     pending = len(pending_promotions)
 
     indexed = 0
