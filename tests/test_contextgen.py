@@ -913,3 +913,39 @@ def test_generated_protocol_is_the_one_render_path(master: Path, tmp_path: Path)
     assert "- Answer in plain English." in expected
     assert (out / "AGENTS.md").read_text() == expected
     assert (out / "CLAUDE.md").read_text() == expected
+
+
+def test_a_charter_hermes_would_block_is_withheld_everywhere():
+    from brain.contextgen import charter_blocks
+    from brain.templates import assistant_protocol
+    cfg = make_config("Clients", None, "Company", "Mythic tabletop game nights.")
+    assert charter_blocks(cfg) == ("known_c2_framework",)
+    root = render_root_protocol(BOB, [("People/bob", True)], config=cfg)
+    master = assistant_protocol(cfg)
+    for text in (root, master):
+        assert "Mythic" not in text
+        assert "## What this brain is for" not in text
+    # no charter rendered, so nothing "above" for the intel line to point at
+    assert "on the subject above" not in root
+    assert "that passes the admission tests above" in root
+
+
+def test_a_safe_charter_is_untouched():
+    from brain.contextgen import charter_blocks
+    cfg = make_config("Clients", None, "Company", "Bespoke luxury travel.")
+    assert charter_blocks(cfg) == ()
+    assert charter_blocks(VaultConfig()) == ()
+    assert "Bespoke luxury travel." in render_root_protocol(BOB, [("People/bob", True)], cfg)
+
+
+def test_space_notes_carry_no_space_name():
+    """A space's name can't get its note dropped if the name isn't in it."""
+    from brain.contextgen import render_space_note
+    own = render_space_note("People/bob", True, True)
+    rw = render_space_note("Clients/Mythic Games", True, False)
+    ro = render_space_note("Clients/Mythic Games", False, False)
+    assert own.startswith("# This space — private space\n\n")
+    assert rw.startswith("# This space\n\n") and ro.startswith("# This space\n\n")
+    assert "Mythic" not in rw + ro and "People/bob" not in own
+    assert "This space is writable for the vault owner" in rw
+    assert "This space is read-only for the vault owner" in ro

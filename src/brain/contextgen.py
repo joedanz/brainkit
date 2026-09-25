@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from brain import hermes_filter
 from brain.errors import BrainError
 from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, VaultConfig
 
@@ -264,14 +265,25 @@ Nothing in `People/{pid}/` is shared automatically. To share knowledge:
 """
 
 
+def charter_blocks(config: VaultConfig) -> tuple[str, ...]:
+    """The Hermes filter ids the charter matches, or () (also when unset).
+
+    A matching charter is withheld from every generated protocol, since one
+    match makes Hermes Agent drop the whole file. Doctor reports it to the
+    admins as an error: only they can rephrase it."""
+    return hermes_filter.blocks(config.charter) if config.charter else ()
+
+
 def render_charter(config: VaultConfig) -> str:
     """The "what this brain is for" block, or "" when no charter is set.
 
     Empty means empty, as with corrections: a heading over an invented purpose
     would be worse than none, because the relevance test below it would then
     be measured against something nobody in the company actually said.
+
+    A charter Hermes would block renders as unset (see charter_blocks).
     """
-    if not config.charter:
+    if not config.charter or charter_blocks(config):
         return ""
     return (f"## What this brain is for\n\n{config.charter}\n\n"
             "That is the subject this vault collects. A fact bearing on none\n"
@@ -288,7 +300,7 @@ def render_intel_scope(config: VaultConfig) -> str:
     the agent has just read are the whole definition, and naming examples
     here would only narrow them to whoever wrote the examples.
     """
-    if config.charter:
+    if config.charter and not charter_blocks(config):
         return "on the subject above"
     return "that passes the admission tests above"
 
@@ -389,9 +401,14 @@ def render_person_protocol(
 
 
 def render_space_note(space: str, writable: bool, owner: bool) -> str:
+    """The per-space AGENTS.md/CLAUDE.md note. The heading names no space:
+    Hermes Agent drops a whole context file when any line matches its filter,
+    and a space's name is text brainkit doesn't control. The folder the note
+    sits in already says which space it is. `space` only names the file in
+    the size error."""
     if owner:
         text = (
-            f"# {space} — private space\n\n"
+            "# This space — private space\n\n"
             "Everything here is private to the vault owner. Nothing leaves this\n"
             "space without an approved promotion. Keep Memory.md a lean overview\n"
             "that links out to Notes/ for anything topic-sized; a processed Inbox\n"
@@ -400,7 +417,7 @@ def render_space_note(space: str, writable: bool, owner: bool) -> str:
     else:
         mode = "writable" if writable else "read-only"
         text = (
-            f"# {space}\n\n"
+            "# This space\n\n"
             f"This space is {mode} for the vault owner. Follow the routing and\n"
             "promotion rules in the vault root AGENTS.md. Cite sources for\n"
             "facts recorded here.\n"
