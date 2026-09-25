@@ -47,6 +47,21 @@ fi
 # Refresh the local search index; an index failure never blocks the sync.
 brain index --vault "$V" || echo "[vault-sync] index refresh failed (non-fatal)" >&2
 
+# Safety net: would this container's own hermes drop the protocol? Hermes
+# replaces a whole context file with a one-line [BLOCKED: …] notice when any
+# line matches its threat filter, and the agent then runs with no protocol.
+# brainkit renders around its own copy of that filter; this checks with the
+# exact build in this image and keeps /opt/data/.brain-context-blocked, which
+# agents-liveness.sh reports. Never fatal: a safety net, not a gate.
+HERMES_PY=/opt/hermes/.venv/bin/python
+if [ -x "$HERMES_PY" ]; then
+    blocked="$("$HERMES_PY" /usr/local/bin/brain-context-scan \
+        --marker /opt/data/.brain-context-blocked \
+        "$V/AGENTS.md" "$V/CLAUDE.md" /opt/data/SOUL.md 2>/dev/null)" \
+        || [ -z "$blocked" ] \
+        || echo "[vault-sync] hermes would drop: $blocked" >&2
+fi
+
 # Push may bounce if it races a brain cycle (updateInstead refuses a dirty
 # worktree); commits stay queued in local history and drain next interval.
 git -C "$V" push -q || echo "[vault-sync] push refused — will retry next interval" >&2

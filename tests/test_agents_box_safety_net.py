@@ -84,3 +84,27 @@ def test_the_scan_is_in_the_image_and_executable():
     assert "scripts/brain-context-scan /usr/local/bin/brain-context-scan" in df
     assert "/usr/local/bin/brain-context-scan" in df.split("RUN chmod 755")[1]
     assert os.access(SCAN, os.X_OK)
+
+
+HERMES_PY = "/opt/hermes/.venv/bin/python"
+MARKER = "/opt/data/.brain-context-blocked"
+
+
+def test_vault_sync_scans_after_the_pull_and_never_fails_on_it():
+    src = (DEPLOY / "scripts/vault-sync").read_text()
+    scan = src.index("brain-context-scan")
+    assert src.index("pull -q") < scan < src.index("push -q")
+    block = src[scan - 400: scan + 400]
+    assert HERMES_PY in block and MARKER in block
+    for f in ('"$V/AGENTS.md"', '"$V/CLAUDE.md"', "/opt/data/SOUL.md"):
+        assert f in block
+    assert '[ -x "$HERMES_PY" ]' in src or f"[ -x {HERMES_PY} ]" in src
+
+
+def test_first_boot_scans_soul_after_the_managed_blocks_and_only_warns():
+    src = (DEPLOY / "scripts/03-brain-first-boot").read_text()
+    scan = src.index("brain-context-scan")
+    assert src.index("# --- SOUL.md: managed blocks") < scan
+    line = src[scan: src.index("\n", src.index("||", scan))]
+    assert '"$DATA/SOUL.md"' in line and "--marker" not in line
+    assert "|| echo" in line  # set -eu: a hit must never fail the boot
