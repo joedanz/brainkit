@@ -174,6 +174,7 @@ def lint_facts(text: str) -> list[tuple[int, str]]:
 # can all be true together, and a warn tier that cries wolf gets ignored.
 
 _POSSESSIVE = re.compile(r"(?:'s|’s|s'|s’)$")
+_CURLY_APOSTROPHES = str.maketrans({"’": "'", "‘": "'"})
 
 
 def _plain_name(tokens: list[str]) -> str:
@@ -195,7 +196,9 @@ def _diverges(stmt_a: str, stmt_b: str, names: frozenset[str] = frozenset()) -> 
     predications, which accumulate. `names` holds the host pages' title
     stems and aliases (casefolded); when the words before the copula ARE
     one of them ("Bailey Family 1998 Grandchildren's Trust is …"), the
-    possessive inside the name is not an attribute."""
+    possessive inside the name is not an attribute. Curly and straight
+    apostrophes (’/‘ vs ') name the same subject, so both sides are
+    normalized before that comparison."""
     a, b = stmt_a.casefold().split(), stmt_b.casefold().split()
     i = 0
     while i < len(a) and i < len(b) and a[i] == b[i]:
@@ -206,7 +209,10 @@ def _diverges(stmt_a: str, stmt_b: str, names: frozenset[str] = frozenset()) -> 
     last = a[i - 1]
     if last in ("is", "are"):
         head = a[:i - 1]
-        if _plain_name(head) in names:
+        # a curly apostrophe (typed by an author or a smart-quote editor)
+        # names the same subject as a straight one — normalize both sides.
+        head_name = _plain_name(head).translate(_CURLY_APOSTROPHES)
+        if head_name in {n.translate(_CURLY_APOSTROPHES) for n in names}:
             return False
         return (any(_POSSESSIVE.search(t) for t in head[:-1])
                 or "of" in head[1:])

@@ -416,6 +416,17 @@ def test_wikilinked_name_is_exempt_via_host_name():
     assert find_fact_conflicts([a, b], names=names) == []
 
 
+def test_curly_apostrophe_alias_matches_straight_fact_text():
+    # Helm: an alias authored with a curly apostrophe (’) didn't match fact
+    # lines typed with a straight one ('), so the exemption missed and the
+    # pair stayed flagged as a conflict.
+    rel = "Notes/Bailey Family 1998 Trust.md"
+    a = _entry(rel, 3, "Bailey Family 1998 Grandchildren's Trust is an irrevocable trust.", {rel})
+    b = _entry(rel, 4, "Bailey Family 1998 Grandchildren's Trust is a guarantor.", {rel})
+    names = {rel: frozenset({"bailey family 1998 grandchildren’s trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
 def test_names_of_either_page_apply_to_the_pair():
     a = _entry("x.md", 3, "Acme's Fund is closed.", {"Clients/Acme.md"})
     b = _entry("y.md", 4, "Acme's Fund is open.", {"Clients/Acme.md"})
