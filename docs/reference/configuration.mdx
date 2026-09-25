@@ -288,7 +288,7 @@ Configure via environment variables:
 | `BRAIN_EMBED_API_KEY` | — | Bearer token for the endpoint. |
 | `BRAIN_EMBED_MODEL` | `text-embedding-3-small` | Embedding model id. |
 | `BRAIN_EMBED_DIM` | `512` | Output dimension (sent as `dimensions`). |
-| `BRAIN_EMBED_CACHE` | `~/.cache/brain/embeddings.db` | Embedding cache location. |
+| `BRAIN_EMBED_CACHE` | `~/.cache/brain/embeddings.db` | Shared embedding cache, used by `brain index`. `brain cycle` keeps each brain's own cache in `<master>/_meta/cache/embeddings.db` instead, and `brain doctor` reads that one (this shared cache only if the master has none). |
 
 An empty value, or one that is still an unresolved `${VAR}` placeholder, counts as unset.
 

@@ -114,3 +114,22 @@ def test_incremental_reindex_hits_provider_zero_times(master, tmp_path, hybrid_e
     report = json.loads(capsys.readouterr().out)
     assert report["chunks_embedded"] == 0
     assert hybrid_env.texts == embedded_first  # no new socket calls
+
+
+def test_cli_index_reports_a_rebuilt_embedding_cache(master, tmp_path, hybrid_env, capsys):
+    """A damaged cache is rebuilt empty; `brain index` must say so, on stderr
+    and in --json, or every later run re-embeds without anyone knowing why."""
+    (tmp_path / "cache.db").write_bytes(b"not a sqlite file" * 100)
+    vault = tmp_path / "alice"
+    compile_vault(master, ALICE, RULES, vault)
+    capsys.readouterr()
+
+    assert main(["index", "--vault", str(vault)]) == 0
+    err = capsys.readouterr().err
+    assert "warning: cache.db" in err and "rebuilt" in err
+
+    (tmp_path / "cache.db").write_bytes(b"not a sqlite file" * 100)
+    assert main(["index", "--vault", str(vault), "--json", "--full"]) == 0
+    out = capsys.readouterr()
+    warnings = json.loads(out.out)["warnings"]
+    assert any("cache.db" in w and "rebuilt" in w for w in warnings)

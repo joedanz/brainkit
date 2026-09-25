@@ -129,7 +129,7 @@ would. `brain doctor` flags identical and near-duplicate notes a common
 reader sees (`dup-exact`, `dup-near` — near-duplicates are grouped within a
 space and paired across spaces; the near check combines text-shingle
 overlap with cosine over already-indexed embeddings, read from the cache
-only), plus title-stem collisions (`stem-collision`), since a bare
+`brain cycle` writes, `<master>/_meta/cache/embeddings.db`, only), plus title-stem collisions (`stem-collision`), since a bare
 `[[wikilink]]` resolves by stem and quietly picks whichever file sorts
 first. The fix is the normal editorial path: fold one page into the other
 with a `mode: patch` promotion. See the

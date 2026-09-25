@@ -312,22 +312,23 @@ def _dup_near_message(severity: str, members: tuple[str, ...], signal: str) -> s
 
 
 def _cached_file_vectors(
-    rels: list[str], texts: dict[str, str], shared: str,
+    master: Path, rels: list[str], texts: dict[str, str], shared: str,
 ) -> dict[str, list[float]]:
-    """File-level mean-pooled vectors, resolved from the shared embedding
-    cache ONLY — the provider is never called (its constructor does no I/O
-    and is used purely to learn the configured model name). A file with any
-    chunk missing from the cache is dropped from this signal; any cache
-    failure degrades to no signal at all. brain cycle's indexing keeps the
-    cache warm, so in a live deployment coverage is near-total."""
+    """File-level mean-pooled vectors, resolved from the master's embedding
+    cache (the one brain cycle writes; see cache_path_to_read) ONLY — the
+    provider is never called (its constructor does no I/O and is used
+    purely to learn the configured model name). A file with any chunk
+    missing from the cache is dropped from this signal; any cache failure
+    degrades to no signal at all. brain cycle's indexing keeps the cache
+    warm, so in a live deployment coverage is near-total."""
     from brain.chunker import chunk_markdown, embedding_input
     from brain.dedup import mean_pool, unpack_vector
-    from brain.embeddings import EmbeddingCache, default_cache_path, provider_from_config
+    from brain.embeddings import EmbeddingCache, cache_path_to_read, provider_from_config
 
     provider = provider_from_config()
     if provider is None:
         return {}
-    cache_path = default_cache_path()
+    cache_path = cache_path_to_read(master)
     if not cache_path.exists():
         return {}
     out: dict[str, list[float]] = {}
@@ -550,7 +551,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     # Tier 3b: semantic near-duplicates from cached embeddings. Sign-bit
     # hamming prefilters the O(n^2) pair loop; exact cosine confirms, with
     # each vector's norm computed once rather than once per pair.
-    vecs = _cached_file_vectors(substantive, texts, shared)
+    vecs = _cached_file_vectors(master, substantive, texts, shared)
     bits = {rel: sign_bits(v) for rel, v in vecs.items()}
     norms = {rel: norm(v) for rel, v in vecs.items()}
     dim = len(next(iter(vecs.values()))) if vecs else 0

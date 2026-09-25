@@ -203,7 +203,7 @@ class EmbeddingCache:
         master = Path(master)
         if not _cache_is_ignored(master):
             return None
-        return cls(master / EMBED_CACHE_REL)
+        return cls(master_cache_path(master))
 
     def _recover(self, e: sqlite3.Error) -> sqlite3.Connection:
         """A fresh, empty cache in place of a damaged one; re-raises anything
@@ -315,6 +315,21 @@ def provider_from_config() -> EmbeddingProvider | None:
                 dim=int(emb.get("dim", DEFAULT_DIM)),
             )
     return None
+
+
+def master_cache_path(master: Path) -> Path:
+    """Where `brain cycle` keeps a brain's embedding cache."""
+    return Path(master) / EMBED_CACHE_REL
+
+
+def cache_path_to_read(master: Path) -> Path:
+    """The cache a reader with a known master should open: the master's own
+    (the one `brain cycle` writes), else the shared default cache — which is
+    where `brain index` put vectors before the master had one. Entries are
+    keyed by (chunk_sha, model), so the fallback can only miss, never
+    return a wrong vector."""
+    own = master_cache_path(master)
+    return own if own.exists() else default_cache_path()
 
 
 def default_cache_path() -> Path:

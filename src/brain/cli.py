@@ -404,6 +404,13 @@ def cmd_index(args) -> int:
     except ManifestError as e:
         print(f"cannot index: {e}", file=sys.stderr)
         return 1
+    finally:
+        if cache is not None:
+            cache.close()
+    if cache is not None:
+        # a damaged cache rebuilt empty: say so, or every later run
+        # re-embeds everything without anyone knowing why
+        report.warnings.extend(cache.warnings)
     if args.json:
         print(json.dumps({**asdict(report), "ok": True}, indent=2))
     else:

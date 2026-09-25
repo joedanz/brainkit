@@ -880,16 +880,18 @@ def test_no_provider_means_no_embedding_signal(master):
     assert not _severities(findings, "dup-near")
 
 
-def _warm_embeddings(master, tmp_path, monkeypatch, rels):
+def _warm_embeddings(master, tmp_path, monkeypatch, rels, cache_path=None):
     """Point doctor at a fake-32 embedding cache holding every chunk of `rels`
-    — the provider is configured but never called."""
+    — the provider is configured but never called. By default the cache is
+    the shared one (BRAIN_EMBED_CACHE); pass `cache_path` to warm another."""
     import hashlib as _hashlib
 
     from brain.chunker import chunk_markdown, embedding_input
     from brain.embeddings import EmbeddingCache, FakeEmbeddingProvider, pack_vector
 
-    cache_path = tmp_path / "emb-cache.db"
-    monkeypatch.setenv("BRAIN_EMBED_CACHE", str(cache_path))
+    if cache_path is None:
+        cache_path = tmp_path / "emb-cache.db"
+        monkeypatch.setenv("BRAIN_EMBED_CACHE", str(cache_path))
     monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "http://unused.invalid")
     monkeypatch.setenv("BRAIN_EMBED_MODEL", "fake-32")
 
@@ -913,6 +915,37 @@ def test_embedding_near_duplicate_via_warmed_cache(master, tmp_path, monkeypatch
     assert "warn" in _severities(findings, "dup-near")
     hit = next(f for f in findings if f.check == "dup-near" and f.severity == "warn")
     assert "Shuffle A" in hit.message and "Shuffle B" in hit.message
+
+
+def test_doctor_reads_the_master_cache_the_cycle_writes(master, tmp_path, monkeypatch):
+    """brain cycle writes <master>/_meta/cache/embeddings.db; doctor must read
+    that file, even with BRAIN_EMBED_CACHE aimed at another (empty) one."""
+    from brain.embeddings import EMBED_CACHE_REL
+
+    seed_meta(master)
+    rels = _shuffled_pair(master)
+    elsewhere = tmp_path / "elsewhere.db"
+    monkeypatch.setenv("BRAIN_EMBED_CACHE", str(elsewhere))
+    _warm_embeddings(master, tmp_path, monkeypatch, rels,
+                     cache_path=master / EMBED_CACHE_REL)
+
+    findings = run_doctor(master)
+    assert "warn" in _severities(findings, "dup-near")
+    assert not elsewhere.exists()
+
+
+def test_doctor_never_creates_the_master_cache(master, tmp_path, monkeypatch):
+    from brain.embeddings import EMBED_CACHE_REL
+
+    seed_meta(master)
+    _shuffled_pair(master)
+    monkeypatch.setenv("BRAIN_EMBED_CACHE", str(tmp_path / "none.db"))
+    monkeypatch.setenv("BRAIN_EMBED_BASE_URL", "http://unused.invalid")
+    monkeypatch.setenv("BRAIN_EMBED_MODEL", "fake-32")
+
+    run_doctor(master)
+    assert not (master / EMBED_CACHE_REL).exists()
+    assert not (tmp_path / "none.db").exists()
 
 
 def test_semantic_findings_match_the_per_pair_cosine(master, tmp_path, monkeypatch):
