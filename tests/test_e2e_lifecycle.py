@@ -314,3 +314,63 @@ def test_cycle_and_doctor_e2e(tmp_path: Path, capsys):
     report = json.loads(capsys.readouterr().out)
     assert any(f["check"] == "symlinks" for f in report["findings"])
     assert not [f for f in report["findings"] if f["check"] == "compiled"]
+
+
+def _agent_clone(vault: Path, dest: Path) -> Path:
+    _git(vault, "config", "receive.denyCurrentBranch", "updateInstead")
+    subprocess.run(["git", "clone", "-q", str(vault), str(dest)], check=True,
+                   capture_output=True)
+    _git(dest, "config", "user.name", "bob (agent)")
+    _git(dest, "config", "user.email", "bob@agents.brain.local")
+    return dest
+
+
+def test_push_during_cycle_is_refused_and_lands_next_cycle(master, tmp_path, monkeypatch):
+    from brain.cycle import run_cycle
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    out = tmp_path / "compiled"
+    assert main(["compile", "--master", str(master), "--out", str(out)]) == 0
+    agent = _agent_clone(out / "bob", tmp_path / "agent")
+    (agent / "People/bob/Memory.md").write_text("pushed mid-cycle\n")
+    _git(agent, "commit", "-qam", "agent edit")
+
+    import brain.cycle as cyc
+    pushes = []
+    real = cyc.sweep
+
+    def push_now(*a, **kw):
+        pushes.append(subprocess.run(["git", "-C", str(agent), "push", "-q"],
+                                     capture_output=True, text=True).returncode)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(cyc, "sweep", push_now)
+    run_cycle(master, out, today="2026-09-25")
+    assert len(pushes) == 1 and pushes[0] != 0          # refused: vault was busy
+    assert "pushed mid-cycle" not in (master / "People/bob/Memory.md").read_text()
+
+    monkeypatch.setattr(cyc, "sweep", real)
+    _git(agent, "pull", "-q", "--no-rebase", "--no-edit", "-s", "recursive", "-X", "theirs")
+    _git(agent, "push", "-q")                                 # next vault-sync run
+    run_cycle(master, out, today="2026-09-26")
+    assert (master / "People/bob/Memory.md").read_text() == "pushed mid-cycle\n"
+
+
+def test_stale_busy_marker_is_ignored_and_cleared(master, tmp_path):
+    from brain.cycle import run_cycle
+    from tests.test_cli import seed_meta
+
+    seed_meta(master)
+    out = tmp_path / "compiled"
+    main(["compile", "--master", str(master), "--out", str(out)])
+    mpath = out / "bob/.brain-manifest.json"
+    m = json.loads(mpath.read_text())
+    m["busy"] = "2026-09-24T21:00:00Z"  # a crashed cycle, three hours ago
+    mpath.write_text(json.dumps(m, indent=2))
+    (out / "bob/People/bob/Memory.md").write_text("after a crash\n")
+    report = run_cycle(master, out, today="2026-09-25")
+    assert next(w for w in report.writebacks if w.person_id == "bob").status == "applied"
+    assert (master / "People/bob/Memory.md").read_text() == "after a crash\n"
+    assert "busy" not in json.loads(mpath.read_text())
+    assert _git(out / "bob", "status", "--porcelain") == ""

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -149,12 +150,13 @@ def held_content(vault: Path, sha: str | None, entry: dict) -> str:
 
 
 def writeback_person(master: Path, vault: Path, person: Person,
-                     rules: tuple[SpaceRule, ...], *, now: str | None = None
+                     rules: tuple[SpaceRule, ...], *, now: str | None = None,
+                     already: Mapping[str, str | None] | None = None,
                      ) -> WritebackResult:
     """Write-back plus everything that makes a hold findable: commit vault
     strays first so the held bytes have a SHA, then record the hold."""
     commit_vault_strays(vault)
-    result = apply_writeback(master, vault, person, rules)
+    result = apply_writeback(master, vault, person, rules, already=already)
     if result.held:
         record_hold(master, person.id, vault_head(vault), result.held,
                     now=now or utc_now_iso())

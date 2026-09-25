@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -229,12 +230,22 @@ def _restore(master: Path, snap: dict[str, bytes | None]) -> None:
         _git(master, "--literal-pathspecs", "reset", "-q", "--", *snap)
 
 
+_UNSEEN = object()
+
+
 def apply_writeback(
-    master: Path, vault: Path, person: Person, rules: tuple[SpaceRule, ...]
+    master: Path, vault: Path, person: Person, rules: tuple[SpaceRule, ...],
+    *, already: Mapping[str, str | None] | None = None,
 ) -> WritebackResult:
     manifest = _load_manifest(vault)
     shared = shared_of(manifest)
     changes = diff_vault(vault, manifest)
+    if already:
+        # A second pass in the same cycle diffs against the same baseline, so
+        # it re-sees every change the first pass applied. Re-applying them
+        # would resurrect files the sweeps have since consumed (promotion
+        # drafts, share and client requests). Only NEW changes go through.
+        changes = [c for c in changes if already.get(c.path, _UNSEEN) != c.sha]
     to_apply: list[Change] = []
     held: list[Held] = []
     for c in changes:

@@ -1248,3 +1248,110 @@ def test_dismiss_and_new_hold_in_same_sync(master, tmp_path):
     assert [p["path"] for p in _hold(master)["paths"]] == [
         "Company/Decisions/Big Deal Decision.md"]
     assert (master / "People/bob/Inbox/held-edits.md").is_file()
+
+
+def _manifest(vault):
+    return json.loads((vault / ".brain-manifest.json").read_text())
+
+
+def test_vault_carries_the_busy_marker_while_the_cycle_runs(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    import brain.cycle as cyc
+    seen = {}
+    real = cyc.sweep
+
+    def spy(*a, **kw):
+        seen["busy"] = _manifest(out / "bob").get("busy")
+        seen["dirty"] = _git(out / "bob", "status", "--porcelain")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(cyc, "sweep", spy)
+    run_cycle(master, out, today="2026-09-25")
+    assert seen["busy"] and ".brain-manifest.json" in seen["dirty"]
+    assert "busy" not in _manifest(out / "bob")
+    assert _git(out / "bob", "status", "--porcelain") == ""
+
+
+def test_marker_cleared_when_that_persons_compile_fails(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    _failing_for(monkeypatch, "bob")
+    report = run_cycle(master, out, today="2026-09-25")
+    assert any(f.startswith("bob:") for f in report.compile_failures)
+    assert "busy" not in _manifest(out / "bob")
+
+
+def test_corrupt_manifest_never_gets_a_marker(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/.brain-manifest.json").write_text("{}")
+    import brain.cycle as cyc
+    seen = {}
+    real = cyc.sweep
+
+    def spy(*a, **kw):
+        seen["bob"] = (out / "bob/.brain-manifest.json").read_text()
+        return real(*a, **kw)
+
+    monkeypatch.setattr(cyc, "sweep", spy)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert seen["bob"] == "{}"
+    assert next(w for w in report.writebacks if w.person_id == "bob").status == "skipped"
+    assert next(w for w in report.writebacks if w.person_id == "alice").status == "applied"
+
+
+def test_final_writeback_catches_a_late_edit(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    import brain.cycle as cyc
+    real = cyc.sweep
+
+    def late(*a, **kw):  # lands after the first pass, before compile
+        (out / "bob/People/bob/Memory.md").write_text("late edit\n")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(cyc, "sweep", late)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert (master / "People/bob/Memory.md").read_text() == "late edit\n"
+    assert (out / "bob/People/bob/Memory.md").read_text() == "late edit\n"
+    assert next(w for w in report.writebacks if w.person_id == "bob").applied == 1
+
+
+def test_final_writeback_does_not_reapply_consumed_drafts(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    draft = out / "bob/People/bob/Promotions/sop.md"
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("---\ntarget-path: Company/Playbook/SOP.md\n"
+                     "source: People/bob/Memory.md\n---\nBody.\n")
+    report = run_cycle(master, out, today="2026-09-25")
+    assert report.swept == 1 and report.pending == 1
+    assert not list((master / "People/bob/Promotions").glob("*.md"))
+    assert not draft.exists()  # recompiled vault no longer carries it
+    report2 = run_cycle(master, out, today="2026-09-26")
+    assert report2.swept == 0 and report2.pending == 1
+
+
+def test_writeback_error_keeps_the_vault_and_skips_its_compile(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("bob edit that must survive\n")
+    import brain.writeback as wb
+    real = wb.diff_vault
+
+    def boom(vault, manifest=None):
+        if vault.name == "bob":
+            raise OSError(28, "No space left on device", str(vault))
+        return real(vault, manifest)
+
+    monkeypatch.setattr(wb, "diff_vault", boom)
+    report = run_cycle(master, out, today="2026-09-25")
+    assert next(w for w in report.writebacks if w.person_id == "bob").status == "error"
+    assert any(f.startswith("bob:") and "retried next cycle" in f
+               for f in report.compile_failures)
+    assert (out / "bob/People/bob/Memory.md").read_text() == "bob edit that must survive\n"
+    assert "busy" not in _manifest(out / "bob")
+    monkeypatch.setattr(wb, "diff_vault", real)
+    run_cycle(master, out, today="2026-09-26")
+    assert (master / "People/bob/Memory.md").read_text() == "bob edit that must survive\n"

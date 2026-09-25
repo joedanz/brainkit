@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -331,7 +332,16 @@ def compile_all(
     today: str | None = None,
     config: VaultConfig | None = None,
     pending: list[Promotion] | None = None,
+    *,
+    only: str | None = None,
+    before_each: Callable[[Person], None] | None = None,
 ) -> list[CompileResult]:
+    """Compile every person's vault (or just `only`), isolating failures.
+
+    `before_each` runs for each person immediately before their compile; a
+    handled error it raises counts as that person's failure and skips their
+    compile, leaving their vault as it was.
+    """
     today = today or date.today().isoformat()
     config = config or load_config(master)
     if pending is None:
@@ -343,10 +353,13 @@ def compile_all(
         pending = list_pending(master)
     results: list[CompileResult] = []
     failures: list[tuple[str, str]] = []
-    total = len(org.people)
-    for person in org.people.values():
+    people = [p for p in org.people.values() if only is None or p.id == only]
+    total = len(people)
+    for person in people:
         out = out_root / person.id
         try:
+            if before_each is not None:
+                before_each(person)
             result = compile_vault(master, person, rules, out, today, config=config,
                                    org=org, pending=pending)
             if not (out / ".git").exists():
