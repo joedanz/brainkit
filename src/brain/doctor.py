@@ -1216,12 +1216,14 @@ def _check_corrections(master: Path) -> list[Finding]:
     A rule that silently fails to render is worse than no rule at all: the
     person believes their correction took, and the agent never sees it. Every
     finding carries the correction's own path so triage delivers it to the one
-    person who can act on it, rather than to the admins.
+    person who can act on it, rather than to the admins. A correction waiting
+    to be confirmed (`corrections-pending`) also reaches the admins, since an
+    admin can confirm or dismiss it too.
 
     Counts and filenames only, never the rule text — a digest that restated
     every rule would be the protocol block again, in a second place.
     """
-    from brain.corrections import flag_patterns, load_corrections
+    from brain.corrections import RECORD_REL, flag_patterns, load_corrections
 
     findings: list[Finding] = []
     people_dir = master / "People"
@@ -1233,6 +1235,35 @@ def _check_corrections(master: Path) -> list[Finding]:
         if not (person_dir / CORRECTIONS_DIR).is_dir():
             continue
         cs = load_corrections(master, pid)
+
+        if cs.pending:
+            # Owner and admins (triage.OWNER_AND_ADMIN_CHECKS): the person
+            # confirms, and an admin can too. Names only, never the rule.
+            findings.append(Finding(
+                "warn", "corrections-pending",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.pending)} correction(s) are "
+                f"waiting to be confirmed and do not reach the agent yet — confirm "
+                f"or dismiss them in the dashboard's Corrections tab "
+                f"({', '.join(f'{c.slug}.md' for c in cs.pending)})",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.pending
+                )))
+
+        for r in cs.rejected:
+            findings.append(Finding(
+                "warn", "corrections-rejected",
+                f"People/{pid}/{CORRECTIONS_DIR}/{r.slug}.md cannot be used as a "
+                f"correction because {r.reason} — rewrite its `rule:` as one short "
+                f"sentence, or dismiss it",
+                paths=(f"People/{pid}/{CORRECTIONS_DIR}/{r.slug}.md",)))
+
+        if cs.record_error:
+            findings.append(Finding(
+                "warn", "corrections-record",
+                f"{pid}: {cs.record_error} — every correction for {pid} stays "
+                f"pending until the file is fixed or removed (removing it re-records "
+                f"today's rules as confirmed on the next cycle)",
+                paths=(RECORD_REL.format(person_id=pid),)))
 
         if cs.omitted:
             findings.append(Finding(

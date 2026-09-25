@@ -11,6 +11,34 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **A standing correction takes effect only after its person confirms it.**
+  An agent can still write `People/<id>/Corrections/<slug>.md`, but the rule
+  stays out of the protocol until the person confirms that exact text in
+  their dashboard (or an admin does, from the admin dashboard or
+  `brain corrections confirm`). Editing a confirmed rule puts it back to
+  waiting. Confirmations are kept in `People/<id>/.corrections.json`, which
+  is never compiled into a vault. A rule that is more than one line, longer
+  than 280 characters, or contains a web address or a backtick is refused.
+  The person sees what is waiting in `People/<id>/Pending-corrections.md`,
+  and doctor reports `corrections-pending`, `corrections-rejected` and
+  `corrections-record`.
+- **One-time migration.** The first `brain cycle` after upgrading records
+  every existing well-formed correction as confirmed (`"by": "grandfathered"`)
+  and gives everyone else an empty record, in one "Brain Cycle" commit, before
+  any write-back. Nothing to do for corrections already in force.
+
+### Added
+
+- `brain corrections list|confirm|dismiss`.
+- `brain dashboard --vault <vault> --corrections-master <master>` adds a
+  Corrections tab for that person; the admin dashboard has one for everyone.
+
+**Upgrading a brain box:** upgrade, then add
+`--corrections-master /srv/brain/master` to each `brain-dash-<person>` unit
+(it already runs as `brain-sync`) and restart it. Agents boxes are unchanged.
+
 ## [0.7.8] - 2026-09-25
 
 ### Changed

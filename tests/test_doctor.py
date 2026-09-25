@@ -5,6 +5,7 @@ from datetime import date as _date
 import pytest
 
 from brain.cli import main
+from brain.corrections import RECORD_REL
 from brain.doctor import _check_citations, _check_intel, _citation_urls, run_doctor
 from tests.conftest import confirm_all
 
@@ -1661,6 +1662,52 @@ def test_a_healthy_correction_set_reports_nothing(master):
 
     findings = run_doctor(master)
     assert not [f for f in findings if f.check == "corrections-budget"]
+
+
+def _rules(master, **rules):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    for slug, rule in rules.items():
+        (d / f"{slug}.md").write_text(f"---\nrule: {rule}\nfrom: 2026-09-01\n---\n")
+
+
+def test_pending_corrections_are_one_finding_per_person(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.", b="Answer in French.")
+    found = [f for f in run_doctor(master) if f.check == "corrections-pending"]
+    assert len(found) == 1
+    f = found[0]
+    assert f.severity == "warn"
+    assert f.paths == ("People/bob/Corrections/a.md", "People/bob/Corrections/b.md")
+    assert "2 correction(s)" in f.message and "dashboard" in f.message
+    assert "Keep it short." not in f.message  # counts and names, never rule text
+
+
+def test_each_rejected_correction_is_named_with_its_reason(master):
+    seed_meta(master)
+    _rules(master, link="See www.x.example.", tick="Run `ls`.")
+    found = sorted((f for f in run_doctor(master) if f.check == "corrections-rejected"),
+                   key=lambda f: f.paths)
+    assert [f.paths for f in found] == [("People/bob/Corrections/link.md",),
+                                        ("People/bob/Corrections/tick.md",)]
+    assert "web address" in found[0].message and "backtick" in found[1].message
+
+
+def test_a_broken_record_is_a_corrections_record_finding(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    (master / RECORD_REL.format(person_id="bob")).write_text("{broken")
+    found = [f for f in run_doctor(master) if f.check == "corrections-record"]
+    assert len(found) == 1 and "bob" in found[0].message
+    assert found[0].paths == ("People/bob/.corrections.json",)
+
+
+def test_a_confirmed_set_has_no_confirmation_findings(master):
+    seed_meta(master)
+    _rules(master, a="Keep it short.")
+    confirm_all(master, "bob")
+    checks = {f.check for f in run_doctor(master)}
+    assert not checks & {"corrections-pending", "corrections-rejected", "corrections-record"}
 
 
 def test_a_correction_with_an_unusable_date_is_reported(master):

@@ -38,6 +38,27 @@ def test_corrections_budget_finding_routes_to_its_owner():
     assert unrouted == 0
 
 
+def test_pending_corrections_reach_the_owner_and_the_admins():
+    f = Finding("warn", "corrections-pending", "People/bob/Corrections/: 1 correction(s) ...",
+                paths=("People/bob/Corrections/a.md",))
+    routed, unrouted = route_findings([f], ORG, RULES)
+    assert set(routed) == {"alice", "bob"} and unrouted == 0
+
+
+def test_rejected_corrections_reach_only_the_owner():
+    f = Finding("warn", "corrections-rejected", "People/bob/Corrections/a.md: ...",
+                paths=("People/bob/Corrections/a.md",))
+    routed, _ = route_findings([f], ORG, RULES)
+    assert set(routed) == {"bob"}
+
+
+def test_a_broken_corrections_record_reaches_only_the_admins():
+    f = Finding("warn", "corrections-record", "People/bob/.corrections.json: ...",
+                paths=("People/bob/.corrections.json",))
+    routed, _ = route_findings([f], ORG, RULES)
+    assert set(routed) == {"alice"}
+
+
 def test_protocol_findings_reach_the_admins_even_as_warnings():
     """protocol-stale warnings used to reach nobody: triage routed only
     errors outside TRIAGE_CHECKS. Only an admin can act on a protocol, so
