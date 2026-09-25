@@ -11,6 +11,35 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-09-25
+
+### Fixed
+
+- **`fact-conflict` no longer reads a name as a slot.** Two facts that
+  start with the same name and "is" — "590 Hempstead LLC is a New York
+  company" and "590 Hempstead LLC is member-managed" — were reported as a
+  conflict whenever the name had two or more words. On one brain all 193
+  `fact-conflict` findings were of this kind, and none was a real
+  contradiction. Now "is" marks a slot only after a possessive or "of"
+  ("Acme's plan is", "the plan of Acme is"), and not when the words before
+  it are the page's own title or one of its aliases. `:` and `=` still mark
+  a slot as before. A curly apostrophe and a straight one in a name are
+  treated as the same character, so a name quoted either way is still
+  recognized and exempted.
+
+### Changed
+
+- **A note and its declared parent are no longer near-duplicates.** A note
+  whose `up:` names another note overlaps it on purpose — an "Earlier
+  history" page under its subject, for example — so doctor no longer
+  reports that pair. Notes under the same parent are still compared with
+  each other. On one brain this removed more than half of the `dup-near`
+  groups.
+- **Near-duplicate findings go to the admins only.** Deciding whether two
+  notes should be merged needs a person, so `dup-near` no longer appears in
+  an agent's doctor digest. The admins' digest, the dashboard and the health
+  snapshot still count them.
+
 ## [0.7.3] - 2026-09-24
 
 ### Fixed
