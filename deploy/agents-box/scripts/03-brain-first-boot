@@ -427,6 +427,13 @@ if [ -f "$DATA/SOUL.md" ]; then
     fi
 fi
 
+# Would hermes load the SOUL.md we just assembled? Its context filter drops a
+# whole file on any match. Log only: vault-sync keeps the marker that
+# agents-liveness.sh alerts on, so boot never waits or fails on this.
+if [ -x /opt/hermes/.venv/bin/python ] && [ -f "$DATA/SOUL.md" ]; then
+    /opt/hermes/.venv/bin/python /usr/local/bin/brain-context-scan "$DATA/SOUL.md" >/dev/null 2>&1 || echo "[brain] WARNING: hermes' context filter matches SOUL.md — hermes will not load it; see /opt/data/.brain-context-blocked after the next vault-sync"
+fi
+
 # Silence the gateway's restart pings on agents provisioned before the profile
 # carried the flag. The template above can only ever reach a NEW volume, because
 # config.yaml is never re-synced (see the rule at the top of this file) — so

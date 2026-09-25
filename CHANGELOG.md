@@ -11,6 +11,17 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **The agents box checks each agent's instructions with the container's
+  own Hermes.** Every sync, `vault-sync` runs the image's Hermes filter over
+  `/vault/AGENTS.md`, `/vault/CLAUDE.md` and `SOUL.md`. If Hermes would drop
+  one, it leaves `/opt/data/.brain-context-blocked`, and
+  `agents-liveness.sh` fails its check with `blocked: <agent>(<file>:<what
+  matched>)`. This catches the gap when Hermes changes its filter before
+  brainkit's copy is updated. It needs an image rebuild and the updated
+  `agents-liveness.sh` in `/usr/local/sbin/`.
+
 ## [0.7.6] - 2026-09-25
 
 ### Changed
