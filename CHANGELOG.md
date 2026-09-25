@@ -16,6 +16,9 @@ explicitly under **Changed**, with what to do about it.
 - **`brain doctor` reads cached embeddings in one batch.** The near-duplicate
   check used to ask the embedding cache once per note; it now asks once for
   the whole brain. Findings are unchanged.
+- **One way to open a database read-only.** The index, the dashboard's
+  readers and the near-duplicate cache each built their own read-only SQLite
+  connection; they now share one helper. Nothing they do has changed.
 
 ## [0.7.4] - 2026-09-25
 

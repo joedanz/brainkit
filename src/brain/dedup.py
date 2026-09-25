@@ -177,13 +177,13 @@ class SignatureCache:
 
     @classmethod
     def open_readonly(cls, master: Path) -> SignatureCache | None:
-        from urllib.parse import quote
+        from brain import sqlite_util
 
         path = Path(master) / DEDUP_CACHE_REL
         try:  # is_file() raises on a folder it may not look into
             if not path.is_file():
                 return None
-            conn = sqlite3.connect(f"file:{quote(str(path), safe='/:')}?mode=ro", uri=True)
+            conn = sqlite_util.connect_readonly(path)
         except (OSError, sqlite3.Error):
             return None
         return cls(conn, writable=False)

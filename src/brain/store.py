@@ -236,11 +236,10 @@ class IndexStore:
         index`` holds). The caller must ensure the database already exists;
         a missing file raises ``sqlite3.OperationalError``.
         """
-        from urllib.parse import quote
+        from brain import sqlite_util
 
         path = Path(path)
-        uri = f"file:{quote(str(path), safe='/:')}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True)
+        conn = sqlite_util.connect_readonly(path)
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         if version > SCHEMA_VERSION:
             conn.close()

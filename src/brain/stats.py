@@ -17,8 +17,8 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import quote
 
+from brain import sqlite_util
 from brain.doctor import Finding, run_doctor
 from brain.facts import FactHit
 from brain.promotions import list_pending
@@ -117,10 +117,9 @@ def _utcnow() -> str:
 
 
 def ro_connect(db: Path) -> sqlite3.Connection:
-    # URI filenames must be percent-encoded (spaces, '?', '#'); keep '/' and
-    # ':' literal so absolute paths survive. Read-only by construction: opening
-    # the index read-write would create it, switch it to WAL and bump the schema.
-    return sqlite3.connect(f"file:{quote(str(db), safe='/:')}?mode=ro", uri=True)
+    # Read-only by construction: opening the index read-write would create
+    # it, switch it to WAL and bump the schema.
+    return sqlite_util.connect_readonly(db)
 
 
 def _manifest_candidates(manifest: dict) -> dict[str, str]:
