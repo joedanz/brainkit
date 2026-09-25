@@ -13,6 +13,17 @@ explicitly under **Changed**, with what to do about it.
 
 ### Fixed
 
+- **`brain doctor` now reads the embedding cache `brain cycle` writes.** The
+  cycle keeps a brain's embeddings in `<master>/_meta/cache/embeddings.db`,
+  but doctor's semantic near-duplicate check was reading the shared cache
+  (`~/.cache/brain/embeddings.db`, or `BRAIN_EMBED_CACHE`), which on a
+  server running the cycle is often empty or stale. Doctor now reads the
+  master's cache (read-only; it never creates it) and falls back to the
+  shared cache only when the master has none. **After upgrading, expect more
+  near-duplicate (`dup-near`) findings** on brains where doctor was reading
+  the wrong cache: the check now actually sees their notes' embeddings, so
+  it finds pairs it was missing before. Nothing about your notes changed.
+
 - **The cycle no longer creates an embedding cache git could commit.** Like
   the health snapshot and the near-duplicate cache, `_meta/cache/embeddings.db`
   is only written when the master's `.gitignore` covers `_meta/cache/`.
