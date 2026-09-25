@@ -891,7 +891,7 @@ adduser --disabled-password brain-sync</pre>
       check URLs, pinged on success and on <code>/fail</code> — a dead-man's
       switch, so a dead box or a stopped cron alerts too, not just a failing
       job. A nonzero
-      <code>cycle</code> means a rejected write-back; a nonzero <code>doctor</code> means an
+      <code>cycle</code> means a held or failed write-back; a nonzero <code>doctor</code> means an
       integrity error. The nightly mirror push to one private offsite remote backs up the
       master. Optional: set <code>BRAIN_EMBED_BASE_URL</code> (an embedding API reachable
       from both boxes) to upgrade keyword search to semantic — <code>cycle --index</code>
@@ -975,7 +975,7 @@ services:
         <li><strong>Approvals:</strong> <code>ssh brain-box brain promotions list</code> /
         <code>approve &lt;id&gt; --approver joe</code>; review in the dashboard over
         <code>ssh -L</code> on the tailnet.</li>
-        <li><strong>Watch two numbers:</strong> cycle exit ≠ 0 (rejected write-back) and
+        <li><strong>Watch two numbers:</strong> cycle exit ≠ 0 (a held or failed write-back) and
         doctor exit ≠ 0 (integrity) — both already ping your alert URL.</li>
         <li><strong>Updates:</strong> <code>uv tool upgrade brainkit</code> on the brain box;
         <code>build-image.sh</code> then <code>docker compose up -d</code> to roll agents —

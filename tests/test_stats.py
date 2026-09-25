@@ -451,3 +451,14 @@ def test_vault_stats_with_facts_serializes_cleanly(master, tmp_path):
     statements = {f["statement"] for f in payload["facts"]}
     assert statements == {
         "Sarah Kim is our main contact", "Dana Ortiz was our main contact"}
+
+
+def test_sessions_never_pending_reindex(master, tmp_path):
+    from tests.conftest import BOB
+
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    build_index(vault, provider=None, cache=None)
+    s = collect_vault_stats(vault)
+    assert "People/bob/Sessions/Bob Private Note.md" not in s.pending_reindex
+    assert s.pending_reindex == []

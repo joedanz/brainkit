@@ -1082,7 +1082,7 @@ def test_cli_single_person_compile_reports_an_oversized_protocol_cleanly(
                  "--person", "bob"])
     err = capsys.readouterr().err
     assert code == 1
-    assert err.startswith("brain compile: bob: root protocol is ")
+    assert err.startswith("failed bob: bob: root protocol is ")
     assert "Traceback" not in err
 
 

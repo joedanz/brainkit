@@ -21,6 +21,7 @@ from pathlib import Path
 from brain import sqlite_util
 from brain.doctor import Finding, run_doctor
 from brain.facts import FactHit
+from brain.indexer import is_session
 from brain.promotions import list_pending
 from brain.resolver import (
     _match_rule,
@@ -124,13 +125,15 @@ def ro_connect(db: Path) -> sqlite3.Connection:
 
 def _manifest_candidates(manifest: dict) -> dict[str, str]:
     """The person's own notes (rel_path -> sha256) from a compiled manifest —
-    real ``.md`` files, excluding compiler-generated ones. This is the set that
-    should be indexed, so it drives both space counts and pending-reindex."""
+    real ``.md`` files, excluding compiler-generated ones and episode
+    summaries under ``Sessions/``, which the indexer never indexes. This is
+    the set that should be indexed, so it drives both space counts and
+    pending-reindex; counting Sessions made "awaiting reindex" never clear."""
     generated = set(manifest["generated"])
     return {
         rel: sha
         for rel, sha in manifest["compiled"].items()
-        if rel.endswith(".md") and rel not in generated
+        if rel.endswith(".md") and rel not in generated and not is_session(rel)
     }
 
 

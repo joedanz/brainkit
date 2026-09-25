@@ -10,7 +10,7 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
-from brain.compiler import CompileError, compile_all, compile_vault
+from brain.compiler import CompileError, compile_all
 from brain.cycle import run_cycle
 from brain.doctor import run_doctor
 from brain.errors import HANDLED, describe
@@ -31,28 +31,20 @@ def _load(master: Path):
 def cmd_compile(args) -> int:
     master, out = Path(args.master), Path(args.out)
     org, rules = _load(master)
-    if args.person:
-        person = org.people.get(args.person)
-        if person is None:
-            print(f"unknown person: {args.person}", file=sys.stderr)
-            return 1
-        compile_vault(
-            master, person, rules, out / person.id, today=date.today().isoformat()
-        )
-        print(f"compiled {person.id} -> {out / person.id}")
-    else:
-        failures: tuple[tuple[str, str], ...] = ()
-        try:
-            results = compile_all(master, org, rules, out, today=date.today().isoformat())
-        except CompileError as e:
-            results, failures = e.completed, e.failures
-        for r in results:
-            print(f"compiled {r.person_id}: {len(r.files)} files")
-        for pid, why in failures:
-            print(f"failed {pid}: {why}", file=sys.stderr)
-        if failures:
-            return 1
-    return 0
+    if args.person and args.person not in org.people:
+        print(f"unknown person: {args.person}", file=sys.stderr)
+        return 1
+    failures: tuple[tuple[str, str], ...] = ()
+    try:
+        results = compile_all(master, org, rules, out, today=date.today().isoformat(),
+                              only=args.person or None)
+    except CompileError as e:
+        results, failures = e.completed, e.failures
+    for r in results:
+        print(f"compiled {r.person_id}: {len(r.files)} files")
+    for pid, why in failures:
+        print(f"failed {pid}: {why}", file=sys.stderr)
+    return 1 if failures else 0
 
 
 def cmd_writeback(args) -> int:

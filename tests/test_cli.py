@@ -506,3 +506,19 @@ def test_held_show_corrupt_record(master: Path, tmp_path: Path, capsys):
     assert main(["held", "show", "bob", "--master", str(master),
                  "--out", str(tmp_path)]) == 1
     assert "unreadable hold record" in capsys.readouterr().err
+
+
+def test_compile_single_person_goes_through_failure_isolation(master: Path, tmp_path: Path,
+                                                              capsys, monkeypatch):
+    from tests.test_compiler import _failing_for
+
+    seed_meta(master)
+    out_root = tmp_path / "compiled"
+    assert main(["compile", "--master", str(master), "--out", str(out_root),
+                 "--person", "bob"]) == 0
+    assert (out_root / "bob/.git").is_dir()  # same git step as a fleet compile
+    _failing_for(monkeypatch, "bob")
+    capsys.readouterr()
+    assert main(["compile", "--master", str(master), "--out", str(out_root),
+                 "--person", "bob"]) == 1
+    assert "failed bob:" in capsys.readouterr().err

@@ -19,7 +19,7 @@ brain doctor  --master /srv/brain/master --out /srv/brain/compiled
 # run after setup and from cron; nonzero exit = integrity error
 ```
 
-Re-run `brain compile` on every master change (cron or a git `post-commit` hook). The full walkthrough is in [Getting started](/getting-started).
+Re-run `brain compile` on every master change, from cron (`flock /var/lock/brain-cycle.lock brain cycle …` does it as part of the cycle). The full walkthrough is in [Getting started](/getting-started).
 
 ## 1. Per-employee setup
 
@@ -89,18 +89,19 @@ See [Per-employee setup](/guides/per-employee-setup) for the detailed version.
 
   See [Getting things in](/guides/getting-things-in) for every channel.
 
-- Edits sync back; the server runs one command per interval (cron or
-  `post-receive` hook):
+- Edits sync back; the server runs one command per interval from cron, under
+  `flock /var/lock/brain-cycle.lock`:
 
   ```bash
   brain cycle --master /srv/brain/master --out /srv/brain/compiled --json
   ```
 
-  It applies every person's writeback (rejections are reported and revert on the
-  next compile), provisions any self-service client requests and routes pending
-  or auto-applied share requests, sweeps agent drafts into the pending queue, and
-  recompiles all vaults. Nonzero exit = at least one rejected writeback or a
-  tampering signal (an owner-mismatch client or share request).
+  It applies every person's writeback (edits outside the person's write scope
+  are held and the person is told in their Inbox), provisions any self-service
+  client requests and routes pending or auto-applied share requests, sweeps
+  agent drafts into the pending queue, and recompiles all vaults. Nonzero exit
+  = at least one held or failed writeback or a tampering signal (an
+  owner-mismatch client or share request).
 
 - **Sharing:** the agent drafts promotions; approve with
   `brain promotions approve <id> --master ... --approver admin` (the approver is
