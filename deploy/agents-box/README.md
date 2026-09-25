@@ -11,7 +11,7 @@ supervision, all state on `/opt/data`), with three additions:
 | --- | --- | --- |
 | **brainkit** | `/opt/brainkit` venv, `brain` on PATH | `brain index / search / mcp` inside the container (installed from `git+https://github.com/joedanz/brainkit` — it is not on PyPI) |
 | **company-brain profile** | staged at `/opt/brain-profile` | installed into `/opt/data` on first boot: SOUL.md, `terminal.cwd: /vault`, the brain MCP server, tool-loop hard stops, gateway lifecycle pings off, the brain-protocol skill |
-| **vault-sync** | s6-supervised longrun | `git pull → brain index → git push` every 5 minutes (`BRAIN_SYNC_INTERVAL` to change); crash-restarted by s6 like the gateway itself |
+| **vault-sync** | s6-supervised longrun | `git pull → brain index → context check → git push` every 5 minutes (`BRAIN_SYNC_INTERVAL` to change); crash-restarted by s6 like the gateway itself |
 
 ## What is in this directory
 
@@ -29,7 +29,7 @@ deploy/agents-box/
 │   ├── config.yaml             terminal.cwd, brain MCP server, disabled skills,
 │   │                           gateway lifecycle pings off
 │   └── skills/brain-protocol/  how an agent should use a brain
-├── scripts/                    s6 hooks: first boot, vault-sync
+├── scripts/                    s6 hooks: first boot, vault-sync, context check
 ├── agents-liveness.sh          fleet check → healthchecks.io
 └── backup-agents*.sh           nightly state zips, encrypted offsite
 ```
@@ -198,6 +198,17 @@ active `/fail` names the dead container — and the expected list is read from
 `docker-compose.yml`, so adding an agent needs no monitoring change. Install
 to `/usr/local/sbin/` and add the cron line from the script header.
 
+It also fails the check when an agent is running but Hermes would refuse
+its instructions. Hermes drops a whole `AGENTS.md`, `CLAUDE.md` or
+`SOUL.md` when any line matches its threat filter, and the agent then
+answers with no rules at all. brainkit avoids this when it builds the vault,
+and each sync double-checks with the container's own Hermes
+(`brain-context-scan`). A match leaves `/opt/data/.brain-context-blocked`,
+and the `/fail` body names it: `blocked: agent-alice(AGENTS.md:c2_heartbeat)`.
+Run `brain doctor` on the brain box to see which name matched. The marker
+clears on the next clean sync. If a Hermes upgrade moves its filter, the
+check quietly does nothing, and the image build prints a warning.
+
 ## Verifying a running container
 
 ```bash
@@ -263,6 +274,7 @@ to `/usr/local/sbin/`, and cron it after the local job (03:45). See
 | agent chats but knows nothing | vault not cloned yet (see clone failure above) or index missing — run `docker exec agent-alice vault-sync`. |
 | agent says "saved" but the vault never changes | `write_file` denied by `HERMES_WRITE_SAFE_ROOT` (the hermes base image pins it to `/opt/data`; this image extends it with `/vault` — don't override it without keeping both paths). The gateway reply looks like success; only the file-mutation verifier footer reveals the denial. |
 | `Write denied: '/tmp/…' is outside HERMES_WRITE_SAFE_ROOT` | working as designed — `/tmp` is not in the guard. Scratch belongs in `/opt/data/.cache/tmp`, which is `TMPDIR` (Dockerfile) and is named in the managed block `03-brain-first-boot` keeps at the end of SOUL.md. An agent hitting this on a *fresh* container has neither yet — check the boot log for `SOUL.md scratch block applied`. |
+| `/fail` says `blocked: agent-x(…)` | Hermes would refuse that file, so the agent is running without its instructions. On the brain box, `brain doctor` names the name or rule that matched (`protocol-blocked`, or `corrections-budget` for a standing correction). Rename or reword it; the next cycle and sync clear the marker. |
 
 ## Scratch files
 
