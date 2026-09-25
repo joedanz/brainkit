@@ -568,3 +568,11 @@ def test_corrections_list_shows_a_flagged_rule_as_withheld_not_active(master: Pa
     assert main(["corrections", "confirm", "bob", "maria", "--by", "alice", *m]) == 1
     assert "Hermes" in capsys.readouterr().err
     assert not (master / "People/bob/.corrections.json").exists()
+
+
+def test_dashboard_corrections_master_only_with_a_served_vault(tmp_path, capsys):
+    assert main(["dashboard", "--master", str(tmp_path), "--corrections-master",
+                 str(tmp_path)]) == 2
+    assert "--corrections-master only applies to --vault" in capsys.readouterr().err
+    assert main(["dashboard", "--vault", str(tmp_path), "--html", str(tmp_path / "d.html"),
+                 "--corrections-master", str(tmp_path)]) == 2

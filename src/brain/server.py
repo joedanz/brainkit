@@ -17,6 +17,9 @@ Design constraints inherited from the rest of brainkit:
   overview data, and (for the graph/query tabs) a *named* person's compiled
   vault under ``out_root``; the person id is validated against the org roster so
   a crafted ``?person=`` can't escape into an arbitrary directory.
+  With ``--corrections-master``, the user lens may also confirm or dismiss its
+  own person's standing corrections in master; that person is pinned at
+  startup, never taken from a request.
 * **Localhost by default.** Binds 127.0.0.1; a `host_guard` middleware rejects
   cross-origin ``Host``/``Origin`` headers (DNS-rebinding defense) whenever the
   bind is loopback, and a strict CSP keeps the page from talking to anything but
@@ -151,6 +154,7 @@ async def handle_meta(request: web.Request) -> web.Response:
             "title": f"{person or Path(lens.vault).name}'s vault",
             "person": person,
             "vector_search": vector_search,
+            "corrections": app["corrections"] is not None,
         }
     else:
         people = [{"id": pid, "name": name} for pid, name in sorted(app["people"].items())]
@@ -358,6 +362,91 @@ async def handle_actions(request: web.Request) -> web.Response:
         return [asdict(x) for x in list_actions(vault, person)]
 
     return web.json_response({"actions": await asyncio.to_thread(_list)})
+
+
+# ---- standing corrections (spec C) ------------------------------------------
+
+def _corrections_person(vault: Path, master: Path) -> str:
+    """The one person this dashboard may confirm corrections for, pinned at
+    startup. The manifest is a tracked file an agent can push, so it is
+    trusted only when it names someone in master's org AND the vault folder
+    is named after them (compiled vaults live at <out>/<person>)."""
+    from brain.corrections import CorrectionError
+    from brain.writeback import ManifestError, _load_manifest
+
+    try:
+        pid = _load_manifest(vault).get("person", "")
+    except ManifestError as e:
+        raise CorrectionError(f"--corrections-master needs a compiled vault: {e}") from e
+    if not isinstance(pid, str) or not pid or pid not in _org_people(master):
+        raise CorrectionError(
+            f"this vault's person {pid!r} is not in {master}/_meta/org.yaml")
+    if vault.resolve().name != pid:
+        raise CorrectionError(
+            f"the vault folder must be named after its person ({pid}), "
+            f"not {vault.resolve().name!r}")
+    return pid
+
+
+def _corrections_view(master: Path, pid: str) -> dict:
+    from brain.corrections import load_corrections, rule_hash
+
+    cs = load_corrections(master, pid)
+
+    def item(c) -> dict:
+        return {"slug": c.slug, "rule": c.rule, "from": c.from_date,
+                "sha256": rule_hash(c.rule)}
+
+    pending = set(cs.pending)
+    return {
+        "person": pid,
+        "pending": [item(c) for c in cs.pending],
+        # In effect: confirmed and still in play. Flagged rules are withheld
+        # from the agent, so they are listed on their own, never as active.
+        "active": [item(c) for c in cs.active if c not in pending],
+        "flagged": [item(c) for c in cs.flagged],
+        "rejected": [{"slug": r.slug, "reason": r.reason} for r in cs.rejected],
+        "record_error": cs.record_error,
+    }
+
+
+async def handle_corrections(request: web.Request) -> web.Response:
+    """Vault lens with --corrections-master: the pinned person's corrections."""
+    master, pid = request.app["corrections"]
+    return web.json_response(await asyncio.to_thread(_corrections_view, master, pid))
+
+
+async def _correction_action(request: web.Request, master: Path, pid: str, by: str,
+                             data: dict) -> web.Response:
+    from brain.corrections import CorrectionError, confirm, dismiss
+
+    slug = request.match_info["slug"]
+    action = request.match_info["action"]
+
+    def _do() -> None:
+        if action == "confirm":
+            seen = data.get("sha256")
+            if not isinstance(seen, str) or not seen.strip():
+                raise web.HTTPBadRequest(reason="the rule you were shown is required (sha256)")
+            confirm(master, pid, slug, by, expected_sha256=seen.strip())
+        elif action == "dismiss":
+            dismiss(master, pid, slug, by)
+        else:
+            raise web.HTTPNotFound(reason=f"unknown action {action!r}")
+
+    try:
+        await asyncio.to_thread(_do)
+    except CorrectionError as e:
+        raise web.HTTPBadRequest(reason=str(e).replace("\n", " ")) from e
+    return web.json_response({"ok": True, "person": pid, "slug": slug, "action": action})
+
+
+async def handle_own_correction_action(request: web.Request) -> web.Response:
+    """Vault lens: the person acts on their own correction. Nothing in the
+    request can name a different person."""
+    master, pid = request.app["corrections"]
+    data = await _json_body(request)
+    return await _correction_action(request, master, pid, pid, data)
 
 
 # ---- write endpoints (POST; guarded by the non-GET Origin+JSON middleware) ---
@@ -767,7 +856,8 @@ async def host_guard(request: web.Request, handler):
 # ---- app assembly ------------------------------------------------------------
 
 def create_app(lens: Lens, *, poll_interval: float = 2.0,
-               loopback: bool = True) -> web.Application:
+               loopback: bool = True,
+               corrections_master: Path | None = None) -> web.Application:
     from brain.embeddings import provider_from_config
 
     app = web.Application(middlewares=[host_guard])
@@ -778,6 +868,10 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     app["state"] = {"fingerprint": None}  # mutated in place; app keys are frozen post-startup
     app["provider"] = provider_from_config()  # resolved once; None => keyword-only
     app["people"] = _org_people(Path(lens.master)) if lens.kind == "master" else {}
+    app["corrections"] = None
+    if lens.kind == "vault" and corrections_master is not None:
+        master = Path(corrections_master)
+        app["corrections"] = (master, _corrections_person(Path(lens.vault), master))
 
     app.router.add_get("/", handle_index)
     app.router.add_get("/api/meta", handle_meta)
@@ -796,6 +890,12 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     app.router.add_post("/api/promotions/sweep", handle_promotion_sweep)
     app.router.add_post("/api/promotions/{id}/{action}", handle_promotion_action)
     app.router.add_post("/api/shares/{id}/{action}", handle_share_action)
+    # Correction routes exist only where they are allowed: the vault lens,
+    # and only with --corrections-master. The person comes from startup,
+    # never from the request.
+    if app["corrections"] is not None:
+        app.router.add_get("/api/corrections", handle_corrections)
+        app.router.add_post("/api/corrections/{slug}/{action}", handle_own_correction_action)
     app.router.add_get("/ws", handle_ws)
     if assets_dir().is_dir():
         app.router.add_static("/assets/", assets_dir(), follow_symlinks=False)
@@ -824,7 +924,8 @@ def _seed_retrieval_stats(lens: Lens) -> None:
 
 
 def run_server(lens: Lens, *, host: str = "127.0.0.1", port: int = 8765,
-               open_browser: bool = True) -> int:
+               open_browser: bool = True,
+               corrections_master: Path | None = None) -> int:
     import sys
     import webbrowser
 
@@ -835,7 +936,7 @@ def run_server(lens: Lens, *, host: str = "127.0.0.1", port: int = 8765,
 
     _seed_retrieval_stats(lens)
 
-    app = create_app(lens, loopback=loopback)
+    app = create_app(lens, loopback=loopback, corrections_master=corrections_master)
 
     async def _serve() -> None:
         runner = web.AppRunner(app)

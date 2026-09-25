@@ -11,6 +11,7 @@ import * as query from "./tabs/query.js";
 import * as admin from "./tabs/admin.js";
 import * as worklists from "./tabs/worklists.js";
 import * as facts from "./tabs/facts.js";
+import * as corrections from "./tabs/corrections.js";
 
 // Apply the persisted theme before anything renders (the CSS media query covers
 // the un-chosen case, so a first-time visitor sees their OS theme with no flip).
@@ -38,7 +39,8 @@ const buttons = new Map();
 //   "rerender" — cheap stateless subtree, rebuilt on every push (default)
 //   "onLive"   — owns its update (graph reloads in place, keeps zoom/positions)
 //   "ignore"   — holds user input/scroll a blind rebuild would clobber (query)
-function tabsFor(kind) {
+function tabsFor(meta) {
+  const kind = meta.kind;
   const overviewTab = { id: "overview", label: "Overview", render: overview.render, live: "rerender" };
   const pagesTab = { id: "pages", label: "Pages", render: pages.render, live: "onLive", onLive: pages.onLive, dispose: pages.dispose };
   const inboxTab = { id: "inbox", label: "Inbox", render: worklists.renderInbox, live: "ignore" };
@@ -57,7 +59,9 @@ function tabsFor(kind) {
       graphTab, queryTab,
     ];
   }
-  return [overviewTab, pagesTab, inboxTab, actionsTab, graphTab, queryTab, factsTab];
+  const correctionsTab = { id: "corrections", label: "Corrections", render: corrections.render, live: "ignore" };
+  return [overviewTab, pagesTab, inboxTab, actionsTab, graphTab, queryTab, factsTab]
+    .concat(meta.corrections ? [correctionsTab] : []);
 }
 
 function buildTabs() {
@@ -185,7 +189,7 @@ async function boot() {
   hr.insertBefore(mountTheme.button(), hr.firstChild);
   hr.insertBefore(mountCapture(ctx), hr.firstChild);
 
-  TABS = tabsFor(meta.kind);
+  TABS = tabsFor(meta);
   buildTabs();
 
   connectWS({

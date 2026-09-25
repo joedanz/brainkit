@@ -99,9 +99,9 @@ def test_cli_dashboard_serves_live_by_default(master, tmp_path, monkeypatch):
     vault = _vault(master, tmp_path)
     calls = []
 
-    def fake_run_server(lens, *, host, port, open_browser):
+    def fake_run_server(lens, *, host, port, open_browser, corrections_master):
         calls.append({"lens": lens, "host": host, "port": port,
-                      "open_browser": open_browser})
+                      "open_browser": open_browser, "corrections_master": corrections_master})
         return 0
 
     monkeypatch.setattr("brain.server.run_server", fake_run_server)

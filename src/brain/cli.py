@@ -627,6 +627,10 @@ def cmd_status(args) -> int:
 
 
 def cmd_dashboard(args) -> int:
+    if args.corrections_master and (not args.vault or args.html):
+        print("--corrections-master only applies to --vault when serving the live "
+              "dashboard", file=sys.stderr)
+        return 2
     if args.vault and args.out:
         print("--out only applies to the admin lens (--master)", file=sys.stderr)
         return 2
@@ -688,7 +692,9 @@ def _dashboard_serve(args) -> int:
         lens = Lens(kind="master", master=Path(args.master),
                     out_root=Path(args.out) if args.out else None)
     return run_server(lens, host=args.host, port=args.port,
-                      open_browser=not args.no_open)
+                      open_browser=not args.no_open,
+                      corrections_master=(Path(args.corrections_master)
+                                          if args.corrections_master else None))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -894,6 +900,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not open a browser when serving the live dashboard")
     db.add_argument("--open", action="store_true", dest="open_browser",
                     help="open the file in a browser (static --html mode only)")
+    db.add_argument("--corrections-master", metavar="PATH",
+                    help="the master vault; lets this person confirm or dismiss their "
+                         "own standing corrections (user lens, live server only)")
     db.set_defaults(func=cmd_dashboard)
 
     d = sub.add_parser("doctor", help="check master and compiled vaults for integrity issues")
