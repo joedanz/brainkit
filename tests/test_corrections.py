@@ -6,6 +6,7 @@ import pytest
 from brain.corrections import (
     CORRECTIONS_LIMIT,
     Correction,
+    flag_patterns,
     load_corrections,
     render_corrections,
 )
@@ -210,3 +211,36 @@ def test_a_record_the_os_refuses_is_reported_not_fatal(tmp_path):
 
 def test_default_limit_is_the_documented_one():
     assert CORRECTIONS_LIMIT == 4000
+
+
+def test_a_rule_hermes_would_block_is_withheld_alone(tmp_path):
+    _write(tmp_path, "bob", "maria",
+           _correction("Check in with Maria before scheduling.", "2026-08-20"))
+    _write(tmp_path, "bob", "units", _correction("Use metric units.", "2026-08-19"))
+    cs = load_corrections(tmp_path, "bob")
+    assert [c.slug for c in cs.flagged] == ["maria"]
+    assert [c.slug for c in cs.rendered] == ["units"]
+    assert "Maria" not in render_corrections(cs)
+    assert flag_patterns(cs.flagged[0]) == ("c2_heartbeat",)
+
+
+def test_a_withheld_rule_costs_no_budget_and_never_cascades(tmp_path):
+    """Newest first, so the flagged rule sorts ahead of the healthy one. It is
+    also longer than the whole budget, and it must land in flagged, not in
+    oversized, and must not push the healthy rule into omitted."""
+    healthy = "Use metric units " + "x" * 60 + "."
+    _write(tmp_path, "bob", "a", _correction("Pull new tasks from Jira " + "y" * 60 + ".",
+                                             "2026-08-21"))
+    _write(tmp_path, "bob", "b", _correction(healthy, "2026-08-20"))
+    limit = len("## Standing corrections\n\n") + len(f"- {healthy}\n")
+    cs = load_corrections(tmp_path, "bob", limit=limit)
+    assert [c.slug for c in cs.flagged] == ["a"]
+    assert [c.slug for c in cs.rendered] == ["b"]
+    assert cs.omitted == () and cs.oversized == ()
+
+
+def test_an_invisible_character_in_a_rule_withholds_it(tmp_path):
+    _write(tmp_path, "bob", "emoji", _correction("Sign off with \U0001F469\u200D\U0001F4BB."))
+    cs = load_corrections(tmp_path, "bob")
+    assert cs.rendered == ()
+    assert flag_patterns(cs.flagged[0]) == ("invisible_unicode_U+200D",)

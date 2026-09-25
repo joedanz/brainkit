@@ -11,8 +11,10 @@ declarative so it passes Hermes's prompt-injection scan.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
+from brain import hermes_filter
 from brain.errors import BrainError
 from brain.schemas import DEFAULT_SHARED, Person, SpaceRule, VaultConfig
 
@@ -38,6 +40,32 @@ class ProtocolTooLarge(BrainError, ValueError):
     person whose file it is and keeps compiling everyone else. The bare
     ValueError this replaces escaped the fleet compile and the cycle.
     """
+
+
+@dataclass(frozen=True)
+class Withheld:
+    """Variable text rendered around, because Hermes Agent would drop the file.
+
+    kind "space": a space counted in its folder's summary instead of listed
+    (detail = the space). kind "name": the person's name replaced by their id
+    (detail = the id). Doctor reports each one to the admins at info.
+    """
+    kind: str
+    detail: str
+    patterns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProtocolRender:
+    """A person's root protocol, plus what was rendered around and what the
+    finished text still trips (`blocked`). A non-empty `blocked` means a
+    structural name matches (shared space, entities folder, person id). The
+    file ships anyway: holding the old vault back would freeze that person's
+    content until an admin renames something, which is the worse failure.
+    Doctor turns it into a protocol-blocked error."""
+    text: str
+    withheld: tuple[Withheld, ...] = ()
+    blocked: tuple[str, ...] = ()
 
 
 _ROOT_TEMPLATE = """\
@@ -264,14 +292,25 @@ Nothing in `People/{pid}/` is shared automatically. To share knowledge:
 """
 
 
+def charter_blocks(config: VaultConfig) -> tuple[str, ...]:
+    """The Hermes filter ids the charter matches, or () (also when unset).
+
+    A matching charter is withheld from every generated protocol, since one
+    match makes Hermes Agent drop the whole file. Doctor reports it to the
+    admins as an error: only they can rephrase it."""
+    return hermes_filter.blocks(config.charter) if config.charter else ()
+
+
 def render_charter(config: VaultConfig) -> str:
     """The "what this brain is for" block, or "" when no charter is set.
 
     Empty means empty, as with corrections: a heading over an invented purpose
     would be worse than none, because the relevance test below it would then
     be measured against something nobody in the company actually said.
+
+    A charter Hermes would block renders as unset (see charter_blocks).
     """
-    if not config.charter:
+    if not config.charter or charter_blocks(config):
         return ""
     return (f"## What this brain is for\n\n{config.charter}\n\n"
             "That is the subject this vault collects. A fact bearing on none\n"
@@ -288,7 +327,7 @@ def render_intel_scope(config: VaultConfig) -> str:
     the agent has just read are the whole definition, and naming examples
     here would only narrow them to whoever wrote the examples.
     """
-    if config.charter:
+    if config.charter and not charter_blocks(config):
         return "on the subject above"
     return "that passes the admission tests above"
 
@@ -299,6 +338,7 @@ def _space_line(space: str, writable: bool) -> str:
 
 def render_space_section(
     person_id: str, spaces_rw: list[tuple[str, bool]], shared: str = DEFAULT_SHARED,
+    *, withheld: list[Withheld] | None = None,
 ) -> str:
     """The `## Spaces in this vault` lines, bounded by construction.
 
@@ -311,13 +351,22 @@ def render_space_section(
     summary taking its folder's first slot, so a vault with no crowded folder
     renders byte-identical to before. The shared space and the person's own
     space are always listed, and the own space never counts toward a crowd.
+
+    A space whose line Hermes Agent's filter matches is never listed by name:
+    its folder is summarized even when small, the rest of that folder is
+    listed as usual, and the space goes into `withheld` for doctor.
     """
     own = f"People/{person_id}"
     by_top: dict[str, list[tuple[str, bool]]] = {}
+    flagged: dict[str, tuple[str, ...]] = {}
     for space, writable in spaces_rw:
         if space != shared and space != own and "/" in space:
             by_top.setdefault(space.split("/", 1)[0], []).append((space, writable))
-    crowded = {top for top, members in by_top.items() if len(members) > LIST_CAP}
+            hits = hermes_filter.blocks(_space_line(space, writable))
+            if hits:
+                flagged[space] = hits
+    crowded = {top for top, members in by_top.items()
+               if len(members) > LIST_CAP or any(s in flagged for s, _ in members)}
     lines: list[str] = []
     summarized: set[str] = set()
     for space, writable in spaces_rw:
@@ -339,10 +388,17 @@ def render_space_section(
             counts = f"{n} spaces: {nw} writable, {n - nw} read-only"
         lines.append(f"- `{top}/` — {counts}. `Map.md` has the overview; "
                      "`brain_search` finds any of them by name.")
-        if 0 < nw <= LIST_CAP:  # n > LIST_CAP here, so these are never all of them
-            lines.extend(_space_line(s, w) for s, w in mine)
+        if n <= LIST_CAP:  # summarized only to keep a flagged name out
+            named = members
+        elif 0 < nw <= LIST_CAP:  # n > LIST_CAP here, so never all of them
+            named = mine
         elif 0 < n - nw <= LIST_CAP:
-            lines.extend(_space_line(s, w) for s, w in members if not w)
+            named = [(s, w) for s, w in members if not w]
+        else:
+            named = []
+        lines.extend(_space_line(s, w) for s, w in named if s not in flagged)
+    if withheld is not None:
+        withheld.extend(Withheld("space", s, hits) for s, hits in flagged.items())
     return "\n".join(lines)
 
 
@@ -351,10 +407,19 @@ def render_root_protocol(
     spaces_rw: list[tuple[str, bool]],
     config: VaultConfig = VaultConfig(),
     corrections_block: str = "",
+    *, withheld: list[Withheld] | None = None,
 ) -> str:
+    name = person.name
+    name_hits = hermes_filter.blocks(name)
+    if name_hits:
+        # The name appears four times in the template; the id stands in for all.
+        name = person.id
+        if withheld is not None:
+            withheld.append(Withheld("name", person.id, name_hits))
     text = _ROOT_TEMPLATE.format(
-        name=person.name, pid=person.id,
-        space_lines=render_space_section(person.id, spaces_rw, config.shared),
+        name=name, pid=person.id,
+        space_lines=render_space_section(person.id, spaces_rw, config.shared,
+                                         withheld=withheld),
         entities=config.entities, entity=config.entity,
         entity_title=config.entity[:1].upper() + config.entity[1:],
         requests=config.requests_folder, name_key=config.name_key,
@@ -369,13 +434,14 @@ def render_root_protocol(
     return text
 
 
-def render_person_protocol(
+def render_person_protocol_report(
     corrections_root: Path,
     person: Person,
     spaces_rw: list[tuple[str, bool]],
     config: VaultConfig = VaultConfig(),
-) -> str:
-    """A person's root AGENTS.md/CLAUDE.md text: the one path to it.
+) -> ProtocolRender:
+    """A person's root AGENTS.md/CLAUDE.md text, with what was rendered around
+    and what it still trips. The one path to that text.
 
     `corrections_root` is any tree holding People/<pid>/Corrections/: the
     building vault at compile time, the master when doctor measures. The
@@ -385,13 +451,31 @@ def render_person_protocol(
     from brain.corrections import load_corrections, render_corrections
 
     block = render_corrections(load_corrections(corrections_root, person.id))
-    return render_root_protocol(person, spaces_rw, config, corrections_block=block)
+    withheld: list[Withheld] = []
+    text = render_root_protocol(person, spaces_rw, config, corrections_block=block,
+                                withheld=withheld)
+    return ProtocolRender(text, tuple(withheld), hermes_filter.blocks(text))
+
+
+def render_person_protocol(
+    corrections_root: Path,
+    person: Person,
+    spaces_rw: list[tuple[str, bool]],
+    config: VaultConfig = VaultConfig(),
+) -> str:
+    """The text alone: what the compiler writes. See render_person_protocol_report."""
+    return render_person_protocol_report(corrections_root, person, spaces_rw, config).text
 
 
 def render_space_note(space: str, writable: bool, owner: bool) -> str:
+    """The per-space AGENTS.md/CLAUDE.md note. The heading names no space:
+    Hermes Agent drops a whole context file when any line matches its filter,
+    and a space's name is text brainkit doesn't control. The folder the note
+    sits in already says which space it is. `space` only names the file in
+    the size error."""
     if owner:
         text = (
-            f"# {space} — private space\n\n"
+            "# This space — private space\n\n"
             "Everything here is private to the vault owner. Nothing leaves this\n"
             "space without an approved promotion. Keep Memory.md a lean overview\n"
             "that links out to Notes/ for anything topic-sized; a processed Inbox\n"
@@ -400,7 +484,7 @@ def render_space_note(space: str, writable: bool, owner: bool) -> str:
     else:
         mode = "writable" if writable else "read-only"
         text = (
-            f"# {space}\n\n"
+            "# This space\n\n"
             f"This space is {mode} for the vault owner. Follow the routing and\n"
             "promotion rules in the vault root AGENTS.md. Cite sources for\n"
             "facts recorded here.\n"

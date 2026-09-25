@@ -321,3 +321,22 @@ def test_materialize_accepts_legacy_client_name_key(tmp_path):
     results = materialize_clients(master, _org(), today="2026-07-23")
     assert [r.status for r in results] == ["created"]
     assert (master / "Families/Smith").is_dir()
+
+
+@pytest.mark.parametrize("bad", [
+    "Maria\u200dJones",      # zero-width joiner
+    "Parisa\u200cNaderi",    # zero-width non-joiner (Persian): Hermes blocks it too
+    "\ufeffAcme",            # BOM
+    "Acme\u202eCorp",        # right-to-left override
+])
+def test_normalize_rejects_invisible_characters(bad):
+    """Hermes Agent drops a whole protocol over any of these, and a client
+    name reaches the protocol. Existing names aren't renamed; doctor's
+    protocol-blocked reports them."""
+    with pytest.raises(ClientError, match="illegal character"):
+        normalize_client_name(bad)
+
+
+def test_request_client_refuses_an_invisible_character(tmp_path):
+    with pytest.raises(ClientError, match="illegal character"):
+        request_client(tmp_path, "joe", "Maria\u200dJones", "Notes.\n", "2026-09-25")

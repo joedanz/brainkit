@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from brain import hermes_filter
 from brain.frontmatter import split_frontmatter
 
 CORRECTIONS_LIMIT = 4000
@@ -42,6 +43,7 @@ class CorrectionSet:
     undated: tuple[str, ...]           # slugs whose `from:` did not parse
     unreadable: tuple[str, ...]        # slugs the OS would not hand over
     misfiled: tuple[str, ...]          # paths under the dir the loader ignores
+    flagged: tuple[Correction, ...] = ()  # Hermes would drop the protocol -- withheld
 
 
 def _read_text(path: Path) -> str | None:
@@ -74,6 +76,14 @@ def _bullet(c: Correction) -> str:
     return f"- {c.rule}\n"
 
 
+def flag_patterns(c: Correction) -> tuple[str, ...]:
+    """The Hermes filter ids this rule's rendered bullet matches, or ().
+
+    A match anywhere in the protocol makes Hermes Agent drop the whole file,
+    so a matching rule is withheld rather than rendered."""
+    return hermes_filter.blocks(_bullet(c))
+
+
 def load_corrections(
     vault: Path, pid: str, *, limit: int = CORRECTIONS_LIMIT
 ) -> CorrectionSet:
@@ -88,7 +98,10 @@ def load_corrections(
     Two ways a rule fails to render, kept apart because the fix differs. The
     budget running out cascades: every rule after the first that does not fit
     is omitted too. A rule longer than the entire budget never cascades — it
-    is omitted alone, and the rules after it still render.
+    is omitted alone, and the rules after it still render. A third,
+    `flagged`: a rule the Hermes filter matches is withheld alone, like an
+    oversized one, because rendering it would make Hermes drop the whole
+    protocol.
 
     Only `*.md` directly in the directory is a correction. Anything else under
     it — a subfolder, another extension — is `misfiled`: recorded here rather
@@ -147,10 +160,19 @@ def load_corrections(
     rendered: list[Correction] = []
     omitted: list[Correction] = []
     oversized: list[Correction] = []
+    flagged: list[Correction] = []
     used = len(_HEADING)
     full = False
     for c in ordered:
-        cost = len(_bullet(c))
+        bullet = _bullet(c)
+        if hermes_filter.blocks(bullet):
+            # Like oversized, this never cascades: it is a defect in one
+            # rule, and the rules after it still render. Checked first,
+            # because a rule that would drop the whole protocol must never
+            # render, whatever its length.
+            flagged.append(c)
+            continue
+        cost = len(bullet)
         if len(_HEADING) + cost > limit:
             # This one cannot fit even an empty budget, so nothing anyone
             # prunes around it will ever render it. That is a defect in one
@@ -177,6 +199,7 @@ def load_corrections(
         undated=tuple(undated),
         unreadable=tuple(unreadable),
         misfiled=tuple(misfiled),
+        flagged=tuple(flagged),
     )
 
 
