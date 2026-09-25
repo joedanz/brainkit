@@ -324,10 +324,10 @@ def test_materialize_accepts_legacy_client_name_key(tmp_path):
 
 
 @pytest.mark.parametrize("bad", [
-    "Maria‍Jones",      # zero-width joiner
-    "Parisa‌Naderi",    # zero-width non-joiner (Persian): Hermes blocks it too
-    "﻿Acme",            # BOM
-    "Acme‮Corp",        # right-to-left override
+    "Maria\u200dJones",      # zero-width joiner
+    "Parisa\u200cNaderi",    # zero-width non-joiner (Persian): Hermes blocks it too
+    "\ufeffAcme",            # BOM
+    "Acme\u202eCorp",        # right-to-left override
 ])
 def test_normalize_rejects_invisible_characters(bad):
     """Hermes Agent drops a whole protocol over any of these, and a client
@@ -339,4 +339,4 @@ def test_normalize_rejects_invisible_characters(bad):
 
 def test_request_client_refuses_an_invisible_character(tmp_path):
     with pytest.raises(ClientError, match="illegal character"):
-        request_client(tmp_path, "joe", "Maria‍Jones", "Notes.\n", "2026-09-25")
+        request_client(tmp_path, "joe", "Maria\u200dJones", "Notes.\n", "2026-09-25")
