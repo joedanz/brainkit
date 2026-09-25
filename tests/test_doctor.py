@@ -1345,6 +1345,42 @@ def test_a_near_duplicate_group_message_stays_short(master):
     assert len(f.message) - len(four.message) == 2  # "40" vs "4", "37" vs "1"
 
 
+def _with_up(master, rel, parent_stem):
+    """Give an existing note an `up:` to parent_stem, keeping its body."""
+    p = master / rel
+    p.write_text(f"---\nup: [[{parent_stem}]]\n---\n" + p.read_text())
+
+
+def test_up_child_and_parent_are_not_near_duplicates(master):
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports", 2)
+    _with_up(master, rels[1], "Report 00")
+    assert _near(run_doctor(master)) == []
+
+
+def test_up_exemption_keeps_sibling_pairs(master):
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports", 3)
+    _with_up(master, rels[1], "Report 00")
+    _with_up(master, rels[2], "Report 00")
+    (f,) = _near(run_doctor(master))
+    assert f.paths == (rels[1], rels[2])
+
+
+def test_up_exemption_applies_across_spaces(master):
+    seed_meta(master)
+    (parent,) = _templated(master, "People/bob/Notes", 1, prefix="Aventura")
+    (child,) = _templated(master, "Company/Neighborhoods", 1, prefix="Aventura History")
+    _with_up(master, child, "Aventura 00")
+    assert _near(run_doctor(master)) == []
+
+
+def test_without_up_the_pair_is_still_reported(master):
+    seed_meta(master)
+    _templated(master, "Company/Reports", 2)
+    assert len(_near(run_doctor(master))) == 1
+
+
 requires_nonroot = pytest.mark.skipif(
     hasattr(os, "geteuid") and os.geteuid() == 0,
     reason="root bypasses file permissions, so an unreadable file can't be staged")
