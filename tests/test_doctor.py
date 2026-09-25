@@ -1973,3 +1973,20 @@ def test_doctor_never_touches_a_damaged_embedding_cache(master, tmp_path, monkey
     assert db.read_bytes() == before
     assert sorted(p.name for p in tmp_path.iterdir() if "emb-cache" in p.name) == [
         "emb-cache.db"]
+
+
+def test_a_withheld_correction_tells_its_owner_which_pattern(master):
+    """The owner learns the file and the pattern id, never the rule text, plus
+    a hint on rewording it."""
+    seed_meta(master)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "maria.md").write_text(
+        "---\nrule: Check in with Maria before scheduling.\nfrom: 2026-08-20\n---\n")
+    [f] = [f for f in run_doctor(master)
+           if f.check == "corrections-budget" and "withheld" in f.message]
+    assert f.severity == "warn"
+    assert "maria.md: c2_heartbeat" in f.message
+    assert "Check in with Maria" not in f.message
+    assert "rather than" in f.message
+    assert f.paths == ("People/bob/Corrections/maria.md",)

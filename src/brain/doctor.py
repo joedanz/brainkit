@@ -1110,7 +1110,7 @@ def _check_corrections(master: Path) -> list[Finding]:
     Counts and filenames only, never the rule text — a digest that restated
     every rule would be the protocol block again, in a second place.
     """
-    from brain.corrections import load_corrections
+    from brain.corrections import flag_patterns, load_corrections
 
     findings: list[Finding] = []
     people_dir = master / "People"
@@ -1160,6 +1160,22 @@ def _check_corrections(master: Path) -> list[Finding]:
                 f"({', '.join(f'{c.slug}.md' for c in cs.oversized)})",
                 paths=tuple(
                     f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.oversized
+                )))
+
+        if cs.flagged:
+            # Pattern ids only, never the rule: the digest must not restate it,
+            # and the rule is what made the file unsafe in the first place.
+            findings.append(Finding(
+                "warn", "corrections-budget",
+                f"People/{pid}/{CORRECTIONS_DIR}/: {len(cs.flagged)} correction(s) are "
+                f"withheld from the protocol, because Hermes Agent would refuse to load "
+                f"the whole file with them in it \u2014 reword each `rule:` as a plain "
+                f"instruction, e.g. \"Ask Sam before \u2026\" rather than \"Check in with "
+                f"Sam \u2026\" ("
+                + "; ".join(f"{c.slug}.md: {', '.join(flag_patterns(c))}" for c in cs.flagged)
+                + ")",
+                paths=tuple(
+                    f"People/{pid}/{CORRECTIONS_DIR}/{c.slug}.md" for c in cs.flagged
                 )))
 
         if cs.unusable:
