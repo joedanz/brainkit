@@ -23,6 +23,9 @@ explicitly under **Changed**, with what to do about it.
   near-duplicate (`dup-near`) findings** on brains where doctor was reading
   the wrong cache: the check now actually sees their notes' embeddings, so
   it finds pairs it was missing before. Nothing about your notes changed.
+- **`brain index` says when it had to rebuild a damaged embedding cache.**
+  The warning was recorded but never shown; it now prints on stderr like the
+  command's other warnings and appears in `warnings` in `--json` output.
 
 - **The cycle no longer creates an embedding cache git could commit.** Like
   the health snapshot and the near-duplicate cache, `_meta/cache/embeddings.db`
