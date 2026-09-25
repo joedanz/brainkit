@@ -325,27 +325,32 @@ def _post_process(
                 "regenerated on every compile — edits here are discarded.\n")
     for section in sections:
         note = note.rstrip("\n") + "\n\n" + section
-    if note is not None:
-        # People/<pid>/Shares.md is a reserved generated filename —
-        # regenerated from queue truth each compile.
-        rel = SHARES_NOTE_REL.format(person_id=person.id)
-        dest = building / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(note)
-        generated.append(rel)
+    # People/<pid>/Shares.md is a reserved generated filename —
+    # regenerated from queue truth each compile.
+    _write_generated_note(building, SHARES_NOTE_REL.format(person_id=person.id),
+                          note, generated)
 
     from brain.corrections import PENDING_NOTE_REL, load_corrections, render_pending_note
 
     # People/<pid>/Pending-corrections.md: a reserved generated filename, like
     # Shares.md -- rebuilt from master each compile, absent when nothing waits.
     pending_note = render_pending_note(load_corrections(master, person.id))
-    if pending_note is not None:
-        rel = PENDING_NOTE_REL.format(person_id=person.id)
-        dest = building / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(pending_note)
-        generated.append(rel)
+    _write_generated_note(building, PENDING_NOTE_REL.format(person_id=person.id),
+                          pending_note, generated)
     return generated
+
+
+def _write_generated_note(building: Path, rel: str, note: str | None,
+                          generated: list[str]) -> None:
+    """Write a reserved generated note if there is one to write, and record
+    it in `generated` -- shared by the Shares.md and Pending-corrections.md
+    blocks above, which differ only in what builds `note`."""
+    if note is None:
+        return
+    dest = building / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(note)
+    generated.append(rel)
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:

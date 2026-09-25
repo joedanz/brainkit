@@ -1,5 +1,6 @@
 import { el, clear } from "../dom.js";
 import { api } from "../api.js";
+import { correctionCard, runCorrectionAction } from "../corrections-ui.js";
 
 // The person's own standing corrections. A correction reaches their agent
 // only after they confirm the exact text shown here; the hash of that text
@@ -40,29 +41,25 @@ function group(host, title, items, canConfirm, container) {
 }
 
 function card(c, canConfirm, container) {
-  const box = el("div", "promo");
-  box.appendChild(el("div", "promo-target", c.slug));
-  box.appendChild(el("div", null, c.rule !== undefined ? c.rule : c.reason));
-  const actions = el("div", "promo-actions");
-  if (canConfirm) {
-    const ok = el("button", "btn primary", "Confirm");
-    ok.addEventListener("click", () => act(box, actions, () =>
-      api.confirmCorrection(c.slug, { sha256: c.sha256 }), container));
-    actions.appendChild(ok);
-  }
-  const drop = el("button", "btn", "Dismiss");
-  drop.addEventListener("click", () => act(box, actions, () =>
-    api.dismissCorrection(c.slug, {}), container));
-  actions.appendChild(drop);
-  box.appendChild(actions);
-  return box;
+  return correctionCard({
+    slug: c.slug,
+    text: c.rule !== undefined ? c.rule : c.reason,
+    buildActions: (box, actions) => {
+      if (canConfirm) {
+        const ok = el("button", "btn primary", "Confirm");
+        ok.addEventListener("click", () => act(box, actions, () =>
+          api.confirmCorrection(c.slug, { sha256: c.sha256 }), container));
+        actions.appendChild(ok);
+      }
+      const drop = el("button", "btn", "Dismiss");
+      drop.addEventListener("click", () => act(box, actions, () =>
+        api.dismissCorrection(c.slug, {}), container));
+      actions.appendChild(drop);
+    },
+  });
 }
 
-async function act(box, actions, call, container) {
-  actions.querySelectorAll("button").forEach((b) => { b.disabled = true; });
-  try { await call(); await render(container); }
-  catch (e) {
-    box.appendChild(el("div", "error-banner", "That didn't work: " + e.message));
-    actions.querySelectorAll("button").forEach((b) => { b.disabled = false; });
-  }
+function act(box, actions, call, container) {
+  return runCorrectionAction(actions, async () => { await call(); await render(container); },
+    (e) => box.appendChild(el("div", "error-banner", "That didn't work: " + e.message)));
 }

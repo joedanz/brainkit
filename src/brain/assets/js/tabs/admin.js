@@ -1,6 +1,7 @@
 import { el, section, table, badge, fmtBytes, warningsBlock, clickable, clear } from "../dom.js";
 import { renderMarkdown } from "../md.js";
 import { api } from "../api.js";
+import { correctionCard as buildCorrectionCard, runCorrectionAction } from "../corrections-ui.js";
 
 // Admin (master-lens) tabs. Each is a full re-render on live push, so per-person
 // drift, the promotion queue, and doctor findings stay current as `brain cycle`
@@ -319,36 +320,33 @@ export async function renderCorrections(container, ctx) {
 }
 
 function correctionCard(person, c, canConfirm, people) {
-  const card = el("div", "promo");
-  const h = el("div", "promo-head");
-  h.appendChild(el("span", "promo-target", c.slug));
-  if (!canConfirm) h.appendChild(badge("warn", "cannot be used"));
-  card.appendChild(h);
-  card.appendChild(el("div", null, canConfirm ? c.rule : c.reason));
-  const actions = el("div", "promo-actions");
-  const who = approverSelect(people);
-  who.addEventListener("change", () => {
-    if (who.value) localStorage.setItem(APPROVER_KEY, who.value);
+  return buildCorrectionCard({
+    slug: c.slug,
+    text: canConfirm ? c.rule : c.reason,
+    badge: canConfirm ? null : badge("warn", "cannot be used"),
+    buildActions: (card, actions) => {
+      const who = approverSelect(people);
+      who.addEventListener("change", () => {
+        if (who.value) localStorage.setItem(APPROVER_KEY, who.value);
+      });
+      actions.appendChild(who);
+      const run = (call) => {
+        if (!who.value) { who.focus(); return; }
+        return runCorrectionAction(actions, async () => { await call(); card.remove(); },
+          (e) => cardError(card, actions, "That didn't work: " + e.message));
+      };
+      if (canConfirm) {
+        const ok = el("button", "btn primary", "Confirm");
+        ok.addEventListener("click", () => run(() =>
+          api.confirmPersonCorrection(person, c.slug, { by: who.value, sha256: c.sha256 })));
+        actions.appendChild(ok);
+      }
+      const drop = el("button", "btn", "Dismiss");
+      drop.addEventListener("click", () => run(() =>
+        api.dismissPersonCorrection(person, c.slug, { by: who.value })));
+      actions.appendChild(drop);
+    },
   });
-  actions.appendChild(who);
-  const run = async (call) => {
-    if (!who.value) { who.focus(); return; }
-    setBusy(actions, true);
-    try { await call(); card.remove(); }
-    catch (e) { cardError(card, actions, "That didn't work: " + e.message); setBusy(actions, false); }
-  };
-  if (canConfirm) {
-    const ok = el("button", "btn primary", "Confirm");
-    ok.addEventListener("click", () => run(() =>
-      api.confirmPersonCorrection(person, c.slug, { by: who.value, sha256: c.sha256 })));
-    actions.appendChild(ok);
-  }
-  const drop = el("button", "btn", "Dismiss");
-  drop.addEventListener("click", () => run(() =>
-    api.dismissPersonCorrection(person, c.slug, { by: who.value })));
-  actions.appendChild(drop);
-  card.appendChild(actions);
-  return card;
 }
 
 export function renderDoctor(container, ctx) {

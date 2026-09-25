@@ -57,6 +57,12 @@ _LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 _CORRECTIONS_LOOPBACK_ONLY = (
     "--corrections-master only works when the dashboard listens on this "
     "computer alone (--host 127.0.0.1, ::1 or localhost)")
+
+
+def _corrections_needs_loopback(corrections_master: Path | None, loopback: bool) -> bool:
+    """Off loopback the host and Origin checks are skipped and there is no
+    login, so anyone who can reach the port could confirm a rule."""
+    return corrections_master is not None and not loopback
 # Node selection is by degree (highest first, see _build_graph), so a fixed
 # default cap covers a shrinking fraction of the vault as it grows: a real
 # vault that tripled from ~3,900 to ~9,472 pages left plenty of genuinely
@@ -400,13 +406,12 @@ def _corrections_view(master: Path, pid: str) -> dict:
         return {"slug": c.slug, "rule": c.rule, "from": c.from_date,
                 "sha256": rule_hash(c.rule)}
 
-    pending = set(cs.pending)
     return {
         "person": pid,
         "pending": [item(c) for c in cs.pending],
         # In effect: confirmed and still in play. Flagged rules are withheld
         # from the agent, so they are listed on their own, never as active.
-        "active": [item(c) for c in cs.active if c not in pending],
+        "active": [item(c) for c in cs.confirmed_active],
         "flagged": [item(c) for c in cs.flagged],
         "rejected": [{"slug": r.slug, "reason": r.reason} for r in cs.rejected],
         "record_error": cs.record_error,
@@ -901,9 +906,7 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     app["provider"] = provider_from_config()  # resolved once; None => keyword-only
     app["people"] = _org_people(Path(lens.master)) if lens.kind == "master" else {}
     app["corrections"] = None
-    if corrections_master is not None and not loopback:
-        # Off loopback the host and Origin checks are skipped and there is no
-        # login, so anyone who can reach the port could confirm a rule.
+    if _corrections_needs_loopback(corrections_master, loopback):
         from brain.corrections import CorrectionError
 
         raise CorrectionError(_CORRECTIONS_LOOPBACK_ONLY)
@@ -972,7 +975,7 @@ def run_server(lens: Lens, *, host: str = "127.0.0.1", port: int = 8765,
     import webbrowser
 
     loopback = host in _LOOPBACK
-    if corrections_master is not None and not loopback:
+    if _corrections_needs_loopback(corrections_master, loopback):
         print(f"brain dashboard: {_CORRECTIONS_LOOPBACK_ONLY} (got --host {host})",
               file=sys.stderr)
         return 2

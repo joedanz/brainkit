@@ -96,6 +96,12 @@ class CorrectionSet:
         `unreadable`/`misfiled`, which are filing defects, not live rules."""
         return self.rendered + self.omitted + self.oversized + self.pending
 
+    @property
+    def confirmed_active(self) -> tuple[Correction, ...]:
+        """`active` minus `pending`: confirmed and still in play, whether or
+        not the budget currently renders it."""
+        return self.rendered + self.omitted + self.oversized
+
 
 def _read_text(path: Path) -> str | None:
     """A correction's text, or None if the OS refuses to hand the file over.
@@ -450,6 +456,16 @@ def _known(org: Org, pid: str, what: str) -> Person:
     return person
 
 
+def _resolve_actor(master: Path, pid: str, by: str, *, by_desc: str, action: str) -> Person:
+    """Shared open for confirm/dismiss: both need the org loaded, both names
+    known, and the actor cleared to act on `pid`'s corrections."""
+    org = load_org(master / "_meta/org.yaml")
+    _known(org, pid, "person")
+    actor = _known(org, by, by_desc)
+    _may_act(actor, pid, action)
+    return actor
+
+
 SLUG_MAX = 200  # well under any filesystem's name limit once ".md" is added
 
 
@@ -473,17 +489,19 @@ def confirm(master: Path, pid: str, slug: str, by: str, *,
 
     `expected_sha256` is the hash of the text the confirmer was shown; a rule
     edited since is refused, so nobody confirms words they did not read."""
-    org = load_org(master / "_meta/org.yaml")
-    _known(org, pid, "person")
-    actor = _known(org, by, "confirmer")
-    _may_act(actor, pid, "confirm")
+    actor = _resolve_actor(master, pid, by, by_desc="confirmer", action="confirm")
     _rel, path = _slug_path(master, pid, slug)
     if path.is_symlink() or not path.is_file():
         raise CorrectionError(f"{pid} has no correction {slug!r}")
-    cs = load_corrections(master, pid)
-    if cs.record_error:
+    try:
+        record = load_record(master, pid)
+        record_error = None
+    except CorrectionError as e:
+        record, record_error = {}, str(e)
+    if record_error:
         raise CorrectionError(
-            f"{cs.record_error}; an admin must fix it before anything can be confirmed")
+            f"{record_error}; an admin must fix it before anything can be confirmed")
+    cs = load_corrections(master, pid, confirmed=confirmed_hashes(record))
     for r in cs.rejected:
         if r.slug == slug:
             raise CorrectionError(f"{pid}/{slug} cannot be confirmed: {r.reason}")
@@ -497,7 +515,6 @@ def confirm(master: Path, pid: str, slug: str, by: str, *,
     if expected_sha256 is not None and expected_sha256 != digest:
         raise CorrectionError(f"{pid}/{slug} changed since you looked at it; "
                               "reload and read it again")
-    record = load_record(master, pid)
     record[slug] = {"sha256": digest, "by": by, "at": now or utc_now_iso()}
     rel = _write_record(master, pid, record)
     commit_paths(master, [rel], name=actor.name, email=f"{by}@brain.local",
@@ -511,10 +528,7 @@ def dismiss(master: Path, pid: str, slug: str, by: str) -> None:
     Works on any correction, including a rejected one, and even while the
     record is broken (then only the file goes; doctor still reports the
     record)."""
-    org = load_org(master / "_meta/org.yaml")
-    _known(org, pid, "person")
-    actor = _known(org, by, "person dismissing it")
-    _may_act(actor, pid, "dismiss")
+    actor = _resolve_actor(master, pid, by, by_desc="person dismissing it", action="dismiss")
     rel, path = _slug_path(master, pid, slug)
     try:
         record: dict[str, dict] | None = load_record(master, pid)
