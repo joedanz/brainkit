@@ -368,6 +368,61 @@ def test_equals_marker_needs_only_one_preceding_token():
     assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
 
 
+def test_two_word_name_is_predication_not_a_slot():
+    # Helm: "Rob Arifur is …" pairs were flagged because a two-token name
+    # passed the old "two tokens before the copula" guard.
+    a = _entry("a.md", 3, "Rob Arifur is BSG's Senior Project Architect.", {"Advisors/BSG.md"})
+    b = _entry("a.md", 4, "Rob Arifur is reachable at r@bsg-ny.com.", {"Advisors/BSG.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_multiword_company_name_is_predication():
+    a = _entry("p.md", 3, "590 Hempstead LLC is a New York limited liability company.", {"p.md"})
+    b = _entry("p.md", 4, "590 Hempstead LLC is member-managed.", {"p.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_attribute_of_construction_is_a_conflict():
+    a = _entry("a.md", 3, "The plan of Acme is Enterprise", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "The plan of Acme is Growth", {"Clients/Acme.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+
+
+def test_name_containing_of_is_exempt_via_host_name():
+    rel = "Providers/John Moriarty & Associates of Florida.md"
+    a = _entry(rel, 3, "John Moriarty & Associates of Florida is a general contractor.", {rel})
+    b = _entry(rel, 4, "John Moriarty & Associates of Florida is based in Hollywood.", {rel})
+    # Without the page's own name the "of" reads as an attribute slot …
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+    # … with it, the words before "is" are the subject's name: predication.
+    names = {rel: frozenset({"john moriarty & associates of florida"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
+def test_possessive_name_is_exempt_via_alias():
+    rel = "Notes/Bailey Family 1998 Trust.md"
+    a = _entry(rel, 3, "Bailey Family 1998 Grandchildren's Trust is an irrevocable trust.", {rel})
+    b = _entry(rel, 4, "Bailey Family 1998 Grandchildren's Trust is a guarantor.", {rel})
+    names = {rel: frozenset({"bailey family 1998 trust",
+                             "bailey family 1998 grandchildren's trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
+def test_wikilinked_name_is_exempt_via_host_name():
+    rel = "Notes/Hub.md"
+    a = _entry(rel, 3, "[[Grandchildren's Trust|the Trust]] is a New York trust.", {rel})
+    b = _entry(rel, 4, "[[Grandchildren's Trust|the Trust]] is a guarantor.", {rel})
+    names = {rel: frozenset({"grandchildren's trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
+def test_names_of_either_page_apply_to_the_pair():
+    a = _entry("x.md", 3, "Acme's Fund is closed.", {"Clients/Acme.md"})
+    b = _entry("y.md", 4, "Acme's Fund is open.", {"Clients/Acme.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+    assert find_fact_conflicts([a, b], names={"y.md": frozenset({"acme's fund"})}) == []
+
+
 def test_uncited_fact_is_reported_separately_from_malformed_ones():
     """The protocol says a fact carries [from::] and a [source::]; only the
     dates were ever checked."""

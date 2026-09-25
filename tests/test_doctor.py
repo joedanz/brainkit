@@ -303,6 +303,19 @@ def test_doctor_flags_conflicting_open_facts_on_entity_page(master):
     assert "[until::]" in f.message
 
 
+def test_doctor_does_not_flag_predication_about_a_named_page(master):
+    # Helm had 193 of these and zero real contradictions.
+    seed_meta(master)
+    (master / "Clients/acme/Soho Grant of Delaware LLC.md").write_text(
+        "---\nentity: client\naliases: [Soho Grant]\n---\n# Soho Grant of Delaware LLC\n\n"
+        "- Soho Grant of Delaware LLC is a Delaware LLC [from:: 2013-03]\n"
+        "- Soho Grant of Delaware LLC is required to keep separate books [from:: 2013-03]\n"
+        "- Rob Arifur is the project architect [from:: 2019-05]\n"
+        "- Rob Arifur is reachable at r@x.com [from:: 2020-02]\n")
+    from brain.doctor import run_doctor
+    assert [f for f in run_doctor(master) if f.check == "fact-conflict"] == []
+
+
 def test_doctor_flags_cross_page_dup_via_stem_resolution(master):
     # Double-landed ingest: the same line landed on two pages. [[Acme]]
     # resolves by stem to Clients/acme/Acme.md on both, so the facts group.
@@ -326,11 +339,14 @@ def test_doctor_flags_cross_page_dup_via_stem_resolution(master):
 def test_doctor_groups_unresolved_targets_by_raw_text(master):
     # Fresh ingests often reference entity pages that don't exist yet — two
     # facts pointing at the same not-yet-created [[Ghost]] still conflict.
+    # A possessive marks the attribute slot; a bare "[[Ghost]] status is …"
+    # is a predication and is deliberately silent (see the predication guard
+    # in _diverges).
     seed_meta(master)
     (master / "Company/A.md").write_text(
-        "# A\n\n- [[Ghost]] status is active [from:: 2025-06]\n")
+        "# A\n\n- [[Ghost]]'s status is active [from:: 2025-06]\n")
     (master / "Company/B.md").write_text(
-        "# B\n\n- [[Ghost]] status is churned [from:: 2026-02]\n")
+        "# B\n\n- [[Ghost]]'s status is churned [from:: 2026-02]\n")
     from brain.doctor import run_doctor
     findings = [f for f in run_doctor(master) if f.check == "fact-conflict"]
     assert len(findings) == 1

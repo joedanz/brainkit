@@ -1031,22 +1031,27 @@ def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
         by_stem.setdefault(_stem(rel), rel)
 
     entries = []
+    names: dict[str, frozenset[str]] = {}
     for rel in rels:
         text = _read_text(master / rel)
         if text is None:
             continue
         meta, _body = split_frontmatter(text)
-        is_entity = parse_entity(meta) is not None
+        entity = parse_entity(meta)
+        own = {Path(rel).stem.casefold()}
+        if entity is not None:
+            own |= {a.strip("\"'").casefold() for a in entity[1]}
+        names[rel] = frozenset(own)
         for fact in parse_facts(text):
             keys = {(_resolve_target(t, paths, by_stem) or t.casefold())
                     for t in fact.targets}
-            if is_entity:
+            if entity is not None:
                 keys.add(rel)
             if keys:
                 entries.append((rel, fact, frozenset(keys)))
 
     findings: list[Finding] = []
-    for kind, (rel_a, fa, keys_a), (rel_b, fb, keys_b) in find_fact_conflicts(entries):
+    for kind, (rel_a, fa, keys_a), (rel_b, fb, keys_b) in find_fact_conflicts(entries, names):
         if kind == "dup":
             findings.append(Finding(
                 "warn", "fact-dup",
