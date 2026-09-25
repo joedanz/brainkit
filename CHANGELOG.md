@@ -11,6 +11,12 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **`brain doctor` reads cached embeddings in one batch.** The near-duplicate
+  check used to ask the embedding cache once per note; it now asks once for
+  the whole brain. Findings are unchanged.
+
 ## [0.7.4] - 2026-09-25
 
 ### Fixed
