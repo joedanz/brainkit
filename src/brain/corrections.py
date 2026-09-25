@@ -31,7 +31,8 @@ from brain import hermes_filter
 from brain.compiler import CONFIRMED_NAME
 from brain.errors import HANDLED, BrainError
 from brain.frontmatter import split_frontmatter
-from brain.holds import CYCLE_EMAIL, CYCLE_NAME
+from brain.holds import CYCLE_EMAIL, CYCLE_NAME, utc_now_iso
+from brain.schemas import Org, Person, load_org
 from brain.writeback import commit_paths
 
 CORRECTIONS_LIMIT = 4000
@@ -393,3 +394,81 @@ def grandfather(master: Path, person_ids: Iterable[str], *, now: str) -> list[st
             (master / rel).unlink(missing_ok=True)
         raise
     return written
+
+
+def _known(org: Org, pid: str, what: str) -> Person:
+    person = org.people.get(pid)
+    if person is None:
+        raise CorrectionError(f"unknown {what}: {pid!r} is not in _meta/org.yaml")
+    return person
+
+
+def _slug_path(master: Path, pid: str, slug: str) -> tuple[str, Path]:
+    """The correction's rel path and file, for a slug that is a plain file
+    name. Checked before any filesystem access, so no slug can reach outside
+    People/<pid>/Corrections/."""
+    if (not slug or slug.startswith(".") or any(ch in slug for ch in "/\\\x00")):
+        raise CorrectionError(f"not a correction name: {slug!r}")
+    rel = f"People/{pid}/{CORRECTIONS_DIR}/{slug}.md"
+    return rel, master / rel
+
+
+def confirm(master: Path, pid: str, slug: str, by: str, *,
+            expected_sha256: str | None = None, now: str | None = None) -> str:
+    """Record `slug`'s current rule text as confirmed by `by`, and commit
+    only the record. Returns the rule text that was confirmed.
+
+    `expected_sha256` is the hash of the text the confirmer was shown; a rule
+    edited since is refused, so nobody confirms words they did not read."""
+    org = load_org(master / "_meta/org.yaml")
+    _known(org, pid, "person")
+    actor = _known(org, by, "confirmer")
+    _rel, path = _slug_path(master, pid, slug)
+    if not path.is_file():
+        raise CorrectionError(f"{pid} has no correction {slug!r}")
+    cs = load_corrections(master, pid)
+    if cs.record_error:
+        raise CorrectionError(f"{cs.record_error}; fix or remove it before confirming")
+    for r in cs.rejected:
+        if r.slug == slug:
+            raise CorrectionError(f"{pid}/{slug} cannot be confirmed: {r.reason}")
+    found = next((c for c in (*cs.pending, *cs.rendered, *cs.omitted, *cs.oversized,
+                              *cs.flagged) if c.slug == slug), None)
+    if found is None:
+        raise CorrectionError(f"{pid}/{slug} has no usable `rule:` to confirm")
+    digest = rule_hash(found.rule)
+    if expected_sha256 is not None and expected_sha256 != digest:
+        raise CorrectionError(f"{pid}/{slug} changed since you looked at it; "
+                              "reload and read it again")
+    record = load_record(master, pid)
+    record[slug] = {"sha256": digest, "by": by, "at": now or utc_now_iso()}
+    rel = _write_record(master, pid, record)
+    commit_paths(master, [rel], name=actor.name, email=f"{by}@brain.local",
+                 message=f"corrections: {by} confirmed {pid}/{slug}")
+    return found.rule
+
+
+def dismiss(master: Path, pid: str, slug: str, by: str) -> None:
+    """Delete the correction and its record entry, in one commit as `by`.
+
+    Works on any correction, including a rejected one, and even while the
+    record is broken (then only the file goes; doctor still reports the
+    record)."""
+    org = load_org(master / "_meta/org.yaml")
+    _known(org, pid, "person")
+    actor = _known(org, by, "person dismissing it")
+    rel, path = _slug_path(master, pid, slug)
+    try:
+        record: dict[str, dict] | None = load_record(master, pid)
+    except CorrectionError:
+        record = None
+    in_record = record is not None and slug in record
+    if not path.is_file() and not in_record:
+        raise CorrectionError(f"{pid} has no correction {slug!r}")
+    paths = [rel]
+    path.unlink(missing_ok=True)
+    if in_record:
+        del record[slug]
+        paths.append(_write_record(master, pid, record))
+    commit_paths(master, paths, name=actor.name, email=f"{by}@brain.local",
+                 message=f"corrections: {by} dismissed {pid}/{slug}")

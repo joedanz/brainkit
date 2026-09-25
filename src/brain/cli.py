@@ -140,6 +140,43 @@ def cmd_held(args) -> int:
     return 0
 
 
+def cmd_corrections(args) -> int:
+    from brain.corrections import CorrectionError, confirm, dismiss, load_corrections
+
+    master = Path(args.master)
+    try:
+        if args.action == "list":
+            org = load_org(master / "_meta/org.yaml")
+            if args.only and args.only not in org.people:
+                print(f"unknown person: {args.only!r}", file=sys.stderr)
+                return 1
+            for pid in ([args.only] if args.only else sorted(org.people)):
+                cs = load_corrections(master, pid)
+                if cs.record_error:
+                    print(f"{pid}  record  {cs.record_error}")
+                for c in cs.pending:
+                    print(f"{pid}  {c.slug}  pending  {c.rule}")
+                for c in (*cs.rendered, *cs.omitted, *cs.oversized, *cs.flagged):
+                    print(f"{pid}  {c.slug}  active  {c.rule}")
+                for r in cs.rejected:
+                    print(f"{pid}  {r.slug}  rejected ({r.reason})")
+            return 0
+        if not args.person or not args.slug or not args.by:
+            print(f"usage: brain corrections {args.action} <person> <slug> --by <id>",
+                  file=sys.stderr)
+            return 2
+        if args.action == "confirm":
+            rule = confirm(master, args.person, args.slug, args.by)
+            print(f"confirmed {args.person}/{args.slug}: {rule}")
+        else:
+            dismiss(master, args.person, args.slug, args.by)
+            print(f"dismissed {args.person}/{args.slug}")
+    except CorrectionError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_shares(args) -> int:
     from brain.schemas import SchemaError
     from brain.shares import (
@@ -685,6 +722,17 @@ def build_parser() -> argparse.ArgumentParser:
     hp.add_argument("--master", required=True)
     hp.add_argument("--out", required=True, help="compiled output root")
     hp.set_defaults(func=cmd_held)
+
+    cr = sub.add_parser("corrections",
+                        help="list, confirm or dismiss people's standing corrections")
+    cr.add_argument("action", choices=["list", "confirm", "dismiss"])
+    cr.add_argument("person", nargs="?", help="whose correction (confirm/dismiss)")
+    cr.add_argument("slug", nargs="?", help="the correction's file name, without .md")
+    cr.add_argument("--master", required=True)
+    cr.add_argument("--by", default="", help="who is confirming or dismissing (an org id)")
+    cr.add_argument("--person", dest="only", default="",
+                    help="list only this person's corrections")
+    cr.set_defaults(func=cmd_corrections)
 
     sp = sub.add_parser("shares", help="manage space share requests")
     sp.add_argument("action", choices=["list", "approve", "reject", "revoke"])

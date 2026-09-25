@@ -522,3 +522,30 @@ def test_compile_single_person_goes_through_failure_isolation(master: Path, tmp_
     assert main(["compile", "--master", str(master), "--out", str(out_root),
                  "--person", "bob"]) == 1
     assert "failed bob:" in capsys.readouterr().err
+
+
+def test_corrections_list_confirm_dismiss(master: Path, capsys):
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True)
+    (d / "tone.md").write_text("---\nrule: Keep it short.\nfrom: 2026-09-01\n---\n")
+    (d / "link.md").write_text("---\nrule: See www.x.example.\nfrom: 2026-09-01\n---\n")
+    seed_meta(master)
+    m = ["--master", str(master)]
+
+    assert main(["corrections", "list", *m]) == 0
+    out = capsys.readouterr().out
+    assert "bob  tone  pending  Keep it short." in out
+    assert "bob  link  rejected (it contains a web address)" in out
+
+    assert main(["corrections", "confirm", "bob", "tone", "--by", "alice", *m]) == 0
+    assert "confirmed bob/tone: Keep it short." in capsys.readouterr().out
+    assert main(["corrections", "list", "--person", "bob", *m]) == 0
+    assert "bob  tone  active  Keep it short." in capsys.readouterr().out
+
+    assert main(["corrections", "dismiss", "bob", "link", "--by", "alice", *m]) == 0
+    assert not (d / "link.md").exists()
+
+    assert main(["corrections", "confirm", "bob", "tone", *m]) == 2  # --by missing
+    assert main(["corrections", "confirm", "bob", "../x", "--by", "alice", *m]) == 1
+    assert "not a correction name" in capsys.readouterr().err
+    assert main(["corrections", "list", "--person", "mallory", *m]) == 1
