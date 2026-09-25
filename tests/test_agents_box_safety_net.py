@@ -183,3 +183,45 @@ def test_down_and_blocked_share_one_body(tmp_path):
                      {"agent-a": "SOUL.md:known_c2_framework\n"})
     assert args[args.index("--data-raw") + 1] == \
         "down: agent-c; blocked: agent-a(SOUL.md:known_c2_framework)"
+
+
+SYNC = DEPLOY / "scripts/vault-sync"
+
+
+def _g(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                          text=True, check=True).stdout
+
+
+def test_vault_sync_keeps_the_local_commit_when_the_push_is_refused(tmp_path):
+    server = tmp_path / "server"
+    server.mkdir()
+    _g(server, "init", "-q", "-b", "main")
+    (server / "a.md").write_text("a\n")
+    (server / ".brain-manifest.json").write_text("{}")
+    _g(server, "add", "-A")
+    _g(server, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "seed")
+    _g(server, "config", "receive.denyCurrentBranch", "updateInstead")
+    vault = tmp_path / "vault"
+    subprocess.run(["git", "clone", "-q", str(server), str(vault)], check=True)
+    _g(vault, "config", "user.name", "bob (agent)")
+    _g(vault, "config", "user.email", "bob@agents.brain.local")
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "brain").write_text("#!/bin/sh\nexit 0\n")
+    (bindir / "brain").chmod(0o755)
+    env = {**os.environ, "BRAIN_VAULT_DIR": str(vault),
+           "PATH": f"{bindir}:{os.environ['PATH']}"}
+
+    (server / ".brain-manifest.json").write_text('{"busy": "now"}')  # cycle running
+    (vault / "note.md").write_text("agent work\n")
+    r = subprocess.run(["sh", str(SYNC)], capture_output=True, text=True, env=env)
+    assert "push refused" in r.stderr
+    assert _g(vault, "log", "-1", "--format=%s").startswith("agent: sync")
+    assert _g(vault, "show", "HEAD:note.md") == "agent work\n"
+    assert not (server / "note.md").exists()
+
+    _g(server, "checkout", "--", ".brain-manifest.json")  # cycle finished
+    r = subprocess.run(["sh", str(SYNC)], capture_output=True, text=True, env=env)
+    assert "push refused" not in r.stderr
+    assert (server / "note.md").read_text() == "agent work\n"

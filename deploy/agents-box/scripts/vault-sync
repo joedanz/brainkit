@@ -12,7 +12,7 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 export HOME=/opt/data/home   # where first boot put the deploy key
-V=/vault
+V="${BRAIN_VAULT_DIR:-/vault}"   # overridable for tests; the container mounts /vault
 
 # --- first contact: clone-with-retry lives here ------------------------------
 if [ ! -d "$V/.git" ]; then
@@ -62,6 +62,7 @@ if [ -x "$HERMES_PY" ]; then
         || echo "[vault-sync] hermes would drop: $blocked" >&2
 fi
 
-# Push may bounce if it races a brain cycle (updateInstead refuses a dirty
-# worktree); commits stay queued in local history and drain next interval.
+# Push may bounce while a brain cycle is working on this vault (the cycle
+# marks the server worktree busy, and updateInstead refuses a dirty one).
+# Nothing here resets: the commit stays in local history and drains next run.
 git -C "$V" push -q || echo "[vault-sync] push refused — will retry next interval" >&2
