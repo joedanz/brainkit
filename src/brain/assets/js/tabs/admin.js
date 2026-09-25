@@ -1,4 +1,4 @@
-import { el, section, table, badge, fmtBytes, warningsBlock, clickable } from "../dom.js";
+import { el, section, table, badge, fmtBytes, warningsBlock, clickable, clear } from "../dom.js";
 import { renderMarkdown } from "../md.js";
 import { api } from "../api.js";
 
@@ -283,6 +283,65 @@ function cardError(card, before, msg) {
   let e = card.querySelector(".error-banner");
   if (!e) { e = el("div", "error-banner"); card.insertBefore(e, before); }
   e.textContent = msg;
+}
+
+// Everyone's corrections that are waiting: pending ones can be confirmed on
+// the person's behalf, any can be dismissed. The approver select is the
+// identity the server records, as with shares (the whole org). Fetched per
+// render rather than carried in stats, so rule text never rides the
+// websocket push.
+export async function renderCorrections(container, ctx) {
+  const d = guard(container, ctx); if (!d) return;
+  clear(container);
+  container.appendChild(el("h2", null, "Corrections waiting for confirmation"));
+  const host = el("div");
+  container.appendChild(host);
+  let body;
+  try { body = await api.adminCorrections(); }
+  catch (e) { host.appendChild(el("div", "error-banner", "Corrections unavailable: " + e.message)); return; }
+  if (!body.people.length) {
+    host.appendChild(el("div", "meta", "Nothing waiting — every correction is confirmed or dismissed."));
+    return;
+  }
+  body.people.forEach((v) => {
+    host.appendChild(el("h3", null, v.person));
+    if (v.record_error) host.appendChild(el("div", "error-banner", v.record_error));
+    v.pending.forEach((c) => host.appendChild(correctionCard(v.person, c, true, d.people)));
+    v.rejected.forEach((c) => host.appendChild(correctionCard(v.person, c, false, d.people)));
+  });
+}
+
+function correctionCard(person, c, canConfirm, people) {
+  const card = el("div", "promo");
+  const h = el("div", "promo-head");
+  h.appendChild(el("span", "promo-target", c.slug));
+  if (!canConfirm) h.appendChild(badge("warn", "cannot be used"));
+  card.appendChild(h);
+  card.appendChild(el("div", null, canConfirm ? c.rule : c.reason));
+  const actions = el("div", "promo-actions");
+  const who = approverSelect(people);
+  who.addEventListener("change", () => {
+    if (who.value) localStorage.setItem(APPROVER_KEY, who.value);
+  });
+  actions.appendChild(who);
+  const run = async (call) => {
+    if (!who.value) { who.focus(); return; }
+    setBusy(actions, true);
+    try { await call(); card.remove(); }
+    catch (e) { cardError(card, actions, "That didn't work: " + e.message); setBusy(actions, false); }
+  };
+  if (canConfirm) {
+    const ok = el("button", "btn primary", "Confirm");
+    ok.addEventListener("click", () => run(() =>
+      api.confirmPersonCorrection(person, c.slug, { by: who.value, sha256: c.sha256 })));
+    actions.appendChild(ok);
+  }
+  const drop = el("button", "btn", "Dismiss");
+  drop.addEventListener("click", () => run(() =>
+    api.dismissPersonCorrection(person, c.slug, { by: who.value })));
+  actions.appendChild(drop);
+  card.appendChild(actions);
+  return card;
 }
 
 export function renderDoctor(container, ctx) {

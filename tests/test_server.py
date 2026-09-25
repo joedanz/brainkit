@@ -706,3 +706,52 @@ async def test_the_view_lists_a_withheld_rule_as_flagged_not_active(aiohttp_clie
     assert [c["slug"] for c in body["flagged"]] == ["maria"]
     assert "maria" not in [c["slug"] for c in body["active"] + body["pending"]]
     assert "tone" in [c["slug"] for c in body["active"]]
+
+
+async def test_admin_lists_and_confirms_anyones_correction(aiohttp_client, master, tmp_path):
+    import subprocess
+    app, _out = _master_app(master, tmp_path)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "bob-rule.md").write_text("---\nrule: Answer in French.\nfrom: 2026-09-01\n---\n")
+    subprocess.run(["git", "-C", str(master), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(master), "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-qm", "rule"], check=True, capture_output=True)
+    client = await aiohttp_client(app)
+
+    body = await (await client.get("/api/corrections")).json()
+    bob = next(v for v in body["people"] if v["person"] == "bob")
+    sha = bob["pending"][0]["sha256"]
+
+    for bad in ({"sha256": sha}, {"sha256": sha, "by": "mallory"}):
+        resp = await client.post("/api/corrections/bob/bob-rule/confirm", json=bad, headers=_LOCAL)
+        assert resp.status == 400
+    resp = await client.post("/api/corrections/mallory/bob-rule/confirm",
+                             json={"sha256": sha, "by": "alice"}, headers=_LOCAL)
+    assert resp.status == 404
+    resp = await client.post("/api/corrections/bob/bob-rule/confirm",
+                             json={"sha256": sha, "by": "alice"}, headers=_LOCAL)
+    assert resp.status == 200
+    rec = json.loads((master / "People/bob/.corrections.json").read_text())
+    assert rec["bob-rule"]["by"] == "alice"
+
+
+async def test_admin_corrections_route_shapes_are_lens_specific(aiohttp_client, master, tmp_path):
+    app, _out = _master_app(master, tmp_path)
+    client = await aiohttp_client(app)
+    resp = await client.post("/api/corrections/bob-rule/confirm",
+                             json={"sha256": "x"}, headers=_LOCAL)
+    assert resp.status == 404  # the person-lens shape does not exist on the admin lens
+    resp = await client.post("/api/corrections/..%2Fbob/x/dismiss",
+                             json={"by": "alice"}, headers=_LOCAL)
+    assert resp.status in (400, 404)
+
+
+def test_admin_corrections_tab_is_wired():
+    from tests.conftest import ASSETS
+
+    admin = (ASSETS / "js/tabs/admin.js").read_text(encoding="utf-8")
+    assert "export async function renderCorrections" in admin
+    assert "api.confirmPersonCorrection" in admin and "approverSelect" in admin
+    app_js = (ASSETS / "js/app.js").read_text(encoding="utf-8")
+    assert "admin.renderCorrections" in app_js

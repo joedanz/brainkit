@@ -411,7 +411,17 @@ def _corrections_view(master: Path, pid: str) -> dict:
 
 
 async def handle_corrections(request: web.Request) -> web.Response:
-    """Vault lens with --corrections-master: the pinned person's corrections."""
+    """Vault lens with --corrections-master: the pinned person's corrections.
+    Master lens: everyone's, for the admin dashboard."""
+    lens: Lens = request.app["lens"]
+    if lens.kind == "master":
+        master = _require_master(request)
+
+        def _all() -> dict:
+            return {"people": [_corrections_view(master, pid)
+                               for pid in sorted(request.app["people"])]}
+
+        return web.json_response(await asyncio.to_thread(_all))
     master, pid = request.app["corrections"]
     return web.json_response(await asyncio.to_thread(_corrections_view, master, pid))
 
@@ -452,6 +462,20 @@ async def handle_own_correction_action(request: web.Request) -> web.Response:
     master, pid = request.app["corrections"]
     data = await _json_body(request)
     return await _correction_action(request, master, pid, pid, data)
+
+
+async def handle_admin_correction_action(request: web.Request) -> web.Response:
+    """Master lens: an admin acts on anyone's correction, as a named org
+    person (the same approver prompt promotions use)."""
+    master = _require_master(request)
+    pid = request.match_info["person"]
+    if pid not in request.app["people"]:
+        raise web.HTTPNotFound(reason=f"unknown person: {pid}")
+    data = await _json_body(request)
+    by = str(data.get("by") or "").strip()
+    if by not in request.app["people"]:
+        raise web.HTTPBadRequest(reason="by must be a person in the org")
+    return await _correction_action(request, master, pid, by, data)
 
 
 # ---- write endpoints (POST; guarded by the non-GET Origin+JSON middleware) ---
@@ -901,6 +925,10 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     if app["corrections"] is not None:
         app.router.add_get("/api/corrections", handle_corrections)
         app.router.add_post("/api/corrections/{slug}/{action}", handle_own_correction_action)
+    elif lens.kind == "master":
+        app.router.add_get("/api/corrections", handle_corrections)
+        app.router.add_post("/api/corrections/{person}/{slug}/{action}",
+                            handle_admin_correction_action)
     app.router.add_get("/ws", handle_ws)
     if assets_dir().is_dir():
         app.router.add_static("/assets/", assets_dir(), follow_symlinks=False)

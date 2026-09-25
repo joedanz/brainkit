@@ -55,6 +55,7 @@ function tabsFor(meta) {
       { id: "permissions", label: "Permissions", render: admin.renderPermissions, live: "rerender" },
       { id: "promotions", label: "Promotions", render: admin.renderPromotions, live: "rerender" },
       { id: "shares", label: "Shares", render: admin.renderShares, live: "rerender" },
+      { id: "corrections", label: "Corrections", render: admin.renderCorrections, live: "ignore" },
       { id: "doctor", label: "Doctor", render: admin.renderDoctor, live: "rerender" },
       graphTab, queryTab,
     ];
