@@ -1295,8 +1295,11 @@ def test_a_shared_template_does_not_merge_everyones_notes(master):
     rules = load_spaces(master / "_meta/spaces.yaml")
     routed, _ = route_findings(groups, org, rules)
     bob_group = next(f for f in groups if f.paths == tuple(bobs))
-    assert routed["bob"] == [bob_group]
-    assert bob_group not in routed["alice"]
+    alice_group = next(f for f in groups if f.paths == tuple(alices))
+    # dup-near is admin-only: both groups reach alice (the admin), never
+    # bob's own digest, even though the group is entirely his own notes.
+    assert "bob" not in routed
+    assert set(routed["alice"]) == {bob_group, alice_group}
 
 
 def test_a_group_splits_by_readership(master):
