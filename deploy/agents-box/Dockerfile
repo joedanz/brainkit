@@ -166,7 +166,8 @@ RUN chmod 755 /etc/cont-init.d/03-brain-first-boot \
 
 # vault-sync's safety net imports hermes' own filter. Warn, never fail: if
 # hermes moved it, the net goes quiet (the script exits 0) and the build ships.
-RUN /opt/hermes/.venv/bin/python -c "from tools.threat_patterns import scan_for_threats" \
+# From /, like the real scan: the checkout's cwd must not satisfy the import.
+RUN cd / && /opt/hermes/.venv/bin/python -c "from tools.threat_patterns import scan_for_threats" \
     || echo "WARNING: tools.threat_patterns not importable — brain-context-scan will be a no-op"
 
 # No trailing USER directive: s6-overlay's /init must start as root — it fixes

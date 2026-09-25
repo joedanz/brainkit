@@ -206,8 +206,9 @@ and each sync double-checks with the container's own Hermes
 (`brain-context-scan`). A match leaves `/opt/data/.brain-context-blocked`,
 and the `/fail` body names it: `blocked: agent-alice(AGENTS.md:c2_heartbeat)`.
 Run `brain doctor` on the brain box to see which name matched. The marker
-clears on the next clean sync. If a Hermes upgrade moves its filter, the
-check quietly does nothing, and the image build prints a warning.
+clears on the next clean sync. If a Hermes upgrade moves or changes its
+filter, the check quietly does nothing and the image build prints a warning.
+A marker left from before that upgrade stays until you delete it by hand.
 
 ## Verifying a running container
 

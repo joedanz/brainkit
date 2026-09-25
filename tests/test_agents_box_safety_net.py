@@ -79,6 +79,26 @@ def test_hermes_internals_moving_is_silent_and_leaves_the_marker(tmp_path):
     assert marker.read_text() == "AGENTS.md:c2_heartbeat\n"
 
 
+def test_hermes_changing_the_filter_signature_is_silent_and_leaves_the_marker(tmp_path):
+    root = tmp_path / "hermes"
+    (root / "tools").mkdir(parents=True)
+    (root / "tools/__init__.py").write_text("")
+    (root / "tools/threat_patterns.py").write_text("def scan_for_threats(content):\n    return []\n")
+    marker = tmp_path / ".brain-context-blocked"
+    marker.write_text("AGENTS.md:c2_heartbeat\n")
+    f = tmp_path / "AGENTS.md"
+    f.write_text("Mythic\n")
+    r = _scan(root, "--marker", str(marker), str(f))
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+    assert marker.read_text() == "AGENTS.md:c2_heartbeat\n"
+
+
+def test_the_build_probe_imports_from_outside_the_hermes_checkout():
+    df = (DEPLOY / "Dockerfile").read_text()
+    probe = df[df.index("from tools.threat_patterns import") - 120:]
+    assert "RUN cd / && /opt/hermes/.venv/bin/python -c" in probe
+
+
 def test_the_scan_is_in_the_image_and_executable():
     df = (DEPLOY / "Dockerfile").read_text()
     assert "scripts/brain-context-scan /usr/local/bin/brain-context-scan" in df

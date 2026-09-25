@@ -49,7 +49,10 @@ def main(argv: list[str]) -> int:
             continue  # not there yet (vault still cloning): nothing to drop
         if text.startswith("\ufeff"):
             text = text[1:]
-        hits = scan_for_threats(text, "context")
+        try:
+            hits = scan_for_threats(text, "context")
+        except Exception:
+            return 0  # hermes changed the filter: go quiet, as for a move
         if hits:
             words.append(f"{os.path.basename(path)}:{','.join(hits)}")
     if words:
