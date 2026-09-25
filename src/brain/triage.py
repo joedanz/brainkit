@@ -54,7 +54,7 @@ from brain.schemas import (
 # never routed.
 TRIAGE_CHECKS = frozenset({
     "unlinked-notes", "orphan-files", "intel",
-    "dup-exact", "dup-near", "stem-collision",
+    "dup-exact", "stem-collision",
     "fact-dup", "fact-conflict", "fact-uncited", "citations",
     "corrections-budget",
 })
@@ -68,11 +68,12 @@ TRIAGE_CHECKS = frozenset({
 # never see one — `brain doctor --net` is a human-invoked diagnostic that
 # reports to the terminal.
 
-# Findings about the generated protocols themselves. Only an admin can act on
-# them (org, config, the master's AGENTS.md), and a warning that routes to
-# nobody is how protocol-stale went unseen; so these reach the admins at
-# warn and error alike.
-ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale"})
+# Findings only an admin should act on, delivered to the admins at warn and
+# error alike: the generated protocols (org, config, the master's AGENTS.md),
+# and near-duplicate notes. Merging near-duplicates needs a person's
+# judgement — an ingest writes companion pages on purpose, and a template
+# look-alike is not redundancy — so an agent's digest never asks for it.
+ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale", "dup-near"})
 
 
 def count_findings(findings: list[Finding]) -> dict[str, int]:
@@ -107,7 +108,8 @@ def route_findings(
     whole picture. Info-level findings are never routed — the disjoint-space
     dup tier is a hint, not work. Error-severity findings from non-content
     checks are escalations for the admins. ADMIN_CHECKS (findings about the
-    generated protocols) reach the admins at warn as well, since only an
+    generated protocols, plus dup-near, since merging notes is a judgement
+    call for a person) reach the admins at warn as well, since only an
     admin can act on them. With no admins configured, findings that needed
     one count as unrouted (surfaced in the report, never a crash).
     """

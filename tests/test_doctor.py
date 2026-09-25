@@ -303,6 +303,19 @@ def test_doctor_flags_conflicting_open_facts_on_entity_page(master):
     assert "[until::]" in f.message
 
 
+def test_doctor_does_not_flag_predication_about_a_named_page(master):
+    # Helm had 193 of these and zero real contradictions.
+    seed_meta(master)
+    (master / "Clients/acme/Soho Grant of Delaware LLC.md").write_text(
+        "---\nentity: client\naliases: [Soho Grant]\n---\n# Soho Grant of Delaware LLC\n\n"
+        "- Soho Grant of Delaware LLC is a Delaware LLC [from:: 2013-03]\n"
+        "- Soho Grant of Delaware LLC is required to keep separate books [from:: 2013-03]\n"
+        "- Rob Arifur is the project architect [from:: 2019-05]\n"
+        "- Rob Arifur is reachable at r@x.com [from:: 2020-02]\n")
+    from brain.doctor import run_doctor
+    assert [f for f in run_doctor(master) if f.check == "fact-conflict"] == []
+
+
 def test_doctor_flags_cross_page_dup_via_stem_resolution(master):
     # Double-landed ingest: the same line landed on two pages. [[Acme]]
     # resolves by stem to Clients/acme/Acme.md on both, so the facts group.
@@ -326,11 +339,14 @@ def test_doctor_flags_cross_page_dup_via_stem_resolution(master):
 def test_doctor_groups_unresolved_targets_by_raw_text(master):
     # Fresh ingests often reference entity pages that don't exist yet — two
     # facts pointing at the same not-yet-created [[Ghost]] still conflict.
+    # A possessive marks the attribute slot; a bare "[[Ghost]] status is …"
+    # is a predication and is deliberately silent (see the predication guard
+    # in _diverges).
     seed_meta(master)
     (master / "Company/A.md").write_text(
-        "# A\n\n- [[Ghost]] status is active [from:: 2025-06]\n")
+        "# A\n\n- [[Ghost]]'s status is active [from:: 2025-06]\n")
     (master / "Company/B.md").write_text(
-        "# B\n\n- [[Ghost]] status is churned [from:: 2026-02]\n")
+        "# B\n\n- [[Ghost]]'s status is churned [from:: 2026-02]\n")
     from brain.doctor import run_doctor
     findings = [f for f in run_doctor(master) if f.check == "fact-conflict"]
     assert len(findings) == 1
@@ -1254,8 +1270,9 @@ def test_near_duplicates_across_spaces_stay_pairs(master):
 
 def test_a_shared_template_does_not_merge_everyones_notes(master):
     """One template in Company/ near-duplicates notes in several people's
-    spaces. Each person's own notes are their group, routed to them alone;
-    matches with the shared note, or across people, stay pairs."""
+    spaces. Each person's own notes are their group; matches with the shared
+    note, or across people, stay pairs. (dup-near findings now route to the
+    admins only, not to the people whose notes they name.)"""
     from brain.schemas import load_org, load_spaces
     from brain.triage import route_findings
 
@@ -1279,8 +1296,11 @@ def test_a_shared_template_does_not_merge_everyones_notes(master):
     rules = load_spaces(master / "_meta/spaces.yaml")
     routed, _ = route_findings(groups, org, rules)
     bob_group = next(f for f in groups if f.paths == tuple(bobs))
-    assert routed["bob"] == [bob_group]
-    assert bob_group not in routed["alice"]
+    alice_group = next(f for f in groups if f.paths == tuple(alices))
+    # dup-near is admin-only: both groups reach alice (the admin), never
+    # bob's own digest, even though the group is entirely his own notes.
+    assert "bob" not in routed
+    assert set(routed["alice"]) == {bob_group, alice_group}
 
 
 def test_a_group_splits_by_readership(master):
@@ -1327,6 +1347,42 @@ def test_a_near_duplicate_group_message_stays_short(master):
     (four,) = _near(run_doctor(master))
     assert len(four.paths) == 4
     assert len(f.message) - len(four.message) == 2  # "40" vs "4", "37" vs "1"
+
+
+def _with_up(master, rel, parent_stem):
+    """Give an existing note an `up:` to parent_stem, keeping its body."""
+    p = master / rel
+    p.write_text(f"---\nup: [[{parent_stem}]]\n---\n" + p.read_text())
+
+
+def test_up_child_and_parent_are_not_near_duplicates(master):
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports", 2)
+    _with_up(master, rels[1], "Report 00")
+    assert _near(run_doctor(master)) == []
+
+
+def test_up_exemption_keeps_sibling_pairs(master):
+    seed_meta(master)
+    rels = _templated(master, "Company/Reports", 3)
+    _with_up(master, rels[1], "Report 00")
+    _with_up(master, rels[2], "Report 00")
+    (f,) = _near(run_doctor(master))
+    assert f.paths == (rels[1], rels[2])
+
+
+def test_up_exemption_applies_across_spaces(master):
+    seed_meta(master)
+    (_parent,) = _templated(master, "People/bob/Notes", 1, prefix="Aventura")
+    (child,) = _templated(master, "Company/Neighborhoods", 1, prefix="Aventura History")
+    _with_up(master, child, "Aventura 00")
+    assert _near(run_doctor(master)) == []
+
+
+def test_without_up_the_pair_is_still_reported(master):
+    seed_meta(master)
+    _templated(master, "Company/Reports", 2)
+    assert len(_near(run_doctor(master))) == 1
 
 
 requires_nonroot = pytest.mark.skipif(

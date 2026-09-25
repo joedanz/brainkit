@@ -390,6 +390,29 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     rels = list(texts)
     words = {r: normalize_text(texts[r]) for r in rels}
     substantive = [r for r in rels if len(words[r]) >= DUP_MIN_WORDS]
+
+    # A note that declares `up:` another is its declared child — the ingest
+    # writes "<X> — Earlier history" pages under "<X>" on purpose. Parent and
+    # child overlap by design, so that one edge is never a near-duplicate;
+    # siblings under one parent still are.
+    all_paths = set(rels)
+    by_stem_all: dict[str, str] = {}
+    for r in rels:
+        by_stem_all.setdefault(_stem(r), r)
+    up_of: dict[str, set[str]] = {}
+    for r in rels:
+        meta, _ = split_frontmatter(texts[r])
+        value = meta.get("up", "")
+        if not value:
+            continue
+        for target in extract_wikilinks(value):
+            resolved = _resolve_target(target, all_paths, by_stem_all)
+            if resolved and resolved != r:
+                up_of.setdefault(r, set()).add(resolved)
+
+    def declared_family(a: str, b: str) -> bool:
+        return b in up_of.get(a, ()) or a in up_of.get(b, ())
+
     readers_of = _reader_index(org, rules)
 
     def space_readers(rel: str) -> frozenset[str]:
@@ -415,6 +438,8 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     def near(a: str, b: str, signal: str) -> None:
         a, b = min(a, b), max(a, b)
+        if declared_family(a, b):
+            return
         if space_of_path(a, shared) != space_of_path(b, shared):
             emit(a, b, "dup-near", _dup_near_message("warn", (a, b), signal),
                  _dup_near_message("info", (a, b), signal))
@@ -1031,22 +1056,27 @@ def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
         by_stem.setdefault(_stem(rel), rel)
 
     entries = []
+    names: dict[str, frozenset[str]] = {}
     for rel in rels:
         text = _read_text(master / rel)
         if text is None:
             continue
         meta, _body = split_frontmatter(text)
-        is_entity = parse_entity(meta) is not None
+        entity = parse_entity(meta)
+        own = {Path(rel).stem.casefold()}
+        if entity is not None:
+            own |= {a.strip("\"'\u201c\u201d\u2018\u2019").casefold() for a in entity[1]}
+        names[rel] = frozenset(own)
         for fact in parse_facts(text):
             keys = {(_resolve_target(t, paths, by_stem) or t.casefold())
                     for t in fact.targets}
-            if is_entity:
+            if entity is not None:
                 keys.add(rel)
             if keys:
                 entries.append((rel, fact, frozenset(keys)))
 
     findings: list[Finding] = []
-    for kind, (rel_a, fa, keys_a), (rel_b, fb, keys_b) in find_fact_conflicts(entries):
+    for kind, (rel_a, fa, keys_a), (rel_b, fb, keys_b) in find_fact_conflicts(entries, names):
         if kind == "dup":
             findings.append(Finding(
                 "warn", "fact-dup",

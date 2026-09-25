@@ -356,8 +356,20 @@ def test_subject_copula_pairs_stay_silent():
 
 def test_terse_copula_conflict_is_a_known_recall_trade():
     # Cost of the predication guard: two-token "X is A"/"X is B" goes silent.
+    # Same trade-off as a noun-compound attribute with no 's or "of" — see
+    # test_noun_compound_attribute_without_possessive_is_a_known_recall_trade.
     a = _entry("a.md", 3, "Acme is Enterprise", {"Clients/Acme.md"})
     b = _entry("b.md", 8, "Acme is Growth", {"Clients/Acme.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_noun_compound_attribute_without_possessive_is_a_known_recall_trade():
+    # A noun-compound attribute ("Acme CEO is …") has no "'s" or "of" before
+    # "is", so the predication guard reads it as a bare name and lets the
+    # pair through silently — same recall trade as the terse-copula case
+    # above. Write it as "Acme's CEO is …" to keep it checked.
+    a = _entry("a.md", 3, "Acme CEO is Alice", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "Acme CEO is Bob", {"Clients/Acme.md"})
     assert find_fact_conflicts([a, b]) == []
 
 
@@ -366,6 +378,84 @@ def test_equals_marker_needs_only_one_preceding_token():
     a = _entry("a.md", 3, "renewal = 2026-03", {"Clients/Acme.md"})
     b = _entry("b.md", 8, "renewal = 2027-03", {"Clients/Acme.md"})
     assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+
+
+def test_two_word_name_is_predication_not_a_slot():
+    # Helm: "Rob Arifur is …" pairs were flagged because a two-token name
+    # passed the old "two tokens before the copula" guard.
+    a = _entry("a.md", 3, "Rob Arifur is BSG's Senior Project Architect.", {"Advisors/BSG.md"})
+    b = _entry("a.md", 4, "Rob Arifur is reachable at r@bsg-ny.com.", {"Advisors/BSG.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_multiword_company_name_is_predication():
+    a = _entry("p.md", 3, "590 Hempstead LLC is a New York limited liability company.", {"p.md"})
+    b = _entry("p.md", 4, "590 Hempstead LLC is member-managed.", {"p.md"})
+    assert find_fact_conflicts([a, b]) == []
+
+
+def test_attribute_of_construction_is_a_conflict():
+    a = _entry("a.md", 3, "The plan of Acme is Enterprise", {"Clients/Acme.md"})
+    b = _entry("b.md", 8, "The plan of Acme is Growth", {"Clients/Acme.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+
+
+def test_name_containing_of_is_exempt_via_host_name():
+    rel = "Providers/John Moriarty & Associates of Florida.md"
+    a = _entry(rel, 3, "John Moriarty & Associates of Florida is a general contractor.", {rel})
+    b = _entry(rel, 4, "John Moriarty & Associates of Florida is based in Hollywood.", {rel})
+    # Without the page's own name the "of" reads as an attribute slot …
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+    # … with it, the words before "is" are the subject's name: predication.
+    names = {rel: frozenset({"john moriarty & associates of florida"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
+def test_possessive_name_is_exempt_via_alias():
+    rel = "Notes/Bailey Family 1998 Trust.md"
+    a = _entry(rel, 3, "Bailey Family 1998 Grandchildren's Trust is an irrevocable trust.", {rel})
+    b = _entry(rel, 4, "Bailey Family 1998 Grandchildren's Trust is a guarantor.", {rel})
+    names = {rel: frozenset({"bailey family 1998 trust",
+                             "bailey family 1998 grandchildren's trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
+def test_wikilinked_name_is_exempt_via_host_name():
+    rel = "Notes/Hub.md"
+    a = _entry(rel, 3, "[[Grandchildren's Trust|the Trust]] is a New York trust.", {rel})
+    b = _entry(rel, 4, "[[Grandchildren's Trust|the Trust]] is a guarantor.", {rel})
+    names = {rel: frozenset({"grandchildren's trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
+def test_curly_apostrophe_alias_matches_straight_fact_text():
+    # Helm: an alias authored with a curly apostrophe (’) didn't match fact
+    # lines typed with a straight one ('), so the exemption missed and the
+    # pair stayed flagged as a conflict.
+    rel = "Notes/Bailey Family 1998 Trust.md"
+    a = _entry(rel, 3, "Bailey Family 1998 Grandchildren's Trust is an irrevocable trust.", {rel})
+    b = _entry(rel, 4, "Bailey Family 1998 Grandchildren's Trust is a guarantor.", {rel})
+    names = {rel: frozenset({"bailey family 1998 grandchildren’s trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
+
+
+def test_names_of_either_page_apply_to_the_pair():
+    a = _entry("x.md", 3, "Acme's Fund is closed.", {"Clients/Acme.md"})
+    b = _entry("y.md", 4, "Acme's Fund is open.", {"Clients/Acme.md"})
+    assert [k for k, *_ in find_fact_conflicts([a, b])] == ["conflict"]
+    assert find_fact_conflicts([a, b], names={"y.md": frozenset({"acme's fund"})}) == []
+
+
+def test_linked_entity_name_is_exempt_even_on_a_non_entity_page():
+    # A plain notes page mentions the entity by wikilink rather than being
+    # that entity's own page; the exemption should still apply, keyed off
+    # the resolved entity path rather than the host page's own name.
+    rel = "Company/Notes.md"
+    entity = "Notes/Bailey Grandchildren's Trust.md"
+    a = _entry(rel, 3, "[[Bailey Grandchildren's Trust]] is A.", {entity})
+    b = _entry(rel, 4, "[[Bailey Grandchildren's Trust]] is B.", {entity})
+    names = {entity: frozenset({"bailey grandchildren's trust"})}
+    assert find_fact_conflicts([a, b], names=names) == []
 
 
 def test_uncited_fact_is_reported_separately_from_malformed_ones():

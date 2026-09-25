@@ -15,6 +15,7 @@ import calendar
 import json as _json
 import re
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -163,13 +164,41 @@ def lint_facts(text: str) -> list[tuple[int, str]]:
 # Single-valued-attribute markers: a word-level common prefix ending in one of
 # these (or in a token ending with ":") names one slot — "Acme's plan is" —
 # so two open facts diverging after it assign that slot two values at once.
-# Bare copulas (is/are) require two preceding tokens to guard against
-# "<Entity> is …" predications, which accumulate; trailing ":" and "=" use one.
+# A bare copula (is/are) names one only after an attribute construction —
+# "Acme's plan is", "the plan of Acme is" — never after a bare name, however
+# many words it has: "590 Hempstead LLC is …" and "Rob Arifur is …" are
+# predications, which accumulate. `names` (the host pages' title stems and
+# aliases) exempts a name that happens to contain a possessive or "of";
+# trailing ":" and "=" always need only one preceding token.
 # Additive verbs (hired, met, shipped) are deliberately absent: those facts
 # can all be true together, and a warn tier that cries wolf gets ignored.
 
+_POSSESSIVE = re.compile(r"(?:'s|\u2019s|s'|s\u2019)$")
+_CURLY_APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'"})
 
-def _diverges(stmt_a: str, stmt_b: str) -> bool:
+
+def _plain_name(tokens: list[str]) -> str:
+    """The words before a copula as a name: wikilink brackets dropped and a
+    `[[target|display]]` reduced to its target, so a linked subject compares
+    equal to the page title or alias it names."""
+    text = " ".join(tokens)
+    text = re.sub(r"\[\[([^\]|]*)\|[^\]]*\]\]", r"\1", text)
+    return text.replace("[[", "").replace("]]", "").strip()
+
+
+def _diverges(stmt_a: str, stmt_b: str, names: frozenset[str] = frozenset()) -> bool:
+    """True when two statements assign one single-valued slot two values.
+
+    `:` and `=` after the common prefix name a slot outright. A copula
+    (is/are) names one only after an attribute construction — "Acme's plan
+    is", "the plan of Acme is" — never after a bare name, however many
+    words it has: "590 Hempstead LLC is …" and "Rob Arifur is …" are
+    predications, which accumulate. `names` holds the host pages' title
+    stems and aliases (casefolded); when the words before the copula ARE
+    one of them ("Bailey Family 1998 Grandchildren's Trust is …"), the
+    possessive inside the name is not an attribute. Curly apostrophes
+    (\u2019 and \u2018) and the straight one (') name the same subject, so
+    both sides are normalized before that comparison."""
     a, b = stmt_a.casefold().split(), stmt_b.casefold().split()
     i = 0
     while i < len(a) and i < len(b) and a[i] == b[i]:
@@ -179,14 +208,36 @@ def _diverges(stmt_a: str, stmt_b: str) -> bool:
         return False
     last = a[i - 1]
     if last in ("is", "are"):
-        # a bare copula right after the subject ("Acme is …") is predication,
-        # not an attribute slot — require two tokens before it ("…'s plan is")
-        return i >= 3
+        head = a[:i - 1]
+        # a curly apostrophe (typed by an author or a smart-quote editor)
+        # names the same subject as a straight one — normalize both sides.
+        head_name = _plain_name(head).translate(_CURLY_APOSTROPHES)
+        if head_name in {n.translate(_CURLY_APOSTROPHES) for n in names}:
+            return False
+        return (any(_POSSESSIVE.search(t) for t in head[:-1])
+                or "of" in head[1:])
     return last == "=" or last.endswith(":")
+
+
+def _pair_names(
+    a: tuple[str, Fact, frozenset[str]],
+    b: tuple[str, Fact, frozenset[str]],
+    names: Mapping[str, frozenset[str]] | None,
+) -> frozenset[str]:
+    """Names that exempt a subject in this pair: the two host pages' own
+    names, plus the names of any resolved entity the pair's facts link to —
+    a fact on a plain notes page about `[[Bailey Grandchildren's Trust]]`
+    is exempt by that entity page's name, not just the notes page's own."""
+    names = names or {}
+    out = names.get(a[0], frozenset()) | names.get(b[0], frozenset())
+    for key in a[2] | b[2]:
+        out |= names.get(key, frozenset())
+    return out
 
 
 def find_fact_conflicts(
     entries: list[tuple[str, Fact, frozenset[str]]],
+    names: Mapping[str, frozenset[str]] | None = None,
 ) -> list[tuple[str, tuple, tuple]]:
     """Duplicate and contradicting *open* facts, per issue #79. Each entry is
     (rel_path, fact, entity_keys) with keys already resolved by the caller.
@@ -200,6 +251,11 @@ def find_fact_conflicts(
 
     Closed facts never participate; identical statements have an empty
     divergence, so no pair is ever both dup and conflict.
+
+    `names` maps a rel path to its subject names (see `_diverges`); a pair
+    uses the union of both host pages' names and the names of any resolved
+    entity key either fact links to (see `_pair_names`), so a fact on a
+    plain page about a linked entity is still exempt by that entity's name.
 
     Only facts sharing a key can pair, so each fact is compared with the
     later facts in its keys' buckets rather than with every later fact —
@@ -223,7 +279,7 @@ def find_fact_conflicts(
             if (a[1].statement.casefold() == b[1].statement.casefold()
                     and a[2] == b[2]):
                 out.append(("dup", a, b))
-            elif _diverges(a[1].statement, b[1].statement):
+            elif _diverges(a[1].statement, b[1].statement, _pair_names(a, b, names)):
                 out.append(("conflict", a, b))
     return out
 

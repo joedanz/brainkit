@@ -80,6 +80,16 @@ def test_error_infra_routes_to_admins_and_info_is_dropped():
     assert unrouted == 0
 
 
+def test_dup_near_warn_reaches_only_admins_even_in_a_personal_space():
+    warn = Finding("warn", "dup-near", "4 notes are near-duplicates …",
+                   paths=("People/bob/Notes/a.md", "People/bob/Notes/b.md"))
+    info = Finding("info", "dup-near", "a and b cover similar content",
+                   paths=("People/bob/Notes/a.md", "People/alice/Notes/b.md"))
+    routed, unrouted = route_findings([warn, info], ORG, RULES)
+    assert routed == {"alice": [warn]}
+    assert unrouted == 0
+
+
 def test_no_admins_counts_unrouted():
     org = Org(people={"bob": BOB})
     shared = Finding("warn", "intel", "Company/Intel/X.md: stale",
@@ -430,7 +440,9 @@ def test_an_unusable_cache_warns_and_triage_still_routes(master):
     report = run_triage(master, today="2026-07-24")
     assert any("dedup.db" in w and "rebuilt" in w for w in report.warnings)
     assert report.routed >= 1
-    assert "dup-near" in _digest(master, "bob").read_text()
+    assert "dup-near" in _digest(master, "alice").read_text()
+    bob = _digest(master, "bob")
+    assert not bob.exists() or "dup-near" not in bob.read_text()
 
 
 
@@ -490,7 +502,10 @@ def test_standalone_doctor_leaves_a_damaged_cache_alone(master):
 # ---- near-duplicate groups through triage --------------------------------- #
 
 
-def test_a_group_in_one_persons_space_routes_to_that_person_only(master):
+def test_a_group_in_one_persons_space_still_routes_to_the_admins(master):
+    """dup-near is admin-only (ADMIN_CHECKS): even a group entirely inside
+    bob's own space never reaches bob — merging near-duplicates needs a
+    person's judgement, so it goes to alice, the admin."""
     from brain.doctor import run_doctor
 
     from .test_doctor import _templated
@@ -500,7 +515,7 @@ def test_a_group_in_one_persons_space_routes_to_that_person_only(master):
     near = [f for f in run_doctor(master) if f.check == "dup-near"]
     assert len(near) == 1 and len(near[0].paths) == 5
     routed, unrouted = route_findings(near, ORG, RULES)
-    assert routed == {"bob": near}
+    assert routed == {"alice": near}
     assert unrouted == 0
 
 
@@ -510,14 +525,14 @@ def test_a_large_group_is_one_short_digest_line(master):
     seed_meta(master)
     _templated(master, "People/bob/Notes", 30)
     run_triage(master, today="2026-07-24")
-    digest = _digest(master, "bob").read_text()
+    digest = _digest(master, "alice").read_text()  # dup-near is admin-only
     section = digest.split("## dup-near\n\n", 1)[1].split("\n\n## ", 1)[0]
     lines = [ln for ln in section.splitlines() if ln.startswith("- ")]
     assert len(lines) == 1
     assert lines[0].startswith("- 30 notes are near-duplicates of each other in People/bob/Notes: ")
     assert len(lines[0]) < 300
-    alice = _digest(master, "alice")
-    assert not alice.exists() or "dup-near" not in alice.read_text()
+    bob = _digest(master, "bob")
+    assert not bob.exists() or "dup-near" not in bob.read_text()
 
 
 def test_a_redacted_group_line_names_at_most_three_paths():
@@ -542,10 +557,11 @@ def test_a_redacted_group_line_names_at_most_three_paths():
 
 
 def test_a_shared_note_does_not_bridge_two_private_spaces(master):
-    """bob's and carol's private copies share no reader, but each is a
-    near-duplicate of the same shared note. Groups stay within one space,
-    so each owner gets their own pair with the shared note, in full, and
-    never the other's path."""
+    """dup-near is admin-only: bob's and carol's private copies of the same
+    shared note reach alice, never bob or carol, and each pair stays intact
+    in her digest — the shared note near-dups bob's copy and carol's copy
+    as two separate lines, never merged into one group that would name the
+    other's path."""
     from .test_doctor import _templated
 
     seed_meta(master)
@@ -555,9 +571,10 @@ def test_a_shared_note_does_not_bridge_two_private_spaces(master):
     (carols,) = _templated(master, "People/carol/Notes", 1, prefix="Draft")
     run_triage(master, today="2026-07-24")
 
-    bob_digest = _digest(master, "bob").read_text()
-    carol_digest = _digest(master, "carol").read_text()
-    assert f"{shared} and {bobs} are near-duplicates (text overlap)" in bob_digest
-    assert "People/carol" not in bob_digest and "cannot read" not in bob_digest
-    assert f"{shared} and {carols} are near-duplicates (text overlap)" in carol_digest
-    assert "People/bob" not in carol_digest and "cannot read" not in carol_digest
+    alice_digest = _digest(master, "alice").read_text()
+    assert f"{shared} and {bobs} are near-duplicates (text overlap)" in alice_digest
+    assert f"{shared} and {carols} are near-duplicates (text overlap)" in alice_digest
+    bob_digest = _digest(master, "bob")
+    assert not bob_digest.exists() or "dup-near" not in bob_digest.read_text()
+    carol_digest = _digest(master, "carol")
+    assert not carol_digest.exists() or "dup-near" not in carol_digest.read_text()
