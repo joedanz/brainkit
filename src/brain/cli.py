@@ -66,12 +66,15 @@ def cmd_writeback(args) -> int:
     except ManifestError as e:
         print(f"cannot write back: {e}", file=sys.stderr)
         return 1
-    if result.violations:
-        print("REJECTED — nothing applied:", file=sys.stderr)
-        for v in result.violations:
-            print(f"  {v}", file=sys.stderr)
+    if result.error:
+        print(f"write-back failed, master left as it was: {result.error}", file=sys.stderr)
         return 1
     print(f"applied {len(result.applied)} change(s)")
+    if result.held:
+        print("HELD — not applied (outside this person's write scope):", file=sys.stderr)
+        for h in result.held:
+            print(f"  {h.kind} {h.path}: {h.reason}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -327,9 +330,13 @@ def cmd_cycle(args) -> int:
     else:
         for w in report.writebacks:
             line = f"writeback {w.person_id}: {w.status}"
-            if w.status == "applied":
+            if w.applied:
                 line += f" ({w.applied} change(s))"
             print(line)
+            for h in w.held:
+                print(f"  held: {h}", file=sys.stderr)
+            if w.error:
+                print(f"  error: {w.error}", file=sys.stderr)
             for v in w.violations:
                 print(f"  {v}", file=sys.stderr)
         print(f"swept {report.swept} draft(s); "

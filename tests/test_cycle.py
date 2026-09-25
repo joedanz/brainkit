@@ -111,7 +111,7 @@ def test_cycle_materializes_client_and_isolates_it(master, tmp_path):
     assert not can_read("Clients/Danziger Family", outsider, rules)
 
 
-def test_cycle_rejection_isolated_and_reported(master, tmp_path):
+def test_cycle_hold_isolated_and_reported(master, tmp_path):
     seed_meta(master)
     out = _first_compile(master, tmp_path)
 
@@ -123,7 +123,7 @@ def test_cycle_rejection_isolated_and_reported(master, tmp_path):
     assert not report.ok
     bob = next(w for w in report.writebacks if w.person_id == "bob")
     alice = next(w for w in report.writebacks if w.person_id == "alice")
-    assert bob.status == "rejected" and bob.violations
+    assert bob.status == "held" and bob.held == ["modify Company/Home.md: outside write scope for bob"]
     assert alice.status == "applied" and alice.applied == 1
     # master never took the defaced file; alice's edit landed
     assert (master / "Company/Home.md").read_text() != "defaced\n"
@@ -404,11 +404,11 @@ def test_share_approve_delivers_space_and_read_only_is_enforced(master, tmp_path
     # bob received the whole space, including the pending-window write
     note = out / "bob/Clients/Danziger Family/Danziger Family.md"
     assert note.exists() and "written while share pending" in note.read_text()
-    # read-only: bob's edits are rejected by writeback next cycle
+    # read-only: bob's edits are held by writeback next cycle
     note.write_text("bob tries to edit\n")
     report2 = run_cycle(master, out, today="2026-07-25")
     bob_wb = next(w for w in report2.writebacks if w.person_id == "bob")
-    assert bob_wb.status == "rejected"
+    assert bob_wb.status == "held"
     assert "bob tries to edit" not in (
         master / "Clients/Danziger Family/Danziger Family.md").read_text()
 
@@ -677,11 +677,11 @@ def test_everyone_share_admin_only_end_to_end(tmp_path):
     for who in ("mary", "carol"):
         assert (out / who / "Clients/Acme/Acme.md").is_file()
 
-    # read-only: carol's edit is rejected by the next cycle's writeback
+    # read-only: carol's edit is held by the next cycle's writeback
     (out / "carol/Clients/Acme/Acme.md").write_text("tampered\n")
     r = run_cycle(master, out, "2026-07-25")
     carol_wb = next(w for w in r.writebacks if w.person_id == "carol")
-    assert carol_wb.status == "rejected"
+    assert carol_wb.status == "held"
 
 
 # ---- Task 5: cycle runs triage after compile ------------------------------- #
@@ -1125,3 +1125,52 @@ def test_cycle_rebuilds_a_damaged_embedding_cache_and_says_so(master, tmp_path, 
     assert sum("embeddings.db" in w and "rebuilt" in w for w in report.index_warnings) == 1
     again = run_cycle(master, out, today="2026-07-08", index=True)
     assert not any("embeddings.db" in w for w in again.index_warnings)
+
+
+import pytest
+
+from brain.cycle import PersonWriteback
+
+
+@pytest.mark.parametrize("status,ok", [
+    ("applied", True), ("skipped", True),
+    ("partial", False), ("held", False), ("error", False),
+])
+def test_cycle_report_ok_by_writeback_status(status, ok):
+    report = CycleReport(writebacks=[PersonWriteback("bob", status)],
+                         swept=0, compiled=0, pending=0)
+    assert report.ok is ok
+
+
+def test_cycle_partial_status(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("bob ok edit\n")
+    (out / "bob/Company/Home.md").write_text("defaced\n")
+    report = run_cycle(master, out, today="2026-09-25")
+    bob = next(w for w in report.writebacks if w.person_id == "bob")
+    assert bob.status == "partial" and bob.applied == 1
+    assert (master / "People/bob/Memory.md").read_text() == "bob ok edit\n"
+    assert not report.ok
+
+
+def test_one_persons_writeback_failure_does_not_stop_the_next(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "alice/People/alice/Memory.md").write_text("alice edit\n")
+    (out / "bob/People/bob/Memory.md").write_text("bob edit\n")
+    import brain.writeback as wb
+    real = wb.diff_vault
+
+    def boom(vault, manifest=None):
+        if vault.name == "bob":
+            raise OSError(5, "Input/output error", str(vault))
+        return real(vault, manifest)
+
+    monkeypatch.setattr(wb, "diff_vault", boom)
+    report = run_cycle(master, out, today="2026-09-25")
+    by_id = {w.person_id: w for w in report.writebacks}
+    assert by_id["bob"].status == "error" and "Input/output error" in by_id["bob"].error
+    assert by_id["alice"].status == "applied"
+    assert (master / "People/alice/Memory.md").read_text() == "alice edit\n"
+    assert not report.ok

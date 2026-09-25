@@ -8,9 +8,10 @@ Triage runs last, after the compile, so doctor's compiled-vault check sees
 fresh vaults; the digests it lands in master compile into vaults on the next
 cycle.
 
-A rejected writeback never halts the cycle. Rejected edits are reverted
-server-side by the fresh compile commit (fail closed); the rejection is
-reported and flips CycleReport.ok so cron alerts.
+A write-back never halts the cycle. Out-of-scope changes are held (never
+applied) while the person's in-scope changes still land; a git or disk
+failure for one person is reported as that person's `error`. Any hold or
+error flips CycleReport.ok so cron alerts.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, CompileError, compile_all
+from brain.errors import HANDLED, describe
 from brain.promotions import list_pending, sweep
 from brain.schemas import load_config, load_org, load_spaces
 from brain.writeback import ManifestError, apply_writeback
@@ -28,9 +30,11 @@ from brain.writeback import ManifestError, apply_writeback
 @dataclass
 class PersonWriteback:
     person_id: str
-    status: str  # "applied" | "rejected" | "skipped"
+    status: str  # "applied" | "partial" | "held" | "skipped" | "error"
     applied: int = 0
-    violations: list[str] = field(default_factory=list)
+    held: list[str] = field(default_factory=list)  # "<kind> <path>: <reason>"
+    error: str = ""
+    violations: list[str] = field(default_factory=list)  # why a "skipped" person was skipped
 
 
 @dataclass
@@ -83,13 +87,14 @@ class CycleReport:
     @property
     def ok(self) -> bool:
         # Retrieval is a convenience layer; a failed index warns but never fails
-        # the cycle. A rejected writeback (a security-relevant event) fails it,
-        # as does an owner-mismatch client request (a tamper signal). Routine
-        # "name taken" client rejections do NOT — they're a normal user outcome
-        # surfaced via the requester's inbox note. A person whose vault failed
-        # to compile fails it too: that agent is working from a stale vault.
+        # the cycle. A hold or a write-back error fails it: someone's edit did
+        # not land. As does an owner-mismatch client request (a tamper
+        # signal). Routine "name taken" client rejections do NOT — they're a
+        # normal user outcome surfaced via the requester's inbox note. A
+        # person whose vault failed to compile fails it too: that agent is
+        # working from a stale vault.
         return (
-            all(w.status != "rejected" for w in self.writebacks)
+            all(w.status not in ("partial", "held", "error") for w in self.writebacks)
             and self.clients_tampering == 0
             and self.shares_tampering == 0
             and self.promotion_tampering == 0
@@ -141,6 +146,32 @@ def _refresh_indexes(master: Path, out_root: Path, org) -> tuple[int, list[str]]
     return indexed, warnings
 
 
+def _status(applied: int, held: list[str], error: str) -> str:
+    if error:
+        return "error"
+    if held:
+        return "partial" if applied else "held"
+    return "applied"
+
+
+def _writeback_one(master: Path, vault: Path, person, rules) -> PersonWriteback:
+    try:
+        result = apply_writeback(master, vault, person, rules)
+    except ManifestError as e:
+        # A present-but-corrupt manifest means no trustworthy diff baseline
+        # for this person. Skip them (their edits, if any, wait for the next
+        # cycle) rather than aborting everyone else's refresh — the recompile
+        # rewrites a clean manifest, so the next cycle self-heals.
+        return PersonWriteback(person.id, "skipped", violations=[str(e)])
+    except HANDLED as e:
+        # One person's disk or git failure is theirs alone.
+        return PersonWriteback(person.id, "error", error=describe(e))
+    held = [f"{h.kind} {h.path}: {h.reason}" for h in result.held]
+    applied = len(result.applied)
+    return PersonWriteback(person.id, _status(applied, held, result.error),
+                           applied=applied, held=held, error=result.error)
+
+
 def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) -> CycleReport:
     # First statement, so the measurement covers the whole run rather than
     # whatever part of it someone remembers to include.
@@ -155,23 +186,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         if not (vault / MANIFEST_NAME).is_file():
             writebacks.append(PersonWriteback(person.id, "skipped"))
             continue
-        try:
-            result = apply_writeback(master, vault, person, rules)
-        except ManifestError as e:
-            # A present-but-corrupt manifest means no trustworthy diff baseline
-            # for this person. Skip them (their edits, if any, wait for the next
-            # cycle) rather than aborting everyone else's refresh — the recompile
-            # below rewrites a clean manifest, so the next cycle self-heals.
-            writebacks.append(PersonWriteback(person.id, "skipped", violations=[str(e)]))
-            continue
-        if result.violations:
-            writebacks.append(
-                PersonWriteback(person.id, "rejected", violations=result.violations)
-            )
-        else:
-            writebacks.append(
-                PersonWriteback(person.id, "applied", applied=len(result.applied))
-            )
+        writebacks.append(_writeback_one(master, vault, person, rules))
 
     from brain.clients import materialize_clients
     from brain.shares import sweep_approvals, sweep_shares

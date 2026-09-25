@@ -171,17 +171,16 @@ def test_full_multiuser_lifecycle(tmp_path: Path, capsys):
                  "--person", "dana"]) == 0
     assert "curated by Dana" in (master / "Company/Home.md").read_text()
 
-    # 4. writeback rejection (whole changeset) ---------------------------- #
+    # 4. writeback hold (in-scope applied, out-of-scope held) ------------- #
     bv = compiled / "bob"
     before_home = (master / "Company/Home.md").read_text()
-    before_mem = (master / "People/bob/Memory.md").read_text()
     (bv / "Company/Home.md").write_text("bob defaced this\n")
     (bv / "People/bob/Memory.md").write_text("bob legit edit\n")
     assert main(["writeback", "--master", str(master), "--vault", str(bv),
                  "--person", "bob"]) == 1
-    assert "REJECTED" in capsys.readouterr().err
+    assert "HELD" in capsys.readouterr().err
     assert (master / "Company/Home.md").read_text() == before_home
-    assert (master / "People/bob/Memory.md").read_text() == before_mem  # all-or-nothing
+    assert (master / "People/bob/Memory.md").read_text() == "bob legit edit\n"  # in-scope landed
 
     # 5. promotions: sweep / approve / reject ----------------------------- #
     cv = compiled / "carol"
@@ -258,7 +257,7 @@ def test_cycle_and_doctor_e2e(tmp_path: Path, capsys):
     assert not [f for f in report["findings"] if f["severity"] == "error"]
 
     # One cycle with a valid edit + a promotion draft, and one out-of-scope
-    # edit that must be rejected without blocking anyone else. ---------------- #
+    # edit that must be held without blocking anyone else. ---------------- #
     av = compiled / "alice"
     (av / "People/alice/Memory.md").write_text("alice updated via cycle.\n")
     _write(av, "People/alice/Promotions/acme-sso.md",
@@ -268,7 +267,7 @@ def test_cycle_and_doctor_e2e(tmp_path: Path, capsys):
     (bv / "Company/Home.md").write_text("bob defaced this\n")  # read-only for bob
     before_home = (master / "Company/Home.md").read_text()
 
-    # writeback-all -> sweep -> recompile in one command; bob's rejection -> 1.
+    # writeback-all -> sweep -> recompile in one command; bob's hold -> 1.
     capsys.readouterr()
     assert main(["cycle", "--master", str(master), "--out", str(compiled),
                  "--json"]) == 1
@@ -276,7 +275,7 @@ def test_cycle_and_doctor_e2e(tmp_path: Path, capsys):
     assert report["ok"] is False
     statuses = {w["person_id"]: w["status"] for w in report["writebacks"]}
     assert statuses["alice"] == "applied"
-    assert statuses["bob"] == "rejected"
+    assert statuses["bob"] == "held"
     assert report["swept"] == 1
     assert report["compiled"] == len(PEOPLE)
     assert report["pending"] == 1
