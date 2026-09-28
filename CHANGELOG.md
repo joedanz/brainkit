@@ -11,7 +11,7 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
-## [0.7.10] - 2026-09-28
+## [0.7.11] - 2026-09-28
 
 ### Fixed
 
@@ -24,6 +24,11 @@ explicitly under **Changed**, with what to do about it.
   the log says so; any other failure still fails the run. Reinstall with
   `install -m 755 /opt/brainkit/deploy/agents-box/backup-agents.sh
   /usr/local/sbin/backup-agents.sh` — upgrades do not refresh it.
+
+## [0.7.10] - 2026-09-28
+
+### Fixed
+
 - **`Shares.md` and `Pending-corrections.md` can't be faked.** Only brainkit
   writes these notes in `People/<id>/`. An agent's own copy is never saved
   back, for anyone's folder, and a copy already in master is never compiled
