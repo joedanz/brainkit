@@ -1386,10 +1386,11 @@ def _check_held_edits(master: Path, org: Org) -> list[Finding]:
         paths = [p.get("path", "?") for p in rec["paths"] if isinstance(p, dict)]
         held = (f"{len(paths)} edit(s) held since {rec.get('at', '?')} "
                 f"({', '.join(paths)})")
+        prefix = f"{pid}: "
         if pid in org.people:
-            msg = f"{pid}: {held} — `brain held show {pid}` shows them"
+            msg = f"{prefix}{held} — `brain held show {pid}` shows them"
         else:
-            msg = (f"{pid}: held edits for someone no longer in the org: {held}. "
+            msg = (f"{prefix}held edits for someone no longer in the org: {held}. "
                    f"Read them with `brain held show {pid}`, then delete "
                    f"People/{pid}/{HELD_NAME}")
         findings.append(Finding("warn", "held-edits", msg))
@@ -1401,6 +1402,9 @@ def _check_generated_copies(master: Path) -> list[Finding]:
     compiler writes these, into each vault; compile never copies a master
     one, so it is stale or planted and serves nobody. Admin digest only."""
     findings: list[Finding] = []
+    # Deliberately counts a symlinked copy as a hit here, unlike the held-edits
+    # glob above (`_check_held_edits`), which skips symlinks: a symlinked
+    # generated-note copy is still a stale/planted file serving nobody.
     for f in sorted(master.glob("People/*/*")):
         rel = f.relative_to(master).as_posix()
         if is_generated_person_note(rel) and (f.is_file() or f.is_symlink()):

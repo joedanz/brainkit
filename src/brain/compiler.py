@@ -68,8 +68,12 @@ SERVER_ONLY_NAMES = frozenset({HELD_NAME, CONFIRMED_NAME})
 # disk `shares.md` IS `Shares.md`.
 SHARES_NOTE_REL = "People/{person_id}/Shares.md"
 PENDING_NOTE_REL = "People/{person_id}/Pending-corrections.md"
+
+# Single source of truth for the reserved generated-note paths: adding a
+# third one means adding it to this tuple, nothing else.
+_GENERATED_PERSON_NOTE_RELS = (SHARES_NOTE_REL, PENDING_NOTE_REL)
 _GENERATED_PERSON_NOTE_NAMES = frozenset(
-    PurePosixPath(rel).name.casefold() for rel in (SHARES_NOTE_REL, PENDING_NOTE_REL))
+    PurePosixPath(rel).name.casefold() for rel in _GENERATED_PERSON_NOTE_RELS)
 
 
 def is_generated_person_note(rel: str) -> bool:

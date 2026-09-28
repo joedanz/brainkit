@@ -314,6 +314,9 @@ def apply_writeback(
                 # Never write THROUGH a master symlink: that would change
                 # its target, a path nobody checked. The link itself is
                 # replaced (and restored from the snapshot on failure).
+                # This re-checks the target itself, deliberately separate from
+                # the `_linked_folder` check above: state can change between
+                # the held/to_apply decision and this write.
                 if target.is_symlink():
                     target.unlink()
                 target.write_bytes(c.data)
