@@ -35,6 +35,11 @@ CAUGHT = {
     "Anthropic API key": "sk" + "-ant-" + "api03-" + "h" * 80,
     "Google API key": "AI" + "za" + "i" * 35,
     "password in a URL": "postgres://" + "svc_app" + ":" + "Tr0ub4dor-x9" + "@db.internal:5432/app",
+    "password in a URL (empty user)": "redis://" + ":" + "S3cr3t-pw9" + "@cache.internal:6379",
+    "password in a URL (slash)": "postgres://" + "svc" + ":" + "ab/cd+ef9" + "@db.internal/app",
+    "private key (pgp)": "-----BEGIN " + "PGP PRIVATE" + " KEY BLOCK-----",
+    "AWS access key id (after underscore)": "AWS_KEY_" + "AK" + "IA" + UPPER16,
+    "password in a URL (starts with my)": "postgres://" + "app:" + "myS3cret-9x" + "@db.internal/app",
 }
 
 KIND = {
@@ -52,6 +57,8 @@ KIND = {
 
 
 def _expected_kind(label: str) -> str:
+    if label.startswith("AWS"):
+        return "AWS access key id"
     for prefix, kind in KIND.items():
         if label.startswith(prefix):
             return kind
@@ -79,6 +86,23 @@ NEAR_MISSES = {
     "email address": "mailto:alice@acme.com",
     "short google key": "AI" + "za" + "i" * 20,
     "sk without proj": "sk" + "-" + "g" * 10,
+    "pgp public key block": "-----BEGIN " + "PGP PUBLIC" + " KEY BLOCK-----",
+    "AWS after a letter": "x" + "AK" + "IA" + UPPER16,
+    "AWS before a lowercase letter": "AK" + "IA" + UPPER16 + "q",
+    "your_password": "postgres://" + "app:" + "your_password" + "@db.internal/app",
+    "YOUR_PASSWORD": "postgres://" + "app:" + "YOUR_PASSWORD" + "@db.internal/app",
+    "yourpassword": "postgres://" + "app:" + "yourpassword" + "@db.internal/app",
+    "my db password": "postgres://" + "app:" + "my_db_password" + "@db.internal/app",
+    "changeme": "postgres://" + "app:" + "changeme" + "@db.internal/app",
+    "xxx run": "postgres://" + "app:" + "xxxxxx" + "@db.internal/app",
+    "star run": "postgres://" + "app:" + "*****" + "@db.internal/app",
+    "localhost host": "postgres://" + "app:" + "Tr0ub4dor-x9" + "@localhost:5432/app",
+    "loopback host": "postgres://" + "app:" + "Tr0ub4dor-x9" + "@127.0.0.1:5432/app",
+    "ipv6 loopback host": "postgres://" + "app:" + "Tr0ub4dor-x9" + "@[::1]:5432/app",
+    "example host": "https://" + "app:" + "Tr0ub4dor-x9" + "@example.org/v1",
+    "ssh git user": "ssh://" + "git@github.com" + "/acme/repo.git",
+    "user without password": "postgres://" + "user@db.internal" + "/app",
+    "port then @ in path": "https://registry.npmjs.org:443/" + "@scope/pkg",
 }
 
 
@@ -115,7 +139,16 @@ def test_scanner_version_is_stable_and_short():
     assert len(scanner_version()) == 16
 
 
-@pytest.mark.parametrize("text", ["a." * 100_000, "a-" * 100_000, "https://" + "a:" * 100_000])
+@pytest.mark.parametrize("text", [
+    "a." * 100_000, "a-" * 100_000, "https://" + "a:" * 100_000,
+    # the credentialed-URL pattern: empty user, "/" in the password, no "@"
+    "x://" + ":" * 200_000,
+    "x://:" + "/" * 200_000,
+    "x://u:" + "a/" * 100_000,
+    "a://:b" * 50_000,
+    "x://" + "u:p/" * 60_000,
+    "x://:" + "p" * 300 + "@" + "h" * 200_000,
+])
 def test_pathological_text_scans_in_linear_time(text):
     """An unbounded URL scheme once made "a.a.a…" quadratic: 45 s for 400 KB."""
     import time
@@ -123,3 +156,10 @@ def test_pathological_text_scans_in_linear_time(text):
     start = time.perf_counter()
     assert scan_text(text) == []
     assert time.perf_counter() - start < 2
+
+
+def test_every_reported_kind_is_a_known_label():
+    from brain.secrets import KINDS
+
+    text = "\n".join(CAUGHT.values())
+    assert {h.kind for h in scan_text(text)} == KINDS

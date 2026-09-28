@@ -23,7 +23,7 @@ from pathlib import Path
 
 from brain import sqlite_util
 from brain.frontmatter import split_frontmatter
-from brain.secrets import Hit, scanner_version
+from brain.secrets import KINDS, Hit, scanner_version
 
 SHINGLE_WORDS = 5
 NUM_PERMS = 128
@@ -252,7 +252,9 @@ class SignatureCache:
     def get_scans(self, shas: list[str]) -> dict[str, list[Hit]]:
         """The remembered secrets scan for each sha that has one. Never
         raises, like get_many: an older file without the table, or a row
-        that does not parse, is only a note to scan again."""
+        that does not parse, is only a note to scan again. A hit whose kind
+        is not one of the scanner's labels is dropped: the cache is a file
+        on disk, and its contents go into digests."""
         if self._scans_asked is None:
             self._scans_asked = set()
         self._scans_asked.update(shas)
@@ -267,7 +269,8 @@ class SignatureCache:
                 ).fetchall()
                 for sha, raw in rows:
                     try:
-                        out[sha] = [Hit(str(k), int(n)) for k, n in json.loads(raw)]
+                        out[sha] = [Hit(k, int(n)) for k, n in json.loads(raw)
+                                    if k in KINDS]
                     except (ValueError, TypeError):
                         continue
         except sqlite3.Error as e:

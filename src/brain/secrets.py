@@ -34,8 +34,10 @@ class Hit:
 
 
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("AWS access key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----")),
+    # Not \b: "_" is a word character, and AWS_KEY_AKIA... is a key.
+    ("AWS access key id", re.compile(
+        r"(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])")),
     ("GitHub token", re.compile(
         r"\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59})\b")),
     ("Slack token", re.compile(r"\bxox[abprs]-\d{6,}-[0-9A-Za-z-]{10,}")),
@@ -47,10 +49,12 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])")),
 )
 
-# scheme://user:password@host. The password stops at whitespace, "@" and
-# "/", so a path segment is never read as one.
+# scheme://user:password@host. The user may be empty (redis://:<password>@host) and
+# the password may hold "/"; it stops at whitespace and "@". Every run is
+# bounded and no two adjacent runs share a delimiter, so a failed match costs
+# a bounded amount of work per start position — never a backtracking blowup.
 _URL_CREDS = re.compile(
-    r"\b[A-Za-z][A-Za-z0-9+.-]{0,31}://([^\s:/@]{1,256}):([^\s/@]{1,256})@([^\s/?#]{1,256})")
+    r"\b[A-Za-z][A-Za-z0-9+.-]{0,31}://([^\s:/@]{0,256}):([^\s@]{1,256})@([^\s/?#@]{1,256})")
 _URL_KIND = "password in a URL"
 _NEWLINE = re.compile("\n")
 
@@ -61,6 +65,27 @@ _PLACEHOLDER_WORDS = frozenset({
     "foo", "bar",
 })
 _PLACEHOLDER_MARKS = ("<", ">", "${", "{{", "%s", "*", "...", "[", "]")
+# your_password, YOUR_PASSWORD, yourpassword, my_db_password, xxxx, ****
+# ("my" alone is too common a start for a real password to dismiss)
+_PLACEHOLDER_SHAPES = re.compile(
+    r"your[\w.-]{0,40}|my[\w.-]{0,40}?(?:pass(?:word)?|pwd|secret|token|key)"
+    r"|x{3,}|\*{3,}", re.IGNORECASE)
+# A port followed by a path (host:443/@scope/pkg) is not a password.
+_PORT_PATH = re.compile(r"\d{1,5}/")
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+# Every label scan_text can report. A cached hit with any other kind is
+# not one this scanner wrote, and is dropped.
+KINDS = frozenset({kind for kind, _ in _PATTERNS} | {_URL_KIND})
+
+
+def _host_name(host: str) -> str:
+    """Lowercased host without its port or IPv6 brackets."""
+    host = host.lower()
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    return host.split(":", 1)[0]
 
 
 def _is_placeholder(user: str, password: str, host: str) -> bool:
@@ -68,9 +93,10 @@ def _is_placeholder(user: str, password: str, host: str) -> bool:
         return True
     if password.lower() in _PLACEHOLDER_WORDS or password == user:
         return True
-    if set(password.lower()) <= {"x"}:
+    if _PLACEHOLDER_SHAPES.fullmatch(password) or _PORT_PATH.match(password):
         return True
-    return "example" in host.lower()
+    name = _host_name(host)
+    return name in _LOCAL_HOSTS or "example" in name
 
 
 def _url_matches(text: str):
@@ -108,5 +134,6 @@ def scanner_version() -> str:
         [(kind, p.pattern) for kind, p in _PATTERNS],
         _URL_KIND, _URL_CREDS.pattern,
         sorted(_PLACEHOLDER_WORDS), _PLACEHOLDER_MARKS,
+        _PLACEHOLDER_SHAPES.pattern, _PORT_PATH.pattern, sorted(_LOCAL_HOSTS),
     ))
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]

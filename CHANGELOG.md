@@ -14,9 +14,12 @@ explicitly under **Changed**, with what to do about it.
 ### Added
 
 - **`brain doctor` finds credentials pasted into notes.** The new `secrets`
-  check looks for private keys, AWS access key ids, GitHub, Slack, Stripe
+  check reads every text file the compiler copies into vaults (notes, and
+  also files like `.env`, JSON, YAML or CSV exports; binaries and files over
+  2 MB are skipped) and looks for private keys, AWS access key ids, GitHub, Slack, Stripe
   live, OpenAI, Anthropic and Google API keys, Slack webhook URLs, and
-  passwords written into URLs. It only matches formats with a fixed,
+  passwords written into URLs (placeholders like `your_password` and local or
+  `example` hosts are ignored). It only matches formats with a fixed,
   recognisable shape, so ordinary prose and ids are not flagged. Each finding
   is an `error` naming the kind of credential, the note, the line numbers and
   how many people can read the note, and never includes any part of the value.

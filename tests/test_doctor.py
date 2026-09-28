@@ -2288,3 +2288,66 @@ def test_a_cache_from_before_the_secrets_scan_still_works(master, monkeypatch):
     calls = _count_scans(monkeypatch)
     assert _writable_run(master) == expected
     assert calls == []
+
+
+# The compiler copies every file in a space, not only notes.
+@pytest.mark.parametrize("rel", [
+    "Teams/ops/deploy.env", "Teams/ops/.env", "Teams/ops/config/app.yaml",
+    "Company/Exports/users.csv", "Company/settings.json", "Teams/ops/notes.txt",
+    "Teams/ops/app.toml", "Teams/ops/app.ini", "Teams/ops/nginx.conf",
+])
+def test_text_files_the_compiler_copies_are_scanned(master, rel):
+    seed_meta(master)
+    (master / rel).parent.mkdir(parents=True, exist_ok=True)
+    (master / rel).write_text(f"KEY={_FAKE_AWS}\n")
+    [f] = _secrets(run_doctor(master))
+    assert f.paths == (rel,) and "AWS access key id" in f.message
+
+
+def test_binaries_big_files_and_meta_are_not_scanned(master):
+    from brain.doctor import SECRETS_MAX_BYTES
+
+    seed_meta(master)
+    (master / "Teams/ops/blob.bin").write_bytes(b"\x00\x01" + _FAKE_AWS.encode())
+    (master / "Teams/ops/huge.txt").write_text(
+        _FAKE_AWS + "\n" + "z" * SECRETS_MAX_BYTES)
+    (master / "_meta/notes.txt").write_text(f"{_FAKE_AWS}\n")
+    (master / "People/stray.env").write_text(f"{_FAKE_AWS}\n")  # in no space
+    assert _secrets(run_doctor(master)) == []
+
+
+def test_a_cached_hit_of_an_unknown_kind_is_dropped(master):
+    import json
+    import sqlite3
+
+    seed_meta(master)
+    _ignore_cache(master)
+    (master / "Teams/ops/Runbook.md").write_text(f"{_FAKE_GH}\n")
+    _writable_run(master)
+    db = master / "_meta/cache/dedup.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE secret_scans SET hits = ? WHERE hits != '[]'",
+                     (json.dumps([["GitHub token", 1], ["<b>injected</b>", 2]]),))
+    conn.close()
+    found = _secrets(run_doctor(master))
+    assert len(found) == 1 and "GitHub token" in found[0].message
+    assert "injected" not in repr(found)
+
+
+def test_the_secrets_scan_does_not_reread_notes_read_this_run(master, monkeypatch):
+    import brain.doctor
+
+    seed_meta(master)
+    (master / "Teams/ops/Runbook.md").write_text(f"{_FAKE_GH}\n")
+    (master / "Teams/ops/deploy.env").write_text(f"{_FAKE_AWS}\n")
+    reads: list[str] = []
+    real = brain.doctor._read_scannable
+
+    def spy(path):
+        reads.append(path.relative_to(master).as_posix())
+        return real(path)
+
+    monkeypatch.setattr(brain.doctor, "_read_scannable", spy)
+    assert len(_secrets(run_doctor(master))) == 2
+    assert "Teams/ops/deploy.env" in reads
+    assert not [r for r in reads if r.endswith(".md") and "Sessions" not in r]

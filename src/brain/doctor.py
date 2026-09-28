@@ -368,7 +368,8 @@ def _cached_file_vectors(
 
 def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                       shared: str,
-                      dedup_cache: SignatureCache | None = None) -> list[Finding]:
+                      dedup_cache: SignatureCache | None = None,
+                      read: dict[str, str] | None = None) -> list[Finding]:
     """Duplicate and near-duplicate notes, in three tiers: identical bytes
     (dup-exact), colliding title stems (stem-collision — bare wikilinks
     resolve by stem, first match wins), and near-duplicate content
@@ -388,7 +389,10 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     MinHash signatures come from `dedup_cache` when the caller passes one
     (triage, which may write it); otherwise from the cache file read-only if
-    it exists. Either way a signature is what would have been computed."""
+    it exists. Either way a signature is what would have been computed.
+
+    Every text read is also left in `read` (rel -> text) when given, for
+    the secrets scan to reuse."""
     from brain.dedup import DUP_MIN_WORDS, SignatureCache, normalize_text
 
     texts: dict[str, str] = {}
@@ -398,6 +402,8 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         text = _read_text(master / r)
         if text is not None:
             texts[r] = text
+    if read is not None:
+        read.update(texts)
     rels = list(texts)
     words = {r: normalize_text(texts[r]) for r in rels}
     substantive = [r for r in rels if len(words[r]) >= DUP_MIN_WORDS]
@@ -813,6 +819,42 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     return findings
 
 
+# Files over this size are not scanned for secrets: an export or a log,
+# not somewhere a key is pasted by hand, and the scan's cost grows with it.
+SECRETS_MAX_BYTES = 2 * 1024 * 1024
+_BINARY_SNIFF = 8192
+
+
+def _read_scannable(path: Path) -> str | None:
+    """A copied file's text for the secrets scan, or None for one that is
+    too big, binary (a NUL byte early on) or unreadable."""
+    try:
+        if path.stat().st_size > SECRETS_MAX_BYTES:
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if b"\0" in data[:_BINARY_SNIFF]:
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
+def _copied_files(master: Path, shared: str) -> list[str]:
+    """Every file the compiler copies out of a space (compiler.
+    _iter_space_files: any kind of file, symlinks and server-only names
+    skipped), whether or not anyone can read the space yet — it is in the
+    master's git history either way. Doctor's own digest is left out."""
+    from brain.compiler import _iter_space_files
+
+    rels: list[str] = []
+    for space in enumerate_spaces(master, shared):
+        for rel in _iter_space_files(master, space):
+            rel = Path(rel).as_posix()
+            if not _is_own_digest(rel, Path(rel).parts):
+                rels.append(rel)
+    return rels
+
+
 def _secret_reach(n: int) -> str:
     if n == 0:
         return "readable by no one yet"
@@ -823,7 +865,8 @@ def _secret_reach(n: int) -> str:
 
 def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                    shared: str,
-                   dedup_cache: SignatureCache | None = None) -> list[Finding]:
+                   dedup_cache: SignatureCache | None = None,
+                   read: dict[str, str] | None = None) -> list[Finding]:
     """A credential pasted into a note is copied into every reader's vault
     and into git history, so it is leaked as far as the note travels. One
     error per (note, kind), naming the lines and how many people can read
@@ -836,13 +879,19 @@ def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     Scan results are remembered per note text in the same cache file as the
     dedup signatures, under the same rules: `dedup_cache` when triage passes
-    one (writable), otherwise the file read-only if it exists."""
+    one (writable), otherwise the file read-only if it exists.
+
+    Scans every file the compiler copies, not only notes: a `.env` or a
+    config export travels to readers' vaults just the same. Binaries and
+    files over SECRETS_MAX_BYTES are skipped. `read` holds texts another
+    check already read this run (rel -> text), so no note is read twice."""
     from brain import secrets
     from brain.dedup import SignatureCache
 
+    read = read or {}
     texts: dict[str, str] = {}
-    for rel in _content_files(master, shared):
-        text = _read_text(master / rel)
+    for rel in _copied_files(master, shared):
+        text = read[rel] if rel in read else _read_scannable(master / rel)
         if text is not None:
             texts[rel] = text
     shas = {rel: hashlib.sha256(t.encode("utf-8")).hexdigest() for rel, t in texts.items()}
@@ -2006,8 +2055,9 @@ def run_doctor(
     findings += _check_unreadable_files(master, shared)
     findings += _check_orphan_files(master, shared)
     findings += _check_unlinked_notes(master, shared)
-    findings += _check_duplicates(master, org, rules, shared, dedup_cache)
-    findings += _check_secrets(master, org, rules, shared, dedup_cache)
+    read: dict[str, str] = {}  # texts the duplicates check read, for the secrets scan
+    findings += _check_duplicates(master, org, rules, shared, dedup_cache, read)
+    findings += _check_secrets(master, org, rules, shared, dedup_cache, read)
     findings += _check_cross_space_refs(master, org, rules, shared)
     findings += _check_plain_refs(master, org, rules, shared)
     findings += _check_facts(master, shared)
