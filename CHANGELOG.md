@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.10] - 2026-09-28
+
 ### Fixed
 
 - **`Shares.md` and `Pending-corrections.md` can't be faked.** Only brainkit
