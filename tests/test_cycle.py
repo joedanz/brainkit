@@ -64,6 +64,7 @@ def test_cycle_reports_where_its_time_went(master, tmp_path):
         "corrections", "writeback", "sweeps", "compile", "index", "triage",
     ]
     assert all(isinstance(ms, int) and ms >= 0 for ms in report.timings_ms.values())
+    # Each stage truncates to whole ms, so allow 1 ms of rounding per stage.
     assert sum(report.timings_ms.values()) <= report.duration_ms + len(report.timings_ms)
 
 
