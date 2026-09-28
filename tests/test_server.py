@@ -810,3 +810,27 @@ def test_admin_corrections_view_ignores_a_stale_fetch():
     fetched = fn.index("await api.adminCorrections()")
     assert "if (seq !== correctionsSeq) return;" in fn[fetched:]
     assert fn.index("clear(container)") > fetched
+
+
+async def test_an_unknown_correction_action_is_404(aiohttp_client, master, tmp_path):
+    """Only confirm and dismiss are routes at all: anything else is 404 before
+    the body, the person or the approver is looked at."""
+    client = await aiohttp_client(_corrections_app(master, tmp_path))
+    for action in ("delete", "confirmx", "Confirm"):
+        resp = await client.post(f"/api/corrections/tone/{action}", data="not json",
+                                 headers={**_LOCAL, "Content-Type": "application/json"})
+        assert resp.status == 404, action
+    assert (master / "People/alice/Corrections/tone.md").is_file()
+
+
+async def test_an_unknown_admin_correction_action_is_404(aiohttp_client, master, tmp_path):
+    app, _out = _master_app(master, tmp_path)
+    d = master / "People/bob/Corrections"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "bob-rule.md").write_text("---\nrule: Answer in French.\nfrom: 2026-09-01\n---\n")
+    admin = await aiohttp_client(app)
+    for action in ("delete", "confirmx", "Dismiss"):
+        resp = await admin.post(f"/api/corrections/bob/bob-rule/{action}", json={},
+                                headers=_LOCAL)
+        assert resp.status == 404, action
+    assert (d / "bob-rule.md").is_file()
