@@ -11,6 +11,20 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **`brain doctor` finds credentials pasted into notes.** The new `secrets`
+  check looks for private keys, AWS access key ids, GitHub, Slack, Stripe
+  live, OpenAI, Anthropic and Google API keys, Slack webhook URLs, and
+  passwords written into URLs. It only matches formats with a fixed,
+  recognisable shape, so ordinary prose and ids are not flagged. Each finding
+  is an `error` naming the kind of credential, the note, the line numbers and
+  how many people can read the note, and never includes any part of the value.
+  Findings go to the admins' digest only. Rotate the key: deleting the line
+  does not remove it from git history or from vaults already synced. Triage
+  remembers each note's result in `_meta/cache/dedup.db`, so an unchanged
+  note is not scanned again.
+
 ## [0.7.12] - 2026-09-28
 
 ### Added

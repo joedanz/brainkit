@@ -76,9 +76,11 @@ TRIAGE_CHECKS = frozenset({
 # Held edits too: only an admin can apply or discard them, and the person
 # already has their own Inbox notice. A broken corrections record too: only
 # an admin can repair master bookkeeping. A master copy of a generated
-# person note too: it is dead weight only an admin should delete.
+# person note too: it is dead weight only an admin should delete. A pasted
+# credential too: rotating it is an admin's job (the message names the kind
+# and line, never the value).
 ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale", "protocol-blocked", "dup-near",
-                          "held-edits", "corrections-record", "generated-copy"})
+                          "held-edits", "corrections-record", "generated-copy", "secrets"})
 
 # Routed like a content check (to the path's owner) AND always to the admins:
 # a waiting correction is the person's to confirm, and an admin can confirm

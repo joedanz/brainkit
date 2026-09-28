@@ -618,3 +618,38 @@ def test_held_edits_reach_only_the_admins():
     routed, unrouted = route_findings([f], ORG, RULES)
     assert routed == {"alice": [f]}
     assert unrouted == 0
+
+
+# ---- secrets are the admins' to rotate ------------------------------------ #
+
+
+def test_a_secrets_finding_reaches_only_the_admins():
+    f = Finding("error", "secrets",
+                "People/bob/Notes/Keys.md: GitHub token on line 1, readable by 1 person. ...",
+                paths=("People/bob/Notes/Keys.md",))
+    routed, unrouted = route_findings([f], ORG, RULES)
+    assert set(routed) == {"alice"} and unrouted == 0
+    from brain.triage import ADMIN_CHECKS, TRIAGE_CHECKS
+    assert "secrets" in ADMIN_CHECKS and "secrets" not in TRIAGE_CHECKS
+
+
+def test_a_pasted_token_reaches_the_admin_digest_without_its_value(master):
+    from .test_doctor import _FAKE_GH, _ignore_cache
+
+    seed_meta(master)
+    _ignore_cache(master)
+    rel = "People/bob/Notes/Keys.md"
+    (master / rel).parent.mkdir(parents=True, exist_ok=True)
+    (master / rel).write_text(f"# Keys\n\nci: {_FAKE_GH}\n")
+    report = run_triage(master, today="2026-09-28")
+    assert report.finding_counts.get("error:secrets") == 1
+
+    alice = _digest(master, "alice").read_text()
+    assert "## secrets" in alice and rel in alice and "GitHub token" in alice
+    bob = _digest(master, "bob")
+    assert not bob.exists() or "secrets" not in bob.read_text()
+
+    # The value appears nowhere triage writes: not in any digest, not in the cache.
+    for path in master.rglob("*"):
+        if path.is_file() and ".git" not in path.parts and path != master / rel:
+            assert _FAKE_GH.encode() not in path.read_bytes(), path
