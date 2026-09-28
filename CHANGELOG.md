@@ -15,6 +15,15 @@ explicitly under **Changed**, with what to do about it.
 
 ### Fixed
 
+- **Agent backups survive files that vanish during the backup.** `hermes
+  backup` keeps the archive but exits non-zero when a file disappears between
+  its scan and its archive, and hermes cron rotates its own output files. A
+  busy agent now lost that race nightly, and `backup-agents.sh` then skipped
+  the copy: one agent had no backup for three nights. When every file hermes
+  could not add is missing (ENOENT) and the archive exists, it is copied and
+  the log says so; any other failure still fails the run. Reinstall with
+  `install -m 755 /opt/brainkit/deploy/agents-box/backup-agents.sh
+  /usr/local/sbin/backup-agents.sh` — upgrades do not refresh it.
 - **`Shares.md` and `Pending-corrections.md` can't be faked.** Only brainkit
   writes these notes in `People/<id>/`. An agent's own copy is never saved
   back, for anyone's folder, and a copy already in master is never compiled
