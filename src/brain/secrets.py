@@ -70,8 +70,9 @@ _PLACEHOLDER_MARKS = ("<", ">", "${", "{{", "%s", "*", "...", "[", "]")
 _PLACEHOLDER_SHAPES = re.compile(
     r"your[\w.-]{0,40}|my[\w.-]{0,40}?(?:pass(?:word)?|pwd|secret|token|key)"
     r"|x{3,}|\*{3,}", re.IGNORECASE)
-# A port followed by a path (host:443/@scope/pkg) is not a password.
-_PORT_PATH = re.compile(r"\d{1,5}/")
+# A port followed by a path (registry.npmjs.org:443/@scope/pkg) is not a
+# password — but only when the "user" is really a host.
+_PORT_PATH = re.compile(r"\d{1,5}/[^@]*")
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -93,16 +94,29 @@ def _is_placeholder(user: str, password: str, host: str) -> bool:
         return True
     if password.lower() in _PLACEHOLDER_WORDS or password == user:
         return True
-    if _PLACEHOLDER_SHAPES.fullmatch(password) or _PORT_PATH.match(password):
+    if _PLACEHOLDER_SHAPES.fullmatch(password):
+        return True
+    if (("." in user or user.lower() == "localhost")
+            and _PORT_PATH.fullmatch(password)):
         return True
     name = _host_name(host)
     return name in _LOCAL_HOSTS or "example" in name
 
 
 def _url_matches(text: str):
-    for m in _URL_CREDS.finditer(text):
-        if not _is_placeholder(*m.groups()):
+    """Credentialed URLs that are not placeholders. A skipped match resumes
+    just after its "//", not after the whole match: a real credential can
+    sit inside the span a skipped one covered (a proxy URL whose "password"
+    is a port and a query string holding another URL). Each resume is past
+    a scheme the previous search consumed, and every run in the pattern is
+    bounded, so the scan stays linear."""
+    pos = 0
+    while (m := _URL_CREDS.search(text, pos)) is not None:
+        if _is_placeholder(*m.groups()):
+            pos = m.start(1)
+        else:
             yield m
+            pos = m.end()
 
 
 def scan_text(text: str) -> list[Hit]:

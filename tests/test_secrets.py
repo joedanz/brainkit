@@ -13,6 +13,7 @@ from brain.secrets import Hit, scan_text, scanner_version
 
 A = "a" * 36
 UPPER16 = "ABCDEFGHIJKLMNOP"
+NESTED = "postgres://" + "svc:" + "Tr0ub4dor-x9" + "@db.internal/app"
 
 CAUGHT = {
     "private key": "-----BEGIN " + "RSA PRIVATE" + " KEY-----",
@@ -40,6 +41,14 @@ CAUGHT = {
     "private key (pgp)": "-----BEGIN " + "PGP PRIVATE" + " KEY BLOCK-----",
     "AWS access key id (after underscore)": "AWS_KEY_" + "AK" + "IA" + UPPER16,
     "password in a URL (starts with my)": "postgres://" + "app:" + "myS3cret-9x" + "@db.internal/app",
+    # Digits then "/" is only a port when the "user" looks like a host.
+    "password in a URL (digits and slash)": "postgres://" + "svc:" + "12/ab+Cd9" + "@db",
+    "password in a URL (port-like, plain user)": "https://" + "user:" + "443/Secr3tPw" + "@db",
+    # A real credential nested inside a span that was skipped as a placeholder.
+    "password in a URL (nested after a port)": "https://proxy.acme.io:8080/r?to=" + NESTED,
+    "password in a URL (nested after example)":
+        "https://" + "bob:hunter2x" + "@api.example.com/?next=" + NESTED,
+    "password in a URL (nested in a placeholder password)": "https://" + "app:${X}" + NESTED,
 }
 
 KIND = {
@@ -148,7 +157,11 @@ def test_scanner_version_is_stable_and_short():
     "a://:b" * 50_000,
     "x://" + "u:p/" * 60_000,
     "x://:" + "p" * 300 + "@" + "h" * 200_000,
-])
+    # many nested schemes, each match skipped and scanning resumed inside it
+    "https://h.io:80/" * 40_000 + "@x",
+    "x://u:p@example.com/" * 40_000,
+    "a://h.io:1/" * 40_000 + "@x " + "b://localhost:9/" * 40_000 + "@y",
+], ids=lambda t: f"{t[:12]!r}x{len(t)}")
 def test_pathological_text_scans_in_linear_time(text):
     """An unbounded URL scheme once made "a.a.a…" quadratic: 45 s for 400 KB."""
     import time
