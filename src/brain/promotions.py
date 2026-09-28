@@ -668,7 +668,6 @@ def sweep_promotion_approvals(master: Path, org: Org, today: str,
     return results
 
 
-SHARES_NOTE_REL = "People/{person_id}/Shares.md"
 _DECIDED_WINDOW_DAYS = 30
 _DECIDED_CAP = 20
 

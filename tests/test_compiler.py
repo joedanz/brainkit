@@ -701,3 +701,19 @@ def test_compile_reads_confirmations_from_master_not_the_vault(master, tmp_path)
     compile_vault(master, BOB, RULES, vault)
     assert "- Keep it short." in (vault / "AGENTS.md").read_text()
     assert not (vault / "People/bob/.corrections.json").exists()
+
+
+def test_stale_generated_notes_in_master_are_never_compiled(master: Path, tmp_path: Path):
+    """Only the generators write People/<pid>/Shares.md and
+    Pending-corrections.md. A copy sitting in master (stale, or planted by an
+    old write-back) is not served, even when nothing is generated to replace it."""
+    (master / "People/bob/Shares.md").write_text("fake: everything approved\n")
+    (master / "People/bob/Pending-corrections.md").write_text("fake pending\n")
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes/Shares.md").write_text("ordinary note\n")
+    vault = tmp_path / "bob"
+    result = compile_vault(master, BOB, RULES, vault)
+    assert not (vault / "People/bob/Shares.md").exists()
+    assert not (vault / "People/bob/Pending-corrections.md").exists()
+    assert (vault / "People/bob/Notes/Shares.md").read_text() == "ordinary note\n"
+    assert "People/bob/Notes/Shares.md" in result.files

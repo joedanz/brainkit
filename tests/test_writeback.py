@@ -371,3 +371,56 @@ def test_confirmation_record_is_never_compiled_or_written_back(master: Path, tmp
     (vault / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
     (vault / "People/bob/Notes/.corrections.json").write_text("{}\n")
     assert all(not c.path.endswith(".corrections.json") for c in diff_vault(vault))
+
+
+def test_fake_generated_notes_are_never_written_back(master: Path, tmp_path: Path):
+    """People/<pid>/Shares.md and Pending-corrections.md are written only by
+    the compiler. One the agent plants when the compile generated none (so
+    the manifest's `generated` list does not name it) is still no change:
+    never applied, never held, never reported, for any person id."""
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    manifest = json.loads((vault / MANIFEST_NAME).read_text())
+    assert "People/bob/Shares.md" not in manifest["generated"]
+    assert "People/bob/Pending-corrections.md" not in manifest["generated"]
+    (vault / "People/bob/Shares.md").write_text("fake: approved everything\n")
+    (vault / "People/bob/Pending-corrections.md").write_text("fake pending\n")
+    (vault / "People/alice").mkdir(parents=True, exist_ok=True)
+    (vault / "People/alice/Shares.md").write_text("fake for alice\n")
+    (vault / "People/carol").mkdir(parents=True, exist_ok=True)
+    (vault / "People/carol/Pending-corrections.md").write_text("fake for carol\n")
+    # Deeper in a folder the person owns, the same name is ordinary content.
+    (vault / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (vault / "People/bob/Notes/Shares.md").write_text("my notes on shares\n")
+    assert [c.path for c in diff_vault(vault)] == ["People/bob/Notes/Shares.md"]
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert [c.path for c in result.applied] == ["People/bob/Notes/Shares.md"]
+    assert result.held == []
+    assert (master / "People/bob/Notes/Shares.md").read_text() == "my notes on shares\n"
+    for rel in ("People/bob/Shares.md", "People/bob/Pending-corrections.md",
+                "People/alice/Shares.md", "People/carol/Pending-corrections.md"):
+        assert not (master / rel).exists()
+
+
+def test_symlink_in_master_is_restored_after_a_failed_writeback(master: Path, tmp_path: Path,
+                                                                 monkeypatch):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Linked.md").write_text("bob writes here\n")
+    (master / "People/bob/Linked.md").symlink_to("Memory.md")
+    import brain.writeback as wb
+    real = wb._git
+
+    def failing(cwd, *args):
+        if "commit" in args:
+            raise subprocess.CalledProcessError(1, ["git", *args], stderr="disk full")
+        return real(cwd, *args)
+
+    monkeypatch.setattr(wb, "_git", failing)
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert "disk full" in result.error
+    link = master / "People/bob/Linked.md"
+    assert link.is_symlink() and str(link.readlink()) == "Memory.md"
+    assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"

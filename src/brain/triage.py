@@ -75,9 +75,10 @@ TRIAGE_CHECKS = frozenset({
 # look-alike is not redundancy — so an agent's digest never asks for it.
 # Held edits too: only an admin can apply or discard them, and the person
 # already has their own Inbox notice. A broken corrections record too: only
-# an admin can repair master bookkeeping.
+# an admin can repair master bookkeeping. A master copy of a generated
+# person note too: it is dead weight only an admin should delete.
 ADMIN_CHECKS = frozenset({"protocol-size", "protocol-stale", "protocol-blocked", "dup-near",
-                          "held-edits", "corrections-record"})
+                          "held-edits", "corrections-record", "generated-copy"})
 
 # Routed like a content check (to the path's owner) AND always to the admins:
 # a waiting correction is the person's to confirm, and an admin can confirm

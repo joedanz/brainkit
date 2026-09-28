@@ -500,6 +500,18 @@ def test_held_show_deleted_and_non_utf8(master: Path, tmp_path: Path, capsys):
     assert "caf�" in text
 
 
+def test_held_show_works_after_the_person_left_the_org(master: Path, tmp_path: Path, capsys):
+    """doctor points an admin here for a hold whose person was removed from
+    org.yaml; the record and vault are read by id, never through the org."""
+    out_root = _held_setup(master, tmp_path)
+    (master / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice Nguyen, roles: [admin], teams: [sales]}\n")
+    capsys.readouterr()
+    assert main(["held", "show", "bob", "--master", str(master), "--out", str(out_root)]) == 0
+    text = capsys.readouterr().out
+    assert "modify Company/Home.md" in text and "defaced" in text
+
+
 def test_held_show_corrupt_record(master: Path, tmp_path: Path, capsys):
     seed_meta(master)
     (master / "People/bob/.held.json").write_text("{not json")
