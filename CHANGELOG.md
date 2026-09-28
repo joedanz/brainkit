@@ -11,6 +11,26 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Shares.md` and `Pending-corrections.md` can't be faked.** Only brainkit
+  writes these notes in `People/<id>/`. An agent's own copy is never saved
+  back, for anyone's folder, and a copy already in master is never compiled
+  into anyone's vault. `brain doctor` lists any such master copy so an admin
+  can delete it. Names match in any letter case (`shares.md` too); the same
+  name deeper in a folder is an ordinary note.
+- **Held edits for someone removed from `org.yaml` are still reported.** Admins
+  now see them in doctor; `brain held show <id>` reads them, and deleting
+  `People/<id>/.held.json` clears them.
+- **Write-back never writes through a link in master.** A file that is a link
+  is replaced by the saved note, and put back as the same link if the
+  write-back fails (it used to be deleted). A change inside a folder that is a
+  link is held, not applied, so nothing lands where the link points.
+- A failed compile names the person once (`failed bob: ...`, not
+  `failed bob: bob: ...`).
+- The dashboard's correction routes accept only `confirm` and `dismiss`;
+  anything else is "not found".
+
 ## [0.7.9] - 2026-09-25
 
 ### Changed

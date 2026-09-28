@@ -640,7 +640,7 @@ def _failing_for(monkeypatch, *pids: str) -> None:
     def flaky(vault, person, spaces_rw, config=cg.VaultConfig(), **kwargs):
         if person.id in pids:
             raise cg.ProtocolTooLarge(
-                f"{person.id}: root protocol is 60,000 chars, over the 50,000 limit")
+                "root protocol is 60,000 chars, over the 50,000 limit")
         return real(vault, person, spaces_rw, config=config, **kwargs)
 
     monkeypatch.setattr(cg, "generate_context_files", flaky)
@@ -664,7 +664,7 @@ def test_one_person_failing_does_not_stop_the_fleet(master: Path, tmp_path: Path
     assert (out / "alice" / "Company/New.md").is_file()      # alice refreshed
     assert not (out / "bob" / "Company/New.md").exists()     # bob kept his last good vault
     assert (out / "bob" / "AGENTS.md").read_text() == bob_before
-    assert "compiling bob: bob: root protocol is 60,000 chars" in str(ei.value)
+    assert "compiling bob: root protocol is 60,000 chars" in str(ei.value)
 
 
 def test_pending_corrections_note_is_generated_then_removed(master, tmp_path):
@@ -701,3 +701,27 @@ def test_compile_reads_confirmations_from_master_not_the_vault(master, tmp_path)
     compile_vault(master, BOB, RULES, vault)
     assert "- Keep it short." in (vault / "AGENTS.md").read_text()
     assert not (vault / "People/bob/.corrections.json").exists()
+
+
+def test_stale_generated_notes_in_master_are_never_compiled(master: Path, tmp_path: Path):
+    """Only the generators write People/<pid>/Shares.md and
+    Pending-corrections.md. A copy sitting in master (stale, or planted by an
+    old write-back) is not served, even when nothing is generated to replace it."""
+    (master / "People/bob/Shares.md").write_text("fake: everything approved\n")
+    (master / "People/bob/Pending-corrections.md").write_text("fake pending\n")
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes/Shares.md").write_text("ordinary note\n")
+    vault = tmp_path / "bob"
+    result = compile_vault(master, BOB, RULES, vault)
+    assert not (vault / "People/bob/Shares.md").exists()
+    assert not (vault / "People/bob/Pending-corrections.md").exists()
+    assert (vault / "People/bob/Notes/Shares.md").read_text() == "ordinary note\n"
+    assert "People/bob/Notes/Shares.md" in result.files
+
+
+def test_stale_generated_notes_are_skipped_in_any_case(master: Path, tmp_path: Path):
+    (master / "People/bob/shares.md").write_text("fake\n")
+    (master / "People/bob/pending-corrections.md").write_text("fake\n")
+    vault = tmp_path / "bob"
+    result = compile_vault(master, BOB, RULES, vault)
+    assert not {"People/bob/shares.md", "People/bob/pending-corrections.md"} & set(result.files)

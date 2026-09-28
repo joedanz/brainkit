@@ -46,7 +46,6 @@ GRANDFATHERED = "grandfathered"
 # never compiled into a vault, so no agent can create or delete it. Once it
 # exists, a missing record means "nothing confirmed", never "grandfather".
 GRANDFATHERED_MARKER_REL = "_meta/corrections-grandfathered"
-PENDING_NOTE_REL = "People/{person_id}/Pending-corrections.md"
 
 _HEADING = "## Standing corrections\n\n"
 _WEB_ADDRESS = re.compile(r"https?://|www\.")

@@ -447,10 +447,8 @@ async def _correction_action(request: web.Request, master: Path, pid: str, by: s
             if not isinstance(seen, str) or not seen.strip():
                 raise web.HTTPBadRequest(reason="the rule you were shown is required (sha256)")
             confirm(master, pid, slug, by, expected_sha256=seen.strip())
-        elif action == "dismiss":
+        else:  # the route pattern admits only confirm and dismiss
             dismiss(master, pid, slug, by)
-        else:
-            raise web.HTTPNotFound(reason=f"unknown action {action!r}")
 
     try:
         await asyncio.to_thread(_do)
@@ -934,12 +932,16 @@ def create_app(lens: Lens, *, poll_interval: float = 2.0,
     # Correction routes exist only where they are allowed: the vault lens,
     # and only with --corrections-master. The person comes from startup,
     # never from the request.
+    # Only confirm and dismiss are routes: any other action is 404 before the
+    # body, the person or the approver is read.
+    action = "{action:(?:confirm|dismiss)}"
     if app["corrections"] is not None:
         app.router.add_get("/api/corrections", handle_corrections)
-        app.router.add_post("/api/corrections/{slug}/{action}", handle_own_correction_action)
+        app.router.add_post(f"/api/corrections/{{slug}}/{action}",
+                            handle_own_correction_action)
     elif lens.kind == "master":
         app.router.add_get("/api/corrections", handle_corrections)
-        app.router.add_post("/api/corrections/{person}/{slug}/{action}",
+        app.router.add_post(f"/api/corrections/{{person}}/{{slug}}/{action}",
                             handle_admin_correction_action)
     app.router.add_get("/ws", handle_ws)
     if assets_dir().is_dir():

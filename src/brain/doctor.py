@@ -21,7 +21,13 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from brain.compiler import MANIFEST_NAME, _stem, extract_wikilinks
+from brain.compiler import (
+    HELD_NAME,
+    MANIFEST_NAME,
+    _stem,
+    extract_wikilinks,
+    is_generated_person_note,
+)
 from brain.corrections import CORRECTIONS_DIR, CORRECTIONS_LIMIT
 from brain.facts import parse_facts
 from brain.frontmatter import split_frontmatter
@@ -912,7 +918,8 @@ def _check_protocol_size(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         if r.too_large is not None:
             findings.append(Finding(
                 "error", "protocol-size",
-                f"{r.too_large} — this person's compile fails until it shrinks"))
+                f"{r.person.id}: {r.too_large} — this person's compile fails "
+                "until it shrinks"))
             continue
         n = len(r.render.text)
         pct = n * 100 // contextgen.ROOT_LIMIT
@@ -1357,13 +1364,18 @@ def _check_corrections(master: Path) -> list[Finding]:
 
 
 def _check_held_edits(master: Path, org: Org) -> list[Finding]:
-    """One warning per person with an open hold: edits their sync carried
-    that write-back could not apply. Admin digest only (triage.ADMIN_CHECKS);
-    the person already has their own Inbox notice."""
+    """One warning per open hold: edits a sync carried that write-back could
+    not apply. Admin digest only (triage.ADMIN_CHECKS); the person already
+    has their own Inbox notice. Every People/*/.held.json in master is read,
+    not only org members': a hold outlives its person's removal from
+    org.yaml, and nobody else would ever hear about it."""
     from brain.holds import HoldError, load_hold
 
     findings: list[Finding] = []
-    for pid in sorted(org.people):
+    pids = sorted(set(org.people) | {
+        f.parent.name for f in master.glob(f"People/*/{HELD_NAME}")
+        if not f.is_symlink()})
+    for pid in pids:
         try:
             rec = load_hold(master, pid)
         except HoldError as e:
@@ -1372,10 +1384,35 @@ def _check_held_edits(master: Path, org: Org) -> list[Finding]:
         if rec is None:
             continue
         paths = [p.get("path", "?") for p in rec["paths"] if isinstance(p, dict)]
-        findings.append(Finding(
-            "warn", "held-edits",
-            f"{pid}: {len(paths)} edit(s) held since {rec.get('at', '?')} "
-            f"({', '.join(paths)}) — `brain held show {pid}` shows them"))
+        held = (f"{len(paths)} edit(s) held since {rec.get('at', '?')} "
+                f"({', '.join(paths)})")
+        prefix = f"{pid}: "
+        if pid in org.people:
+            msg = f"{prefix}{held} — `brain held show {pid}` shows them"
+        else:
+            msg = (f"{prefix}held edits for someone no longer in the org: {held}. "
+                   f"Read them with `brain held show {pid}`, then delete "
+                   f"People/{pid}/{HELD_NAME}")
+        findings.append(Finding("warn", "held-edits", msg))
+    return findings
+
+
+def _check_generated_copies(master: Path) -> list[Finding]:
+    """A People/<pid>/Shares.md or Pending-corrections.md in master. Only the
+    compiler writes these, into each vault; compile never copies a master
+    one, so it is stale or planted and serves nobody. Admin digest only."""
+    findings: list[Finding] = []
+    # Deliberately counts a symlinked copy as a hit here, unlike the held-edits
+    # glob above (`_check_held_edits`), which skips symlinks: a symlinked
+    # generated-note copy is still a stale/planted file serving nobody.
+    for f in sorted(master.glob("People/*/*")):
+        rel = f.relative_to(master).as_posix()
+        if is_generated_person_note(rel) and (f.is_file() or f.is_symlink()):
+            findings.append(Finding(
+                "warn", "generated-copy",
+                f"{rel} is a copy of a generated note; the real one is rebuilt "
+                "in each vault on every compile, so this one is never used. "
+                "Safe to delete.", (rel,)))
     return findings
 
 
@@ -1914,6 +1951,7 @@ def run_doctor(
     findings += _check_fact_conflicts(master, shared)
     findings += _check_corrections(master)
     findings += _check_held_edits(master, org)
+    findings += _check_generated_copies(master)
     findings += _check_symlinks(master)
     findings += _check_promotions(master, shared)
     findings += _check_created_clients(master, config)

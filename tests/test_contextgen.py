@@ -180,7 +180,7 @@ def test_protocol_stays_bounded_at_a_thousand_spaces():
     assert len(text) < ROOT_LIMIT * 0.6
 
 
-def test_an_oversized_protocol_raises_a_handled_error_naming_the_person(monkeypatch):
+def test_an_oversized_protocol_raises_a_handled_error(monkeypatch):
     import brain.contextgen as cg
     from brain.errors import HANDLED
 
@@ -189,7 +189,9 @@ def test_an_oversized_protocol_raises_a_handled_error_naming_the_person(monkeypa
         render_root_protocol(BOB, [("Company", False), ("People/bob", True)])
     except ProtocolTooLarge as e:
         assert isinstance(e, HANDLED)
-        assert str(e).startswith("bob: root protocol is ")
+        # The caller names the person (compile, doctor); the error does not,
+        # so no report says the id twice.
+        assert str(e).startswith("root protocol is ")
         assert str(e).endswith(" chars, over the 1,000 limit")
     else:
         raise AssertionError("expected ProtocolTooLarge")

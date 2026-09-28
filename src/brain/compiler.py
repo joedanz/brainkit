@@ -58,6 +58,31 @@ CONFIRMED_NAME = ".corrections.json"
 # Filenames that are server-side bookkeeping and never shipped to a vault.
 SERVER_ONLY_NAMES = frozenset({HELD_NAME, CONFIRMED_NAME})
 
+# Notes only the compiler writes, one per person: the promotion/share status
+# note and the corrections waiting for confirmation. Reserved for EVERY person
+# id, whether or not this compile generated one: write-back never applies,
+# holds or reports them, and compile never copies them from master, so a fake
+# an agent plants (or a stale one already in master) is never served as real.
+# Only the exact person-level path is reserved; the same filename deeper in a
+# folder is ordinary content. Matched case-insensitively: on a case-insensitive
+# disk `shares.md` IS `Shares.md`.
+SHARES_NOTE_REL = "People/{person_id}/Shares.md"
+PENDING_NOTE_REL = "People/{person_id}/Pending-corrections.md"
+
+# Single source of truth for the reserved generated-note paths: adding a
+# third one means adding it to this tuple, nothing else.
+_GENERATED_PERSON_NOTE_RELS = (SHARES_NOTE_REL, PENDING_NOTE_REL)
+_GENERATED_PERSON_NOTE_NAMES = frozenset(
+    PurePosixPath(rel).name.casefold() for rel in _GENERATED_PERSON_NOTE_RELS)
+
+
+def is_generated_person_note(rel: str) -> bool:
+    """True for People/<any id>/Shares.md or People/<any id>/Pending-corrections.md,
+    in any letter case."""
+    parts = PurePosixPath(rel).parts
+    return (len(parts) == 3 and parts[0].casefold() == "people"
+            and parts[2].casefold() in _GENERATED_PERSON_NOTE_NAMES)
+
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
 )
@@ -142,7 +167,12 @@ def _iter_space_files(master: Path, space: str):
             p = Path(dirpath) / name
             if p.is_symlink():
                 continue
-            rels.append(str(p.relative_to(master)))
+            rel = str(p.relative_to(master))
+            # Only the generators write these; a master copy is stale or
+            # planted, and doctor reports it for an admin to delete.
+            if is_generated_person_note(rel):
+                continue
+            rels.append(rel)
     yield from sorted(rels)
 
 
@@ -298,11 +328,7 @@ def _post_process(
         generate_map(building, person, spaces_rw, compiled, config))
     generated.append(MAP_NAME)
 
-    from brain.promotions import (
-        SHARES_NOTE_REL,
-        generate_promotion_decider_section,
-        generate_shares_note,
-    )
+    from brain.promotions import generate_promotion_decider_section, generate_shares_note
     from brain.shares import generate_decider_section, generate_space_shares_section
 
     # People/<pid>/Shares.md is assembled from four independent generators, each
@@ -330,7 +356,7 @@ def _post_process(
     _write_generated_note(building, SHARES_NOTE_REL.format(person_id=person.id),
                           note, generated)
 
-    from brain.corrections import PENDING_NOTE_REL, load_corrections, render_pending_note
+    from brain.corrections import load_corrections, render_pending_note
 
     # People/<pid>/Pending-corrections.md: a reserved generated filename, like
     # Shares.md -- rebuilt from master each compile, absent when nothing waits.

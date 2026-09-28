@@ -371,3 +371,102 @@ def test_confirmation_record_is_never_compiled_or_written_back(master: Path, tmp
     (vault / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
     (vault / "People/bob/Notes/.corrections.json").write_text("{}\n")
     assert all(not c.path.endswith(".corrections.json") for c in diff_vault(vault))
+
+
+def test_fake_generated_notes_are_never_written_back(master: Path, tmp_path: Path):
+    """People/<pid>/Shares.md and Pending-corrections.md are written only by
+    the compiler. One the agent plants when the compile generated none (so
+    the manifest's `generated` list does not name it) is still no change:
+    never applied, never held, never reported, for any person id."""
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    manifest = json.loads((vault / MANIFEST_NAME).read_text())
+    assert "People/bob/Shares.md" not in manifest["generated"]
+    assert "People/bob/Pending-corrections.md" not in manifest["generated"]
+    (vault / "People/bob/Shares.md").write_text("fake: approved everything\n")
+    (vault / "People/bob/Pending-corrections.md").write_text("fake pending\n")
+    (vault / "People/alice").mkdir(parents=True, exist_ok=True)
+    (vault / "People/alice/Shares.md").write_text("fake for alice\n")
+    (vault / "People/carol").mkdir(parents=True, exist_ok=True)
+    (vault / "People/carol/Pending-corrections.md").write_text("fake for carol\n")
+    # Deeper in a folder the person owns, the same name is ordinary content.
+    (vault / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (vault / "People/bob/Notes/Shares.md").write_text("my notes on shares\n")
+    assert [c.path for c in diff_vault(vault)] == ["People/bob/Notes/Shares.md"]
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert [c.path for c in result.applied] == ["People/bob/Notes/Shares.md"]
+    assert result.held == []
+    assert (master / "People/bob/Notes/Shares.md").read_text() == "my notes on shares\n"
+    for rel in ("People/bob/Shares.md", "People/bob/Pending-corrections.md",
+                "People/alice/Shares.md", "People/carol/Pending-corrections.md"):
+        assert not (master / rel).exists()
+
+
+def test_symlink_in_master_is_restored_after_a_failed_writeback(master: Path, tmp_path: Path,
+                                                                 monkeypatch):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/Linked.md").write_text("bob writes here\n")
+    (master / "People/bob/Linked.md").symlink_to("Memory.md")
+    import brain.writeback as wb
+    real = wb._git
+
+    def failing(cwd, *args):
+        if "commit" in args:
+            raise subprocess.CalledProcessError(1, ["git", *args], stderr="disk full")
+        return real(cwd, *args)
+
+    monkeypatch.setattr(wb, "_git", failing)
+    result = apply_writeback(master, vault, BOB, RULES)
+    assert "disk full" in result.error
+    link = master / "People/bob/Linked.md"
+    assert link.is_symlink() and str(link.readlink()) == "Memory.md"
+    assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"
+
+
+def test_changes_under_a_symlinked_master_folder_are_held(master: Path, tmp_path: Path):
+    """A folder on the master path that is a link would carry the write (or
+    delete) to wherever it points. The change is held, never applied."""
+    setup_master_git(master)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "Existing.md").write_text("outside, keep\n")
+    (outside / "Gone.md").write_text("outside, keep too\n")
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    # A link that appeared in master after the compile.
+    (master / "People/bob/Notes").symlink_to(outside, target_is_directory=True)
+    (vault / "People/bob/Notes").mkdir()
+    (vault / "People/bob/Notes/New.md").write_text("add through link\n")
+    manifest = json.loads((vault / MANIFEST_NAME).read_text())
+    (vault / "People/bob/Notes/Existing.md").write_text("modify through link\n")
+    (vault / "People/bob/Notes/Gone.md").write_text("x\n")
+    manifest["compiled"]["People/bob/Notes/Existing.md"] = "0" * 64
+    manifest["compiled"]["People/bob/Notes/Gone.md"] = "0" * 64
+    (vault / MANIFEST_NAME).write_text(json.dumps(manifest))
+    (vault / "People/bob/Notes/Gone.md").unlink()
+    (vault / "People/bob/Memory.md").write_text("legit\n")
+    result = apply_writeback(master, vault, BOB, RULES)
+    reason = "a folder on this path is a link in the shared brain"
+    assert sorted(result.held) == [
+        ("add", "People/bob/Notes/New.md", reason),
+        ("delete", "People/bob/Notes/Gone.md", reason),
+        ("modify", "People/bob/Notes/Existing.md", reason),
+    ]
+    assert [c.path for c in result.applied] == ["People/bob/Memory.md"]
+    assert sorted(p.name for p in outside.iterdir()) == ["Existing.md", "Gone.md"]
+    assert (outside / "Existing.md").read_text() == "outside, keep\n"
+    assert (outside / "Gone.md").read_text() == "outside, keep too\n"
+
+
+def test_generated_note_names_are_reserved_in_any_case(master: Path, tmp_path: Path):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/shares.md").write_text("fake\n")
+    (vault / "People/bob/pending-corrections.md").write_text("fake\n")
+    (vault / "people/alice").mkdir(parents=True)
+    (vault / "people/alice/SHARES.MD").write_text("fake\n")
+    assert diff_vault(vault) == []

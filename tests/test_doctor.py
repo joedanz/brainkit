@@ -1945,6 +1945,7 @@ def test_protocol_size_warns_then_errors_as_a_protocol_nears_the_limit(master, m
     monkeypatch.setattr(cg, "ROOT_LIMIT", size - 1)
     [f] = _size_findings(master, "bob")
     assert f.severity == "error" and "compile fails until it shrinks" in f.message
+    assert f.message.startswith("bob: root protocol is ")  # the person, once
 
 
 def test_protocol_size_percent_always_matches_its_severity(master, monkeypatch):
@@ -2136,3 +2137,30 @@ def test_the_record_finding_says_fix_it_and_never_remove_it(master):
     msg = f.message.lower()
     assert "fix" in msg and "remov" not in msg and "delet" not in msg
     assert "missing record" in msg and "waiting" in msg
+
+
+def test_stale_generated_note_in_master_is_an_admin_finding(master):
+    seed_meta(master)
+    (master / "People/bob/Shares.md").write_text("fake\n")
+    (master / "People/alice/Pending-corrections.md").write_text("fake\n")
+    (master / "People/bob/Notes").mkdir(parents=True, exist_ok=True)
+    (master / "People/bob/Notes/Shares.md").write_text("ordinary\n")
+    found = [f for f in run_doctor(master, None) if f.check == "generated-copy"]
+    assert sorted(f.paths for f in found) == [
+        ("People/alice/Pending-corrections.md",), ("People/bob/Shares.md",)]
+    assert all(f.severity == "warn" and "delete" in f.message for f in found)
+    from brain.triage import ADMIN_CHECKS
+    assert "generated-copy" in ADMIN_CHECKS
+
+
+def test_hold_for_someone_no_longer_in_the_org_is_reported(master):
+    seed_meta(master)
+    (master / "People/carol").mkdir(parents=True, exist_ok=True)
+    (master / "People/carol/.held.json").write_text(
+        '{"sha": "abc", "paths": [{"kind": "modify", "path": "Company/Home.md",'
+        ' "reason": "outside write scope for carol"}], "at": "2026-09-25T00:00:00Z"}\n')
+    held = [f for f in run_doctor(master, None) if f.check == "held-edits"]
+    assert len(held) == 1 and held[0].severity == "warn"
+    msg = held[0].message
+    assert "carol" in msg and "no longer in the org" in msg
+    assert "brain held show carol" in msg and "People/carol/.held.json" in msg

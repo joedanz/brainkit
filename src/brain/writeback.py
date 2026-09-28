@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
-from brain.compiler import HELD_NAME, MANIFEST_NAME, SERVER_ONLY_NAMES
+from brain.compiler import HELD_NAME, MANIFEST_NAME, SERVER_ONLY_NAMES, is_generated_person_note
 from brain.errors import BrainError, describe
 from brain.resolver import can_write_path
 from brain.schemas import DEFAULT_SHARED, Person, SpaceRule
@@ -157,7 +157,11 @@ def diff_vault(vault: Path, manifest: dict | None = None) -> list[Change]:
         # them surface as out-of-scope changes.
         if rel.split("/", 1)[0].startswith("."):
             continue
-        if rel in generated or is_junk(f.name) or f.name in SERVER_ONLY_NAMES:
+        # Generated person notes are skipped by path, not only when this
+        # compile listed them: a Shares.md planted where none was generated
+        # is a forgery, never an edit.
+        if (rel in generated or is_junk(f.name) or f.name in SERVER_ONLY_NAMES
+                or is_generated_person_note(rel)):
             continue
         data = _read_nofollow(f)
         if data is None:
@@ -169,7 +173,7 @@ def diff_vault(vault: Path, manifest: dict | None = None) -> list[Change]:
         elif sha != baseline[rel]:
             changes.append(Change(rel, "modify", data, sha))
     for rel in sorted(set(baseline) - present):
-        if is_junk(PurePosixPath(rel).name):
+        if is_junk(PurePosixPath(rel).name) or is_generated_person_note(rel):
             continue
         changes.append(Change(rel, "delete"))
     return changes
@@ -205,22 +209,35 @@ def commit_paths(repo: Path, paths: list[str], *, name: str, email: str,
     return True
 
 
-def _snapshot(master: Path, rels: list[str]) -> dict[str, bytes | None]:
-    snap: dict[str, bytes | None] = {}
+class _Link(NamedTuple):
+    """A master path that was a symlink before write-back touched it."""
+    target: str
+
+
+def _snapshot(master: Path, rels: list[str]) -> dict[str, bytes | _Link | None]:
+    snap: dict[str, bytes | _Link | None] = {}
     for rel in rels:
         p = master / rel
-        snap[rel] = p.read_bytes() if p.is_file() and not p.is_symlink() else None
+        if p.is_symlink():
+            snap[rel] = _Link(os.readlink(p))
+        else:
+            snap[rel] = p.read_bytes() if p.is_file() else None
     return snap
 
 
-def _restore(master: Path, snap: dict[str, bytes | None]) -> None:
-    """Best effort: put every touched master path back as it was and unstage
-    it. Never raises — it runs while reporting a failure already."""
+def _restore(master: Path, snap: dict[str, bytes | _Link | None]) -> None:
+    """Best effort: put every touched master path back as it was (a symlink
+    comes back as the same symlink) and unstage it. Never raises — it runs
+    while reporting a failure already."""
     for rel, data in snap.items():
         p = master / rel
         try:
             if data is None:
                 p.unlink(missing_ok=True)
+            elif isinstance(data, _Link):
+                p.unlink(missing_ok=True)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.symlink_to(data.target)
             else:
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_bytes(data)
@@ -231,6 +248,20 @@ def _restore(master: Path, snap: dict[str, bytes | None]) -> None:
 
 
 _UNSEEN = object()
+
+LINKED_FOLDER_REASON = "a folder on this path is a link in the shared brain"
+
+
+def _linked_folder(master: Path, rel: str) -> bool:
+    """True when a folder between the master root and `rel` is a symlink. A
+    write or delete there would land wherever the link points, a path nobody
+    checked, so such a change is held instead of applied."""
+    p = master
+    for part in PurePosixPath(rel).parts[:-1]:
+        p = p / part
+        if p.is_symlink():
+            return True
+    return False
 
 
 def apply_writeback(
@@ -253,10 +284,12 @@ def apply_writeback(
         # written; a non-delete change without them is dropped.
         if c.kind != "delete" and c.data is None:
             continue
-        if can_write_path(c.path, person, rules, shared=shared):
-            to_apply.append(c)
-        else:
+        if not can_write_path(c.path, person, rules, shared=shared):
             held.append(Held(c.kind, c.path, f"outside write scope for {person.id}"))
+        elif _linked_folder(master, c.path):
+            held.append(Held(c.kind, c.path, LINKED_FOLDER_REASON))
+        else:
+            to_apply.append(c)
     if not to_apply:
         return WritebackResult(held=held)
 
@@ -278,6 +311,14 @@ def apply_writeback(
                 target.unlink(missing_ok=True)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
+                # Never write THROUGH a master symlink: that would change
+                # its target, a path nobody checked. The link itself is
+                # replaced (and restored from the snapshot on failure).
+                # This re-checks the target itself, deliberately separate from
+                # the `_linked_folder` check above: state can change between
+                # the held/to_apply decision and this write.
+                if target.is_symlink():
+                    target.unlink()
                 target.write_bytes(c.data)
             applied.append(c)
         if dismiss:
