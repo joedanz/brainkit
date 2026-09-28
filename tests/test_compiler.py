@@ -640,7 +640,7 @@ def _failing_for(monkeypatch, *pids: str) -> None:
     def flaky(vault, person, spaces_rw, config=cg.VaultConfig(), **kwargs):
         if person.id in pids:
             raise cg.ProtocolTooLarge(
-                f"{person.id}: root protocol is 60,000 chars, over the 50,000 limit")
+                "root protocol is 60,000 chars, over the 50,000 limit")
         return real(vault, person, spaces_rw, config=config, **kwargs)
 
     monkeypatch.setattr(cg, "generate_context_files", flaky)
@@ -664,7 +664,7 @@ def test_one_person_failing_does_not_stop_the_fleet(master: Path, tmp_path: Path
     assert (out / "alice" / "Company/New.md").is_file()      # alice refreshed
     assert not (out / "bob" / "Company/New.md").exists()     # bob kept his last good vault
     assert (out / "bob" / "AGENTS.md").read_text() == bob_before
-    assert "compiling bob: bob: root protocol is 60,000 chars" in str(ei.value)
+    assert "compiling bob: root protocol is 60,000 chars" in str(ei.value)
 
 
 def test_pending_corrections_note_is_generated_then_removed(master, tmp_path):

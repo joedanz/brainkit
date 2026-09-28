@@ -1014,7 +1014,7 @@ def test_cycle_survives_a_failed_compile_and_still_triages(master, tmp_path, mon
     report = run_cycle(master, out, today="2026-09-22")
 
     assert report.compile_failures == [
-        "bob: bob: root protocol is 60,000 chars, over the 50,000 limit"]
+        "bob: root protocol is 60,000 chars, over the 50,000 limit"]
     assert report.compiled == 1
     assert report.ok is False
     assert report.doctor_counts  # triage ran: before 0.7.0 the cycle raised first
@@ -1073,7 +1073,7 @@ def test_cli_compile_names_the_failed_person_and_exits_1(master, tmp_path, monke
     assert main(["compile", "--master", str(master), "--out", str(out)]) == 1
     captured = capsys.readouterr()
     assert "compiled alice:" in captured.out
-    assert "failed bob: bob: root protocol is 60,000 chars" in captured.err
+    assert "failed bob: root protocol is 60,000 chars" in captured.err
 
 
 def test_cli_single_person_compile_reports_an_oversized_protocol_cleanly(
@@ -1086,7 +1086,7 @@ def test_cli_single_person_compile_reports_an_oversized_protocol_cleanly(
                  "--person", "bob"])
     err = capsys.readouterr().err
     assert code == 1
-    assert err.startswith("failed bob: bob: root protocol is ")
+    assert err.startswith("failed bob: root protocol is ")
     assert "Traceback" not in err
 
 
@@ -1097,7 +1097,7 @@ def test_cli_cycle_prints_compile_failures(master, tmp_path, monkeypatch, capsys
     _failing_for(monkeypatch, "bob")
 
     assert main(["cycle", "--master", str(master), "--out", str(out)]) == 1
-    assert "compile failed: bob: bob: root protocol is 60,000 chars" in capsys.readouterr().err
+    assert "compile failed: bob: root protocol is 60,000 chars" in capsys.readouterr().err
 
 
 @requires_vectors

@@ -918,7 +918,8 @@ def _check_protocol_size(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         if r.too_large is not None:
             findings.append(Finding(
                 "error", "protocol-size",
-                f"{r.too_large} — this person's compile fails until it shrinks"))
+                f"{r.person.id}: {r.too_large} — this person's compile fails "
+                "until it shrinks"))
             continue
         n = len(r.render.text)
         pct = n * 100 // contextgen.ROOT_LIMIT

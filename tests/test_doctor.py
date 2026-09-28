@@ -1945,6 +1945,7 @@ def test_protocol_size_warns_then_errors_as_a_protocol_nears_the_limit(master, m
     monkeypatch.setattr(cg, "ROOT_LIMIT", size - 1)
     [f] = _size_findings(master, "bob")
     assert f.severity == "error" and "compile fails until it shrinks" in f.message
+    assert f.message.startswith("bob: root protocol is ")  # the person, once
 
 
 def test_protocol_size_percent_always_matches_its_severity(master, monkeypatch):

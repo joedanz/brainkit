@@ -38,7 +38,9 @@ class ProtocolTooLarge(BrainError, ValueError):
 
     A BrainError, so it is HANDLED: compile_all reports it against the one
     person whose file it is and keeps compiling everyone else. The bare
-    ValueError this replaces escaped the fleet compile and the cycle.
+    ValueError this replaces escaped the fleet compile and the cycle. The
+    message never names the person: every caller already does, and a report
+    that said "bob: bob: ..." read like two failures.
     """
 
 
@@ -435,7 +437,7 @@ def render_root_protocol(
     )
     if len(text) > ROOT_LIMIT:
         raise ProtocolTooLarge(
-            f"{person.id}: root protocol is {len(text):,} chars, over the "
+            f"root protocol is {len(text):,} chars, over the "
             f"{ROOT_LIMIT:,} limit")
     return text
 

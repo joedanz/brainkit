@@ -533,7 +533,9 @@ def test_compile_single_person_goes_through_failure_isolation(master: Path, tmp_
     capsys.readouterr()
     assert main(["compile", "--master", str(master), "--out", str(out_root),
                  "--person", "bob"]) == 1
-    assert "failed bob:" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "failed bob: root protocol is " in err
+    assert "bob: bob:" not in err
 
 
 def test_corrections_list_confirm_dismiss(master: Path, capsys):
