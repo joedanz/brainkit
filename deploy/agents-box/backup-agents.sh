@@ -39,10 +39,28 @@ if [ -z "$containers" ]; then
     exit 1
 fi
 
+# True when hermes' only complaint is files that vanished between its scan and
+# its archive ("Archive kept, but N file(s) could not be added", every one
+# ENOENT). Hermes cron rotates its own output files, and a busy agent (one
+# sweeping mail every minute) now loses that race every night: agent-ayal went
+# 2026-09-26..28 with its archive built and never copied out. Anything else —
+# a permission error, a failure with no such list — still fails the run.
+only_vanished() {
+    lines=$(printf '%s\n' "$1" | sed -n '/could not be added:/,$p' | sed '1d;/^[[:space:]]*$/d')
+    [ -n "$lines" ] && ! printf '%s\n' "$lines" | grep -qv 'No such file or directory'
+}
+
 failed=""
 for c in $containers; do
-    if docker exec "$c" hermes "$@" \
-            && docker cp "$c:$TMP_ZIP" "$DEST/$c-$STAMP.zip"; then
+    ok=""
+    if out=$(docker exec "$c" hermes "$@" 2>&1); then
+        ok=1
+    elif only_vanished "$out" && docker exec "$c" test -s "$TMP_ZIP"; then
+        ok=1
+        echo "backup-agents: $c: files vanished during the backup; keeping the archive without them"
+    fi
+    printf '%s\n' "$out"
+    if [ -n "$ok" ] && docker cp "$c:$TMP_ZIP" "$DEST/$c-$STAMP.zip"; then
         docker exec "$c" rm -f "$TMP_ZIP" || true
         echo "backup-agents: $c -> $DEST/$c-$STAMP.zip"
     else
