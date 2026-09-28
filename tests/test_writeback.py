@@ -424,3 +424,49 @@ def test_symlink_in_master_is_restored_after_a_failed_writeback(master: Path, tm
     link = master / "People/bob/Linked.md"
     assert link.is_symlink() and str(link.readlink()) == "Memory.md"
     assert (master / "People/bob/Memory.md").read_text() == "Bob private memory.\n"
+
+
+def test_changes_under_a_symlinked_master_folder_are_held(master: Path, tmp_path: Path):
+    """A folder on the master path that is a link would carry the write (or
+    delete) to wherever it points. The change is held, never applied."""
+    setup_master_git(master)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "Existing.md").write_text("outside, keep\n")
+    (outside / "Gone.md").write_text("outside, keep too\n")
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    # A link that appeared in master after the compile.
+    (master / "People/bob/Notes").symlink_to(outside, target_is_directory=True)
+    (vault / "People/bob/Notes").mkdir()
+    (vault / "People/bob/Notes/New.md").write_text("add through link\n")
+    manifest = json.loads((vault / MANIFEST_NAME).read_text())
+    (vault / "People/bob/Notes/Existing.md").write_text("modify through link\n")
+    (vault / "People/bob/Notes/Gone.md").write_text("x\n")
+    manifest["compiled"]["People/bob/Notes/Existing.md"] = "0" * 64
+    manifest["compiled"]["People/bob/Notes/Gone.md"] = "0" * 64
+    (vault / MANIFEST_NAME).write_text(json.dumps(manifest))
+    (vault / "People/bob/Notes/Gone.md").unlink()
+    (vault / "People/bob/Memory.md").write_text("legit\n")
+    result = apply_writeback(master, vault, BOB, RULES)
+    reason = "a folder on this path is a link in the shared brain"
+    assert sorted(result.held) == [
+        ("add", "People/bob/Notes/New.md", reason),
+        ("delete", "People/bob/Notes/Gone.md", reason),
+        ("modify", "People/bob/Notes/Existing.md", reason),
+    ]
+    assert [c.path for c in result.applied] == ["People/bob/Memory.md"]
+    assert sorted(p.name for p in outside.iterdir()) == ["Existing.md", "Gone.md"]
+    assert (outside / "Existing.md").read_text() == "outside, keep\n"
+    assert (outside / "Gone.md").read_text() == "outside, keep too\n"
+
+
+def test_generated_note_names_are_reserved_in_any_case(master: Path, tmp_path: Path):
+    setup_master_git(master)
+    vault = tmp_path / "bob"
+    compile_vault(master, BOB, RULES, vault)
+    (vault / "People/bob/shares.md").write_text("fake\n")
+    (vault / "People/bob/pending-corrections.md").write_text("fake\n")
+    (vault / "people/alice").mkdir(parents=True)
+    (vault / "people/alice/SHARES.MD").write_text("fake\n")
+    assert diff_vault(vault) == []

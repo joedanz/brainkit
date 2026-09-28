@@ -64,18 +64,20 @@ SERVER_ONLY_NAMES = frozenset({HELD_NAME, CONFIRMED_NAME})
 # holds or reports them, and compile never copies them from master, so a fake
 # an agent plants (or a stale one already in master) is never served as real.
 # Only the exact person-level path is reserved; the same filename deeper in a
-# folder is ordinary content.
+# folder is ordinary content. Matched case-insensitively: on a case-insensitive
+# disk `shares.md` IS `Shares.md`.
 SHARES_NOTE_REL = "People/{person_id}/Shares.md"
 PENDING_NOTE_REL = "People/{person_id}/Pending-corrections.md"
 _GENERATED_PERSON_NOTE_NAMES = frozenset(
-    PurePosixPath(rel).name for rel in (SHARES_NOTE_REL, PENDING_NOTE_REL))
+    PurePosixPath(rel).name.casefold() for rel in (SHARES_NOTE_REL, PENDING_NOTE_REL))
 
 
 def is_generated_person_note(rel: str) -> bool:
-    """True for People/<any id>/Shares.md or People/<any id>/Pending-corrections.md."""
+    """True for People/<any id>/Shares.md or People/<any id>/Pending-corrections.md,
+    in any letter case."""
     parts = PurePosixPath(rel).parts
-    return (len(parts) == 3 and parts[0] == "People"
-            and parts[2] in _GENERATED_PERSON_NOTE_NAMES)
+    return (len(parts) == 3 and parts[0].casefold() == "people"
+            and parts[2].casefold() in _GENERATED_PERSON_NOTE_NAMES)
 
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"

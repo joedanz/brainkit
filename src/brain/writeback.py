@@ -249,6 +249,20 @@ def _restore(master: Path, snap: dict[str, bytes | _Link | None]) -> None:
 
 _UNSEEN = object()
 
+LINKED_FOLDER_REASON = "a folder on this path is a link in the shared brain"
+
+
+def _linked_folder(master: Path, rel: str) -> bool:
+    """True when a folder between the master root and `rel` is a symlink. A
+    write or delete there would land wherever the link points, a path nobody
+    checked, so such a change is held instead of applied."""
+    p = master
+    for part in PurePosixPath(rel).parts[:-1]:
+        p = p / part
+        if p.is_symlink():
+            return True
+    return False
+
 
 def apply_writeback(
     master: Path, vault: Path, person: Person, rules: tuple[SpaceRule, ...],
@@ -270,10 +284,12 @@ def apply_writeback(
         # written; a non-delete change without them is dropped.
         if c.kind != "delete" and c.data is None:
             continue
-        if can_write_path(c.path, person, rules, shared=shared):
-            to_apply.append(c)
-        else:
+        if not can_write_path(c.path, person, rules, shared=shared):
             held.append(Held(c.kind, c.path, f"outside write scope for {person.id}"))
+        elif _linked_folder(master, c.path):
+            held.append(Held(c.kind, c.path, LINKED_FOLDER_REASON))
+        else:
+            to_apply.append(c)
     if not to_apply:
         return WritebackResult(held=held)
 

@@ -717,3 +717,11 @@ def test_stale_generated_notes_in_master_are_never_compiled(master: Path, tmp_pa
     assert not (vault / "People/bob/Pending-corrections.md").exists()
     assert (vault / "People/bob/Notes/Shares.md").read_text() == "ordinary note\n"
     assert "People/bob/Notes/Shares.md" in result.files
+
+
+def test_stale_generated_notes_are_skipped_in_any_case(master: Path, tmp_path: Path):
+    (master / "People/bob/shares.md").write_text("fake\n")
+    (master / "People/bob/pending-corrections.md").write_text("fake\n")
+    vault = tmp_path / "bob"
+    result = compile_vault(master, BOB, RULES, vault)
+    assert not {"People/bob/shares.md", "People/bob/pending-corrections.md"} & set(result.files)
