@@ -90,6 +90,12 @@ class CycleReport:
     # wildly large duration — this number gets compared against a cron
     # interval, where a wrong value is worse than none.
     duration_ms: int = 0
+    # The same run split by stage, in run order: corrections, writeback,
+    # sweeps, compile (with each person's final write-back), index (only with
+    # --index), triage. The total says a cycle outgrew its interval; this says
+    # which stage grew. Stages are timed with perf_counter, separately from
+    # duration_ms, and cover everything duration_ms does except setup.
+    timings_ms: dict[str, int] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -245,6 +251,14 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     org = load_org(master / "_meta/org.yaml")
     rules = load_spaces(master / "_meta/spaces.yaml")
     config = load_config(master)
+    timings: dict[str, int] = {}
+    mark = time.perf_counter()
+
+    def lap(stage: str) -> None:
+        nonlocal mark
+        t = time.perf_counter()
+        timings[stage] = int((t - mark) * 1000)
+        mark = t
 
     # Before any write-back, so only rules already in master on upgrade day
     # are kept in force; anything an agent pushes from now on waits for its
@@ -256,6 +270,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         corrections_warnings.append(
             f"existing corrections not recorded ({describe(e)}); they stay "
             "pending until the next cycle records them")
+    lap("corrections")
 
     wb: dict[str, PersonWriteback] = {}
     already: dict[str, dict[str, str | None]] = {}
@@ -288,6 +303,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             result = _writeback_if_present(master, vault, person, rules, now=now,
                                            already=already.setdefault(person.id, {}))
             wb[person.id] = result or PersonWriteback(person.id, "skipped")
+        lap("writeback")
 
         from brain.clients import materialize_clients
         from brain.shares import sweep_approvals, sweep_shares
@@ -313,6 +329,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # and sweep_promotion_approvals() consumed the ones just decided. One
         # parse from here serves both the fleet compile and the report count.
         pending_promotions = list_pending(master)
+        lap("sweeps")
         try:
             compiled = len(compile_all(master, org, rules, out_root, today=today,
                                        config=config, pending=pending_promotions,
@@ -327,6 +344,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # this covers a failed compile and a crash anywhere above.
         for vault in vaults.values():
             _clear_busy(vault)
+    lap("compile")
     writebacks = list(wb.values())
     pending = len(pending_promotions)
 
@@ -334,6 +352,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     index_warnings: list[str] = []
     if index:
         indexed, index_warnings = _refresh_indexes(master, out_root, org)
+        lap("index")
 
     from brain.triage import TriageReport, run_triage
 
@@ -349,6 +368,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         # broken triage run should warn, not throw that work away.
         triage = TriageReport(0, 0, 0, 0, [f"triage failed: {e}"])
         measured = False
+    lap("triage")
 
     clients_tampering = sum(
         1 for p in provisioned
@@ -414,7 +434,7 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             health_warnings.append(f"health snapshot not written: {e}")
 
     return CycleReport(
-        duration_ms=duration_ms,
+        duration_ms=duration_ms, timings_ms=timings,
         writebacks=writebacks, swept=swept, compiled=compiled,
         compile_failures=compile_failures, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),

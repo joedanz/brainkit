@@ -52,6 +52,30 @@ def test_cycle_reports_its_own_duration(master, tmp_path, monkeypatch):
     assert report.duration_ms == 250
 
 
+def test_cycle_reports_where_its_time_went(master, tmp_path):
+    """The total says a cycle is slow; only the per-stage split says why, so a
+    slowdown can be traced from the cycle's own output instead of a profile."""
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    report = run_cycle(master, out, today="2026-07-07", index=True)
+
+    assert list(report.timings_ms) == [
+        "corrections", "writeback", "sweeps", "compile", "index", "triage",
+    ]
+    assert all(isinstance(ms, int) and ms >= 0 for ms in report.timings_ms.values())
+    assert sum(report.timings_ms.values()) <= report.duration_ms + len(report.timings_ms)
+
+
+def test_cycle_timings_skip_the_index_stage_when_not_indexing(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    report = run_cycle(master, out, today="2026-07-07")
+
+    assert "index" not in report.timings_ms
+
+
 def test_cycle_applies_writebacks_sweeps_and_recompiles(master, tmp_path):
     seed_meta(master)
     out = _first_compile(master, tmp_path)
