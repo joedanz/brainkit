@@ -11,6 +11,14 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **`timings_ms` in `brain cycle --json`.** Next to the total
+  `duration_ms`, each cycle now reports how long each stage took:
+  `corrections`, `writeback`, `sweeps`, `compile`, `index` (only with
+  `--index`) and `triage`. When a cycle starts running long, its own output
+  shows which stage grew.
+
 ## [0.7.11] - 2026-09-28
 
 ### Fixed
