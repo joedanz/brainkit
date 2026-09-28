@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.12] - 2026-09-28
+
 ### Added
 
 - **`timings_ms` in `brain cycle --json`.** Next to the total
