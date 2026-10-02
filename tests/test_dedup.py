@@ -1,3 +1,5 @@
+import struct
+
 import pytest
 
 from brain.dedup import (
@@ -197,3 +199,139 @@ def test_signature_version_notices_a_change_to_the_algorithm(monkeypatch):
     monkeypatch.undo()
     monkeypatch.setattr(dedup, "_WORD_RE", dedup.re.compile(r"[^\w\s']+"))
     assert dedup.signature_version() != base
+
+
+# ---------------------------------------------------------------------------
+# semantic_pairs — the semantic tier's pairs, remembered between cycles.
+
+
+def _blob(vec):
+    return struct.pack(f"<{len(vec)}f", *vec)
+
+
+def _all_pairs(notes, first):
+    """The semantic tier as it was before anything was remembered: every pair
+    of pooled vectors, prefilter then cosine."""
+    from brain.dedup import (
+        DUP_COSINE,
+        DUP_HAMMING_FRAC,
+        cosine,
+        hamming,
+        mean_pool,
+        sign_bits,
+        unpack_vector,
+    )
+
+    vecs = {k: mean_pool([unpack_vector(b) for b in bs]) for k, bs in notes.items()}
+    max_ham = int(len(vecs[first]) * DUP_HAMMING_FRAC)
+    keys = sorted(vecs)
+    return {(a, b) for i, a in enumerate(keys) for b in keys[i:]
+            if hamming(sign_bits(vecs[a]), sign_bits(vecs[b])) <= max_ham
+            and cosine(vecs[a], vecs[b]) >= DUP_COSINE}
+
+
+def test_remembered_pairs_always_equal_the_all_pairs_answer(tmp_path):
+    """Notes come and go at random across many writable runs, with read-only
+    runs in between: every answer is the all-pairs one."""
+    import random
+
+    from brain.dedup import SignatureCache, semantic_pairs, vector_key
+
+    (tmp_path / ".gitignore").write_text("_meta/cache/\n")
+    rng = random.Random(5)
+    centres = [[rng.gauss(0, 1) for _ in range(48)] for _ in range(6)]
+
+    def make():
+        c = rng.choice(centres)
+        chunks = rng.randint(1, 3)
+        return [_blob([x + rng.gauss(0, 0.35) for x in c]) for _ in range(chunks)]
+
+    pool = [make() for _ in range(60)]
+    pool.append([b"\0" * (4 * 48)])  # a zero vector: near nothing, not even itself
+    present = set(rng.sample(range(len(pool)), 25))
+    for _step in range(25):
+        for i in rng.sample(range(len(pool)), 6):
+            present ^= {i}  # add or remove
+        notes = {vector_key(pool[i]): pool[i] for i in present}
+        first = vector_key(pool[min(present)])
+        expected = _all_pairs(notes, first)
+        assert expected and any(a != b for a, b in expected)
+        assert semantic_pairs(notes, first) == expected
+        cache = SignatureCache.open_writable(tmp_path)
+        assert semantic_pairs(notes, first, cache) == expected
+        cache.save()
+        cache.close()
+        ro = SignatureCache.open_readonly(tmp_path)
+        assert semantic_pairs(notes, first, ro) == expected
+        ro.close()
+
+
+def test_semantic_rows_round_trip_and_prune(tmp_path):
+    from brain.dedup import SignatureCache
+
+    (tmp_path / ".gitignore").write_text("_meta/cache/\n")
+    cache = SignatureCache.open_writable(tmp_path)
+    assert cache.get_vector_bits(["k1", "k2"]) == {}
+    assert cache.get_near(["k1", "k2"], 8) == {}
+    cache.put_vector_bits("k1", 12, 0b101100000001)
+    cache.put_vector_bits("k2", 12, 0)
+    cache.put_near("k1", ["k1", "k2"])
+    cache.put_near("k2", [])
+    cache.save()
+    cache.close()
+
+    ro = SignatureCache.open_readonly(tmp_path)
+    assert ro.get_vector_bits(["k1", "k2", "k3"]) == {"k1": (12, 0b101100000001), "k2": (12, 0)}
+    assert ro.get_near(["k1", "k2"], 8) == {"k1": ["k1", "k2"], "k2": []}
+    assert ro.get_near(["k1", "k2"], 9) == {}  # another prefilter margin
+    ro.put_near("k3", ["k1"])  # read-only: taken and kept nowhere
+    ro.close()
+
+    cache = SignatureCache.open_writable(tmp_path)
+    cache.get_vector_bits(["k2"])
+    cache.get_near(["k2"], 8)
+    cache.save()  # k1 was not asked for: pruned
+    cache.close()
+    ro = SignatureCache.open_readonly(tmp_path)
+    assert ro.get_vector_bits(["k1", "k2"]) == {"k2": (12, 0)}
+    assert ro.get_near(["k1", "k2", "k3"], 8) == {"k2": []}
+    ro.close()
+
+
+def test_semantic_versions_move_with_every_parameter(monkeypatch):
+    import brain.dedup as dedup
+
+    bits, near = dedup.vector_bits_version(), dedup.near_version(32)
+    assert dedup.near_version(33) != near
+    for name, value in (("DUP_COSINE", 0.91), ("DUP_HAMMING_FRAC", 0.3)):
+        monkeypatch.setattr(dedup, name, value)
+        assert dedup.near_version(32) != near
+        assert dedup.vector_bits_version() == bits
+        monkeypatch.undo()
+    monkeypatch.setattr(dedup, "NEAR_SCHEME", dedup.NEAR_SCHEME + 1)
+    assert dedup.near_version(32) != near
+    assert dedup.vector_bits_version() != bits
+
+
+def test_a_cache_without_the_semantic_tables_reads_as_empty(tmp_path):
+    import sqlite3
+
+    from brain.dedup import DEDUP_CACHE_REL, SignatureCache
+
+    (tmp_path / ".gitignore").write_text("_meta/cache/\n")
+    SignatureCache.open_writable(tmp_path).close()
+    with sqlite3.connect(tmp_path / DEDUP_CACHE_REL) as conn:
+        conn.execute("DROP TABLE vector_bits")
+        conn.execute("DROP TABLE near_pairs")
+    conn.close()
+    ro = SignatureCache.open_readonly(tmp_path)
+    assert ro.get_vector_bits(["k"]) == {} and ro.get_near(["k"], 8) == {}
+    ro.close()
+    cache = SignatureCache.open_writable(tmp_path)  # puts the tables back
+    cache.get_near(["k"], 8)
+    cache.put_near("k", [])
+    cache.save()
+    cache.close()
+    ro = SignatureCache.open_readonly(tmp_path)
+    assert ro.get_near(["k"], 8) == {"k": []}
+    ro.close()

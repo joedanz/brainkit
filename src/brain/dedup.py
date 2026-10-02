@@ -7,7 +7,9 @@ graphrank keeps ("persists nothing, same result everywhere").
 
 The one piece of state is `SignatureCache`, and it cannot change a result: a
 signature is a pure function of a note's text and the parameters below, so a
-remembered one is exactly the one that would be computed.
+remembered one is exactly the one that would be computed. The same holds for
+the semantic tier's remembered pairs (`semantic_pairs`): they are keyed by
+the bytes of each note's chunk vectors, not by its path or text.
 """
 
 from __future__ import annotations
@@ -124,6 +126,15 @@ _DDL = (
     ("CREATE TABLE IF NOT EXISTS secret_scans ("
      "sha TEXT NOT NULL, version TEXT NOT NULL, hits TEXT NOT NULL, "
      "PRIMARY KEY (sha, version))"),
+    # The semantic tier (see semantic_pairs), keyed by vector_key: each
+    # note's sign bits (4-byte dimension, then the bits), and the keys its
+    # pooled vector is a near-duplicate of, as a JSON list.
+    ("CREATE TABLE IF NOT EXISTS vector_bits ("
+     "sha TEXT NOT NULL, version TEXT NOT NULL, bits BLOB NOT NULL, "
+     "PRIMARY KEY (sha, version))"),
+    ("CREATE TABLE IF NOT EXISTS near_pairs ("
+     "sha TEXT NOT NULL, version TEXT NOT NULL, partners TEXT NOT NULL, "
+     "PRIMARY KEY (sha, version))"),
 )
 
 
@@ -162,7 +173,10 @@ class SignatureCache:
     The same file also remembers doctor's secrets scan per note
     (`get_scans`/`put_scan`, table `secret_scans`, keyed by the same sha and
     `brain.secrets.scanner_version()`), with the same read/write/prune rules:
-    it is the other per-note cost that is pure in the note's text.
+    it is the other per-note cost that is pure in the note's text. And the
+    semantic tier's sign bits and near-duplicate partners
+    (`get_vector_bits`/`get_near`, see `semantic_pairs`), keyed by
+    `vector_key` rather than by text, again under the same rules.
 
     A damaged file (SQLITE_CORRUPT, SQLITE_NOTADB) is only ever rebuilt by
     the writer, once, with a line in `warnings`; otherwise every later cycle
@@ -183,6 +197,12 @@ class SignatureCache:
         self.scan_version = scanner_version()
         self._scans_computed: dict[str, str] = {}
         self._scans_asked: set[str] | None = None
+        self.bits_version = vector_bits_version()
+        self._bits_computed: dict[str, bytes] = {}
+        self._bits_asked: set[str] | None = None
+        self.near_version: str | None = None  # set by get_near: it needs max_ham
+        self._near_computed: dict[str, str] = {}
+        self._near_asked: set[str] | None = None
 
     @classmethod
     def open_readonly(cls, master: Path) -> SignatureCache | None:
@@ -278,6 +298,47 @@ class SignatureCache:
         if self.writable:
             self._scans_computed[sha] = json.dumps([[h.kind, h.line] for h in hits])
 
+    def get_vector_bits(self, keys: list[str]) -> dict[str, tuple[int, int]]:
+        """key -> (dimension, sign bits) for each vector key remembered.
+        Never raises, like get_many."""
+        if self._bits_asked is None:
+            self._bits_asked = set()
+        self._bits_asked.update(keys)
+        out: dict[str, tuple[int, int]] = {}
+        for key, blob in self._select("vector_bits", "bits", self.bits_version, keys):
+            if not isinstance(blob, bytes) or len(blob) < 4:
+                continue
+            (dim,) = struct.unpack("<I", blob[:4])
+            if len(blob) == 4 + (dim + 7) // 8:
+                out[key] = (dim, int.from_bytes(blob[4:], "big"))
+        return out
+
+    def put_vector_bits(self, key: str, dim: int, bits: int) -> None:
+        if self.writable:
+            self._bits_computed[key] = (
+                struct.pack("<I", dim) + bits.to_bytes((dim + 7) // 8, "big"))
+
+    def get_near(self, keys: list[str], max_ham: int) -> dict[str, list[str]]:
+        """key -> the keys its vector was found near, for each vector key
+        remembered at this prefilter margin. Never raises, like get_many."""
+        self.near_version = near_version(max_ham)
+        if self._near_asked is None:
+            self._near_asked = set()
+        self._near_asked.update(keys)
+        out: dict[str, list[str]] = {}
+        for key, raw in self._select("near_pairs", "partners", self.near_version, keys):
+            try:
+                partners = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(partners, list) and all(isinstance(p, str) for p in partners):
+                out[key] = partners
+        return out
+
+    def put_near(self, key: str, partners: list[str]) -> None:
+        if self.writable:
+            self._near_computed[key] = json.dumps(partners)
+
     def save(self) -> None:
         """Write this run's new signatures and delete every row it did not ask
         for (other versions included), in one transaction. A run that never
@@ -306,8 +367,16 @@ class SignatureCache:
                                self._computed, self._asked)
             _replace_and_prune(self._conn, "secret_scans", "hits", self.scan_version,
                                self._scans_computed, self._scans_asked)
+            _replace_and_prune(self._conn, "vector_bits", "bits", self.bits_version,
+                               self._bits_computed, self._bits_asked)
+            if self.near_version is not None:
+                _replace_and_prune(self._conn, "near_pairs", "partners",
+                                   self.near_version, self._near_computed,
+                                   self._near_asked)
         self._computed.clear()
         self._scans_computed.clear()
+        self._bits_computed.clear()
+        self._near_computed.clear()
 
     def close(self) -> None:
         self._conn.close()
@@ -407,6 +476,110 @@ def sign_bits(vec: list[float]) -> int:
 
 def hamming(a: int, b: int) -> int:
     return (a ^ b).bit_count()
+
+
+# ---- semantic near-duplicates remembered between runs ----------------------
+
+# Bump when unpack_vector, mean_pool, sign_bits, hamming, norm or
+# cosine_with_norms change what they compute: remembered sign bits and pairs
+# then miss, are recomputed, and the old rows are pruned. The thresholds are
+# part of the version already.
+NEAR_SCHEME = 1
+
+
+def vector_key(blobs: list[bytes]) -> str:
+    """The identity of a note's pooled vector: a digest of its chunk
+    vectors' bytes, in order. Everything the semantic tier decides about a
+    note is a pure function of these bytes, so two runs that see the same
+    key see the same vector, whatever the note's path, text or model."""
+    h = hashlib.sha256()
+    for blob in blobs:
+        h.update(struct.pack("<Q", len(blob)))
+        h.update(blob)
+    return h.hexdigest()
+
+
+def vector_bits_version() -> str:
+    return hashlib.sha256(repr(("bits", NEAR_SCHEME)).encode("utf-8")).hexdigest()[:16]
+
+
+def near_version(max_ham: int) -> str:
+    """Everything a remembered pair depends on besides its two vectors."""
+    material = repr(("near", NEAR_SCHEME, DUP_COSINE, DUP_HAMMING_FRAC, max_ham))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def semantic_pairs(
+    notes: dict[str, list[bytes]], first: str, cache: SignatureCache | None = None,
+) -> set[tuple[str, str]]:
+    """Every (a, b), a <= b, of vector keys whose pooled vectors pass the
+    sign-bit prefilter and reach DUP_COSINE; (a, a) when a note's vector is
+    near itself, which matters when several notes share one key. `notes`
+    maps vector_key -> the note's chunk vector blobs; `first` is the key
+    whose dimension sets the prefilter margin.
+
+    The answer is the all-pairs one, but only new keys are compared. A key
+    with a remembered row was compared against every key present when its
+    row was written; the row survives only while every later writing run
+    still had that key (save prunes the rest), so of two remembered keys
+    the later-written one has an answer for the pair. A key with no row is
+    compared against every key present now, once per pair."""
+    keys = sorted(notes)
+    if not keys:
+        return set()
+    pooled: dict[str, list[float]] = {}
+    norms: dict[str, float] = {}
+
+    def vec(k: str) -> list[float]:
+        v = pooled.get(k)
+        if v is None:
+            v = pooled[k] = mean_pool([unpack_vector(b) for b in notes[k]])
+        return v
+
+    def nrm(k: str) -> float:
+        n = norms.get(k)
+        if n is None:
+            n = norms[k] = norm(vec(k))
+        return n
+
+    known_bits = cache.get_vector_bits(keys) if cache is not None else {}
+    bits: dict[str, int] = {}
+    dims: dict[str, int] = {}
+    for k in keys:
+        hit = known_bits.get(k)
+        if hit is None:
+            v = vec(k)
+            hit = (len(v), sign_bits(v))
+            if cache is not None:
+                cache.put_vector_bits(k, *hit)
+        dims[k], bits[k] = hit
+    max_ham = int(dims[first] * DUP_HAMMING_FRAC)
+
+    known = cache.get_near(keys, max_ham) if cache is not None else {}
+    pairs: set[tuple[str, str]] = set()
+    for k, partners in known.items():
+        for p in partners:
+            if p in known:  # a partner without a row is compared below
+                pairs.add((min(k, p), max(k, p)))
+    new = [k for k in keys if k not in known]
+    new_set = set(new)
+    found: dict[str, list[str]] = {k: [] for k in new}
+    for k in new:
+        for j in keys:
+            if j in new_set and j < k:
+                continue  # compared from j's side
+            # The prefilter first: nearly every pair fails it.
+            if hamming(bits[k], bits[j]) > max_ham:
+                continue
+            if cosine_with_norms(vec(k), vec(j), nrm(k), nrm(j)) >= DUP_COSINE:
+                pairs.add((min(k, j), max(k, j)))
+                found[k].append(j)
+                if j in new_set and j != k:
+                    found[j].append(k)
+    if cache is not None:
+        for k in new:
+            cache.put_near(k, sorted(found[k]))
+    return pairs
 
 
 def clusters(edges: Iterable[tuple[str, str]]) -> list[tuple[str, ...]]:
