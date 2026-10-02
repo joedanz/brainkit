@@ -147,7 +147,9 @@ BASELINE = [
 
 def _count_comparisons(monkeypatch):
     """Every hamming prefilter and cosine the semantic tier computes, and
-    every vector it pools or turns into sign bits."""
+    every vector it pools or turns into sign bits. Install it before the
+    first run: the version probe runs these functions once per set of them,
+    and a later install would be a new set."""
     import brain.dedup
 
     calls = {"hamming": 0, "cosine_with_norms": 0, "sign_bits": 0, "mean_pool": 0}
@@ -160,6 +162,11 @@ def _count_comparisons(monkeypatch):
 
         monkeypatch.setattr(brain.dedup, name, spy)
     return calls
+
+
+def _reset(calls):
+    for name in calls:
+        calls[name] = 0
 
 
 def test_a_cold_run_reports_what_the_all_pairs_pass_did(master, tmp_path, monkeypatch):
@@ -228,12 +235,23 @@ def test_every_incremental_run_matches_a_full_pass(master, tmp_path, monkeypatch
         finally:
             cache.close()
 
-    steps = [add_near, edit_away, edit_closer, edit_unembedded, delete, restore,
-             rename_same_stem, rename_new_stem, copy_twin, revectored]
+    def damage():  # the cycle rebuilds a damaged cache from this run alone
+        db = master / "_meta/cache/dedup.db"
+        db.write_bytes(b"this is not a database" * 64)
+        add_after_damage()
+
+    def add_after_damage():
+        _note(master, "Company/Gamma Late.md", _variant(_bag("gamma"), 2, "l"), seed=94)
+        _rewarm(master, tmp_path, monkeypatch, "Company/Gamma Late.md")
+
+    steps = [add_near, edit_away, damage, edit_closer, edit_unembedded, delete,
+             restore, rename_same_stem, rename_new_stem, copy_twin, revectored]
     assert _dups(_writable_run(master)) == BASELINE
     seen = {repr(BASELINE)}
     for step in steps:
         step()
+        if step is damage:  # read-only first: it must not trip over the damage
+            assert run_doctor(master) == _fresh(master, tmp_path)
         expected = _fresh(master, tmp_path)
         assert _writable_run(master) == expected, step.__name__
         assert run_doctor(master) == expected, step.__name__  # read-only
@@ -254,8 +272,9 @@ def _chunk_shas(master, rel):
 
 def test_a_warm_run_compares_nothing_that_is_unchanged(master, tmp_path, monkeypatch):
     _setup(master, tmp_path, monkeypatch)
-    first = _writable_run(master)
     calls = _count_comparisons(monkeypatch)
+    first = _writable_run(master)
+    _reset(calls)
     assert _writable_run(master) == first
     assert run_doctor(master) == first
     assert calls == {"hamming": 0, "cosine_with_norms": 0, "sign_bits": 0, "mean_pool": 0}
@@ -263,10 +282,11 @@ def test_a_warm_run_compares_nothing_that_is_unchanged(master, tmp_path, monkeyp
 
 def test_one_new_note_is_compared_once_against_each_note(master, tmp_path, monkeypatch):
     rels = _setup(master, tmp_path, monkeypatch)
+    calls = _count_comparisons(monkeypatch)
     _writable_run(master)
     _note(master, "Company/Alpha New.md", _variant(_bag("alpha"), 3, "n"), seed=90)
     _rewarm(master, tmp_path, monkeypatch, "Company/Alpha New.md")
-    calls = _count_comparisons(monkeypatch)
+    _reset(calls)
     findings = _writable_run(master)
     assert calls["sign_bits"] == 1  # only the new note's bits are computed
     # The others are pooled only where a cosine needs them.
@@ -280,9 +300,10 @@ def test_a_version_change_recomputes_every_pair(master, tmp_path, monkeypatch):
     import brain.dedup
 
     rels = _setup(master, tmp_path, monkeypatch)
+    calls = _count_comparisons(monkeypatch)
     _writable_run(master)
     monkeypatch.setattr(brain.dedup, "NEAR_SCHEME", brain.dedup.NEAR_SCHEME + 1)
-    calls = _count_comparisons(monkeypatch)
+    _reset(calls)
     assert _dups(_writable_run(master)) == BASELINE
     keys = len(rels) - 1  # the two Twin notes share their chunks
     assert calls["hamming"] == keys * (keys + 1) // 2
@@ -312,3 +333,39 @@ def test_standalone_doctor_never_writes_the_pair_cache(master, tmp_path, monkeyp
     before = (db.read_bytes(), db.stat().st_mtime_ns)
     assert run_doctor(master) == _fresh(master, tmp_path)
     assert (db.read_bytes(), db.stat().st_mtime_ns) == before
+
+
+def test_an_unreadable_vector_skips_the_tier_with_a_warning(master, tmp_path, monkeypatch):
+    """A chunk vector whose bytes are not float32s cannot be pooled: the old
+    code dropped the semantic signal silently; now doctor says so."""
+    from brain.embeddings import EmbeddingCache
+
+    _setup(master, tmp_path, monkeypatch)
+    cache = EmbeddingCache(tmp_path / "emb-cache.db")
+    cache.put_many([(_chunk_shas(master, "Company/Alpha 0.md")[0], b"\x01\x02\x03")],
+                   "fake-32")
+    cache.close()
+    findings = run_doctor(master)
+    skipped = [f for f in findings if f.check == "dup-semantic"]
+    assert [f.severity for f in skipped] == ["warn"]
+    assert "semantic" in skipped[0].message
+    assert not [d for d in _dups(findings) if "semantic similarity" in d[3]]
+    assert _writable_run(master) == findings
+
+
+def test_an_unexpected_error_in_the_semantic_tier_is_not_swallowed(
+        master, tmp_path, monkeypatch):
+    """Mixed vector dimensions raised ValueError out of the old pair loop
+    (math.sumprod); it must still surface rather than read as no signal."""
+    import pytest
+
+    import brain.dedup
+
+    _setup(master, tmp_path, monkeypatch)
+
+    def boom(*_a, **_k):
+        raise ValueError("vector lengths differ")
+
+    monkeypatch.setattr(brain.dedup, "semantic_pairs", boom)
+    with pytest.raises(ValueError):
+        run_doctor(master)

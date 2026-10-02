@@ -249,9 +249,12 @@ def test_remembered_pairs_always_equal_the_all_pairs_answer(tmp_path):
     pool = [make() for _ in range(60)]
     pool.append([b"\0" * (4 * 48)])  # a zero vector: near nothing, not even itself
     present = set(rng.sample(range(len(pool)), 25))
-    for _step in range(25):
+    for step in range(25):
         for i in rng.sample(range(len(pool)), 6):
             present ^= {i}  # add or remove
+        if step in (8, 17):  # a damaged file: the writer rebuilds it from this run
+            db = tmp_path / "_meta/cache/dedup.db"
+            db.write_bytes(b"this is not a database" * 64)
         notes = {vector_key(pool[i]): pool[i] for i in present}
         first = vector_key(pool[min(present)])
         expected = _all_pairs(notes, first)
@@ -259,11 +262,32 @@ def test_remembered_pairs_always_equal_the_all_pairs_answer(tmp_path):
         assert semantic_pairs(notes, first) == expected
         cache = SignatureCache.open_writable(tmp_path)
         assert semantic_pairs(notes, first, cache) == expected
+        if step in (5, 13):  # a good read, then a write that finds damage
+            _fail_first_write(cache)
         cache.save()
         cache.close()
         ro = SignatureCache.open_readonly(tmp_path)
         assert semantic_pairs(notes, first, ro) == expected
         ro.close()
+
+
+def _fail_first_write(cache):
+    """Make cache.save()'s first write fail as on a corrupt file, so it
+    rebuilds the file from what this run computed alone."""
+    import sqlite3
+
+    real = cache._write
+    state = {"failed": False}
+
+    def write():
+        if not state["failed"]:
+            state["failed"] = True
+            e = sqlite3.DatabaseError("database disk image is malformed")
+            e.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+            raise e
+        real()
+
+    cache._write = write
 
 
 def test_semantic_rows_round_trip_and_prune(tmp_path):
@@ -311,6 +335,70 @@ def test_semantic_versions_move_with_every_parameter(monkeypatch):
     monkeypatch.setattr(dedup, "NEAR_SCHEME", dedup.NEAR_SCHEME + 1)
     assert dedup.near_version(32) != near
     assert dedup.vector_bits_version() != bits
+
+
+def test_semantic_versions_notice_a_change_to_the_vector_math(monkeypatch):
+    """A probe runs fixed vectors through the functions the remembered rows
+    depend on, so changing one invalidates them without a NEAR_SCHEME bump."""
+    import math
+
+    import brain.dedup as dedup
+
+    bits, near = dedup.vector_bits_version(), dedup.near_version(32)
+    changes = {
+        "unpack_vector": lambda blob: [x * 2 for x in dedup.struct.unpack(
+            f"<{len(blob) // 4}f", blob)],
+        "mean_pool": lambda vs: [max(col) for col in zip(*vs)],
+        "sign_bits": lambda v: sum(1 << i for i, x in enumerate(v) if x >= 0),
+    }
+    for name, fn in changes.items():
+        monkeypatch.setattr(dedup, name, fn)
+        assert dedup.vector_bits_version() != bits, name
+        assert dedup.near_version(32) != near, name
+        monkeypatch.undo()
+    pair_only = {
+        "hamming": lambda a, b: (a & b).bit_count(),
+        "norm": lambda v: sum(abs(x) for x in v),
+        "cosine_with_norms": lambda a, b, na, nb: math.sumprod(a, b) / (na + nb),
+    }
+    for name, fn in pair_only.items():
+        monkeypatch.setattr(dedup, name, fn)
+        assert dedup.near_version(32) != near, name
+        monkeypatch.undo()
+    assert (dedup.vector_bits_version(), dedup.near_version(32)) == (bits, near)
+
+
+def test_partner_keys_are_stored_short_and_a_shared_prefix_recomputes(tmp_path):
+    """Rows hold PARTNER_HEX-character prefixes of partner keys. Two current
+    keys that share a prefix would make a row ambiguous, so then nothing
+    remembered is trusted and every pair is compared again."""
+    import json
+    import sqlite3
+
+    from brain.dedup import DEDUP_CACHE_REL, PARTNER_HEX, SignatureCache, semantic_pairs
+
+    (tmp_path / ".gitignore").write_text("_meta/cache/\n")
+    v = _blob([1.0, 2.0, -1.0, 0.5])
+    notes = {"a" * 64: [v], "b" * 64: [v]}
+    cache = SignatureCache.open_writable(tmp_path)
+    assert semantic_pairs(notes, "a" * 64, cache) == {
+        ("a" * 64, "a" * 64), ("a" * 64, "b" * 64), ("b" * 64, "b" * 64)}
+    cache.save()
+    cache.close()
+    with sqlite3.connect(tmp_path / DEDUP_CACHE_REL) as conn:
+        rows = dict(conn.execute("SELECT sha, partners FROM near_pairs").fetchall())
+    conn.close()
+    assert json.loads(rows["a" * 64]) == ["a" * PARTNER_HEX, "b" * PARTNER_HEX]
+
+    # Same prefix, different key, different vector: must not inherit "a"'s pairs.
+    far = _blob([-1.0, -2.0, 1.0, -0.5])
+    twin = "a" * PARTNER_HEX + "c" * (64 - PARTNER_HEX)
+    notes = {"a" * 64: [v], twin: [far]}
+    cache = SignatureCache.open_writable(tmp_path)
+    assert semantic_pairs(notes, "a" * 64, cache) == {
+        ("a" * 64, "a" * 64), (twin, twin)}
+    cache.save()
+    cache.close()
 
 
 def test_a_cache_without_the_semantic_tables_reads_as_empty(tmp_path):

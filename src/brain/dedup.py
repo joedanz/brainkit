@@ -480,11 +480,52 @@ def hamming(a: int, b: int) -> int:
 
 # ---- semantic near-duplicates remembered between runs ----------------------
 
-# Bump when unpack_vector, mean_pool, sign_bits, hamming, norm or
-# cosine_with_norms change what they compute: remembered sign bits and pairs
-# then miss, are recomputed, and the old rows are pruned. The thresholds are
-# part of the version already.
+# Bump when the rows' format or meaning changes in a way the probe below
+# cannot see. A change to unpack_vector, mean_pool, sign_bits, hamming, norm
+# or cosine_with_norms needs no bump: _vector_probe() runs fixed vectors
+# through them and its results are part of both versions.
 NEAR_SCHEME = 1
+
+# Partner lists store this many hex characters of each partner's key (64
+# bits), not all 64: a quarter of the size. semantic_pairs refuses every
+# remembered row when two current keys share a prefix, so a prefix is never
+# ambiguous among the notes present. What remains is a removed key whose
+# prefix a later, different key happens to share while an old row still
+# names it: a 64-bit collision among the keys one brain ever holds, about
+# n^2 / 2^65 (3e-8 for a million keys over its life), the same order of risk
+# as keying by a 64-bit digest.
+PARTNER_HEX = 16
+
+# Two chunk vectors per note, signs and a zero mixed, so every function the
+# probe runs has something to get wrong.
+_PROBE_VECTORS = (
+    ((0.5, -1.25, 0.0, 2.0, -0.75, 3.5, -2.0, 0.125),
+     (1.5, 0.25, 0.0, -3.0, -0.25, 0.5, -1.0, 0.875)),
+    ((-0.5, 2.25, 1.0, 0.0, 0.75, -1.5, 2.0, -0.125),
+     (0.5, -0.25, -1.0, 1.0, 1.25, 0.5, -3.0, 0.375)),
+)
+_probe_memo: tuple[tuple, tuple[tuple, tuple]] | None = None
+
+
+def _vector_probe() -> tuple[tuple, tuple]:
+    """(what pooling and sign bits make of the probe vectors, what the pair
+    test makes of them). Computed once per set of the functions involved,
+    so a run calls them for the probe at most once."""
+    global _probe_memo
+    fns = (unpack_vector, mean_pool, sign_bits, hamming, norm, cosine_with_norms)
+    if _probe_memo is not None and all(a is b for a, b in zip(_probe_memo[0], fns)):
+        return _probe_memo[1]
+    pooled = [
+        mean_pool([unpack_vector(struct.pack(f"<{len(c)}f", *c)) for c in note])
+        for note in _PROBE_VECTORS]
+    bits = [sign_bits(v) for v in pooled]
+    norms = [norm(v) for v in pooled]
+    result = (
+        (repr(pooled), bits),
+        (hamming(bits[0], bits[1]), repr(norms),
+         repr(cosine_with_norms(pooled[0], pooled[1], norms[0], norms[1]))))
+    _probe_memo = (fns, result)
+    return result
 
 
 def vector_key(blobs: list[bytes]) -> str:
@@ -500,12 +541,14 @@ def vector_key(blobs: list[bytes]) -> str:
 
 
 def vector_bits_version() -> str:
-    return hashlib.sha256(repr(("bits", NEAR_SCHEME)).encode("utf-8")).hexdigest()[:16]
+    material = repr(("bits", NEAR_SCHEME, _vector_probe()[0]))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
 def near_version(max_ham: int) -> str:
     """Everything a remembered pair depends on besides its two vectors."""
-    material = repr(("near", NEAR_SCHEME, DUP_COSINE, DUP_HAMMING_FRAC, max_ham))
+    material = repr(("near", NEAR_SCHEME, PARTNER_HEX, DUP_COSINE, DUP_HAMMING_FRAC,
+                     max_ham, _vector_probe()))
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
@@ -556,9 +599,13 @@ def semantic_pairs(
     max_ham = int(dims[first] * DUP_HAMMING_FRAC)
 
     known = cache.get_near(keys, max_ham) if cache is not None else {}
+    full = {k[:PARTNER_HEX]: k for k in keys}
+    if len(full) < len(keys):
+        known = {}  # two keys share a prefix: no row can be read unambiguously
     pairs: set[tuple[str, str]] = set()
     for k, partners in known.items():
-        for p in partners:
+        for prefix in partners:
+            p = full.get(prefix)
             if p in known:  # a partner without a row is compared below
                 pairs.add((min(k, p), max(k, p)))
     new = [k for k in keys if k not in known]
@@ -578,7 +625,7 @@ def semantic_pairs(
                     found[j].append(k)
     if cache is not None:
         for k in new:
-            cache.put_near(k, sorted(found[k]))
+            cache.put_near(k, sorted(j[:PARTNER_HEX] for j in found[k]))
     return pairs
 
 

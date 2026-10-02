@@ -14,6 +14,8 @@ import json
 import os
 import posixpath
 import re
+import sqlite3
+import struct
 import time
 from dataclasses import dataclass
 from datetime import date
@@ -556,8 +558,15 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
             semantic = semantic_pairs(
                 {key: blobs[rels[0]] for key, rels in rels_of.items()},
                 key_of[next(iter(blobs))] if blobs else "", cache)
-        except Exception:  # an unreadable vector: no semantic signal, as before
+        except (struct.error, sqlite3.Error, OSError) as e:
+            # A vector that cannot be read: no semantic signal, as before,
+            # but said out loud. Anything else (mixed dimensions raise
+            # ValueError in the cosine) is a bug to see, not a quiet tier.
             semantic = set()
+            findings.append(Finding(
+                "warn", "dup-semantic",
+                f"semantic near-duplicate check skipped: a cached embedding "
+                f"could not be read ({e}) — the embedding cache may be damaged"))
     finally:
         if cache is not None and cache is not dedup_cache:
             cache.close()
