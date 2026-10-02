@@ -1,14 +1,15 @@
-"""Doctor's findings on a varied brain, pinned.
+"""One doctor run reads the brain once.
 
-The golden list below was captured from doctor as of e11b4c5, before a
-performance refactor that must leave every finding, its wording and its
-order untouched.
+The golden list below was captured from doctor before the per-run corpus
+existed (base e11b4c5): the refactor that walks the tree once and reads each
+note once must leave every finding, its wording and its order untouched.
 """
 
 import os
 
 import pytest
 
+import brain.doctor
 from brain.doctor import run_doctor
 
 from .test_cli import SPACES_YAML, seed_meta
@@ -159,3 +160,71 @@ def test_findings_match_the_pre_refactor_golden(master, tmp_path):
     finally:
         (master / "People/bob/Notes/Locked.md").chmod(0o644)
     assert got == GOLDEN
+
+
+@requires_nonroot
+def test_one_run_walks_once_and_reads_each_note_once(master, tmp_path, monkeypatch):
+    _varied_brain(master, tmp_path)
+    walks: list[str] = []
+    reads: list[str] = []
+    parsed: list[str] = []
+    real_walk = brain.doctor._walk_content
+    real_read = brain.doctor._read_text
+    real_parse = brain.doctor.parse_facts
+
+    def walk(m, shared):
+        walks.append(shared)
+        return real_walk(m, shared)
+
+    def read(path):
+        reads.append(path.relative_to(master).as_posix())
+        return real_read(path)
+
+    def parse(text):
+        parsed.append(text)
+        return real_parse(text)
+
+    monkeypatch.setattr(brain.doctor, "_walk_content", walk)
+    monkeypatch.setattr(brain.doctor, "_read_text", read)
+    monkeypatch.setattr(brain.doctor, "parse_facts", parse)
+    try:
+        run_doctor(master)
+    finally:
+        (master / "People/bob/Notes/Locked.md").chmod(0o644)
+    assert walks == ["Company"]
+    assert reads and len(reads) == len(set(reads))
+    assert parsed and len(parsed) <= len(reads)
+
+
+def _rglob_walk(master, shared):
+    """The content walk as it was written before the string walk."""
+    from brain.doctor import RESERVED, _is_own_digest, space_of_path
+
+    rels = []
+    for f in sorted(master.rglob("*.md")):
+        parts = f.relative_to(master).parts
+        if parts[0] in RESERVED or parts[0].startswith("."):
+            continue
+        rel = f.relative_to(master).as_posix()
+        if _is_own_digest(rel, parts):
+            continue
+        if space_of_path(rel, shared) is not None:
+            rels.append(rel)
+    return rels
+
+
+@requires_nonroot
+def test_string_walk_matches_the_rglob_walk(master, tmp_path):
+    _varied_brain(master, tmp_path)
+    # Orderings where string and component comparison disagree.
+    _write(master, "Company/a-c.md", "x\n")
+    _write(master, "Company/a/b.md", "x\n")
+    _write(master, "People/bob/Inbox/doctor-digest.md", "digest\n")
+    (master / "Company/Locked Dir").mkdir()
+    _write(master, "Company/Locked Dir/Hidden.md", "x\n")
+    (master / "Company/Locked Dir").chmod(0o000)
+    try:
+        assert brain.doctor._walk_content(master, "Company") == _rglob_walk(master, "Company")
+    finally:
+        (master / "Company/Locked Dir").chmod(0o755)
+        (master / "People/bob/Notes/Locked.md").chmod(0o644)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import os
 import posixpath
 import re
 import time
@@ -47,11 +48,12 @@ from brain.schemas import (
 if TYPE_CHECKING:
     from brain.contextgen import ProtocolRender, ProtocolTooLarge
     from brain.dedup import SignatureCache
+    from brain.facts import Fact
     from brain.schemas import Person
 
 # Canonical filename for triage's rolling per-person digest note
 # (People/<id>/Inbox/doctor-digest.md). Lives here, not in brain.triage,
-# because doctor needs it too: see _content_files' exclusion below.
+# because doctor needs it too: see _walk_content's exclusion below.
 DIGEST_NAME = "doctor-digest.md"
 
 
@@ -201,7 +203,8 @@ def _check_orphan_files(master: Path, shared: str) -> list[Finding]:
     return findings
 
 
-def _check_unlinked_notes(master: Path, shared: str) -> list[Finding]:
+def _check_unlinked_notes(master: Path, shared: str,
+                          run: _Corpus | None = None) -> list[Finding]:
     """Notes with no graph connections at all — no resolved wikilinks in or
     out (typed relations are wikilinks, so they count), no fact lines, and no
     mined structural edge (folder-index parent, date-sequence neighbor, or
@@ -215,8 +218,9 @@ def _check_unlinked_notes(master: Path, shared: str) -> list[Finding]:
     from brain.edges import date_edges, entity_groups, folder_edges, note_date
     from brain.facts import parse_entity
 
+    run = run or _Corpus(master, shared)
     findings: list[Finding] = []
-    rels = _content_files(master, shared)
+    rels = run.content_files()
     paths = set(rels)
     by_stem: dict[str, str] = {}
     for rel in sorted(rels):
@@ -225,10 +229,10 @@ def _check_unlinked_notes(master: Path, shared: str) -> list[Finding]:
     dated: dict[str, str] = {}
     entities: list[tuple[str, str]] = []
     for rel in rels:
-        text = _read_text(master / rel)
+        text = run.text(rel)
         if text is None:
             continue
-        if parse_facts(text):
+        if run.facts(rel):
             connected.add(rel)
         for raw in extract_wikilinks(text):
             target = _resolve_target(raw, paths, by_stem)
@@ -369,7 +373,7 @@ def _cached_file_vectors(
 def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                       shared: str,
                       dedup_cache: SignatureCache | None = None,
-                      read: dict[str, tuple[str, str | None]] | None = None,
+                      run: _Corpus | None = None,
                       ) -> list[Finding]:
     """Duplicate and near-duplicate notes, in three tiers: identical bytes
     (dup-exact), colliding title stems (stem-collision — bare wikilinks
@@ -392,16 +396,14 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     (triage, which may write it); otherwise from the cache file read-only if
     it exists. Either way a signature is what would have been computed.
 
-    Every text read is also left in `read` (rel -> (text, its sha256, or
-    None for a note too short to hash here)) when given, for the secrets
-    scan to reuse."""
+    The notes it reads are `_dup_notes`, which the secrets scan reuses from
+    `run` rather than reading again."""
     from brain.dedup import DUP_MIN_WORDS, SignatureCache, normalize_text
 
+    run = run or _Corpus(master, shared)
     texts: dict[str, str] = {}
-    for r in _content_files(master, shared):
-        if _dup_exempt(r):
-            continue
-        text = _read_text(master / r)
+    for r in _dup_notes(run):
+        text = run.text(r)
         if text is not None:
             texts[r] = text
     rels = list(texts)
@@ -430,7 +432,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     def declared_family(a: str, b: str) -> bool:
         return b in up_of.get(a, ()) or a in up_of.get(b, ())
 
-    readers_of = _reader_index(org, rules)
+    readers_of = run.readers_of(org, rules)
 
     def space_readers(rel: str) -> frozenset[str]:
         space = space_of_path(rel, shared)
@@ -473,11 +475,9 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     by_sha: dict[str, list[str]] = {}
     digests: dict[str, str] = {}  # also the signature cache's key (Tier 3a)
     for rel in substantive:
-        digest = hashlib.sha256(texts[rel].encode("utf-8")).hexdigest()
+        digest = run.sha(rel)
         digests[rel] = digest
         by_sha.setdefault(digest, []).append(rel)
-    if read is not None:
-        read.update({r: (t, digests.get(r)) for r, t in texts.items()})
     for _digest, group in sorted(by_sha.items()):
         for a, b in itertools.pairwise(group):
             emit(
@@ -596,6 +596,12 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     return findings
 
 
+def _dup_notes(run: _Corpus) -> list[str]:
+    """The notes the duplicates check reads: every content file but the
+    exempt ones."""
+    return [r for r in run.content_files() if not _dup_exempt(r)]
+
+
 def _is_own_digest(rel: str, parts: tuple[str, ...]) -> bool:
     """True for a person's own doctor-digest note (People/<id>/Inbox/
     doctor-digest.md). Doctor never reads its own output: the digest quotes
@@ -634,15 +640,17 @@ def _read_text(path: Path) -> str | None:
         return None
 
 
-def _check_unreadable_files(master: Path, shared: str) -> list[Finding]:
+def _check_unreadable_files(master: Path, shared: str,
+                            run: _Corpus | None = None) -> list[Finding]:
     """A note the OS won't hand over is worse than a lint problem: the
     compiler copies with shutil.copy2 and dies on the same file, so nobody's
     vault rebuilds until it's fixed. Error severity — doctor also cannot
     vouch for the file's contents, so every finding below is silent about it.
     Symlinks are skipped: `_check_symlinks` already owns them, and a dangling
     link would otherwise be reported twice."""
+    run = run or _Corpus(master, shared)
     findings: list[Finding] = []
-    for rel in _walk_content(master, shared):
+    for rel in run.walk():
         f = master / rel
         if f.is_symlink():
             continue
@@ -658,26 +666,102 @@ def _check_unreadable_files(master: Path, shared: str) -> list[Finding]:
 
 
 def _walk_content(master: Path, shared: str) -> list[str]:
-    """Every .md rel path in a resolvable space, readable or not."""
-    rels: list[str] = []
-    for f in sorted(master.rglob("*.md")):
-        parts = f.relative_to(master).parts
-        if parts[0] in RESERVED or parts[0].startswith("."):
-            continue
-        rel = f.relative_to(master).as_posix()
-        if _is_own_digest(rel, parts):
-            continue
-        if space_of_path(rel, shared) is not None:
-            rels.append(rel)
-    return rels
+    """Every .md rel path in a resolvable space, readable or not.
+
+    The same paths, in the same order, as ``sorted(master.rglob("*.md"))``
+    filtered below — any entry ending in .md (a directory too, which
+    `_check_unreadable_files` then reports), symlinked directories not
+    descended, unlistable ones skipped, paths compared component by
+    component — but walked with plain strings: on a large brain the Path
+    objects were most of the walk's cost. Reserved and hidden tops are
+    pruned rather than walked, since nothing under them is kept."""
+    root = os.fspath(master)
+    found: list[tuple[list[str], str]] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        names = [*dirnames, *filenames]
+        if dirpath == root:
+            prefix = ""
+            dirnames[:] = [d for d in dirnames
+                           if d not in RESERVED and not d.startswith(".")]
+        else:
+            prefix = dirpath[len(root) + 1:].replace(os.sep, "/") + "/"
+        for name in names:
+            if not name.endswith(".md"):
+                continue
+            rel = prefix + name
+            parts = rel.split("/")
+            if parts[0] in RESERVED or parts[0].startswith("."):
+                continue
+            if _is_own_digest(rel, tuple(parts)):
+                continue
+            if space_of_path(rel, shared) is not None:
+                found.append((parts, rel))
+    found.sort()
+    return [rel for _parts, rel in found]
 
 
-def _content_files(master: Path, shared: str) -> list[str]:
-    """All rel paths of .md files that live in a resolvable space AND can be
-    read. Unreadable files drop out here so no scan below has to think about
-    them — `_check_unreadable_files` is what reports them."""
-    return [rel for rel in _walk_content(master, shared)
-            if _unreadable(master / rel) is None]
+class _Corpus:
+    """One doctor run's view of the content tree: walked once, each note read
+    once and its facts parsed once, however many checks look at them.
+
+    `run_doctor` builds one and hands it to every content check; a check
+    called on its own builds its own, so its signature and its findings are
+    the same either way. Texts are kept for the whole run — tens of MB on a
+    ten-thousand-note brain — and are exactly what `_read_text` returns, None
+    included. Callers treat the returned lists and texts as read-only."""
+
+    def __init__(self, master: Path, shared: str) -> None:
+        self.master = master
+        self.shared = shared
+        self._walk: list[str] | None = None
+        self._content: list[str] | None = None
+        self._texts: dict[str, str | None] = {}
+        self._facts: dict[str, list[Fact]] = {}
+        self._shas: dict[str, str] = {}
+        self._readers = None
+
+    def walk(self) -> list[str]:
+        """`_walk_content`, once per run."""
+        if self._walk is None:
+            self._walk = _walk_content(self.master, self.shared)
+        return self._walk
+
+    def content_files(self) -> list[str]:
+        """All rel paths of .md files that live in a resolvable space AND can
+        be read. Unreadable files drop out here so no scan has to think about
+        them — `_check_unreadable_files` is what reports them."""
+        if self._content is None:
+            self._content = [rel for rel in self.walk()
+                             if _unreadable(self.master / rel) is None]
+        return self._content
+
+    def text(self, rel: str) -> str | None:
+        """`_read_text` of master/rel, read at most once per run."""
+        if rel not in self._texts:
+            self._texts[rel] = _read_text(self.master / rel)
+        return self._texts[rel]
+
+    def facts(self, rel: str) -> list[Fact]:
+        """`parse_facts` of a note's text, which the caller has already
+        seen is not None."""
+        if rel not in self._facts:
+            self._facts[rel] = parse_facts(self.text(rel))
+        return self._facts[rel]
+
+    def sha(self, rel: str) -> str:
+        """sha256 of a note's (non-None) text, as the dedup and secrets caches
+        key it."""
+        if rel not in self._shas:
+            self._shas[rel] = hashlib.sha256(
+                self.text(rel).encode("utf-8")).hexdigest()
+        return self._shas[rel]
+
+    def readers_of(self, org: Org, rules: tuple[SpaceRule, ...]):
+        """`_reader_index(org, rules)`, built once while they are the same."""
+        if self._readers is None or self._readers[0] is not org \
+                or self._readers[1] is not rules:
+            self._readers = (org, rules, _reader_index(org, rules))
+        return self._readers[2]
 
 
 def _resolve_target(target: str, paths: set[str], by_stem: dict[str, str]) -> str | None:
@@ -706,20 +790,21 @@ def _reader_index(org: Org, rules: tuple[SpaceRule, ...]):
 
 
 def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...],
-                            shared: str) -> list[Finding]:
+                            shared: str, run: _Corpus | None = None) -> list[Finding]:
     """A note in space S that links to a note in space T leaks T's *name* to
     everyone who can read S — even though the compiler guarantees the *file*
     never crosses. If some reader of S cannot read T, that link exposes a note
     (client, deal, person) they aren't cleared to see. Warn, not error: no file
     crossed, but a human wrote a name into the wrong space. Unlinked plain-text
     mentions are caught separately by `_check_plain_refs`."""
-    rels = _content_files(master, shared)
+    run = run or _Corpus(master, shared)
+    rels = run.content_files()
     paths = set(rels)
     by_stem: dict[str, str] = {}
     for rel in rels:
         by_stem.setdefault(_stem(rel), rel)
 
-    readers_of = _reader_index(org, rules)
+    readers_of = run.readers_of(org, rules)
     findings: list[Finding] = []
     for rel in rels:
         src_space = space_of_path(rel, shared)
@@ -731,7 +816,7 @@ def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]
         src_readers = readers_of(src_space)
         if not src_readers:
             continue
-        text = _read_text(master / rel)
+        text = run.text(rel)
         if text is None:
             continue
         flagged: set[str] = set()  # target spaces already reported for this file
@@ -777,14 +862,15 @@ def _sensitive_names(master: Path, org: Org, readers_of,
 
 
 def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...],
-                      shared: str) -> list[Finding]:
+                      shared: str, run: _Corpus | None = None) -> list[Finding]:
     """The unstructured sibling of `_check_cross_space_refs`: a restricted space's
     name written into shared prose *without* a wikilink still leaks. The compiler
     can only gate files, never redact text, so a client named in `Company/Memory`
     reaches everyone who reads Company. We scan for restricted proper-noun space
     names (whole word, case-sensitive) after stripping wikilinks (those are the
     cross-refs check's job). Heuristic by nature — hence warn, not error."""
-    readers_of = _reader_index(org, rules)
+    run = run or _Corpus(master, shared)
+    readers_of = run.readers_of(org, rules)
     sensitive = _sensitive_names(master, org, readers_of, shared)
     if not sensitive:
         return []
@@ -793,14 +879,14 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         for name in sensitive
     }
     findings: list[Finding] = []
-    for rel in _content_files(master, shared):
+    for rel in run.content_files():
         src_space = space_of_path(rel, shared)
         if src_space.startswith("People/"):
             continue  # sole reader is the owner — see _check_cross_space_refs
         src_readers = readers_of(src_space)
         if not src_readers:
             continue
-        raw = _read_text(master / rel)
+        raw = run.text(rel)
         if raw is None:
             continue
         text = _WIKILINK_STRIP.sub(" ", raw)
@@ -851,8 +937,8 @@ def _copied_files(master: Path, shared: str) -> list[str]:
     rels: list[str] = []
     for space in enumerate_spaces(master, shared):
         for rel in _iter_space_files(master, space):
-            rel = Path(rel).as_posix()
-            if not _is_own_digest(rel, Path(rel).parts):
+            rel = rel.replace(os.sep, "/")
+            if not _is_own_digest(rel, tuple(rel.split("/"))):
                 rels.append(rel)
     return rels
 
@@ -868,7 +954,7 @@ def _secret_reach(n: int) -> str:
 def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                    shared: str,
                    dedup_cache: SignatureCache | None = None,
-                   read: dict[str, tuple[str, str | None]] | None = None,
+                   run: _Corpus | None = None,
                    ) -> list[Finding]:
     """A credential pasted into a note is copied into every reader's vault
     and into git history, so it is leaked as far as the note travels. One
@@ -886,21 +972,26 @@ def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     Scans every file the compiler copies, not only notes: a `.env` or a
     config export travels to readers' vaults just the same. Binaries and
-    files over SECRETS_MAX_BYTES are skipped. `read` holds texts (and their
-    sha256 where known) another check already read this run, so no note is
-    read or hashed twice."""
+    files over SECRETS_MAX_BYTES are skipped. Given the run's `run`, the
+    notes the duplicates check reads (`_dup_notes`) come from it, text and
+    sha256 alike, so no note is read or hashed twice; everything else, and
+    everything when called alone, is read with `_read_scannable`."""
     from brain import secrets
     from brain.dedup import SignatureCache
 
-    read = read or {}
+    noted = set(_dup_notes(run)) if run is not None else set()
     texts: dict[str, str] = {}
     shas: dict[str, str] = {}
     for rel in _copied_files(master, shared):
-        text, sha = read.get(rel) or (_read_scannable(master / rel), None)
+        if rel in noted and run.text(rel) is not None:
+            texts[rel] = run.text(rel)
+            shas[rel] = run.sha(rel)
+            continue
+        text = _read_scannable(master / rel)
         if text is None:
             continue
         texts[rel] = text
-        shas[rel] = sha or hashlib.sha256(text.encode("utf-8")).hexdigest()
+        shas[rel] = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     cache = dedup_cache if dedup_cache is not None else SignatureCache.open_readonly(master)
     try:
@@ -914,7 +1005,8 @@ def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         if cache is not None and cache is not dedup_cache:
             cache.close()
 
-    readers_of = _reader_index(org, rules)
+    readers_of = (run.readers_of(org, rules) if run is not None
+                  else _reader_index(org, rules))
     findings: list[Finding] = []
     for rel, sha in shas.items():
         lines_by_kind: dict[str, list[int]] = {}
@@ -937,14 +1029,16 @@ def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     return findings
 
 
-def _check_facts(master: Path, shared: str) -> list[Finding]:
+def _check_facts(master: Path, shared: str,
+                 run: _Corpus | None = None) -> list[Finding]:
     """Warn-only lint of fact lines and entity frontmatter. A malformed line
     is simply not a fact — nothing here ever blocks a compile."""
     from brain.facts import lint_facts, parse_entity
 
+    run = run or _Corpus(master, shared)
     findings: list[Finding] = []
-    for rel in _content_files(master, shared):
-        text = _read_text(master / rel)
+    for rel in run.content_files():
+        text = run.text(rel)
         if text is None:
             continue
         meta, _body = split_frontmatter(text)
@@ -1260,7 +1354,8 @@ def _check_taxonomy(master: Path, config: VaultConfig) -> list[Finding]:
     return findings
 
 
-def _check_fact_sources(master: Path, shared: str) -> list[Finding]:
+def _check_fact_sources(master: Path, shared: str,
+                        run: _Corpus | None = None) -> list[Finding]:
     """Fact lines standing without a `[source::]`.
 
     The protocol states that a fact carries both `[from::]` and a
@@ -1273,17 +1368,19 @@ def _check_fact_sources(master: Path, shared: str) -> list[Finding]:
     """
     from brain.facts import lint_uncited_facts
 
+    run = run or _Corpus(master, shared)
     findings: list[Finding] = []
-    for rel in _content_files(master, shared):
-        text = _read_text(master / rel)
+    for rel in run.content_files():
+        text = run.text(rel)
         if text is None:
             continue
-        for line, msg in lint_uncited_facts(text):
+        for line, msg in lint_uncited_facts(text, run.facts(rel)):
             findings.append(Finding("warn", "fact-uncited", f"{rel}:{line}: {msg}"))
     return findings
 
 
-def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
+def _check_fact_conflicts(master: Path, shared: str,
+                          run: _Corpus | None = None) -> list[Finding]:
     """Two open facts about the same entity that duplicate or contradict each
     other — a double-landed ingest or a forgotten [until::]. Either way
     `brain facts` returns both lines and a reading agent gets a coin flip.
@@ -1294,7 +1391,8 @@ def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
     contains both lines."""
     from brain.facts import find_fact_conflicts, parse_entity
 
-    rels = _content_files(master, shared)
+    run = run or _Corpus(master, shared)
+    rels = run.content_files()
     paths = set(rels)
     by_stem: dict[str, str] = {}
     for rel in rels:
@@ -1303,7 +1401,7 @@ def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
     entries = []
     names: dict[str, frozenset[str]] = {}
     for rel in rels:
-        text = _read_text(master / rel)
+        text = run.text(rel)
         if text is None:
             continue
         meta, _body = split_frontmatter(text)
@@ -1312,7 +1410,7 @@ def _check_fact_conflicts(master: Path, shared: str) -> list[Finding]:
         if entity is not None:
             own |= {a.strip("\"'\u201c\u201d\u2018\u2019").casefold() for a in entity[1]}
         names[rel] = frozenset(own)
-        for fact in parse_facts(text):
+        for fact in run.facts(rel):
             keys = {(_resolve_target(t, paths, by_stem) or t.casefold())
                     for t in fact.targets}
             if entity is not None:
@@ -1553,7 +1651,8 @@ def _check_symlinks(master: Path) -> list[Finding]:
     return findings
 
 
-def _check_promotions(master: Path, shared: str) -> list[Finding]:
+def _check_promotions(master: Path, shared: str,
+                      run: _Corpus | None = None) -> list[Finding]:
     findings: list[Finding] = []
     pending_dir = _pending_dir(master)
     valid_pending = 0
@@ -1577,7 +1676,7 @@ def _check_promotions(master: Path, shared: str) -> list[Finding]:
         if f.is_symlink():
             continue
         rel = f.relative_to(master)
-        text = _read_text(f)
+        text = run.text(rel.as_posix()) if run is not None else _read_text(f)
         if text is None:
             continue
         meta, _ = split_frontmatter(text)
@@ -1798,7 +1897,8 @@ def _citation_scope(rel: str, meta: dict[str, str], shared: str) -> str | None:
 
 
 def _check_intel(master: Path, today: date | None = None,
-                 shared: str = DEFAULT_SHARED) -> list[Finding]:
+                 shared: str = DEFAULT_SHARED,
+                 run: _Corpus | None = None) -> list[Finding]:
     """The Intel wiki's conventions fail silently: an unfolded addendum
     contradicts its merged page in search results, and a page nobody feeds
     quietly goes stale behind its own citations. Warn-only — nothing leaks
@@ -1817,20 +1917,23 @@ def _check_intel(master: Path, today: date | None = None,
             f"{rel}: unfolded addendum — fold it into its page and delete "
             "it, or have the agent resubmit as a mode: patch promotion",
             paths=(rel,)))
-    return findings + _citation_findings(master, "intel", today, shared)
+    return findings + _citation_findings(master, "intel", today, shared, run)
 
 
 def _cited_pages(master: Path, scope: str | None = None,
-                 shared: str = DEFAULT_SHARED) -> list[tuple[str, str, str]]:
+                 shared: str = DEFAULT_SHARED,
+                 run: _Corpus | None = None) -> list[tuple[str, str, str]]:
     """(rel, text, source) for every page the citation rule covers — Intel
     pages (source "") and `distilled:` pages alike. The one traversal behind
     all three consumers, so `_citation_scope`'s "single source of truth" holds
     for *which pages get walked*, not just how they're judged. `scope` narrows
     it, so a caller that wants one rule doesn't pay to read the other's pages.
 
-    Intel is walked from disk rather than through `_content_files` because its
-    rule predates spaces and must hold even where one can't be resolved;
-    symlinks are skipped there because `_check_symlinks` already owns them."""
+    Intel is walked from disk rather than through the run's content files
+    because its rule predates spaces and must hold even where one can't be
+    resolved; symlinks are skipped there because `_check_symlinks` already
+    owns them."""
+    run = run or _Corpus(master, shared)
     out: list[tuple[str, str, str]] = []
     intel_prefix = _intel_dir(shared) + "/"   # built once, tested per file below
     intel = master / _intel_dir(shared)
@@ -1839,14 +1942,14 @@ def _cited_pages(master: Path, scope: str | None = None,
             rel = f.relative_to(master).as_posix()
             if f.is_symlink() or _citation_scope(rel, {}, shared) != "intel":
                 continue
-            text = _read_text(f)
+            text = run.text(rel)
             if text is not None:
                 out.append((rel, text, ""))
     if scope in (None, "distilled"):
-        for rel in _content_files(master, shared):
+        for rel in run.content_files():
             if rel.startswith(intel_prefix):
                 continue  # walked above, on Intel's own terms
-            text = _read_text(master / rel)
+            text = run.text(rel)
             if text is None:
                 continue
             meta, _body = split_frontmatter(text)
@@ -1857,7 +1960,7 @@ def _cited_pages(master: Path, scope: str | None = None,
 
 def _citation_findings(
     master: Path, scope: str, today: date | None = None,
-    shared: str = DEFAULT_SHARED,
+    shared: str = DEFAULT_SHARED, run: _Corpus | None = None,
 ) -> list[Finding]:
     """Apply one scope's citation rule. Intel and `distilled:` differ only in
     which pages they cover and how they word the complaint, so they share this
@@ -1866,7 +1969,7 @@ def _citation_findings(
     now_m = _month_index(today or date.today())
     check, uncited_msg, stale_msg = _CITATION_RULES[scope]
     findings: list[Finding] = []
-    for rel, text, source in _cited_pages(master, scope, shared):
+    for rel, text, source in _cited_pages(master, scope, shared, run):
         newest = _newest_citation(text)
         if newest is None:
             message = uncited_msg
@@ -1884,18 +1987,20 @@ def _citation_findings(
 
 
 def _check_citations(master: Path, today: date | None = None,
-                     shared: str = DEFAULT_SHARED) -> list[Finding]:
+                     shared: str = DEFAULT_SHARED,
+                     run: _Corpus | None = None) -> list[Finding]:
     """The citation rule outside the shared Intel tree. Distilled content routed to
     an entity page or `People/<pid>/Notes/` carries the same recovery risk as
     an Intel page — the full source deliberately never entered the vault, so a
     dropped detail is only recoverable by re-reading the original — but no path
     convention marks it. `distilled:` frontmatter does, and this check holds
     those pages to Intel's two rules: cite your claims, and stay fresh."""
-    return _citation_findings(master, "distilled", today, shared)
+    return _citation_findings(master, "distilled", today, shared, run)
 
 
 def _check_liveness(master: Path, today: date | None = None,
-                    shared: str = DEFAULT_SHARED) -> list[Finding]:
+                    shared: str = DEFAULT_SHARED,
+                    run: _Corpus | None = None) -> list[Finding]:
     """Opt-in (`brain doctor --net`): do the sources behind stale pages still
     resolve? `stale AND dead` is the compound signal worth acting on — it means
     re-research this now, while someone still remembers the context. Neither
@@ -1909,7 +2014,7 @@ def _check_liveness(master: Path, today: date | None = None,
 
     now_m = _month_index(today or date.today())
     stale: list[tuple[str, int, list[str]]] = []
-    for rel, text, _source in _cited_pages(master, shared=shared):
+    for rel, text, _source in _cited_pages(master, shared=shared, run=run):
         newest = _newest_citation(text)
         if newest is None or now_m - newest <= STALE_MONTHS:
             continue
@@ -2058,16 +2163,16 @@ def run_doctor(
     findings += _check_unreadable_spaces(master, org, rules, shared)
     # Before the content scans: they all skip what they can't read, so this is
     # what explains a suspiciously quiet report.
-    findings += _check_unreadable_files(master, shared)
+    # The content checks share one walk of the tree and one read of each note.
+    run = _Corpus(master, shared)
+    findings += _check_unreadable_files(master, shared, run)
     findings += _check_orphan_files(master, shared)
-    findings += _check_unlinked_notes(master, shared)
-    # (text, sha256) of what the duplicates check read, for the secrets scan
-    read: dict[str, tuple[str, str | None]] = {}
-    findings += _check_duplicates(master, org, rules, shared, dedup_cache, read)
-    findings += _check_secrets(master, org, rules, shared, dedup_cache, read)
-    findings += _check_cross_space_refs(master, org, rules, shared)
-    findings += _check_plain_refs(master, org, rules, shared)
-    findings += _check_facts(master, shared)
+    findings += _check_unlinked_notes(master, shared, run)
+    findings += _check_duplicates(master, org, rules, shared, dedup_cache, run)
+    findings += _check_secrets(master, org, rules, shared, dedup_cache, run)
+    findings += _check_cross_space_refs(master, org, rules, shared, run)
+    findings += _check_plain_refs(master, org, rules, shared, run)
+    findings += _check_facts(master, shared, run)
     if config_ok:
         findings += _check_protocol(master, config)
         renders = _render_protocols(master, org, rules, config)
@@ -2075,21 +2180,21 @@ def run_doctor(
         findings += _check_protocol_blocked(master, config, renders)
         findings += _check_charter(config)
         findings += _check_taxonomy(master, config)
-    findings += _check_fact_sources(master, shared)
-    findings += _check_fact_conflicts(master, shared)
+    findings += _check_fact_sources(master, shared, run)
+    findings += _check_fact_conflicts(master, shared, run)
     findings += _check_corrections(master)
     findings += _check_held_edits(master, org)
     findings += _check_generated_copies(master)
     findings += _check_symlinks(master)
-    findings += _check_promotions(master, shared)
+    findings += _check_promotions(master, shared, run)
     findings += _check_created_clients(master, config)
     findings += _check_pending_shares(master)
     findings += _check_delegated_decisions(master)
-    findings += _check_intel(master, shared=shared)
-    findings += _check_citations(master, shared=shared)
+    findings += _check_intel(master, shared=shared, run=run)
+    findings += _check_citations(master, shared=shared, run=run)
     findings += _check_webhook(master, org)
     if out_root is not None:
         findings += _check_compiled(master, org, out_root)
     if net:
-        findings += _check_liveness(master, shared=shared)
+        findings += _check_liveness(master, shared=shared, run=run)
     return findings

@@ -11,6 +11,12 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **`brain doctor` reads each note once per run.** It used to walk the brain
+  and re-read every note for each of its checks; now it walks once and shares
+  what it read, so it runs faster on large brains. The findings are the same.
+
 ## [0.7.13] - 2026-10-02
 
 ### Added
