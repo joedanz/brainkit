@@ -14,6 +14,8 @@ import json
 import os
 import posixpath
 import re
+import sqlite3
+import struct
 import time
 from dataclasses import dataclass
 from datetime import date
@@ -323,18 +325,19 @@ def _dup_near_message(severity: str, members: tuple[str, ...], signal: str) -> s
             f"content{where}: {listed} — promotion candidate")
 
 
-def _cached_file_vectors(
+def _cached_chunk_blobs(
     master: Path, rels: list[str], texts: dict[str, str], shared: str,
-) -> dict[str, list[float]]:
-    """File-level mean-pooled vectors, resolved from the master's embedding
-    cache (the one brain cycle writes; see cache_path_to_read) ONLY — the
-    provider is never called (its constructor does no I/O and is used
-    purely to learn the configured model name). A file with any chunk
-    missing from the cache is dropped from this signal; any cache failure
-    degrades to no signal at all. brain cycle's indexing keeps the cache
-    warm, so in a live deployment coverage is near-total."""
+) -> dict[str, list[bytes]]:
+    """Each note's chunk vectors, in chunk order, as the bytes the master's
+    embedding cache holds (the one brain cycle writes; see
+    cache_path_to_read) ONLY — the provider is never called (its constructor
+    does no I/O and is used purely to learn the configured model name). A
+    file with any chunk missing from the cache is dropped from this signal;
+    any cache failure degrades to no signal at all. brain cycle's indexing
+    keeps the cache warm, so in a live deployment coverage is near-total.
+    Pooling them into one vector per note is dedup.semantic_pairs' job, and
+    only for the notes it has to compare."""
     from brain.chunker import chunk_markdown, embedding_input
-    from brain.dedup import mean_pool, unpack_vector
     from brain.embeddings import EmbeddingCache, cache_path_to_read, provider_from_config
 
     provider = provider_from_config()
@@ -343,7 +346,7 @@ def _cached_file_vectors(
     cache_path = cache_path_to_read(master)
     if not cache_path.exists():
         return {}
-    out: dict[str, list[float]] = {}
+    out: dict[str, list[bytes]] = {}
     try:
         cache = EmbeddingCache(cache_path, readonly=True)
     except Exception:
@@ -362,7 +365,7 @@ def _cached_file_vectors(
         found = cache.get_many(union, provider.model)
         for rel, shas in per_note.items():
             if all(s in found for s in shas):
-                out[rel] = mean_pool([unpack_vector(found[s]) for s in shas])
+                out[rel] = [found[s] for s in shas]
     except Exception:
         return {}
     finally:
@@ -394,7 +397,10 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     MinHash signatures come from `dedup_cache` when the caller passes one
     (triage, which may write it); otherwise from the cache file read-only if
-    it exists. Either way a signature is what would have been computed.
+    it exists. Either way a signature is what would have been computed. The
+    semantic tier's pairs come from the same cache under the same rules (see
+    dedup.semantic_pairs), so a warm run compares only new and changed
+    notes and still reports what comparing every pair would.
 
     The notes it reads are `_dup_notes`, which the secrets scan reuses from
     `run` rather than reading again."""
@@ -529,22 +535,38 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     # Tier 3a: lexical near-duplicates. LSH banding keeps the candidate set
     # near-linear; the signature estimate is the accept test.
     from brain.dedup import (
-        DUP_COSINE,
-        DUP_HAMMING_FRAC,
         DUP_JACCARD,
         band_keys,
         clusters,
-        cosine_with_norms,
-        hamming,
         jaccard_estimate,
-        norm,
-        sign_bits,
+        semantic_pairs,
         signatures,
+        vector_key,
     )
 
+    # Tier 3b's vectors, keyed by their bytes: notes with the same chunk
+    # vectors share one key, and one comparison.
+    blobs = _cached_chunk_blobs(master, substantive, texts, shared)
+    rels_of: dict[str, list[str]] = {}
+    for rel, b in blobs.items():
+        rels_of.setdefault(vector_key(b), []).append(rel)
     cache = dedup_cache if dedup_cache is not None else SignatureCache.open_readonly(master)
     try:
         sigs = signatures({rel: (digests[rel], words[rel]) for rel in substantive}, cache)
+        # Only the semantic tier reads embedding bytes, so only it can meet
+        # an unreadable vector; the narrow except keeps other bugs loud.
+        try:
+            semantic = semantic_pairs(
+                {key: blobs[rels[0]] for key, rels in rels_of.items()}, cache)
+        except (struct.error, sqlite3.Error, OSError) as e:
+            # A vector that cannot be read: no semantic signal, as before,
+            # but said out loud. Anything else (mixed dimensions raise
+            # ValueError in the cosine) is a bug to see, not a quiet tier.
+            semantic = set()
+            findings.append(Finding(
+                "warn", "dup-semantic",
+                f"semantic near-duplicate check skipped: a cached embedding "
+                f"could not be read ({e}) — the embedding cache may be damaged"))
     finally:
         if cache is not None and cache is not dedup_cache:
             cache.close()
@@ -564,25 +586,15 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         if jaccard_estimate(sigs[a], sigs[b]) >= DUP_JACCARD:
             near(a, b, "text overlap")
 
-    # Tier 3b: semantic near-duplicates from cached embeddings. Sign-bit
-    # hamming prefilters the O(n^2) pair loop; exact cosine confirms, with
-    # each vector's norm computed once rather than once per pair.
-    vecs = _cached_file_vectors(master, substantive, texts, shared)
-    bits = {rel: sign_bits(v) for rel, v in vecs.items()}
-    norms = {rel: norm(v) for rel, v in vecs.items()}
-    dim = len(next(iter(vecs.values()))) if vecs else 0
-    max_ham = int(dim * DUP_HAMMING_FRAC)
-    ordered = sorted(vecs)
-    for i, a in enumerate(ordered):
-        for b in ordered[i + 1:]:
-            # The prefilter first: nearly every pair fails it, and it is
-            # cheaper than building the pair to look up in `flagged`.
-            if hamming(bits[a], bits[b]) > max_ham:
-                continue
-            if frozenset((a, b)) in flagged:
-                continue
-            if cosine_with_norms(vecs[a], vecs[b], norms[a], norms[b]) >= DUP_COSINE:
-                near(a, b, "semantic similarity")
+    # Tier 3b: semantic near-duplicates from cached embeddings, computed
+    # above as pairs of vector keys; here each becomes its pairs of notes,
+    # visited in the order the all-pairs loop over sorted notes visited them.
+    semantic_rels = {(min(a, b), max(a, b))
+                     for ka, kb in semantic
+                     for a in rels_of[ka] for b in rels_of[kb] if a != b}
+    for a, b in sorted(semantic_rels):
+        if frozenset((a, b)) not in flagged:
+            near(a, b, "semantic similarity")
 
     for severity, edges in near_edges.items():
         for members in clusters(edges):

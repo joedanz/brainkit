@@ -11,6 +11,16 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Changed
+
+- **`brain doctor` finds similar notes much faster on large brains.** When an
+  embedding provider is set up, doctor compares notes by meaning, and it used
+  to compare every note with every other note on every run. Now the cycle
+  remembers those results in `_meta/cache/dedup.db`, so the next run only
+  compares notes that are new or changed. The findings are the same. If a
+  saved embedding cannot be read, doctor now says so with a `dup-semantic`
+  warning instead of quietly skipping the comparison.
+
 ## [0.7.14] - 2026-10-02
 
 ### Changed
