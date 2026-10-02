@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.14] - 2026-10-02
+
 ### Changed
 
 - **`brain doctor` reads each note once per run.** It used to walk the brain
