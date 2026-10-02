@@ -369,7 +369,8 @@ def _cached_file_vectors(
 def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                       shared: str,
                       dedup_cache: SignatureCache | None = None,
-                      read: dict[str, str] | None = None) -> list[Finding]:
+                      read: dict[str, tuple[str, str | None]] | None = None,
+                      ) -> list[Finding]:
     """Duplicate and near-duplicate notes, in three tiers: identical bytes
     (dup-exact), colliding title stems (stem-collision — bare wikilinks
     resolve by stem, first match wins), and near-duplicate content
@@ -391,8 +392,9 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     (triage, which may write it); otherwise from the cache file read-only if
     it exists. Either way a signature is what would have been computed.
 
-    Every text read is also left in `read` (rel -> text) when given, for
-    the secrets scan to reuse."""
+    Every text read is also left in `read` (rel -> (text, its sha256, or
+    None for a note too short to hash here)) when given, for the secrets
+    scan to reuse."""
     from brain.dedup import DUP_MIN_WORDS, SignatureCache, normalize_text
 
     texts: dict[str, str] = {}
@@ -402,8 +404,6 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         text = _read_text(master / r)
         if text is not None:
             texts[r] = text
-    if read is not None:
-        read.update(texts)
     rels = list(texts)
     words = {r: normalize_text(texts[r]) for r in rels}
     substantive = [r for r in rels if len(words[r]) >= DUP_MIN_WORDS]
@@ -476,6 +476,8 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         digest = hashlib.sha256(texts[rel].encode("utf-8")).hexdigest()
         digests[rel] = digest
         by_sha.setdefault(digest, []).append(rel)
+    if read is not None:
+        read.update({r: (t, digests.get(r)) for r, t in texts.items()})
     for _digest, group in sorted(by_sha.items()):
         for a, b in itertools.pairwise(group):
             emit(
@@ -866,7 +868,8 @@ def _secret_reach(n: int) -> str:
 def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                    shared: str,
                    dedup_cache: SignatureCache | None = None,
-                   read: dict[str, str] | None = None) -> list[Finding]:
+                   read: dict[str, tuple[str, str | None]] | None = None,
+                   ) -> list[Finding]:
     """A credential pasted into a note is copied into every reader's vault
     and into git history, so it is leaked as far as the note travels. One
     error per (note, kind), naming the lines and how many people can read
@@ -883,18 +886,21 @@ def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     Scans every file the compiler copies, not only notes: a `.env` or a
     config export travels to readers' vaults just the same. Binaries and
-    files over SECRETS_MAX_BYTES are skipped. `read` holds texts another
-    check already read this run (rel -> text), so no note is read twice."""
+    files over SECRETS_MAX_BYTES are skipped. `read` holds texts (and their
+    sha256 where known) another check already read this run, so no note is
+    read or hashed twice."""
     from brain import secrets
     from brain.dedup import SignatureCache
 
     read = read or {}
     texts: dict[str, str] = {}
+    shas: dict[str, str] = {}
     for rel in _copied_files(master, shared):
-        text = read[rel] if rel in read else _read_scannable(master / rel)
-        if text is not None:
-            texts[rel] = text
-    shas = {rel: hashlib.sha256(t.encode("utf-8")).hexdigest() for rel, t in texts.items()}
+        text, sha = read.get(rel) or (_read_scannable(master / rel), None)
+        if text is None:
+            continue
+        texts[rel] = text
+        shas[rel] = sha or hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     cache = dedup_cache if dedup_cache is not None else SignatureCache.open_readonly(master)
     try:
@@ -2055,7 +2061,8 @@ def run_doctor(
     findings += _check_unreadable_files(master, shared)
     findings += _check_orphan_files(master, shared)
     findings += _check_unlinked_notes(master, shared)
-    read: dict[str, str] = {}  # texts the duplicates check read, for the secrets scan
+    # (text, sha256) of what the duplicates check read, for the secrets scan
+    read: dict[str, tuple[str, str | None]] = {}
     findings += _check_duplicates(master, org, rules, shared, dedup_cache, read)
     findings += _check_secrets(master, org, rules, shared, dedup_cache, read)
     findings += _check_cross_space_refs(master, org, rules, shared)

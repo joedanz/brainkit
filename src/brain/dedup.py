@@ -223,27 +223,35 @@ class SignatureCache:
         if self._asked is None:
             self._asked = set()
         self._asked.update(shas)
-        out: dict[str, tuple[int, ...]] = {}
         size = 8 * len(_PERMS)
+        return {
+            sha: struct.unpack(f"<{len(_PERMS)}Q", blob)
+            for sha, blob in self._select("signatures", "sig", self.version, shas)
+            if len(blob) == size}
+
+    def _select(self, table: str, column: str, version: str,
+                shas: list[str]) -> list[tuple[str, object]]:
+        """(sha, value) rows of `table` at `version` for `shas`, in batches
+        under SQLite's variable limit. Never raises: a failed read returns
+        the rows read so far, and a damaged file (writer only) returns none
+        and is marked for save() to rebuild — every value is then computed
+        and put(), so the file can be rebuilt from this run alone."""
+        rows: list[tuple[str, object]] = []
         try:
-            for i in range(0, len(shas), 500):  # under SQLite's variable limit
+            for i in range(0, len(shas), 500):
                 batch = shas[i:i + 500]
-                rows = self._conn.execute(
-                    "SELECT sha, sig FROM signatures WHERE version = ? AND sha IN "
+                rows += self._conn.execute(
+                    f"SELECT sha, {column} FROM {table} WHERE version = ? AND sha IN "
                     f"({','.join('?' * len(batch))})",
-                    (self.version, *batch),
+                    (version, *batch),
                 ).fetchall()
-                for sha, blob in rows:
-                    if len(blob) == size:
-                        out[sha] = struct.unpack(f"<{len(_PERMS)}Q", blob)
         except sqlite3.Error as e:
             if self.writable and sqlite_util.is_damaged(e):
-                # Every signature is then computed and put(), so save() can
-                # rebuild the file from this run alone.
+                if not self._read_damaged:  # one warning per run
+                    self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
                 self._read_damaged = True
-                self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
-                return {}
-        return out
+                return []
+        return rows
 
     def put(self, sha: str, sig: tuple[int, ...]) -> None:
         if self.writable:
@@ -259,26 +267,11 @@ class SignatureCache:
             self._scans_asked = set()
         self._scans_asked.update(shas)
         out: dict[str, list[Hit]] = {}
-        try:
-            for i in range(0, len(shas), 500):
-                batch = shas[i:i + 500]
-                rows = self._conn.execute(
-                    "SELECT sha, hits FROM secret_scans WHERE version = ? AND sha IN "
-                    f"({','.join('?' * len(batch))})",
-                    (self.scan_version, *batch),
-                ).fetchall()
-                for sha, raw in rows:
-                    try:
-                        out[sha] = [Hit(k, int(n)) for k, n in json.loads(raw)
-                                    if k in KINDS]
-                    except (ValueError, TypeError):
-                        continue
-        except sqlite3.Error as e:
-            if self.writable and sqlite_util.is_damaged(e):
-                if not self._read_damaged:  # get_many may have said so already
-                    self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
-                self._read_damaged = True
-                return {}
+        for sha, raw in self._select("secret_scans", "hits", self.scan_version, shas):
+            try:
+                out[sha] = [Hit(k, int(n)) for k, n in json.loads(raw) if k in KINDS]
+            except (ValueError, TypeError):
+                continue
         return out
 
     def put_scan(self, sha: str, hits: list[Hit]) -> None:

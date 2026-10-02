@@ -9,7 +9,7 @@ import dataclasses
 
 import pytest
 
-from brain.secrets import Hit, scan_text, scanner_version
+from brain.secrets import KINDS, Hit, scan_text, scanner_version
 
 A = "a" * 36
 UPPER16 = "ABCDEFGHIJKLMNOP"
@@ -31,7 +31,7 @@ CAUGHT = {
     "Slack webhook URL": "https://hooks." + "slack.com/services/"
                          + "T0" + "ABCDEFG" + "/B0" + "ABCDEFG" + "/" + "e" * 24,
     "Stripe live key": "sk" + "_live_" + "f" * 24,
-    "Stripe restricted key": "rk" + "_live_" + "f" * 30,
+    "Stripe live key (restricted)": "rk" + "_live_" + "f" * 30,
     "OpenAI API key": "sk" + "-proj-" + "g" * 48,
     "Anthropic API key": "sk" + "-ant-" + "api03-" + "h" * 80,
     "Google API key": "AI" + "za" + "i" * 35,
@@ -51,27 +51,10 @@ CAUGHT = {
     "password in a URL (nested in a placeholder password)": "https://" + "app:${X}" + NESTED,
 }
 
-KIND = {
-    "private key": "private key",
-    "AWS access key id": "AWS access key id",
-    "GitHub token": "GitHub token",
-    "Slack token": "Slack token",
-    "Slack webhook URL": "Slack webhook URL",
-    "Stripe": "Stripe live key",
-    "OpenAI API key": "OpenAI API key",
-    "Anthropic API key": "Anthropic API key",
-    "Google API key": "Google API key",
-    "password in a URL": "password in a URL",
-}
-
-
 def _expected_kind(label: str) -> str:
-    if label.startswith("AWS"):
-        return "AWS access key id"
-    for prefix, kind in KIND.items():
-        if label.startswith(prefix):
-            return kind
-    raise AssertionError(label)
+    """Each CAUGHT label starts with the kind it must be reported as."""
+    [kind] = [k for k in KINDS if label.startswith(k)]
+    return kind
 
 
 @pytest.mark.parametrize("label", sorted(CAUGHT))
@@ -163,16 +146,23 @@ def test_scanner_version_is_stable_and_short():
     "a://h.io:1/" * 40_000 + "@x " + "b://localhost:9/" * 40_000 + "@y",
 ], ids=lambda t: f"{t[:12]!r}x{len(t)}")
 def test_pathological_text_scans_in_linear_time(text):
-    """An unbounded URL scheme once made "a.a.a…" quadratic: 45 s for 400 KB."""
+    """An unbounded URL scheme once made "a.a.a…" quadratic: 45 s for 400 KB.
+
+    Measured against plain text of the same length on the same machine, not
+    a fixed wall-clock limit, so a busy test box can't fail it while a
+    quadratic pattern (hundreds of times slower) still does."""
     import time
 
-    start = time.perf_counter()
+    def timed(s: str) -> float:
+        start = time.perf_counter()
+        scan_text(s)
+        return time.perf_counter() - start
+
     assert scan_text(text) == []
-    assert time.perf_counter() - start < 2
+    baseline = timed("b" * len(text))
+    assert timed(text) < 50 * baseline + 1
 
 
 def test_every_reported_kind_is_a_known_label():
-    from brain.secrets import KINDS
-
     text = "\n".join(CAUGHT.values())
     assert {h.kind for h in scan_text(text)} == KINDS
