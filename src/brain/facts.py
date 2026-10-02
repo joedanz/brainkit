@@ -122,7 +122,8 @@ def parse_facts(text: str) -> list[Fact]:
     return facts
 
 
-def lint_uncited_facts(text: str) -> list[tuple[int, str]]:
+def lint_uncited_facts(text: str, facts: list[Fact] | None = None,
+                       ) -> list[tuple[int, str]]:
     """Well-formed facts carrying no ``[source::]``.
 
     Kept apart from `lint_facts` because the two say different things. There,
@@ -132,10 +133,12 @@ def lint_uncited_facts(text: str) -> list[tuple[int, str]]:
     "unattributable" under one message and make neither countable.
 
     Only lines `parse_facts` accepts are considered, so a malformed date is
-    reported once, by `lint_facts`, rather than twice by both.
+    reported once, by `lint_facts`, rather than twice by both. `facts`, when
+    given, is `parse_facts(text)` already parsed by the caller.
     """
-    return [(f.line, "fact has no [source::]")
-            for f in parse_facts(text) if not f.sources]
+    if facts is None:
+        facts = parse_facts(text)
+    return [(f.line, "fact has no [source::]") for f in facts if not f.sources]
 
 
 def lint_facts(text: str) -> list[tuple[int, str]]:
