@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.13] - 2026-10-02
+
 ### Added
 
 - **`brain doctor` finds credentials pasted into notes.** The new `secrets`
