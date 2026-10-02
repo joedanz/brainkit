@@ -979,6 +979,9 @@ def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     from brain import secrets
     from brain.dedup import SignatureCache
 
+    # Reuse cached text only for the notes the duplicate check reads; every
+    # other copied file (Sessions notes, non-.md files) is read raw here so
+    # line numbers match the file on disk, exactly as before the run cache.
     noted = set(_dup_notes(run)) if run is not None else set()
     texts: dict[str, str] = {}
     shas: dict[str, str] = {}
