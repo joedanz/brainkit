@@ -553,13 +553,15 @@ def near_version(max_ham: int) -> str:
 
 
 def semantic_pairs(
-    notes: dict[str, list[bytes]], first: str, cache: SignatureCache | None = None,
+    notes: dict[str, list[bytes]], cache: SignatureCache | None = None,
 ) -> set[tuple[str, str]]:
     """Every (a, b), a <= b, of vector keys whose pooled vectors pass the
     sign-bit prefilter and reach DUP_COSINE; (a, a) when a note's vector is
     near itself, which matters when several notes share one key. `notes`
-    maps vector_key -> the note's chunk vector blobs; `first` is the key
-    whose dimension sets the prefilter margin.
+    maps vector_key -> the note's chunk vector blobs. The prefilter margin
+    comes from the dimension of the smallest key's vector: every note has
+    the same dimension under one model, so any choice gives the same margin,
+    and this one does not depend on the order notes arrive in.
 
     The answer is the all-pairs one, but only new keys are compared. A key
     with a remembered row was compared against every key present when its
@@ -596,7 +598,7 @@ def semantic_pairs(
             if cache is not None:
                 cache.put_vector_bits(k, *hit)
         dims[k], bits[k] = hit
-    max_ham = int(dims[first] * DUP_HAMMING_FRAC)
+    max_ham = int(dims[keys[0]] * DUP_HAMMING_FRAC)
 
     known = cache.get_near(keys, max_ham) if cache is not None else {}
     full = {k[:PARTNER_HEX]: k for k in keys}

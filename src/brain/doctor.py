@@ -547,17 +547,17 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     # Tier 3b's vectors, keyed by their bytes: notes with the same chunk
     # vectors share one key, and one comparison.
     blobs = _cached_chunk_blobs(master, substantive, texts, shared)
-    key_of = {rel: vector_key(b) for rel, b in blobs.items()}
     rels_of: dict[str, list[str]] = {}
-    for rel, key in key_of.items():
-        rels_of.setdefault(key, []).append(rel)
+    for rel, b in blobs.items():
+        rels_of.setdefault(vector_key(b), []).append(rel)
     cache = dedup_cache if dedup_cache is not None else SignatureCache.open_readonly(master)
     try:
         sigs = signatures({rel: (digests[rel], words[rel]) for rel in substantive}, cache)
+        # Only the semantic tier reads embedding bytes, so only it can meet
+        # an unreadable vector; the narrow except keeps other bugs loud.
         try:
             semantic = semantic_pairs(
-                {key: blobs[rels[0]] for key, rels in rels_of.items()},
-                key_of[next(iter(blobs))] if blobs else "", cache)
+                {key: blobs[rels[0]] for key, rels in rels_of.items()}, cache)
         except (struct.error, sqlite3.Error, OSError) as e:
             # A vector that cannot be read: no semantic signal, as before,
             # but said out loud. Anything else (mixed dimensions raise
@@ -589,15 +589,9 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     # Tier 3b: semantic near-duplicates from cached embeddings, computed
     # above as pairs of vector keys; here each becomes its pairs of notes,
     # visited in the order the all-pairs loop over sorted notes visited them.
-    semantic_rels: list[tuple[str, str]] = []
-    for ka, kb in semantic:
-        if ka == kb:
-            group = rels_of[ka]
-            semantic_rels += [(min(a, b), max(a, b))
-                              for i, a in enumerate(group) for b in group[i + 1:]]
-        else:
-            semantic_rels += [(min(a, b), max(a, b))
-                              for a in rels_of[ka] for b in rels_of[kb]]
+    semantic_rels = {(min(a, b), max(a, b))
+                     for ka, kb in semantic
+                     for a in rels_of[ka] for b in rels_of[kb] if a != b}
     for a, b in sorted(semantic_rels):
         if frozenset((a, b)) not in flagged:
             near(a, b, "semantic similarity")

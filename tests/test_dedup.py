@@ -209,7 +209,7 @@ def _blob(vec):
     return struct.pack(f"<{len(vec)}f", *vec)
 
 
-def _all_pairs(notes, first):
+def _all_pairs(notes):
     """The semantic tier as it was before anything was remembered: every pair
     of pooled vectors, prefilter then cosine."""
     from brain.dedup import (
@@ -223,7 +223,7 @@ def _all_pairs(notes, first):
     )
 
     vecs = {k: mean_pool([unpack_vector(b) for b in bs]) for k, bs in notes.items()}
-    max_ham = int(len(vecs[first]) * DUP_HAMMING_FRAC)
+    max_ham = int(len(vecs[min(vecs)]) * DUP_HAMMING_FRAC)
     keys = sorted(vecs)
     return {(a, b) for i, a in enumerate(keys) for b in keys[i:]
             if hamming(sign_bits(vecs[a]), sign_bits(vecs[b])) <= max_ham
@@ -256,18 +256,17 @@ def test_remembered_pairs_always_equal_the_all_pairs_answer(tmp_path):
             db = tmp_path / "_meta/cache/dedup.db"
             db.write_bytes(b"this is not a database" * 64)
         notes = {vector_key(pool[i]): pool[i] for i in present}
-        first = vector_key(pool[min(present)])
-        expected = _all_pairs(notes, first)
+        expected = _all_pairs(notes)
         assert expected and any(a != b for a, b in expected)
-        assert semantic_pairs(notes, first) == expected
+        assert semantic_pairs(notes) == expected
         cache = SignatureCache.open_writable(tmp_path)
-        assert semantic_pairs(notes, first, cache) == expected
+        assert semantic_pairs(notes, cache) == expected
         if step in (5, 13):  # a good read, then a write that finds damage
             _fail_first_write(cache)
         cache.save()
         cache.close()
         ro = SignatureCache.open_readonly(tmp_path)
-        assert semantic_pairs(notes, first, ro) == expected
+        assert semantic_pairs(notes, ro) == expected
         ro.close()
 
 
@@ -381,7 +380,7 @@ def test_partner_keys_are_stored_short_and_a_shared_prefix_recomputes(tmp_path):
     v = _blob([1.0, 2.0, -1.0, 0.5])
     notes = {"a" * 64: [v], "b" * 64: [v]}
     cache = SignatureCache.open_writable(tmp_path)
-    assert semantic_pairs(notes, "a" * 64, cache) == {
+    assert semantic_pairs(notes, cache) == {
         ("a" * 64, "a" * 64), ("a" * 64, "b" * 64), ("b" * 64, "b" * 64)}
     cache.save()
     cache.close()
@@ -395,7 +394,7 @@ def test_partner_keys_are_stored_short_and_a_shared_prefix_recomputes(tmp_path):
     twin = "a" * PARTNER_HEX + "c" * (64 - PARTNER_HEX)
     notes = {"a" * 64: [v], twin: [far]}
     cache = SignatureCache.open_writable(tmp_path)
-    assert semantic_pairs(notes, "a" * 64, cache) == {
+    assert semantic_pairs(notes, cache) == {
         ("a" * 64, "a" * 64), (twin, twin)}
     cache.save()
     cache.close()
