@@ -368,7 +368,9 @@ def _cached_file_vectors(
 
 def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                       shared: str,
-                      dedup_cache: SignatureCache | None = None) -> list[Finding]:
+                      dedup_cache: SignatureCache | None = None,
+                      read: dict[str, tuple[str, str | None]] | None = None,
+                      ) -> list[Finding]:
     """Duplicate and near-duplicate notes, in three tiers: identical bytes
     (dup-exact), colliding title stems (stem-collision — bare wikilinks
     resolve by stem, first match wins), and near-duplicate content
@@ -388,7 +390,11 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
 
     MinHash signatures come from `dedup_cache` when the caller passes one
     (triage, which may write it); otherwise from the cache file read-only if
-    it exists. Either way a signature is what would have been computed."""
+    it exists. Either way a signature is what would have been computed.
+
+    Every text read is also left in `read` (rel -> (text, its sha256, or
+    None for a note too short to hash here)) when given, for the secrets
+    scan to reuse."""
     from brain.dedup import DUP_MIN_WORDS, SignatureCache, normalize_text
 
     texts: dict[str, str] = {}
@@ -470,6 +476,8 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         digest = hashlib.sha256(texts[rel].encode("utf-8")).hexdigest()
         digests[rel] = digest
         by_sha.setdefault(digest, []).append(rel)
+    if read is not None:
+        read.update({r: (t, digests.get(r)) for r, t in texts.items()})
     for _digest, group in sorted(by_sha.items()):
         for a, b in itertools.pairwise(group):
             emit(
@@ -810,6 +818,122 @@ def _check_plain_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                     f"{rel} mentions {name!r} ({home_space}) in prose, but "
                     f"{len(leaked)} reader(s) of {src_space!r} cannot see that "
                     f"space: {', '.join(sorted(leaked))}"))
+    return findings
+
+
+# Files over this size are not scanned for secrets: an export or a log,
+# not somewhere a key is pasted by hand, and the scan's cost grows with it.
+SECRETS_MAX_BYTES = 2 * 1024 * 1024
+_BINARY_SNIFF = 8192
+
+
+def _read_scannable(path: Path) -> str | None:
+    """A copied file's text for the secrets scan, or None for one that is
+    too big, binary (a NUL byte early on) or unreadable."""
+    try:
+        if path.stat().st_size > SECRETS_MAX_BYTES:
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if b"\0" in data[:_BINARY_SNIFF]:
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
+def _copied_files(master: Path, shared: str) -> list[str]:
+    """Every file the compiler copies out of a space (compiler.
+    _iter_space_files: any kind of file, symlinks and server-only names
+    skipped), whether or not anyone can read the space yet — it is in the
+    master's git history either way. Doctor's own digest is left out."""
+    from brain.compiler import _iter_space_files
+
+    rels: list[str] = []
+    for space in enumerate_spaces(master, shared):
+        for rel in _iter_space_files(master, space):
+            rel = Path(rel).as_posix()
+            if not _is_own_digest(rel, Path(rel).parts):
+                rels.append(rel)
+    return rels
+
+
+def _secret_reach(n: int) -> str:
+    if n == 0:
+        return "readable by no one yet"
+    if n == 1:
+        return "readable by 1 person"
+    return f"readable by {n} people — treat it as leaked"
+
+
+def _check_secrets(master: Path, org: Org, rules: tuple[SpaceRule, ...],
+                   shared: str,
+                   dedup_cache: SignatureCache | None = None,
+                   read: dict[str, tuple[str, str | None]] | None = None,
+                   ) -> list[Finding]:
+    """A credential pasted into a note is copied into every reader's vault
+    and into git history, so it is leaked as far as the note travels. One
+    error per (note, kind), naming the lines and how many people can read
+    the note: the more readers, the more urgent. Admin-only
+    (triage.ADMIN_CHECKS) — rotating a key is an admin's job, and a note's
+    owner who pasted it will hear from them.
+
+    The message never carries any part of the value: `scan_text` never
+    returns it, so nothing downstream (digest, JSON, cache) can copy it.
+
+    Scan results are remembered per note text in the same cache file as the
+    dedup signatures, under the same rules: `dedup_cache` when triage passes
+    one (writable), otherwise the file read-only if it exists.
+
+    Scans every file the compiler copies, not only notes: a `.env` or a
+    config export travels to readers' vaults just the same. Binaries and
+    files over SECRETS_MAX_BYTES are skipped. `read` holds texts (and their
+    sha256 where known) another check already read this run, so no note is
+    read or hashed twice."""
+    from brain import secrets
+    from brain.dedup import SignatureCache
+
+    read = read or {}
+    texts: dict[str, str] = {}
+    shas: dict[str, str] = {}
+    for rel in _copied_files(master, shared):
+        text, sha = read.get(rel) or (_read_scannable(master / rel), None)
+        if text is None:
+            continue
+        texts[rel] = text
+        shas[rel] = sha or hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    cache = dedup_cache if dedup_cache is not None else SignatureCache.open_readonly(master)
+    try:
+        known = cache.get_scans(sorted(set(shas.values()))) if cache is not None else {}
+        for rel, sha in shas.items():
+            if sha not in known:
+                known[sha] = secrets.scan_text(texts[rel])
+                if cache is not None:
+                    cache.put_scan(sha, known[sha])
+    finally:
+        if cache is not None and cache is not dedup_cache:
+            cache.close()
+
+    readers_of = _reader_index(org, rules)
+    findings: list[Finding] = []
+    for rel, sha in shas.items():
+        lines_by_kind: dict[str, list[int]] = {}
+        for hit in known[sha]:
+            lines_by_kind.setdefault(hit.kind, []).append(hit.line)
+        if not lines_by_kind:
+            continue
+        space = space_of_path(rel, shared)
+        reach = _secret_reach(len(readers_of(space)) if space else 0)
+        for kind, lines in sorted(lines_by_kind.items()):
+            where = (f"line {lines[0]}" if len(lines) == 1
+                     else f"lines {', '.join(map(str, lines))}")
+            findings.append(Finding(
+                "error", "secrets",
+                f"{rel}: {kind} on {where}, {reach}. Rotate it with whoever "
+                "issued it, then remove it from the note: deleting the line "
+                "alone does not remove it from git history or from vaults "
+                "already synced",
+                paths=(rel,)))
     return findings
 
 
@@ -1910,7 +2034,8 @@ def run_doctor(
     parameter exists.
 
     `dedup_cache` is the one exception to read-only, and it is the caller's:
-    triage opens the MinHash signature cache writable and passes it in, and
+    triage opens the MinHash signature cache (which also remembers secrets
+    scans) writable and passes it in, and
     saves it afterwards. Without it, doctor reads that cache if it exists and
     never creates or writes it — standalone `brain doctor` and the dashboard
     run this way."""
@@ -1936,7 +2061,10 @@ def run_doctor(
     findings += _check_unreadable_files(master, shared)
     findings += _check_orphan_files(master, shared)
     findings += _check_unlinked_notes(master, shared)
-    findings += _check_duplicates(master, org, rules, shared, dedup_cache)
+    # (text, sha256) of what the duplicates check read, for the secrets scan
+    read: dict[str, tuple[str, str | None]] = {}
+    findings += _check_duplicates(master, org, rules, shared, dedup_cache, read)
+    findings += _check_secrets(master, org, rules, shared, dedup_cache, read)
     findings += _check_cross_space_refs(master, org, rules, shared)
     findings += _check_plain_refs(master, org, rules, shared)
     findings += _check_facts(master, shared)

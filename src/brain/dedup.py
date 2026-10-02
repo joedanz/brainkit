@@ -13,6 +13,7 @@ remembered one is exactly the one that would be computed.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 import sqlite3
@@ -22,6 +23,7 @@ from pathlib import Path
 
 from brain import sqlite_util
 from brain.frontmatter import split_frontmatter
+from brain.secrets import KINDS, Hit, scanner_version
 
 SHINGLE_WORDS = 5
 NUM_PERMS = 128
@@ -114,9 +116,14 @@ _PROBE = (
 DEDUP_CACHE_REL = "_meta/cache/dedup.db"
 
 _DDL = (
-    "CREATE TABLE IF NOT EXISTS signatures ("
-    "sha TEXT NOT NULL, version TEXT NOT NULL, sig BLOB NOT NULL, "
-    "PRIMARY KEY (sha, version))"
+    ("CREATE TABLE IF NOT EXISTS signatures ("
+     "sha TEXT NOT NULL, version TEXT NOT NULL, sig BLOB NOT NULL, "
+     "PRIMARY KEY (sha, version))"),
+    # Doctor's secrets scan, remembered the same way (see brain.secrets):
+    # hits as JSON [[kind, line], ...] — never the matched value.
+    ("CREATE TABLE IF NOT EXISTS secret_scans ("
+     "sha TEXT NOT NULL, version TEXT NOT NULL, hits TEXT NOT NULL, "
+     "PRIMARY KEY (sha, version))"),
 )
 
 
@@ -152,6 +159,11 @@ class SignatureCache:
       health snapshot does: a cache git can see would ride along in the next
       commit.
 
+    The same file also remembers doctor's secrets scan per note
+    (`get_scans`/`put_scan`, table `secret_scans`, keyed by the same sha and
+    `brain.secrets.scanner_version()`), with the same read/write/prune rules:
+    it is the other per-note cost that is pure in the note's text.
+
     A damaged file (SQLITE_CORRUPT, SQLITE_NOTADB) is only ever rebuilt by
     the writer, once, with a line in `warnings`; otherwise every later cycle
     would compute every signature again, forever. The read-only side just
@@ -168,6 +180,9 @@ class SignatureCache:
         self._computed: dict[str, bytes] = {}
         self._asked: set[str] | None = None  # None: no lookup yet, so no pruning
         self._read_damaged = False
+        self.scan_version = scanner_version()
+        self._scans_computed: dict[str, str] = {}
+        self._scans_asked: set[str] | None = None
 
     @classmethod
     def open_readonly(cls, master: Path) -> SignatureCache | None:
@@ -208,31 +223,60 @@ class SignatureCache:
         if self._asked is None:
             self._asked = set()
         self._asked.update(shas)
-        out: dict[str, tuple[int, ...]] = {}
         size = 8 * len(_PERMS)
+        return {
+            sha: struct.unpack(f"<{len(_PERMS)}Q", blob)
+            for sha, blob in self._select("signatures", "sig", self.version, shas)
+            if len(blob) == size}
+
+    def _select(self, table: str, column: str, version: str,
+                shas: list[str]) -> list[tuple[str, object]]:
+        """(sha, value) rows of `table` at `version` for `shas`, in batches
+        under SQLite's variable limit. Never raises: a failed read returns
+        the rows read so far, and a damaged file (writer only) returns none
+        and is marked for save() to rebuild — every value is then computed
+        and put(), so the file can be rebuilt from this run alone."""
+        rows: list[tuple[str, object]] = []
         try:
-            for i in range(0, len(shas), 500):  # under SQLite's variable limit
+            for i in range(0, len(shas), 500):
                 batch = shas[i:i + 500]
-                rows = self._conn.execute(
-                    "SELECT sha, sig FROM signatures WHERE version = ? AND sha IN "
+                rows += self._conn.execute(
+                    f"SELECT sha, {column} FROM {table} WHERE version = ? AND sha IN "
                     f"({','.join('?' * len(batch))})",
-                    (self.version, *batch),
+                    (version, *batch),
                 ).fetchall()
-                for sha, blob in rows:
-                    if len(blob) == size:
-                        out[sha] = struct.unpack(f"<{len(_PERMS)}Q", blob)
         except sqlite3.Error as e:
             if self.writable and sqlite_util.is_damaged(e):
-                # Every signature is then computed and put(), so save() can
-                # rebuild the file from this run alone.
+                if not self._read_damaged:  # one warning per run
+                    self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
                 self._read_damaged = True
-                self.warnings.append(f"{DEDUP_CACHE_REL}: {e} — rebuilt")
-                return {}
-        return out
+                return []
+        return rows
 
     def put(self, sha: str, sig: tuple[int, ...]) -> None:
         if self.writable:
             self._computed[sha] = struct.pack(f"<{len(sig)}Q", *sig)
+
+    def get_scans(self, shas: list[str]) -> dict[str, list[Hit]]:
+        """The remembered secrets scan for each sha that has one. Never
+        raises, like get_many: an older file without the table, or a row
+        that does not parse, is only a note to scan again. A hit whose kind
+        is not one of the scanner's labels is dropped: the cache is a file
+        on disk, and its contents go into digests."""
+        if self._scans_asked is None:
+            self._scans_asked = set()
+        self._scans_asked.update(shas)
+        out: dict[str, list[Hit]] = {}
+        for sha, raw in self._select("secret_scans", "hits", self.scan_version, shas):
+            try:
+                out[sha] = [Hit(k, int(n)) for k, n in json.loads(raw) if k in KINDS]
+            except (ValueError, TypeError):
+                continue
+        return out
+
+    def put_scan(self, sha: str, hits: list[Hit]) -> None:
+        if self.writable:
+            self._scans_computed[sha] = json.dumps([[h.kind, h.line] for h in hits])
 
     def save(self) -> None:
         """Write this run's new signatures and delete every row it did not ask
@@ -258,26 +302,38 @@ class SignatureCache:
 
     def _write(self) -> None:
         with self._conn:
-            self._conn.executemany(
-                "INSERT OR REPLACE INTO signatures (sha, version, sig) VALUES (?, ?, ?)",
-                [(sha, self.version, blob) for sha, blob in self._computed.items()])
-            if self._asked is not None:
-                stale = [
-                    (sha, version) for sha, version in
-                    self._conn.execute("SELECT sha, version FROM signatures").fetchall()
-                    if version != self.version or sha not in self._asked]
-                self._conn.executemany(
-                    "DELETE FROM signatures WHERE sha = ? AND version = ?", stale)
+            _replace_and_prune(self._conn, "signatures", "sig", self.version,
+                               self._computed, self._asked)
+            _replace_and_prune(self._conn, "secret_scans", "hits", self.scan_version,
+                               self._scans_computed, self._scans_asked)
         self._computed.clear()
+        self._scans_computed.clear()
 
     def close(self) -> None:
         self._conn.close()
 
 
+def _replace_and_prune(conn: sqlite3.Connection, table: str, column: str,
+                       version: str, computed: dict, asked: set[str] | None) -> None:
+    """Write this run's new rows to `table`, then delete every row of another
+    version or for a sha this run did not ask for. `asked` None: nothing was
+    looked up, so nothing is pruned."""
+    conn.executemany(
+        f"INSERT OR REPLACE INTO {table} (sha, version, {column}) VALUES (?, ?, ?)",
+        [(sha, version, value) for sha, value in computed.items()])
+    if asked is not None:
+        stale = [
+            (sha, v) for sha, v in
+            conn.execute(f"SELECT sha, version FROM {table}").fetchall()
+            if v != version or sha not in asked]
+        conn.executemany(f"DELETE FROM {table} WHERE sha = ? AND version = ?", stale)
+
+
 def _connect_writable(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     try:
-        conn.execute(_DDL)
+        for ddl in _DDL:
+            conn.execute(ddl)
         conn.commit()
     except sqlite3.Error:
         conn.close()

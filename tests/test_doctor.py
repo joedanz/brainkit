@@ -2164,3 +2164,190 @@ def test_hold_for_someone_no_longer_in_the_org_is_reported(master):
     msg = held[0].message
     assert "carol" in msg and "no longer in the org" in msg
     assert "brain held show carol" in msg and "People/carol/.held.json" in msg
+
+
+# ---- secrets: credentials pasted into notes -------------------------------- #
+
+# Assembled at runtime so the repo holds no credential-shaped literal.
+_FAKE_GH = "gh" + "p_" + "Q7" * 18
+_FAKE_AWS = "AK" + "IA" + "Z2Y3X4W5V6U7T8S9"
+
+
+def _secrets(findings):
+    return [f for f in findings if f.check == "secrets"]
+
+
+def test_a_token_in_a_shared_note_is_an_error_naming_kind_line_and_readers(master):
+    seed_meta(master)
+    rel = "Company/Ops/Deploy.md"
+    (master / rel).parent.mkdir(parents=True, exist_ok=True)
+    (master / rel).write_text(f"# Deploy\n\nUse {_FAKE_GH} for CI.\n\nand {_FAKE_GH} again\n")
+    [f] = _secrets(run_doctor(master))
+    assert f.severity == "error" and f.paths == (rel,)
+    assert "GitHub token" in f.message and rel in f.message
+    assert "lines 3, 5" in f.message
+    assert "readable by 2 people" in f.message
+    assert "rotate" in f.message.lower() and "git history" in f.message
+    assert _FAKE_GH not in repr(f)
+
+
+def test_a_token_in_a_personal_note_names_one_reader(master):
+    seed_meta(master)
+    rel = "People/bob/Notes/Keys.md"
+    (master / rel).parent.mkdir(parents=True, exist_ok=True)
+    (master / rel).write_text(f"aws {_FAKE_AWS}\n")
+    [f] = _secrets(run_doctor(master))
+    assert "AWS access key id" in f.message and "line 1" in f.message
+    assert "readable by 1 person" in f.message
+    assert "leaked" not in f.message
+
+
+def test_one_finding_per_note_and_kind(master):
+    seed_meta(master)
+    rel = "Teams/ops/Runbook.md"
+    (master / rel).write_text(f"{_FAKE_GH}\n{_FAKE_AWS}\n{_FAKE_GH}\n")
+    found = _secrets(run_doctor(master))
+    assert sorted(f.message.split(" on ")[0] for f in found) == [
+        f"{rel}: AWS access key id", f"{rel}: GitHub token"]
+
+
+def test_a_clean_master_has_no_secrets_findings(master):
+    seed_meta(master)
+    assert _secrets(run_doctor(master)) == []
+
+
+def _count_scans(monkeypatch):
+    """Every note doctor scans for secrets (rather than reads from the cache)."""
+    import brain.secrets
+
+    calls = []
+    real = brain.secrets.scan_text
+
+    def spy(text):
+        calls.append(len(text))
+        return real(text)
+
+    monkeypatch.setattr(brain.secrets, "scan_text", spy)
+    return calls
+
+
+def test_a_warm_cache_rescans_no_unchanged_note(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    (master / "Teams/ops/Runbook.md").write_text(f"{_FAKE_GH}\n")
+    first = _writable_run(master)
+    calls = _count_scans(monkeypatch)
+    second = _writable_run(master)
+    assert calls == []
+    assert second == first and _secrets(second)
+    # Standalone doctor reads the warm cache too, and never writes it.
+    db = master / "_meta/cache/dedup.db"
+    before = db.read_bytes()
+    assert run_doctor(master) == first
+    assert calls == [] and db.read_bytes() == before
+    assert _FAKE_GH.encode() not in before
+
+
+def test_an_edited_note_is_the_only_one_rescanned(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    _writable_run(master)
+    note = master / "Teams/ops/Runbook.md"
+    note.write_text(f"now with {_FAKE_AWS}\n")
+    calls = _count_scans(monkeypatch)
+    found = _secrets(_writable_run(master))
+    assert len(calls) == 1
+    assert [f.paths for f in found] == [("Teams/ops/Runbook.md",)]
+
+
+def test_standalone_doctor_scans_without_creating_a_cache(master, monkeypatch):
+    seed_meta(master)
+    _ignore_cache(master)
+    (master / "Teams/ops/Runbook.md").write_text(f"{_FAKE_GH}\n")
+    calls = _count_scans(monkeypatch)
+    assert len(_secrets(run_doctor(master))) == 1
+    assert calls
+    assert not (master / "_meta/cache").exists()
+
+
+def test_a_cache_from_before_the_secrets_scan_still_works(master, monkeypatch):
+    """A dedup.db written by an older brainkit has no secret_scans table:
+    standalone doctor scans everything, and the next triage adds the table."""
+    import sqlite3
+
+    seed_meta(master)
+    _ignore_cache(master)
+    (master / "Teams/ops/Runbook.md").write_text(f"{_FAKE_GH}\n")
+    expected = _writable_run(master)
+    db = master / "_meta/cache/dedup.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("DROP TABLE secret_scans")
+    conn.close()
+    assert run_doctor(master) == expected
+    assert _writable_run(master) == expected
+    calls = _count_scans(monkeypatch)
+    assert _writable_run(master) == expected
+    assert calls == []
+
+
+# The compiler copies every file in a space, not only notes.
+@pytest.mark.parametrize("rel", [
+    "Teams/ops/deploy.env", "Teams/ops/.env", "Teams/ops/config/app.yaml",
+    "Company/Exports/users.csv", "Company/settings.json", "Teams/ops/notes.txt",
+    "Teams/ops/app.toml", "Teams/ops/app.ini", "Teams/ops/nginx.conf",
+])
+def test_text_files_the_compiler_copies_are_scanned(master, rel):
+    seed_meta(master)
+    (master / rel).parent.mkdir(parents=True, exist_ok=True)
+    (master / rel).write_text(f"KEY={_FAKE_AWS}\n")
+    [f] = _secrets(run_doctor(master))
+    assert f.paths == (rel,) and "AWS access key id" in f.message
+
+
+def test_binaries_big_files_and_meta_are_not_scanned(master):
+    from brain.doctor import SECRETS_MAX_BYTES
+
+    seed_meta(master)
+    (master / "Teams/ops/blob.bin").write_bytes(b"\x00\x01" + _FAKE_AWS.encode())
+    (master / "Teams/ops/huge.txt").write_text(
+        _FAKE_AWS + "\n" + "z" * SECRETS_MAX_BYTES)
+    (master / "_meta/notes.txt").write_text(f"{_FAKE_AWS}\n")
+    (master / "People/stray.env").write_text(f"{_FAKE_AWS}\n")  # in no space
+    assert _secrets(run_doctor(master)) == []
+
+
+def test_a_cached_hit_of_an_unknown_kind_is_dropped(master):
+    import json
+    import sqlite3
+
+    seed_meta(master)
+    _ignore_cache(master)
+    (master / "Teams/ops/Runbook.md").write_text(f"{_FAKE_GH}\n")
+    _writable_run(master)
+    db = master / "_meta/cache/dedup.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE secret_scans SET hits = ? WHERE hits != '[]'",
+                     (json.dumps([["GitHub token", 1], ["<b>injected</b>", 2]]),))
+    conn.close()
+    found = _secrets(run_doctor(master))
+    assert len(found) == 1 and "GitHub token" in found[0].message
+    assert "injected" not in repr(found)
+
+
+def test_the_secrets_scan_does_not_reread_notes_read_this_run(master, monkeypatch):
+    import brain.doctor
+
+    seed_meta(master)
+    (master / "Teams/ops/Runbook.md").write_text(f"{_FAKE_GH}\n")
+    (master / "Teams/ops/deploy.env").write_text(f"{_FAKE_AWS}\n")
+    reads: list[str] = []
+    real = brain.doctor._read_scannable
+
+    def spy(path):
+        reads.append(path.relative_to(master).as_posix())
+        return real(path)
+
+    monkeypatch.setattr(brain.doctor, "_read_scannable", spy)
+    assert len(_secrets(run_doctor(master))) == 2
+    assert "Teams/ops/deploy.env" in reads
+    assert not [r for r in reads if r.endswith(".md") and "Sessions" not in r]
