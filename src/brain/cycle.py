@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, CompileError, compile_all, write_manifest
@@ -68,6 +69,9 @@ class CycleReport:
     triage_digests: int = 0     # digest notes written or removed
     triage_unrouted: int = 0
     triage_warnings: list[str] = field(default_factory=list)
+    digest_written: int = 0
+    digest_removed: int = 0
+    digest_warnings: list[str] = field(default_factory=list)
     doctor_counts: dict[str, int] = field(default_factory=dict)
     # Why this cycle published no health snapshot, if it published none.
     # Empty on a normal run. Same list-of-strings shape as index_warnings and
@@ -370,6 +374,15 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         measured = False
     lap("triage")
 
+    from brain.digest import DigestReport, run_digest
+
+    try:
+        # UTC weeks: a local date east of UTC would close the window early
+        digest = run_digest(master, today=datetime.now(UTC).date().isoformat())
+    except Exception as e:  # best-effort, like triage: never abort the cycle
+        digest = DigestReport(warnings=[f"digest failed: {e}"])
+    lap("digest")
+
     clients_tampering = sum(
         1 for p in provisioned
         if p.status == "rejected" and p.reason == "owner mismatch"
@@ -453,6 +466,8 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
         triage_digests=triage.digests_written + triage.digests_removed,
         triage_unrouted=triage.unrouted,
         triage_warnings=triage.warnings,
+        digest_written=digest.written, digest_removed=digest.removed,
+        digest_warnings=digest.warnings,
         doctor_counts=triage.finding_counts,
         health_warnings=health_warnings,
         corrections_warnings=corrections_warnings,

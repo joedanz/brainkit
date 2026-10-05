@@ -446,6 +446,11 @@ def cmd_cycle(args) -> int:
               f"{report.triage_digests} digest update(s)")
         for w in report.triage_warnings:
             print(f"  triage warning: {w}", file=sys.stderr)
+        if report.digest_written or report.digest_removed:
+            print(f"weekly digest: {report.digest_written} written, "
+                  f"{report.digest_removed} removed")
+        for w in report.digest_warnings:
+            print(f"  digest warning: {w}", file=sys.stderr)
         for w in report.health_warnings:
             print(f"  health warning: {w}", file=sys.stderr)
         for w in report.corrections_warnings:

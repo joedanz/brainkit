@@ -462,3 +462,13 @@ def test_sessions_never_pending_reindex(master, tmp_path):
     s = collect_vault_stats(vault)
     assert "People/bob/Sessions/Bob Private Note.md" not in s.pending_reindex
     assert s.pending_reindex == []
+
+
+def test_the_weekly_digest_never_counts_as_awaiting_reindex(master, tmp_path):
+    # the indexer skips the digest, so the status must not wait for it either
+    p = master / "People/alice/Inbox/weekly-digest.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("---\nsource: digest\n---\nsomething changed\n")
+    vault = _compiled_indexed(master, tmp_path, provider=None)
+    assert (vault / "People/alice/Inbox/weekly-digest.md").exists()
+    assert collect_vault_stats(vault).pending_reindex == []

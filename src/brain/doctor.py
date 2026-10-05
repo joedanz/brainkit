@@ -30,6 +30,7 @@ from brain.compiler import (
     _stem,
     extract_wikilinks,
     is_generated_person_note,
+    is_weekly_digest,
 )
 from brain.corrections import CORRECTIONS_DIR, CORRECTIONS_LIMIT
 from brain.facts import parse_facts
@@ -638,9 +639,10 @@ def _is_own_digest(rel: str, parts: tuple[str, ...]) -> bool:
     check, and a stem-collision message's quoted [[wikilink]] would mark
     that stem "connected" and mask a genuinely unlinked note — either way
     triage would degrade the very signal it routes. So this one exclusion
-    primitive keeps the digest out of every content scan below."""
-    return (len(parts) == 4 and parts[0] == "People" and parts[2] == "Inbox"
-            and parts[3] == DIGEST_NAME)
+    primitive keeps the digest out of every content scan below. The weekly
+    digest is excluded for the same reason."""
+    return ((len(parts) == 4 and parts[0] == "People" and parts[2] == "Inbox"
+             and parts[3] == DIGEST_NAME) or is_weekly_digest(rel))
 
 
 def _unreadable(path: Path) -> str | None:
