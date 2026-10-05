@@ -254,3 +254,33 @@ def test_every_link_that_resolved_still_reaches_the_same_note(mode):
         _assert_same_notes(texts, applied, old, new, rename)
         checked += 1
     assert checked > 100, "the generator refused too often to prove anything"
+
+
+def test_a_link_is_not_rewritten_when_some_reader_cannot_see_its_target():
+    # master-wide, bare [[X]] reaches alpha/X; in beta's vault it reaches
+    # beta/X. Rewriting beta's note to alpha's new name would break that link
+    # and name a note beta's readers cannot see.
+    texts = {
+        "Teams/alpha/X.md": "# alpha\n",
+        "Teams/beta/X.md": "# beta\n",
+        "Teams/beta/Note.md": "see [[X]]\n",
+        "Teams/alpha/Hub.md": "see [[X]]\n",
+    }
+
+    def can_see(source, target):
+        return source.rsplit("/", 1)[0] == target.rsplit("/", 1)[0]
+
+    plan = plan_relink(texts, "Teams/alpha/X.md", "Teams/alpha/Q.md", can_see=can_see)
+    assert plan.edits == {"Teams/alpha/Hub.md": "see [[Q]]\n"}
+    assert plan.skipped == 1
+
+
+def test_a_heal_is_allowed_when_the_other_owner_of_the_old_name_sorts_first():
+    # bare [[X]] never reached the old note (Company/a/X.md sorts before it),
+    # so there is nothing ambiguous to heal and a re-run is not refused
+    texts = {
+        "Company/a/X.md": "# a\n", "Company/c/Y.md": "# y\n",
+        "Company/Hub.md": "[[X]] [[Company/b/X]]\n",
+    }
+    plan = _plan(texts, "Company/b/X.md", "Company/c/Y.md")
+    assert plan.edits == {"Company/Hub.md": "[[X]] [[Company/c/Y]]\n"}

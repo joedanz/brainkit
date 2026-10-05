@@ -126,7 +126,11 @@ reaches the note through an entity alias is left alone.
 It only reports what it would change until you add `--write`, which makes one
 commit of exactly the notes it touched. It refuses when the new name already
 belongs to another note, when the two paths are in different spaces (use a
-promotion), and when a pending promotion or a held edit names the note.
+promotion), when the path goes through a symlink, and when a pending
+promotion or a held edit names the note. A link is left alone, and counted, when
+some reader of the note holding it cannot see the note it points at: rewriting
+it could break the link for them and show them the name of a note they are not
+cleared to see. If anything fails while applying, everything is put back.
 
 Run it right after `brain cycle`, then run a cycle again. If an agent edited an
 affected note since the last cycle, its version can bring the old link back;

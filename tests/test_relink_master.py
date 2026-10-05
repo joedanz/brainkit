@@ -29,7 +29,14 @@ def _master(tmp_path: Path) -> Path:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text)
     (m / "_meta").mkdir()
-    (m / "_meta/org.yaml").write_text("people: {}\n")
+    (m / "_meta/org.yaml").write_text(
+        "people:\n  alice: {name: Alice, teams: [alpha]}\n"
+        "  bob: {name: Bob, teams: [beta]}\n")
+    (m / "_meta/spaces.yaml").write_text(
+        "spaces:\n"
+        '  - {path: Company,    read: [everyone],        write: ["role:admin"]}\n'
+        '  - {path: "Teams/*",  read: ["team:{name}"],   write: ["team:{name}"]}\n'
+        '  - {path: "People/*", read: ["person:{name}"], write: ["person:{name}"]}\n')
     _git(m, "init", "-q")
     _git(m, "add", "-A")
     _git(m, "commit", "-qm", "seed")
@@ -180,3 +187,114 @@ def test_the_default_output_has_counts_but_no_note_paths(tmp_path, capsys):
     m = _master(tmp_path)
     main(["relink", "--master", str(m), "Company/Old.md", "Company/New.md"])
     assert "Hub.md" not in capsys.readouterr().out.split("\n", 1)[1]
+
+
+def _commit_all(m, msg="more"):
+    _git(m, "add", "-A")
+    _git(m, "commit", "-qm", msg)
+
+
+def test_a_link_some_reader_cannot_follow_is_left_alone_and_counted(tmp_path):
+    m = _master(tmp_path)
+    for rel, text in {"Teams/alpha/X.md": "# alpha\n", "Teams/beta/X.md": "# beta\n",
+                      "Teams/beta/Note.md": "see [[X]]\n",
+                      "Teams/alpha/Hub.md": "see [[X]]\n"}.items():
+        (m / rel).parent.mkdir(parents=True, exist_ok=True)
+        (m / rel).write_text(text)
+    _commit_all(m)
+    rep = relink_master(m, "Teams/alpha/X.md", "Teams/alpha/Q.md", write=True)
+    assert (m / "Teams/beta/Note.md").read_text() == "see [[X]]\n"
+    assert (m / "Teams/alpha/Hub.md").read_text() == "see [[Q]]\n"
+    assert rep.skipped_links == 1
+
+
+def test_rerunning_after_moving_a_note_that_never_won_its_name_is_fine(tmp_path):
+    m = _master(tmp_path)
+    for rel, text in {"Company/a/X.md": "# a\n", "Company/b/X.md": "# b\n",
+                      "Company/H.md": "[[X]] [[Company/b/X]]\n"}.items():
+        (m / rel).parent.mkdir(parents=True, exist_ok=True)
+        (m / rel).write_text(text)
+    _commit_all(m)
+    relink_master(m, "Company/b/X.md", "Company/c/Y.md", write=True)
+    assert (m / "Company/H.md").read_text() == "[[X]] [[Company/c/Y]]\n"
+    rep = relink_master(m, "Company/b/X.md", "Company/c/Y.md", write=True)
+    assert (rep.mode, rep.notes_touched, rep.committed) == ("heal", 0, False)
+
+
+def test_rerunning_after_moving_the_winner_explains_instead_of_guessing(tmp_path):
+    m = _master(tmp_path)
+    for rel, text in {"Company/a/X.md": "# a\n", "Company/b/X.md": "# b\n",
+                      "Company/H.md": "[[X]]\n"}.items():
+        (m / rel).parent.mkdir(parents=True, exist_ok=True)
+        (m / rel).write_text(text)
+    _commit_all(m)
+    relink_master(m, "Company/a/X.md", "Company/c/Y.md", write=True)
+    with pytest.raises(RelinkError, match="nothing left to do"):
+        relink_master(m, "Company/a/X.md", "Company/c/Y.md", write=True)
+
+
+def test_a_failure_while_applying_leaves_everything_as_it_was(tmp_path, monkeypatch):
+    import os
+
+    m = _master(tmp_path)
+    before = _snapshot(m)
+    real = os.replace
+
+    def boom(src, dst):
+        if str(src).endswith("Company/Old.md"):
+            raise OSError("disk full")
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(RelinkError, match="nothing was changed"):
+        relink_master(m, "Company/Old.md", "Company/New.md", write=True)
+    monkeypatch.undo()
+    assert _snapshot(m) == before
+    assert _git(m, "status", "--porcelain").strip() == ""
+
+
+def test_a_symlinked_folder_in_the_way_is_refused_before_anything_moves(tmp_path):
+    m = _master(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (m / "Company/link").symlink_to(outside)
+    before = _snapshot(m)
+    with pytest.raises(RelinkError, match="symlink"):
+        relink_master(m, "Company/Old.md", "Company/link/New.md", write=True)
+    assert _snapshot(m) == before and list(outside.iterdir()) == []
+
+
+def test_moving_a_symlinked_note_is_refused(tmp_path):
+    m = _master(tmp_path)
+    (m / "Company/Sym.md").symlink_to(m / "Company/Other.md")
+    with pytest.raises(RelinkError, match="symlink"):
+        relink_master(m, "Company/Sym.md", "Company/Sym2.md", write=True)
+    assert (m / "Company/Sym.md").is_symlink()
+
+
+def test_a_failed_commit_says_what_is_on_disk_and_how_to_finish(tmp_path, monkeypatch):
+    from brain.promotions import PromotionError
+
+    m = _master(tmp_path)
+
+    def refuse(*a, **k):
+        raise PromotionError("git commit failed: boom")
+
+    monkeypatch.setattr("brain.relink._commit", refuse)
+    with pytest.raises(RelinkError) as exc:
+        relink_master(m, "Company/Old.md", "Company/New.md", write=True)
+    msg = str(exc.value)
+    assert "git commit failed: boom" in msg and "on disk" in msg and "commit" in msg
+    assert (m / "Company/New.md").exists()
+
+
+def test_the_command_reports_links_left_alone_for_visibility(tmp_path, capsys):
+    m = _master(tmp_path)
+    for rel, text in {"Teams/alpha/X.md": "# alpha\n", "Teams/beta/X.md": "# beta\n",
+                      "Teams/beta/Note.md": "see [[X]]\n"}.items():
+        (m / rel).parent.mkdir(parents=True, exist_ok=True)
+        (m / rel).write_text(text)
+    _commit_all(m)
+    main(["relink", "--master", str(m), "Teams/alpha/X.md", "Teams/alpha/Q.md"])
+    out = capsys.readouterr().out
+    assert "left 1 links alone" in out and "cannot see" in out

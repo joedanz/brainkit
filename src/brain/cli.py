@@ -324,6 +324,10 @@ def cmd_relink(args) -> int:
             print(f"  {rel}")
     if rep.skipped_symlinks:
         print(f"left {rep.skipped_symlinks} symlinked notes alone: edit them by hand")
+    if rep.skipped_links:
+        print(f"left {rep.skipped_links} links alone: some readers of the note "
+              "holding each one cannot see the note it points at, so rewriting "
+              "it could break the link for them. Fix those by hand")
     if not rep.written:
         if rep.notes_touched or rep.mode == "move":
             print("re-run with --write to apply")
