@@ -1026,6 +1026,20 @@ def test_home_landing_pages_exempt_from_stem_collision(master):
         if f.check == "stem-collision" and "Home" in f.message]
 
 
+def test_memory_files_exempt_from_stem_collision(master):
+    # scaffold_master seeds a Memory.md into the shared space and every
+    # person's folder; N members must not mean N stem-collision warnings.
+    # A non-scaffold stem shared the same way still warns.
+    seed_meta(master)
+    for rel in ("Company/Memory.md", "People/alice/Memory.md",
+                "People/bob/Memory.md"):
+        (master / rel).write_text("# Memory\n\nwhat I know\n")
+    findings = run_doctor(master)
+    assert not [
+        f for f in findings
+        if f.check == "stem-collision" and "Memory" in f.message]
+
+
 def test_fresh_scaffold_has_no_dup_findings(tmp_path):
     # A brand-new brain must not start life with doctor warnings from its
     # own scaffold (the Company/Home.md vs Company/Intel/Home.md pair).
