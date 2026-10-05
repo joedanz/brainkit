@@ -170,14 +170,15 @@ def _scan_match_rule(space, rules):
 
 def test_rule_lookup_agrees_with_a_plain_scan():
     import itertools
+
     from brain.resolver import _match_rule
     from brain.schemas import SpaceRule
 
     names = ("a", "b", "*", "")
     paths = ["/".join(p) for n in (1, 2, 3) for p in itertools.product(names, repeat=n)]
     # Duplicated and shadowed paths, in an order that makes first-vs-last matter.
-    rules = tuple(SpaceRule(p, (f"person:{i}",), ()) for i, p in enumerate(paths + paths[::-1]))
-    for space in paths + ["a/zz", "zz", "a/b/c/d"]:
+    rules = tuple(SpaceRule(p, (f"person:{i}",), ()) for i, p in enumerate([*paths, *paths[::-1]]))
+    for space in [*paths, "a/zz", "zz", "a/b/c/d"]:
         assert _match_rule(space, rules) == _scan_match_rule(space, rules), space
 
 
