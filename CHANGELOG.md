@@ -11,6 +11,18 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.16] - 2026-10-05
+
+### Changed
+
+- **`brain doctor` and `brain stats` run faster on large brains.** Looking up
+  which permission rule covers a folder used to read every rule each time; it
+  now uses a lookup table, which matters when there are hundreds of rules.
+  Doctor also remembers how each note splits into chunks in
+  `_meta/cache/dedup.db`, so it only splits notes that are new or changed.
+  The findings are the same. The first cycle after upgrading fills the new
+  table and runs slightly longer once.
+
 ## [0.7.15] - 2026-10-05
 
 ### Changed
