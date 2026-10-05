@@ -27,20 +27,21 @@ def test_small_vaults_render_byte_identical_to_0_6_9():
     list was bounded. No folder here exceeds LIST_CAP (the second case sits
     exactly on it), so none of these renders may change by a single byte.
     Re-pinned for fixed-text additions: the held-edits.md routing bullet
-    (spec B) and the correction-confirmation sentences (spec C)."""
+    (spec B), the correction-confirmation sentences (spec C), and the
+    weekly-digest bullet (checked: stripping it gives the previous hash)."""
     assert _sha(render_root_protocol(
         BOB, [("Company", False), ("Teams/ops", True), ("People/bob", True)]
-    )) == "72f3e67ecb3543f07ef2b6d143de2648c3734ae6440ef7613c534b3d234bbc73"
+    )) == "9932ae18e3c10fc52d4f0cfe86aca732bdae8b1c6de0fc4070540982db4d31b9"
     assert _sha(render_root_protocol(
         BOB, [("Company", False), ("People/bob", True)]
         + [(f"Clients/Client{i:02d}", i % 3 == 0) for i in range(20)]
-    )) == "3958073807833715cb76e6e56e03a99948ef3ac3d0d96ac8024aedc2888e0889"
+    )) == "60bd356aa5c061c1a51e2b8595f01ece8515c28932684adacf65b20e1b4a131d"
     assert _sha(render_root_protocol(
         BOB, [("Family", False), ("People/bob", True), ("Families/Danziger", True)],
         config=make_config("Families", "family", "Family",
                            "Everything about running the household."),
         corrections_block="## Standing corrections\n\n- Always answer in plain English.\n",
-    )) == "6e350ee097c18c0cbddd55804ae9afaa6e31f808edbdfcb5d88415bc161853bc"
+    )) == "ea777f87b5a4bf7bb7027206db7bbf9f58c71db90def41a7cd282bf35099bae6"
 
 
 def test_the_protocol_says_a_correction_waits_for_the_person():
@@ -1043,3 +1044,13 @@ def test_root_protocol_keeps_the_held_edits_notice():
     assert "People/bob/Inbox/held-edits.md" in text
     bullet = text.split("People/bob/Inbox/held-edits.md", 1)[1].split("\n- ", 1)[0]
     assert "tell your human" in bullet and "never delete it yourself" in bullet
+
+
+def test_the_protocol_tells_agents_about_the_weekly_digest():
+    from brain.contextgen import render_root_protocol
+    from brain.schemas import Person
+
+    text = render_root_protocol(Person(id="alice", name="Alice"),
+                                [("People/alice", True), ("Company", False)])
+    assert "People/alice/Inbox/weekly-digest.md" in text
+    assert "never edit or delete" in text.lower()

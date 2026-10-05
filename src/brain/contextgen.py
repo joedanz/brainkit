@@ -133,6 +133,10 @@ If you are unsure whether something passes, it does not.
   submit shared-page fixes as `mode: patch` promotions, and record a one-line
   reason in `People/{pid}/Needs-Routing.md` for items only a human can
   decide. Never edit or archive the digest — it maintains itself.
+- `People/{pid}/Inbox/weekly-digest.md` (`source: digest`) is a generated
+  summary of what changed this week in the spaces you can read, led by facts
+  that started or ended. Tell your human what matters in it, once, in plain
+  words. Never edit or delete it: it is replaced each Monday.
 - `People/{pid}/Inbox/held-edits.md` lists edits that were not saved:
   tell your human about it; never delete it yourself (they dismiss it).
 - `People/{pid}/Pending-corrections.md` lists corrections waiting for your

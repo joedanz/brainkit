@@ -7,7 +7,14 @@ from datetime import UTC, datetime
 import pytest
 
 from brain.compiler import compile_vault, is_weekly_digest
-from brain.digest import build_person_digest, collect_changes, render_weekly, window_for
+from brain.digest import (
+    MARKER_REL,
+    build_person_digest,
+    collect_changes,
+    render_weekly,
+    run_digest,
+    window_for,
+)
 from brain.doctor import run_doctor
 from brain.indexer import build_index
 from brain.schemas import load_org, load_spaces
@@ -383,3 +390,45 @@ def test_no_digest_ever_contains_something_its_reader_cannot_see(tmp_path):
             for secret, readers in secrets.items():
                 if pid not in readers:
                     assert secret not in text, (trial, pid, secret)
+
+
+def test_the_first_cycle_of_a_new_week_writes_digests_once(tmp_path):
+    m = _scenario(tmp_path)
+    report = run_digest(m, today="2026-10-12")
+    assert (report.ran, report.written, report.removed, report.warnings) == (True, 3, 0, [])  # alice, bob, carol
+    assert (m / MARKER_REL).read_text().strip() == "2026-W42"
+    alice = (m / "People/alice/Inbox/weekly-digest.md").read_text()
+    assert "week: 2026-W41" in alice and "Omar is main contact" in alice
+    log = _git(m, "log", "-1", "--format=%an <%ae>|%s", "--name-only")
+    assert log.startswith("Brain Digest <digest@brain.local>|digest: ")
+    assert "People/alice/Inbox/weekly-digest.md" in log
+    # later cycles that week do nothing, and do not even look at git
+    again = run_digest(m, today="2026-10-14")
+    assert (again.ran, again.written) == (False, 0)
+
+
+def test_a_missed_monday_catches_up_and_a_lost_marker_rebuilds_without_rewriting(tmp_path):
+    m = _scenario(tmp_path)
+    run_digest(m, today="2026-10-14")  # first run happens on a Wednesday
+    assert (m / "People/alice/Inbox/weekly-digest.md").exists()
+    (m / MARKER_REL).unlink()
+    report = run_digest(m, today="2026-10-14")
+    assert (report.ran, report.written, report.removed) == (True, 0, 0)  # same fingerprints
+
+
+def test_an_empty_week_removes_last_weeks_digest(tmp_path):
+    m = _scenario(tmp_path)
+    run_digest(m, today="2026-10-12")
+    assert (m / "People/alice/Inbox/weekly-digest.md").exists()
+    report = run_digest(m, today="2026-11-02")  # nothing changed in the week before
+    assert report.removed == 3 and report.written == 0
+    assert not (m / "People/alice/Inbox/weekly-digest.md").exists()
+
+
+def test_a_master_that_is_not_a_repo_warns_and_does_not_set_the_marker(tmp_path):
+    (tmp_path / "_meta").mkdir()
+    (tmp_path / "_meta/org.yaml").write_text(ORG_YAML)
+    (tmp_path / "_meta/spaces.yaml").write_text(SPACES_YAML)
+    report = run_digest(tmp_path, today="2026-10-12")
+    assert report.ran and any("digest skipped" in w for w in report.warnings)
+    assert not (tmp_path / MARKER_REL).exists()

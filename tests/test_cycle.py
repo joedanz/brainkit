@@ -61,7 +61,7 @@ def test_cycle_reports_where_its_time_went(master, tmp_path):
     report = run_cycle(master, out, today="2026-07-07", index=True)
 
     assert list(report.timings_ms) == [
-        "corrections", "writeback", "sweeps", "compile", "index", "triage",
+        "corrections", "writeback", "sweeps", "compile", "index", "triage", "digest",
     ]
     assert all(isinstance(ms, int) and ms >= 0 for ms in report.timings_ms.values())
     # Each stage truncates to whole ms, so allow 1 ms of rounding per stage.
@@ -1532,3 +1532,21 @@ def test_a_grandfathering_failure_part_way_leaves_nothing_behind(master, monkeyp
     status = subprocess.run(["git", "-C", str(master), "status", "--porcelain"],
                             capture_output=True, text=True, check=True).stdout
     assert status == ""
+
+
+def test_cycle_survives_a_digest_crash(master, tmp_path, monkeypatch):
+    """A failing weekly digest must never abort the cycle: it warns, and
+    indexing, triage and the health snapshot still run."""
+    import brain.digest
+
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("digest exploded")
+
+    monkeypatch.setattr(brain.digest, "run_digest", boom)
+    report = run_cycle(master, out, today="2026-07-24")
+    assert report.ok
+    assert any("digest failed" in w for w in report.digest_warnings)
+    assert "digest" in report.timings_ms

@@ -13,15 +13,27 @@ import hashlib
 import re
 import subprocess
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
-from brain.compiler import WIKILINK_RE, is_generated_person_note
+import yaml
+
+from brain.compiler import WEEKLY_DIGEST_NAME, WIKILINK_RE, is_generated_person_note
 from brain.errors import BrainError
 from brain.facts import parse_facts
+from brain.inboxnote import sync_inbox_note
+from brain.promotions import PromotionError, _commit
 from brain.resolver import can_read, space_of_path
-from brain.schemas import Org, Person, SpaceRule
+from brain.schemas import (
+    Org,
+    Person,
+    SchemaError,
+    SpaceRule,
+    load_config,
+    load_org,
+    load_spaces,
+)
 
 _HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
 
@@ -331,3 +343,71 @@ def render_weekly(pd: PersonDigest, window: Window) -> tuple[str, str]:
     head = ["---", "title: Weekly digest", "source: digest", f"week: {window.covered}",
             f"from: {first}", f"through: {last}", f"fingerprint: {fingerprint}", "---", ""]
     return "\n".join(head) + text, fingerprint
+
+MARKER_REL = "_meta/cache/digest-week"
+
+
+@dataclass
+class DigestReport:
+    ran: bool = False
+    written: int = 0
+    removed: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+def _marker(master: Path) -> str | None:
+    try:
+        return (master / MARKER_REL).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def run_digest(master: Path, *, today: str) -> DigestReport:
+    """Write each person's weekly digest if this ISO week's is due.
+
+    Due means the marker in the gitignored cache names an earlier week. The
+    marker is set only after a clean finish, so a failure retries next cycle,
+    and losing it costs one rebuild whose unchanged notes are not rewritten.
+    """
+    window = window_for(today)
+    if _marker(master) == window.due:
+        return DigestReport()
+    report = DigestReport(ran=True)
+    try:
+        org = load_org(master / "_meta/org.yaml")
+        rules = load_spaces(master / "_meta/spaces.yaml")
+        shared = load_config(master).shared
+    except (SchemaError, OSError, yaml.YAMLError) as e:
+        report.warnings.append(f"meta unreadable — no digests written: {e}")
+        return report
+    try:
+        changes = collect_changes(master, window)
+    except DigestError as e:
+        report.warnings.append(f"digest skipped: {e}")
+        return report
+
+    changed: list[str] = []
+    for person in org.people.values():
+        built = build_person_digest(person, changes, org, rules, shared)
+        content, fp = render_weekly(built, window) if built else (None, None)
+        outcome = sync_inbox_note(master, person, rules, shared, WEEKLY_DIGEST_NAME,
+                                  content=content, fingerprint=fp,
+                                  warnings=report.warnings)
+        if outcome in ("written", "removed"):
+            report.written += outcome == "written"
+            report.removed += outcome == "removed"
+            changed.append(f"People/{person.id}/Inbox/{WEEKLY_DIGEST_NAME}")
+    if changed:
+        try:
+            _commit(master, changed,
+                    f"digest: {report.written} written, {report.removed} removed",
+                    "Brain Digest", "digest@brain.local")
+        except PromotionError as e:
+            report.warnings.append(f"git commit failed: {e}")
+            return report
+    try:
+        (master / MARKER_REL).parent.mkdir(parents=True, exist_ok=True)
+        (master / MARKER_REL).write_text(window.due + "\n")
+    except OSError as e:
+        report.warnings.append(f"digest marker not saved: {e}")
+    return report
