@@ -17,7 +17,7 @@ import yaml
 
 from brain.embeddings import EmbeddingProvider
 from brain.errors import BrainError
-from brain.search import _index_db, _run_search
+from brain.search import _MAX_PER_FILE, _index_db, _run_search
 from brain.store import IndexStore
 
 SCHEMA = 1
@@ -216,13 +216,16 @@ def run_eval(vault: Path, cases: list[Case], *, k: int = 8,
         if not all(p in present for p in case.expect):
             results.append(CaseResult(case, "invalid", None, ()))
             continue
-        report = _run_search(vault, case.query, k=k, provider=provider,
-                             keyword_only=keyword_only)
+        # Search's k counts chunks and lets one note take _MAX_PER_FILE of
+        # them, so ask for enough chunks to fill k notes, then cut on notes.
+        report = _run_search(vault, case.query, k=k * _MAX_PER_FILE,
+                             provider=provider, keyword_only=keyword_only)
         modes.add(report.mode)
         top: list[str] = []
         for hit in report.hits:
             if hit.rel_path not in top:
                 top.append(hit.rel_path)
+        top = top[:k]
         rank = next((i for i, rel in enumerate(top, 1) if rel in case.expect), None)
         results.append(CaseResult(case, "hit" if rank else "miss", rank, tuple(top)))
 

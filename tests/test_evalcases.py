@@ -248,3 +248,23 @@ def test_compare_reports_each_outcome():
     assert compare(before, now) == {
         "up": "improved", "down": "regressed", "same": "unchanged",
         "fresh": "new", "gone": "removed", "lost": "regressed"}
+
+
+def test_k_counts_notes_not_chunks(alice_vault, monkeypatch):
+    # Search allows two chunks per note, so a window of k chunks holds as few
+    # as k/2 notes. The top-k cut belongs on notes: a chunker change that
+    # splits every note in two must not push a note out of "the top 8".
+    from brain import evalcases
+    from brain.search import Hit, SearchReport
+
+    order = ["Company/Decisions/Big Deal Decision.md", "Teams/sales/Q3 Pipeline.md",
+             "X.md", "Y.md", "Company/Home.md"]
+    chunks = [Hit(rel, "Company", "", "", 1.0) for rel in order for _ in range(2)]
+
+    def fake(vault, query, *, k, provider, keyword_only, center=None):
+        return SearchReport(query, "keyword-only", chunks[:k])
+
+    monkeypatch.setattr(evalcases, "_run_search", fake)
+    (res,) = run_eval(alice_vault, [_case("c", expect=("Company/Home.md",))], k=8).results
+    assert res.rank == 5
+    assert len(res.top) <= 8

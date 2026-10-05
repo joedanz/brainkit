@@ -43,6 +43,16 @@
   expect: [Company/Finance/Pricing Guide.md]
   origin: human
   must: true
+- id: tasting-debrief
+  query: tasting service notes
+  expect: [Company/Events/Tasting Debrief.md]
+  origin: human
+  must: true
+- id: overtime-approval
+  query: overtime forty hours owner approval
+  expect: [Company/Operations/Staffing Guide.md]
+  origin: human
+  must: true
 - id: gelato
   query: gelato freezer shelf
   expect: [Company/Menus/Dessert Station.md]

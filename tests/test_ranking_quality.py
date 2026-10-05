@@ -49,4 +49,37 @@ def test_fixture_cases_are_not_title_copies(fixture_vault):
 def test_the_seeded_case_is_reported_apart_from_the_headline(fixture_vault):
     report = run_eval(fixture_vault, load_cases(FIXTURE / "cases.yaml"))
     assert report.by_origin["synthetic"]["n"] == 1
-    assert report.headline["n"] == 12
+    assert report.headline["n"] == 14
+
+
+def _competitors(vault, query):
+    """Notes whose text holds every word of `query` (what keyword search ranks)."""
+    from brain.search import _run_search
+
+    hits = _run_search(vault, query, k=200, provider=None, keyword_only=True).hits
+    return {h.rel_path for h in hits}
+
+
+def test_the_guard_has_must_cases_and_real_contention(fixture_vault):
+    # Without these a fixture where every query matches exactly one note would
+    # pass whatever fusion and graph reranking did: nothing could push the
+    # answer out of the top k.
+    cases = {c.id: c for c in load_cases(FIXTURE / "cases.yaml")}
+    assert sum(c.must for c in cases.values()) >= 9
+    crowded = cases["tasting-debrief"]
+    assert crowded.must
+    assert len(_competitors(fixture_vault, crowded.query)) >= 10
+
+
+def test_the_fixture_has_a_note_that_spans_several_chunks(fixture_vault):
+    from brain.search import _index_db
+    from brain.store import IndexStore
+
+    store = IndexStore.open_readonly(_index_db(fixture_vault), want_vectors=False)
+    try:
+        (n,) = store.conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE rel_path = ?",
+            ("Company/Operations/Staffing Guide.md",)).fetchone()
+    finally:
+        store.close()
+    assert n >= 2
