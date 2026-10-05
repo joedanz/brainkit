@@ -15,6 +15,7 @@ import subprocess
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 import yaml
@@ -36,6 +37,18 @@ from brain.schemas import (
 )
 
 _HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
+
+MAX_FACTS = 15
+MAX_NOTES = 25
+MIN_CHANGED_LINES = 3
+MAX_DIFF_LINES = 2000  # difflib is quadratic; beyond this git's own count is used
+MARKER_REL = "_meta/cache/digest-week"
+_SKIP_SEGMENTS = frozenset({"Inbox", "Sessions"})
+_SECTIONS = (("added", "New notes"), ("modified", "Edited notes"),
+             ("moved", "Removed or renamed"))
+_SECTION_ORDER = {key: i for i, (key, _title) in enumerate(_SECTIONS)}
+_FACT_ORDER = {"started": 0, "ended": 1, "removed": 2}
+_C_ESCAPES = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, '"': 34, "\\": 92}
 
 
 class DigestError(BrainError, ValueError):
@@ -76,14 +89,18 @@ class NoteChange:
     old_path: str | None
     changed_lines: int
     headings: tuple[str, ...]  # sections holding changed lines, at most three
-    authors: frozenset[tuple[str, str]]  # (email, name) of every commit touching it
     facts: tuple[FactChange, ...]
     facts_as_new: tuple[FactChange, ...]  # every fact at the end, as "started"
-    # For a rename, who touched each side. A reader who can see only one side
-    # must be credited from that side alone: git pairs unrelated deleted and
-    # added notes as a "rename", and the other side's author is not theirs to see.
+    # Who touched each side, as (email, name). A reader who can see only one side
+    # of a rename must be credited from that side alone: git pairs unrelated
+    # deleted and added notes as a "rename", and the other side's author is not
+    # theirs to see. For a note without a rename, `authors_new` is everyone.
     authors_old: frozenset[tuple[str, str]] = frozenset()
     authors_new: frozenset[tuple[str, str]] = frozenset()
+
+    @property
+    def authors(self) -> frozenset[tuple[str, str]]:
+        return self.authors_old | self.authors_new
 
 
 def _git(master: Path, *args: str) -> str:
@@ -137,7 +154,6 @@ def _headings_for(lines: list[str], touched: list[int]) -> tuple[str, ...]:
     return tuple(out)
 
 
-MAX_DIFF_LINES = 2000  # difflib is quadratic; beyond this git's own count is used
 
 
 def _numstat(master: Path, start: str, end: str, *paths: str) -> int:
@@ -180,7 +196,6 @@ def _fact_changes(before: str | None, after: str | None) -> tuple[FactChange, ..
     return tuple(out)
 
 
-_C_ESCAPES = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, '"': 34, "\\": 92}
 
 
 def _unquote(path: str) -> str:
@@ -249,29 +264,38 @@ def collect_changes(master: Path, window: Window) -> list[NoteChange]:
             lines, headings = _edit_stats(
                 before, after or "",
                 lambda o=old, n=new: _numstat(master, start, end, *((o, n) if o else (n,))))
-        new_who = frozenset(authors.get(new, set()))
-        old_who = frozenset(authors.get(old, set())) if old else frozenset()
-        who = new_who | old_who
         started = _fact_changes("", after) if after is not None else ()
         changes.append(NoteChange(
-            status, new, old, lines, headings, who,
-            started if status == "added" else _fact_changes(before, after),
-            started if status in ("added", "renamed") else (),
-            old_who, new_who))
+            status=status, path=new, old_path=old, changed_lines=lines, headings=headings,
+            facts=started if status == "added" else _fact_changes(before, after),
+            facts_as_new=started if status in ("added", "renamed") else (),
+            authors_old=frozenset(authors.get(old, ())) if old else frozenset(),
+            authors_new=frozenset(authors.get(new, ()))))
     return sorted(changes, key=lambda c: c.path)
 
-MAX_FACTS = 15
-MAX_NOTES = 25
-MIN_CHANGED_LINES = 3
-_SKIP_SEGMENTS = frozenset({"Inbox", "Sessions"})
-_SECTIONS = (("added", "New notes"), ("modified", "Edited notes"),
-             ("moved", "Removed or renamed"))
+
+
+@dataclass(frozen=True)
+class _Row:
+    section: str  # a key of _SECTIONS
+    space: str
+    path: str
+    line: str
 
 
 @dataclass(frozen=True)
 class PersonDigest:
     facts: tuple[str, ...]
-    notes: tuple[tuple[str, str, str], ...]  # (section, space, line)
+    notes: tuple[_Row, ...]
+
+
+@dataclass(frozen=True)
+class _View:
+    """What one reader may see of one change."""
+    kind: str  # "added" | "modified" | "renamed" | "removed"
+    shown: str  # the path to name: never one the reader cannot see
+    facts: tuple[FactChange, ...]
+    who: frozenset[tuple[str, str]]  # only the authors of the side they can see
 
 
 def _plain(text: str) -> str:
@@ -281,12 +305,40 @@ def _plain(text: str) -> str:
     return re.sub(r"\s+", " ", flat).strip()
 
 
-def _visible(path: str, person: Person, rules: tuple[SpaceRule, ...], shared: str) -> bool:
+@lru_cache(maxsize=65536)
+def _path_info(path: str, shared: str) -> tuple[str | None, bool]:
+    """(space, eligible): the checks that do not depend on who is reading."""
     space = space_of_path(path, shared)
-    if space is None or space == f"People/{person.id}" or not can_read(space, person, rules):
-        return False
-    return not (_SKIP_SEGMENTS & set(PurePosixPath(path).parts)
-                or is_generated_person_note(path))
+    eligible = space is not None and not (
+        _SKIP_SEGMENTS & set(PurePosixPath(path).parts) or is_generated_person_note(path))
+    return space, eligible
+
+
+def _visible(path: str, person: Person, rules: tuple[SpaceRule, ...], shared: str) -> bool:
+    space, eligible = _path_info(path, shared)
+    return (eligible and space != f"People/{person.id}"
+            and can_read(space, person, rules))
+
+
+def _view_for(c: NoteChange, person: Person, rules: tuple[SpaceRule, ...],
+              shared: str) -> _View | None:
+    """What `person` may see of change `c`, or None. A rename they can see only
+    one end of is shown as a plain addition or removal, never naming the other
+    path or crediting the other side's authors."""
+    if c.status == "deleted":
+        return _View("removed", c.path, (), c.authors) \
+            if _visible(c.path, person, rules, shared) else None
+    new_ok = _visible(c.path, person, rules, shared)
+    if c.status == "renamed":
+        old_ok = _visible(c.old_path, person, rules, shared)
+        if new_ok and old_ok:
+            return _View("renamed", c.path, c.facts, c.authors)
+        if new_ok:
+            return _View("added", c.path, c.facts_as_new, c.authors_new)
+        if old_ok:
+            return _View("removed", c.old_path, (), c.authors_old)
+        return None
+    return _View(c.status, c.path, c.facts, c.authors) if new_ok else None
 
 
 def _fact_line(fc: FactChange, path: str) -> str:
@@ -299,6 +351,10 @@ def _fact_line(fc: FactChange, path: str) -> str:
     return f"{text} ({dates}) — `{path}`"
 
 
+def _sections_text(headings: tuple[str, ...]) -> str:
+    return "; ".join(_plain(h) for h in headings)
+
+
 def build_person_digest(person: Person, changes: list[NoteChange], org: Org,
                         rules: tuple[SpaceRule, ...], shared: str) -> PersonDigest | None:
     """What changed for `person`: only notes they can read, never their own
@@ -306,61 +362,45 @@ def build_person_digest(person: Person, changes: list[NoteChange], org: Org,
     me = f"{person.id}@brain.local"
     names = {f"{p.id}@brain.local": p.name for p in org.people.values()}
     fact_rows: list[tuple[int, str, str, str]] = []
-    notes: list[tuple[int, str, str, str, str]] = []  # rank, space, path, section, line
+    notes: list[_Row] = []
 
     for c in changes:
-        new_ok = c.status != "deleted" and _visible(c.path, person, rules, shared)
-        old_ok = c.old_path is not None and _visible(c.old_path, person, rules, shared)
-        shown, facts, kind, who = c.path, c.facts, None, c.authors
-        if c.status == "deleted":
-            kind = "removed" if _visible(c.path, person, rules, shared) else None
-            facts = ()
-        elif c.status == "renamed":
-            if new_ok and old_ok:
-                kind = "renamed"
-            elif new_ok:
-                # the old path is never revealed, nor who touched it
-                kind, facts, who = "added", c.facts_as_new, c.authors_new
-            elif old_ok:
-                kind, shown, facts, who = "removed", c.old_path, (), c.authors_old
-        elif c.status == "added":
-            kind = "added" if new_ok else None
-        else:
-            kind = "modified" if new_ok else None
-        if kind is None:
+        view = _view_for(c, person, rules, shared)
+        if view is None:
             continue
         # Your own work is not news to you. System commits (a link rewrite, a
         # server action) do not make it anyone else's, but a note that only the
         # system touched is shown.
-        people = {email for email, _name in who if email in names}
+        people = {email for email, _name in view.who if email in names}
         if people == {me}:
             continue
         by = sorted({names[e] for e in people if e != me})
         suffix = f" (by {', '.join(by)})" if by else ""
-        space = space_of_path(shown, shared) or ""
-        for fc in facts:
-            order = {"started": 0, "ended": 1, "removed": 2}[fc.kind]
-            fact_rows.append((order, shown, fc.statement, _fact_line(fc, shown)))
-        if kind == "added":
-            notes.append((0, space, shown, "added", f"`{shown}`{suffix}"))
-        elif kind == "modified":
+        for fc in view.facts:
+            fact_rows.append((_FACT_ORDER[fc.kind], view.shown, fc.statement,
+                              _fact_line(fc, view.shown)))
+        section, detail = None, ""
+        if view.kind == "added":
+            section = "added"
+        elif view.kind == "modified":
             if c.changed_lines >= MIN_CHANGED_LINES or c.facts:
-                secs = f" — {'; '.join(_plain(h) for h in c.headings)}" if c.headings else ""
-                notes.append((1, space, shown, "modified", f"`{shown}`{secs}{suffix}"))
-        elif kind == "renamed":
-            edit = ""
-            if c.changed_lines >= MIN_CHANGED_LINES and c.headings:
-                edit = f" — edited: {'; '.join(_plain(h) for h in c.headings)}"
-            notes.append((2, space, shown, "moved",
-                          f"`{shown}` (renamed from `{c.old_path}`){edit}{suffix}"))
+                section = "modified"
+                detail = f" — {_sections_text(c.headings)}" if c.headings else ""
+        elif view.kind == "renamed":
+            section = "moved"
+            edit = (f" — edited: {_sections_text(c.headings)}"
+                    if c.changed_lines >= MIN_CHANGED_LINES and c.headings else "")
+            detail = f" (renamed from `{c.old_path}`){edit}"
         else:
-            notes.append((2, space, shown, "moved", f"`{shown}` (removed){suffix}"))
+            section, detail = "moved", " (removed)"
+        if section:
+            notes.append(_Row(section, space_of_path(view.shown, shared) or "", view.shown,
+                              f"`{view.shown}`{detail}{suffix}"))
 
     if not fact_rows and not notes:
         return None
-    fact_lines = tuple(row[3] for row in sorted(fact_rows))
-    ordered = sorted(notes)
-    return PersonDigest(fact_lines, tuple((n[3], n[1], n[4]) for n in ordered))
+    notes.sort(key=lambda r: (_SECTION_ORDER[r.section], r.space, r.path, r.line))
+    return PersonDigest(tuple(row[3] for row in sorted(fact_rows)), tuple(notes))
 
 
 def render_weekly(pd: PersonDigest, window: Window) -> tuple[str, str]:
@@ -380,19 +420,19 @@ def render_weekly(pd: PersonDigest, window: Window) -> tuple[str, str]:
             body.append(f"- +{len(pd.facts) - MAX_FACTS} more fact changes")
     shown = pd.notes[:MAX_NOTES]
     overflow: dict[str, int] = defaultdict(int)
-    for _section, space, _line in pd.notes[MAX_NOTES:]:
-        overflow[space] += 1
+    for row in pd.notes[MAX_NOTES:]:
+        overflow[row.space] += 1
     for key, title in _SECTIONS:
-        rows = [(space, line) for sec, space, line in shown if sec == key]
+        rows = [r for r in shown if r.section == key]
         if not rows:
             continue
         body += ["", f"## {title}"]
         current = None
-        for space, line in rows:
-            if space != current:
-                body += ["", f"### {space}", ""]
-                current = space
-            body.append(f"- {line}")
+        for r in rows:
+            if r.space != current:
+                body += ["", f"### {r.space}", ""]
+                current = r.space
+            body.append(f"- {r.line}")
     if overflow:
         body += ["", "## Not shown", ""]
         body += [f"- +{n} more in {space}" for space, n in sorted(overflow.items())]
@@ -401,9 +441,6 @@ def render_weekly(pd: PersonDigest, window: Window) -> tuple[str, str]:
     head = ["---", "title: Weekly digest", "source: digest", f"week: {window.covered}",
             f"from: {first}", f"through: {last}", f"fingerprint: {fingerprint}", "---", ""]
     return "\n".join(head) + text, fingerprint
-
-MARKER_REL = "_meta/cache/digest-week"
-
 
 @dataclass
 class DigestReport:
