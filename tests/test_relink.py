@@ -1,5 +1,8 @@
+import random
+
 import pytest
 
+from brain.compiler import WIKILINK_RE
 from brain.doctor import _resolve_target
 from brain.indexer import _resolve_links
 from brain.relink import RelinkError, build_maps, plan_relink, resolve
@@ -179,3 +182,75 @@ def test_planning_again_after_applying_a_move_finds_nothing_to_do():
     after.update(plan.edits)
     again = _plan(after, "Company/Old.md", "Company/New.md")
     assert again.mode == "heal" and again.edits == {}
+
+
+STEMS = ["alpha", "beta", "gamma", "alpha beta"]
+DIRS = ["Company", "Company/Sub", "Teams/ops", "People/zed"]
+
+
+def _random_tree(rng):
+    paths: set[str] = set()
+    for _ in range(rng.randint(3, 7)):
+        paths.add(f"{rng.choice(DIRS)}/{rng.choice(STEMS)}.md")
+    paths = sorted(paths)
+
+    def link():
+        target = rng.choice(paths)
+        stem = target.rsplit("/", 1)[1][:-3]
+        form = rng.choice(["stem", "stem#h", "stem|l", "embed", "path",
+                           "pathmd", "alias", "missing", "padded"])
+        return {
+            "stem": f"[[{stem}]]", "stem#h": f"[[{stem}#Sec]]",
+            "stem|l": f"[[{stem}|lbl]]", "embed": f"![[{stem}]]",
+            "path": f"[[{target[:-3]}]]", "pathmd": f"[[{target}]]",
+            "alias": "[[Zed Corp]]", "missing": "[[Nowhere]]",
+            "padded": f"[[ {stem} ]]",
+        }[form]
+
+    texts = {p: " ".join(link() for _ in range(rng.randint(0, 4))) + "\n"
+             for p in paths}
+    texts[paths[0]] = ENTITY + texts[paths[0]]
+    return texts, paths
+
+
+def _resolutions(texts, maps):
+    return {p: [resolve(m.group(1).strip(), *maps) for m in WIKILINK_RE.finditer(t)]
+            for p, t in texts.items()}
+
+
+def _assert_same_notes(before_texts, after_texts, old, new, rename):
+    before = _resolutions(before_texts, build_maps(before_texts))
+    after_maps = build_maps(after_texts)
+    for path in before_texts:
+        post = after_texts[rename(path)]
+        links = list(WIKILINK_RE.finditer(post))
+        assert len(links) == len(before[path])  # no link added or dropped
+        for was, m in zip(before[path], links, strict=True):
+            if was is None:
+                continue
+            assert resolve(m.group(1).strip(), *after_maps) == (new if was == old else was)
+
+
+@pytest.mark.parametrize("mode", ["move", "heal"])
+def test_every_link_that_resolved_still_reaches_the_same_note(mode):
+    rng = random.Random(20261005)
+    checked = 0
+    for _ in range(400):
+        texts, paths = _random_tree(rng)
+        old = rng.choice(paths)
+        new = f"{rng.choice(DIRS)}/{rng.choice([*STEMS, 'delta', 'delta two'])}.md"
+        if new in texts:
+            continue
+        rename = lambda p, old=old, new=new: new if p == old else p
+        current = ({rename(p): t for p, t in texts.items()}
+                   if mode == "heal" else dict(texts))
+        try:
+            plan = plan_relink(current, old, new)
+        except RelinkError:
+            continue  # a refusal is a correct answer for a colliding name
+        applied = ({rename(p): t for p, t in texts.items()}
+                   if mode == "move" else dict(current))
+        applied.update(plan.edits)
+        _assert_same_notes(texts, applied, old, new, rename)
+        checked += 1
+    assert checked > 100, "the generator refused too often to prove anything"
