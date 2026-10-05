@@ -1,14 +1,16 @@
 import hashlib
 import os
+import random
 import subprocess
 from datetime import UTC, datetime
 
 import pytest
 
 from brain.compiler import compile_vault, is_weekly_digest
-from brain.digest import collect_changes, window_for
+from brain.digest import build_person_digest, collect_changes, render_weekly, window_for
 from brain.doctor import run_doctor
 from brain.indexer import build_index
+from brain.schemas import load_org, load_spaces
 from brain.search import search_index
 from tests.conftest import ALICE, RULES
 from tests.test_cli import seed_meta
@@ -205,3 +207,179 @@ def test_a_directory_that_is_not_a_repo_is_a_handled_error(tmp_path):
 
     with pytest.raises(DigestError):
         collect_changes(tmp_path, window_for("2026-10-12"))
+
+
+def _people(m):
+    org = load_org(m / "_meta/org.yaml")
+    return org, load_spaces(m / "_meta/spaces.yaml")
+
+
+def _text_for(m, pid, today="2026-10-12"):
+    org, rules = _people(m)
+    w = window_for(today)
+    pd = build_person_digest(org.people[pid], collect_changes(m, w), org, rules, "Company")
+    return None if pd is None else render_weekly(pd, w)[0]
+
+
+def test_alice_sees_what_others_changed_in_spaces_she_reads(tmp_path):
+    m = _scenario(tmp_path)
+    text = _text_for(m, "alice")
+    assert "## Facts that changed" in text
+    assert "Omar is main contact (from 2026-10-01) — `Company/F.md`" in text
+    assert "Sarah is main contact (from 2026-01-01, ended 2026-10-31)" in text
+    assert "removed: Dana was lead" in text
+    assert "`Company/A.md` — Title (by Bob)" in text  # edited, with the section
+    assert "`Company/New.md` (by Bob)" in text
+    assert "`Teams/alpha/T.md`" in text
+    # her own rename and deletion are left out; spaces she cannot read too
+    assert "Newname" not in text and "Gone" not in text
+    assert "Teams/beta" not in text and "B.md" not in text
+    # a rename out of a space she can read into one she cannot is a removal
+    assert "`Company/Moved.md` (removed)" in text
+    # a rename she can see both ends of names both ends
+    assert "`Company/Revealed.md` (renamed from `Teams/alpha/Secret.md`)" in text
+
+
+def test_bob_never_sees_teams_alpha_not_even_through_a_rename(tmp_path):
+    m = _scenario(tmp_path)
+    text = _text_for(m, "bob")
+    assert "`Company/Revealed.md`" in text  # shown as a new note
+    assert "Secret" not in text and "Teams/alpha" not in text
+    assert "`Teams/beta/B.md`" in text
+    assert "`Teams/beta/Moved.md` (renamed from `Company/Moved.md`)" in text
+    assert "`Company/Newname.md` (renamed from `Company/Old.md`) (by Alice)" in text
+    assert "`Company/Gone.md` (removed) (by Alice)" in text
+    assert "`Company/A.md`" not in text  # bob's own edit
+
+
+def test_a_person_with_nothing_readable_that_changed_gets_no_digest(tmp_path):
+    m = _scenario(tmp_path)
+    org, rules = _people(m)
+    only_own = [c for c in collect_changes(m, window_for("2026-10-12"))
+                if c.path.startswith("Teams/beta/B")]
+    carol = org.people["carol"]  # team alpha: cannot read Teams/beta
+    assert build_person_digest(carol, only_own, org, rules, "Company") is None
+
+
+def test_the_digest_never_reproduces_fact_markup_or_wikilinks(tmp_path):
+    m = _scenario(tmp_path)
+    _commit(m, {"Company/L.md": "# L\n\n- Works with [[Q3 Pipeline|the pipeline]] and "
+                                "[[Big Deal]] [from:: 2026-10] [source:: [[F]]]\n"},
+            "2026-10-08T12:00:00+0000")
+    text = _text_for(m, "alice")
+    assert "the pipeline" in text and "Big Deal" in text
+    for bad in ("[[", "]]", "[from::", "[until::", "[source::"):
+        assert bad not in text
+
+
+def test_trivial_edits_are_left_out_but_a_fact_change_always_counts(tmp_path):
+    m = _scenario(tmp_path)
+    _commit(m, {"Company/Tweak.md": _body().replace("line 3", "line three")},
+            "2026-10-10T12:00:00+0000", BOB_ID)  # one changed line: below the bar
+    assert "Tweak.md" not in _text_for(m, "alice")
+    _commit(m, {"Company/Tweak.md": "# Title\n\n- Fact [from:: 2026-10]\n"
+                                    + _body().split("\n", 2)[2]},
+            "2026-10-10T13:00:00+0000", BOB_ID)  # a fact change always counts
+    assert "`Company/Tweak.md`" in _text_for(m, "alice")
+
+
+def test_caps_add_a_more_line(tmp_path):
+    m = tmp_path / "m"
+    m.mkdir()
+    _git(m, "init", "-q")
+    base = {"_meta/org.yaml": ORG_YAML, "_meta/spaces.yaml": SPACES_YAML,
+            "Company/Z.md": "z\n"}
+    _commit(m, base, "2026-09-30T10:00:00+0000")
+    notes = {f"Company/N{i:02d}.md": f"# N{i}\n" for i in range(30)}
+    facts = "# Many\n\n" + "".join(f"- F{i} [from:: 2026-10]\n" for i in range(20))
+    _commit(m, {**notes, "Company/Many.md": facts}, "2026-10-07T10:00:00+0000", BOB_ID)
+    text = _text_for(m, "alice")
+    assert "+5 more fact changes" in text
+    assert "+6 more in Company" in text  # 31 added notes, 25 shown
+
+
+def test_rendering_is_stable_and_has_frontmatter(tmp_path):
+    m = _scenario(tmp_path)
+    org, rules = _people(m)
+    w = window_for("2026-10-12")
+    pd = build_person_digest(org.people["alice"], collect_changes(m, w), org, rules, "Company")
+    content, fp = render_weekly(pd, w)
+    assert content == render_weekly(pd, w)[0]
+    head = content.split("---\n")[1]
+    for line in ("title: Weekly digest", "source: digest", "week: 2026-W41",
+                 "from: 2026-10-05", "through: 2026-10-11", f"fingerprint: {fp}"):
+        assert line in head
+
+
+def test_no_digest_ever_contains_something_its_reader_cannot_see(tmp_path):
+    """Random histories across spaces with different readers. Every note has a
+    unique name and a unique word (each ends in "z" so none contains another); none of those from an unreadable space may
+    appear in a person's digest, whatever was renamed where."""
+    rng = random.Random(20261005)
+    spaces = {"Company": {"alice", "bob", "carol"}, "Teams/alpha": {"alice", "carol"},
+              "Teams/beta": {"bob"}, "People/alice": {"alice"}}
+    who = [ALICE_ID, BOB_ID, ("Carol", "carol@brain.local"), SERVER]
+    for trial in range(15):
+        m = tmp_path / f"m{trial}"
+        m.mkdir()
+        _git(m, "init", "-q")
+        _commit(m, {"_meta/org.yaml": ORG_YAML, "_meta/spaces.yaml": SPACES_YAML,
+                    "Company/Seed.md": "seed\n"}, "2026-09-30T10:00:00+0000")
+        alive: dict[str, set[str]] = {}  # path -> readers
+        token_of: dict[str, str] = {}  # path -> the unique word in its content
+        secrets: dict[str, set[str]] = {}  # unique name or word -> who may see it
+        pre: dict[str, str] = {}  # notes that already exist when the week starts
+        for k, space in enumerate(spaces):
+            for j in range(2):
+                path = f"{space}/Pre{trial}x{k}{j}z.md"
+                token = f"ptok{trial}x{k}{j}z"
+                pre[path] = (f"# Pre\n{token}\n- {token}fact [from:: 2026-09]\n"
+                             + _body(5, tag=token))
+                alive[path] = spaces[space]
+                token_of[path] = token
+                secrets[token] = spaces[space]
+                secrets[f"Pre{trial}x{k}{j}z"] = spaces[space]
+        _commit(m, pre, "2026-09-30T11:00:00+0000")
+        n = 0
+        for step in range(rng.randint(6, 12)):
+            when = f"2026-10-{6 + step % 5:02d}T{10 + step:02d}:00:00+0000"
+            op = rng.choice(["add", "add", "edit", "delete", "move"])
+            who_ = rng.choice(who)
+            if op == "add" or not alive:
+                n += 1
+                space = rng.choice(list(spaces))
+                path = f"{space}/Note{trial}x{n}z.md"
+                token = f"tok{trial}x{n}z"
+                fact = f"- {token}fact [from:: 2026-10]\n"
+                _commit(m, {path: f"# Sec{trial}x{n}\n{token}\n{fact}" + _body(5)}, when, who_)
+                alive[path] = spaces[space]
+                token_of[path] = token
+                secrets[token] = spaces[space]
+                secrets[f"Note{trial}x{n}z"] = spaces[space]  # the original name
+            elif op == "edit":
+                path = rng.choice(list(alive))
+                _commit(m, {path: (m / path).read_text() + _body(4)}, when, who_)
+            elif op == "delete":
+                path = rng.choice(list(alive))
+                _commit(m, {path: None}, when, who_)
+                secrets[token_of.pop(path)] = set()  # a deleted note's content is shown to nobody
+                del alive[path]
+            else:
+                old = rng.choice(list(alive))
+                space = rng.choice(list(spaces))
+                new = f"{space}/Moved{trial}x{step}z.md"
+                _rename(m, old, new, when, who_)
+                secrets[f"Moved{trial}x{step}z"] = spaces[space]
+                secrets[token_of[old]] = spaces[space]  # content now lives in the new space
+                token_of[new] = token_of.pop(old)
+                alive[new] = spaces[space]
+                del alive[old]
+        org, rules = _people(m)
+        w = window_for("2026-10-12")
+        changes = collect_changes(m, w)
+        for pid, person in org.people.items():
+            pd = build_person_digest(person, changes, org, rules, "Company")
+            text = "" if pd is None else render_weekly(pd, w)[0]
+            for secret, readers in secrets.items():
+                if pid not in readers:
+                    assert secret not in text, (trial, pid, secret)
