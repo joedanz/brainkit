@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.7.15] - 2026-10-05
+
 ### Changed
 
 - **`brain doctor` finds similar notes much faster on large brains.** When an
