@@ -10,6 +10,7 @@ from brain.evalcases import (
     EvalCaseError,
     EvalError,
     _assemble,
+    compare,
     load_cases,
     run_eval,
 )
@@ -210,3 +211,40 @@ def test_run_eval_leaves_the_retrieval_log_and_stats_untouched(alice_vault):
     run_eval(alice_vault, [_case("a", query="pipeline",
                                  expect=("Teams/sales/Q3 Pipeline.md",))])
     assert snapshot() == before
+
+
+def test_hybrid_requested_without_a_provider_is_marked_degraded(alice_vault):
+    report = run_eval(alice_vault, [_case("a", query="pipeline",
+                                          expect=("Teams/sales/Q3 Pipeline.md",))],
+                      keyword_only=False, provider=None)
+    assert report.degraded is True
+    assert any("without vectors" in w for w in report.warnings)
+    assert report.to_dict()["degraded"] is True
+
+
+def test_keyword_only_run_is_not_degraded(alice_vault):
+    report = run_eval(alice_vault, [_case("a", query="pipeline",
+                                          expect=("Teams/sales/Q3 Pipeline.md",))])
+    assert report.degraded is False and report.warnings == ()
+
+
+def test_title_copy_is_flagged_for_human_but_not_synthetic(alice_vault):
+    expect = ("Teams/sales/Q3 Pipeline.md",)
+    cases = [_case("h", query="q3 pipeline", expect=expect),
+             _case("s", origin="synthetic", query="Q3 Pipeline", expect=expect)]
+    report = run_eval(alice_vault, cases)
+    assert report.warnings == ("h: copies-title",)
+
+
+def test_compare_reports_each_outcome():
+    before = _assemble(
+        [_result("up", 5), _result("down", 1), _result("same", 2),
+         _result("gone", 1), _result("lost", 1)],
+        k=8, mode="keyword-only", degraded=False, warnings=()).to_dict()
+    now = _assemble(
+        [_result("up", 2), _result("down", None), _result("same", 2),
+         _result("fresh", 1), _result("lost", 3)],
+        k=8, mode="keyword-only", degraded=False, warnings=())
+    assert compare(before, now) == {
+        "up": "improved", "down": "regressed", "same": "unchanged",
+        "fresh": "new", "gone": "removed", "lost": "regressed"}

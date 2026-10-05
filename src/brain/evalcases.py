@@ -245,3 +245,29 @@ def _copies_title(case: Case) -> bool:
     if case.origin == "synthetic":
         return False
     return any(_norm(case.query) == _norm(PurePosixPath(p).stem) for p in case.expect)
+
+
+_MISS = 10**9
+
+
+def compare(baseline: dict, current: EvalReport) -> dict[str, str]:
+    """Case-by-case movement against an earlier `to_dict()`. Averages hide a
+    pair of cases swapping places; this does not. A miss and an invalid case
+    both rank worse than any hit."""
+    before = {c["id"]: c.get("rank") for c in baseline.get("cases", [])}
+    now = {r.case.id: r.rank for r in current.results}
+
+    def key(rank: int | None) -> int:
+        return _MISS if rank is None else rank
+
+    out: dict[str, str] = {}
+    for cid, rank in now.items():
+        if cid not in before:
+            out[cid] = "new"
+            continue
+        a, b = key(before[cid]), key(rank)
+        out[cid] = "improved" if b < a else "regressed" if b > a else "unchanged"
+    for cid in before:
+        if cid not in now:
+            out[cid] = "removed"
+    return out
