@@ -381,6 +381,11 @@ def _cached_chunk_blobs(
     return out
 
 
+# Files every space is scaffolded with; two spaces each owning one is
+# structure, so a shared stem between them is not worth a finding.
+_SCAFFOLD_NAMES = frozenset({"Home.md", "Memory.md"})
+
+
 def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                       shared: str,
                       dedup_cache: SignatureCache | None = None,
@@ -520,11 +525,14 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
                 pair = frozenset((a, b))
                 if pair in flagged or _skeleton_pair(a, b, shared):
                     continue
-                if Path(a).name == "Home.md" and Path(b).name == "Home.md":
-                    # Home.md is the per-space landing-page convention (the
-                    # link map; _check_intel exempts it from the citation
-                    # rule too) — two spaces each owning one is structure,
-                    # like the personal skeletons, not link ambiguity.
+                if (Path(a).name == Path(b).name
+                        and Path(a).name in _SCAFFOLD_NAMES):
+                    # Home.md (the per-space link map; _check_intel exempts
+                    # it from the citation rule too) and Memory.md (seeded
+                    # into the shared space and every person's folder) are
+                    # scaffold conventions — each space owning one is
+                    # structure, like the personal skeletons, not link
+                    # ambiguity.
                     continue
                 if not (space_readers(a) & space_readers(b)):
                     continue
