@@ -327,6 +327,7 @@ def _dup_near_message(severity: str, members: tuple[str, ...], signal: str) -> s
 
 def _cached_chunk_blobs(
     master: Path, rels: list[str], texts: dict[str, str], shared: str,
+    digests: dict[str, str], cache: SignatureCache | None = None,
 ) -> dict[str, list[bytes]]:
     """Each note's chunk vectors, in chunk order, as the bytes the master's
     embedding cache holds (the one brain cycle writes; see
@@ -336,8 +337,12 @@ def _cached_chunk_blobs(
     any cache failure degrades to no signal at all. brain cycle's indexing
     keeps the cache warm, so in a live deployment coverage is near-total.
     Pooling them into one vector per note is dedup.semantic_pairs' job, and
-    only for the notes it has to compare."""
-    from brain.chunker import chunk_markdown, embedding_input
+    only for the notes it has to compare.
+
+    Which chunk hashes a note has is a pure function of its path, text and
+    the shared top, so `cache` remembers them (keyed by `digests`, the
+    notes' text hashes) and a warm run chunks only new and changed notes."""
+    from brain.dedup import chunk_hashes, chunk_key
     from brain.embeddings import EmbeddingCache, cache_path_to_read, provider_from_config
 
     provider = provider_from_config()
@@ -348,28 +353,31 @@ def _cached_chunk_blobs(
         return {}
     out: dict[str, list[bytes]] = {}
     try:
-        cache = EmbeddingCache(cache_path, readonly=True)
+        emb = EmbeddingCache(cache_path, readonly=True)
     except Exception:
         return {}
     try:
+        keys = {rel: chunk_key(rel, shared, digests[rel]) for rel in rels}
+        known = cache.get_chunk_shas(list(keys.values())) if cache is not None else {}
         per_note: dict[str, list[str]] = {}
         for rel in rels:
-            chunks = chunk_markdown(rel, texts[rel], shared=shared)
-            if chunks:
-                per_note[rel] = [
-                    hashlib.sha256(
-                        embedding_input(c).encode("utf-8")).hexdigest()
-                    for c in chunks]
+            shas = known.get(keys[rel])
+            if shas is None:
+                shas = chunk_hashes(rel, texts[rel], shared)
+                if cache is not None:
+                    cache.put_chunk_shas(keys[rel], shas)
+            if shas:
+                per_note[rel] = shas
         # One read for the whole brain; get_many chunks the IN clause itself.
         union = list(dict.fromkeys(s for shas in per_note.values() for s in shas))
-        found = cache.get_many(union, provider.model)
+        found = emb.get_many(union, provider.model)
         for rel, shas in per_note.items():
             if all(s in found for s in shas):
                 out[rel] = [found[s] for s in shas]
     except Exception:
         return {}
     finally:
-        cache.close()
+        emb.close()
     return out
 
 
@@ -544,14 +552,14 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
         vector_key,
     )
 
-    # Tier 3b's vectors, keyed by their bytes: notes with the same chunk
-    # vectors share one key, and one comparison.
-    blobs = _cached_chunk_blobs(master, substantive, texts, shared)
-    rels_of: dict[str, list[str]] = {}
-    for rel, b in blobs.items():
-        rels_of.setdefault(vector_key(b), []).append(rel)
     cache = dedup_cache if dedup_cache is not None else SignatureCache.open_readonly(master)
     try:
+        # Tier 3b's vectors, keyed by their bytes: notes with the same chunk
+        # vectors share one key, and one comparison.
+        blobs = _cached_chunk_blobs(master, substantive, texts, shared, digests, cache)
+        rels_of: dict[str, list[str]] = {}
+        for rel, b in blobs.items():
+            rels_of.setdefault(vector_key(b), []).append(rel)
         sigs = signatures({rel: (digests[rel], words[rel]) for rel in substantive}, cache)
         # Only the semantic tier reads embedding bytes, so only it can meet
         # an unreadable vector; the narrow except keeps other bugs loud.

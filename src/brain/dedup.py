@@ -135,6 +135,11 @@ _DDL = (
     ("CREATE TABLE IF NOT EXISTS near_pairs ("
      "sha TEXT NOT NULL, version TEXT NOT NULL, partners TEXT NOT NULL, "
      "PRIMARY KEY (sha, version))"),
+    # Each note's chunk hashes (what the embedding cache is keyed by), keyed
+    # by chunk_key, as a JSON list: chunking a note again is the cost it saves.
+    ("CREATE TABLE IF NOT EXISTS chunk_shas ("
+     "sha TEXT NOT NULL, version TEXT NOT NULL, shas TEXT NOT NULL, "
+     "PRIMARY KEY (sha, version))"),
 )
 
 
@@ -203,6 +208,9 @@ class SignatureCache:
         self.near_version: str | None = None  # set by get_near: it needs max_ham
         self._near_computed: dict[str, str] = {}
         self._near_asked: set[str] | None = None
+        self.chunk_version = chunk_shas_version()
+        self._chunks_computed: dict[str, str] = {}
+        self._chunks_asked: set[str] | None = None
 
     @classmethod
     def open_readonly(cls, master: Path) -> SignatureCache | None:
@@ -339,6 +347,28 @@ class SignatureCache:
         if self.writable:
             self._near_computed[key] = json.dumps(partners)
 
+    def get_chunk_shas(self, keys: list[str]) -> dict[str, list[str]]:
+        """key -> the chunk hashes of that note, for each chunk_key
+        remembered. Never raises, like get_many; a row that is not a list
+        of hashes is only a note to chunk again."""
+        if self._chunks_asked is None:
+            self._chunks_asked = set()
+        self._chunks_asked.update(keys)
+        out: dict[str, list[str]] = {}
+        for key, raw in self._select("chunk_shas", "shas", self.chunk_version, keys):
+            try:
+                shas = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(shas, list) and all(
+                    isinstance(x, str) and len(x) == 64 for x in shas):
+                out[key] = shas
+        return out
+
+    def put_chunk_shas(self, key: str, shas: list[str]) -> None:
+        if self.writable:
+            self._chunks_computed[key] = json.dumps(shas)
+
     def save(self) -> None:
         """Write this run's new signatures and delete every row it did not ask
         for (other versions included), in one transaction. A run that never
@@ -373,10 +403,13 @@ class SignatureCache:
                 _replace_and_prune(self._conn, "near_pairs", "partners",
                                    self.near_version, self._near_computed,
                                    self._near_asked)
+            _replace_and_prune(self._conn, "chunk_shas", "shas", self.chunk_version,
+                               self._chunks_computed, self._chunks_asked)
         self._computed.clear()
         self._scans_computed.clear()
         self._bits_computed.clear()
         self._near_computed.clear()
+        self._chunks_computed.clear()
 
     def close(self) -> None:
         self._conn.close()
@@ -476,6 +509,51 @@ def sign_bits(vec: list[float]) -> int:
 
 def hamming(a: int, b: int) -> int:
     return (a ^ b).bit_count()
+
+
+# ---- chunk hashes remembered between runs -----------------------------------
+
+# Bump when the rows' format changes in a way the probe below cannot see.
+# A change to chunk_markdown or embedding_input needs no bump: the probe
+# chunks a fixed note and its hashes are part of the version.
+CHUNK_SCHEME = 1
+
+_PROBE_NOTE = (
+    "---\ntitle: probe\n---\n# One\n\nshort\n\n## Two\n\n" + "word " * 500
+    + "\n\n```\n# not a heading\n```\n\n[[Link|alias]] text\n\n# Three\n\n"
+    + "other " * 300 + "\n\n## Four\n\ntail\n")
+_chunk_probe_memo: tuple[tuple, list[str]] | None = None
+
+
+def chunk_shas_version() -> str:
+    """Everything a note's chunk hashes depend on besides its path, its text
+    and the shared top: the scheme, and what the chunker makes of a fixed
+    probe (computed once per set of the functions involved)."""
+    global _chunk_probe_memo
+    from brain.chunker import chunk_markdown, embedding_input
+
+    fns = (chunk_markdown, embedding_input)
+    if _chunk_probe_memo is None or any(
+            a is not b for a, b in zip(_chunk_probe_memo[0], fns)):
+        _chunk_probe_memo = (fns, chunk_hashes("Clients/acme/Probe.md", _PROBE_NOTE, "Company"))
+    material = repr(("chunks", CHUNK_SCHEME, _chunk_probe_memo[1]))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def chunk_hashes(rel: str, text: str, shared: str) -> list[str]:
+    """The sha256 of each chunk's embedding input, in order: the keys the
+    embedding cache holds a note's vectors under."""
+    from brain.chunker import chunk_markdown, embedding_input
+
+    return [hashlib.sha256(embedding_input(c).encode("utf-8")).hexdigest()
+            for c in chunk_markdown(rel, text, shared=shared)]
+
+
+def chunk_key(rel: str, shared: str, text_sha: str) -> str:
+    """What a note's chunks are a function of: where it sits, which top is
+    shared, and its text."""
+    material = json.dumps([rel, shared, text_sha])
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
 # ---- semantic near-duplicates remembered between runs ----------------------
