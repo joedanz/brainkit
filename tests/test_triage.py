@@ -298,7 +298,7 @@ def test_unreadable_digest_warns_instead_of_crashing(master, tmp_path, monkeypat
     bob_d = _digest(master, "bob")
     assert bob_d.exists()
 
-    # Fault-inject only the read triage itself performs when reconciling an
+    # Fault-inject only the read triage's write helper (brain.inboxnote) performs when reconciling an
     # existing digest (the fingerprint compare) — not every read of a file
     # named doctor-digest.md, which would also hit doctor's own unrelated
     # content scan (it reads every file under a resolvable space, Inbox
@@ -309,7 +309,7 @@ def test_unreadable_digest_warns_instead_of_crashing(master, tmp_path, monkeypat
     def flaky_read_text(self, *args, **kwargs):
         if self.name == DIGEST_NAME:
             caller = inspect.currentframe().f_back.f_globals.get("__name__", "")
-            if caller == "brain.triage":
+            if caller == "brain.inboxnote":
                 raise PermissionError("simulated unreadable digest")
         return original_read_text(self, *args, **kwargs)
 

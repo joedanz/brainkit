@@ -29,8 +29,8 @@ import yaml
 
 from brain.dedup import DEDUP_CACHE_REL, SignatureCache
 from brain.doctor import DIGEST_NAME, Finding, run_doctor
-from brain.frontmatter import split_frontmatter
-from brain.resolver import can_read, can_write_path, space_of_path
+from brain.inboxnote import sync_inbox_note
+from brain.resolver import can_read, space_of_path
 from brain.schemas import (
     DEFAULT_SHARED,
     Org,
@@ -312,73 +312,20 @@ def run_triage(master: Path, out_root: Path | None = None, *, today: str) -> Tri
     changed: list[str] = []
 
     for person in org.people.values():
-        rel = f"People/{person.id}/Inbox/{DIGEST_NAME}"
-        # Refuse symlinked ancestors before touching anything (ingest posture).
-        ancestor = master
-        symlinked = False
-        for part in Path(rel).parent.parts:
-            ancestor = ancestor / part
-            if ancestor.is_symlink():
-                warnings.append(f"{rel}: ancestor is a symlink — refusing to write")
-                symlinked = True
-                break
-        if symlinked:
-            continue
-        target = master / rel
-        # Both branches below touch the same path — protect delete and write
-        # with the same posture check, not just write.
-        if space_of_path(rel, shared) != f"People/{person.id}":
-            warnings.append(f"{rel}: resolves outside People/{person.id} — skipped")
-            continue
-        if not can_write_path(rel, person, rules, shared=shared):
-            warnings.append(
-                f"{person.id} has no write grant on their own space — skipped")
-            continue
         person_findings = routed.get(person.id, [])
-        if not person_findings:
-            if target.is_symlink():
-                # Mirrors the write branch's refusal below — a symlinked
-                # leaf is never touched, deletion included.
-                warnings.append(f"{rel}: digest is a symlink — refusing to remove")
-            elif target.is_file():
-                try:
-                    target.unlink()
-                except OSError as e:
-                    warnings.append(f"{rel}: {e}")
-                    continue
-                removed += 1
-                changed.append(rel)
-            continue
-        is_admin = person.is_admin
-        lines = [(f.check, _display(f, person, rules, is_admin=is_admin,
-                                    shared=shared))
-                 for f in person_findings]
-        fp = _fingerprint(lines)
-        if target.is_file() and not target.is_symlink():
-            try:
-                meta, _body = split_frontmatter(target.read_text())
-            except (KeyError, ValueError, UnicodeDecodeError):
-                # Malformed existing digest — not our concern, treat as no
-                # match and fall through to self-heal via rewrite below.
-                meta = {}
-            except OSError as e:
-                # Can't even read it (permissions, I/O error) — don't guess
-                # whether a rewrite would fare any better; warn and move on.
-                warnings.append(f"{rel}: {e}")
-                continue
-            if meta and meta.get("fingerprint") == fp:
-                continue  # same findings — leave the note (and `created`) alone
-        if target.is_symlink():
-            warnings.append(f"{rel}: digest is a symlink — refusing to write")
-            continue
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(render_digest(lines, today, fp))
-        except OSError as e:
-            warnings.append(f"{rel}: {e}")
-            continue
-        written += 1
-        changed.append(rel)
+        content = fp = None
+        if person_findings:
+            lines = [(f.check, _display(f, person, rules,
+                                        is_admin=person.is_admin, shared=shared))
+                     for f in person_findings]
+            fp = _fingerprint(lines)
+            content = render_digest(lines, today, fp)
+        outcome = sync_inbox_note(master, person, rules, shared, DIGEST_NAME,
+                                  content=content, fingerprint=fp, warnings=warnings)
+        if outcome in ("written", "removed"):
+            written += outcome == "written"
+            removed += outcome == "removed"
+            changed.append(f"People/{person.id}/Inbox/{DIGEST_NAME}")
 
     if changed:
         try:
