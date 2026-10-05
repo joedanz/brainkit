@@ -432,3 +432,102 @@ def test_a_master_that_is_not_a_repo_warns_and_does_not_set_the_marker(tmp_path)
     report = run_digest(tmp_path, today="2026-10-12")
     assert report.ran and any("digest skipped" in w for w in report.warnings)
     assert not (tmp_path / MARKER_REL).exists()
+
+
+CAROL_ID = ("Carol", "carol@brain.local")
+
+
+def _pairing_master(tmp_path, deleter):
+    """Git pairs a deleted readable note with a similar new note in a space the
+    reader cannot see, and calls it a rename."""
+    m = tmp_path / "m"
+    m.mkdir()
+    _git(m, "init", "-q")
+    body = _body(8, tag="pair")
+    _commit(m, {"_meta/org.yaml": ORG_YAML, "_meta/spaces.yaml": SPACES_YAML,
+                "Company/X.md": body}, "2026-09-30T10:00:00+0000")
+    _commit(m, {"Company/X.md": None}, "2026-10-06T10:00:00+0000", deleter)
+    _commit(m, {"Teams/beta/Plan.md": body}, "2026-10-07T10:00:00+0000", BOB_ID)
+    return m
+
+
+def test_a_rename_git_invents_never_credits_the_hidden_side_author(tmp_path):
+    m = _pairing_master(tmp_path, CAROL_ID)
+    text = _text_for(m, "alice")  # cannot read Teams/beta, where Bob worked
+    assert "`Company/X.md` (removed) (by Carol)" in text
+    assert "Bob" not in text and "Plan" not in text
+
+
+def test_a_removal_you_made_yourself_is_not_credited_to_someone_else(tmp_path):
+    m = _pairing_master(tmp_path, ALICE_ID)
+    assert _text_for(m, "alice") is None  # her own deletion; Bob's work is hidden
+
+
+def _mini(tmp_path):
+    """A master with only the org and spaces files, ready for commits that go
+    in chronological order (the window logic relies on history running forward)."""
+    m = tmp_path / "mini"
+    m.mkdir()
+    _git(m, "init", "-q")
+    _commit(m, {"_meta/org.yaml": ORG_YAML, "_meta/spaces.yaml": SPACES_YAML,
+                "Company/Seed.md": "seed\n"}, "2026-09-29T10:00:00+0000")
+    return m
+
+
+def test_a_system_commit_on_your_own_edit_does_not_make_it_someone_elses(tmp_path):
+    m = _mini(tmp_path)
+    _commit(m, {"Company/Mine.md": _body(8, tag="mine")}, "2026-09-30T12:00:00+0000")
+    _commit(m, {"Company/Mine.md": _body(12, tag="mine")}, "2026-10-06T09:00:00+0000", ALICE_ID)
+    _commit(m, {"Company/Mine.md": _body(12, tag="mine").replace("# Title", "# Titled")},
+            "2026-10-07T09:00:00+0000")  # a server rewrite, as relink would make
+    assert "Mine.md" not in (_text_for(m, "alice") or "")
+    assert "`Company/Mine.md`" in _text_for(m, "bob")
+    assert "(by Alice)" in _text_for(m, "bob")
+
+
+def test_a_note_only_the_system_touched_is_still_shown(tmp_path):
+    m = _mini(tmp_path)
+    _commit(m, {"Company/Sys.md": _body(8, tag="sys")}, "2026-09-30T12:00:00+0000")
+    _commit(m, {"Company/Sys.md": _body(12, tag="sys")}, "2026-10-06T09:00:00+0000")
+    text = _text_for(m, "alice")
+    assert "`Company/Sys.md`" in text and "(by" not in text.split("Sys.md", 1)[1].split("\n")[0]
+
+
+def test_a_heading_with_fact_markup_never_reaches_the_digest(tmp_path):
+    m = _mini(tmp_path)
+    head = "# H\n\n## Lead [from:: 2026-01] [source:: [[F]]]\n\n"
+    _commit(m, {"Company/H.md": head + "row\n" * 4}, "2026-09-30T12:00:00+0000")
+    _commit(m, {"Company/H.md": head + "row\n" * 8}, "2026-10-06T09:00:00+0000", BOB_ID)
+    text = _text_for(m, "alice")
+    assert "`Company/H.md` — Lead (by Bob)" in text
+    for bad in ("[from::", "[source::", "[["):
+        assert bad not in text
+
+
+def test_paths_with_quotes_keep_their_authors_and_odd_names_do_not_crash(tmp_path):
+    m = _mini(tmp_path)
+    quoted = 'Company/Say "hi".md'
+    _commit(m, {quoted: _body(8, tag="q"), "@@top.md": "x\n"}, "2026-09-30T12:00:00+0000")
+    _commit(m, {quoted: _body(12, tag="q")}, "2026-10-06T09:00:00+0000", ALICE_ID)
+    by_path = {c.path: c for c in collect_changes(m, window_for("2026-10-12"))}
+    assert by_path[quoted].authors == frozenset({ALICE_ID[::-1]})
+    assert "Say" not in (_text_for(m, "alice") or "")  # her own edit, still hers
+    assert "Say" in _text_for(m, "bob")
+
+
+def test_a_huge_note_does_not_stall_the_edit_stats(tmp_path):
+    import time
+
+    m = tmp_path / "m"
+    m.mkdir()
+    _git(m, "init", "-q")
+    old = [f"row {i % 40}" for i in range(12000)]
+    new = [f"changed {i}" if i % 97 == 0 else row for i, row in enumerate(old)]
+    _commit(m, {"Company/Big.md": "# Big\n\n" + "\n".join(old) + "\n"},
+            "2026-09-30T10:00:00+0000")
+    _commit(m, {"Company/Big.md": "# Big\n\n" + "\n".join(new) + "\n"},
+            "2026-10-06T10:00:00+0000", BOB_ID)
+    started = time.monotonic()
+    (change,) = collect_changes(m, window_for("2026-10-12"))
+    assert time.monotonic() - started < 2
+    assert change.changed_lines == 124  # git's own count of the replaced lines

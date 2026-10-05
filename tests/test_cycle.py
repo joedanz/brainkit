@@ -1550,3 +1550,24 @@ def test_cycle_survives_a_digest_crash(master, tmp_path, monkeypatch):
     assert report.ok
     assert any("digest failed" in w for w in report.digest_warnings)
     assert "digest" in report.timings_ms
+
+
+def test_cycle_gives_the_digest_the_utc_date(master, tmp_path, monkeypatch):
+    """The digest window is UTC weeks. A server east of UTC reaches its local
+    Monday while it is still Sunday in UTC; using the local date would close the
+    window two hours early and lose those hours' changes for good."""
+    from datetime import UTC, datetime
+
+    import brain.digest
+
+    seen = {}
+
+    def spy(master_path, *, today):
+        seen["today"] = today
+        return brain.digest.DigestReport()
+
+    monkeypatch.setattr(brain.digest, "run_digest", spy)
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    run_cycle(master, out, today="2020-01-01")
+    assert seen["today"] == datetime.now(UTC).date().isoformat()

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.compiler import MANIFEST_NAME, CompileError, compile_all, write_manifest
@@ -376,7 +377,8 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
     from brain.digest import DigestReport, run_digest
 
     try:
-        digest = run_digest(master, today=today)
+        # UTC weeks: a local date east of UTC would close the window early
+        digest = run_digest(master, today=datetime.now(UTC).date().isoformat())
     except Exception as e:  # best-effort, like triage: never abort the cycle
         digest = DigestReport(warnings=[f"digest failed: {e}"])
     lap("digest")

@@ -21,7 +21,7 @@ import yaml
 
 from brain.compiler import WEEKLY_DIGEST_NAME, WIKILINK_RE, is_generated_person_note
 from brain.errors import BrainError
-from brain.facts import parse_facts
+from brain.facts import _FIELD, parse_facts
 from brain.inboxnote import sync_inbox_note
 from brain.promotions import PromotionError, _commit
 from brain.resolver import can_read, space_of_path
@@ -79,6 +79,11 @@ class NoteChange:
     authors: frozenset[tuple[str, str]]  # (email, name) of every commit touching it
     facts: tuple[FactChange, ...]
     facts_as_new: tuple[FactChange, ...]  # every fact at the end, as "started"
+    # For a rename, who touched each side. A reader who can see only one side
+    # must be credited from that side alone: git pairs unrelated deleted and
+    # added notes as a "rename", and the other side's author is not theirs to see.
+    authors_old: frozenset[tuple[str, str]] = frozenset()
+    authors_new: frozenset[tuple[str, str]] = frozenset()
 
 
 def _git(master: Path, *args: str) -> str:
@@ -132,8 +137,23 @@ def _headings_for(lines: list[str], touched: list[int]) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _edit_stats(before: str, after: str) -> tuple[int, tuple[str, ...]]:
+MAX_DIFF_LINES = 2000  # difflib is quadratic; beyond this git's own count is used
+
+
+def _numstat(master: Path, start: str, end: str, *paths: str) -> int:
+    """Changed lines for a note, as git counts them (linear in the file)."""
+    out = _git(master, "diff", "--numstat", "-M", "-z", start, end, "--", *paths)
+    first = out.split("\0", 1)[0].split("\t")
+    try:
+        return max(int(first[0]), int(first[1]))
+    except (ValueError, IndexError):  # binary or nothing to count
+        return 0
+
+
+def _edit_stats(before: str, after: str, numstat) -> tuple[int, tuple[str, ...]]:
     a, b = before.splitlines(), after.splitlines()
+    if len(a) > MAX_DIFF_LINES or len(b) > MAX_DIFF_LINES:
+        return numstat(), ()  # too big to find the sections cheaply: count only
     changed = 0
     touched: list[int] = []
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
@@ -160,17 +180,41 @@ def _fact_changes(before: str | None, after: str | None) -> tuple[FactChange, ..
     return tuple(out)
 
 
+_C_ESCAPES = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, '"': 34, "\\": 92}
+
+
+def _unquote(path: str) -> str:
+    """Undo git's C-style quoting of a name with a quote, backslash or control
+    character (non-ASCII is left alone by core.quotepath=false)."""
+    if not (len(path) >= 2 and path[0] == '"' and path[-1] == '"'):
+        return path
+    raw, out, i = path[1:-1], bytearray(), 0
+    while i < len(raw):
+        if raw[i] != "\\":
+            out += raw[i].encode("utf-8")
+            i += 1
+        elif raw[i + 1] in _C_ESCAPES:
+            out.append(_C_ESCAPES[raw[i + 1]])
+            i += 2
+        else:  # \ooo: three octal digits
+            out.append(int(raw[i + 1:i + 4], 8))
+            i += 4
+    return out.decode("utf-8", errors="replace")
+
+
 def _authors(master: Path, start: str | None, end: str) -> dict[str, set[tuple[str, str]]]:
     rng = f"{start}..{end}" if start else end
-    out = _git(master, "log", rng, "--name-only", "--format=@@%ae%x1f%an")
+    # \x01 starts a commit line: git C-quotes a raw control character in a
+    # name, so no real path line can begin with it (a name starting "@@" can).
+    out = _git(master, "log", rng, "--name-only", "--format=%x01%ae%x1f%an")
     by_path: dict[str, set[tuple[str, str]]] = {}
     who: tuple[str, str] | None = None
     for line in out.splitlines():
-        if line.startswith("@@"):
-            email, name = line[2:].split("\x1f", 1)
+        if line.startswith("\x01"):
+            email, name = line[1:].split("\x1f", 1)
             who = (email, name)
         elif line.strip() and who is not None:
-            by_path.setdefault(line, set()).add(who)
+            by_path.setdefault(_unquote(line), set()).add(who)
     return by_path
 
 
@@ -199,14 +243,21 @@ def collect_changes(master: Path, window: Window) -> list[NoteChange]:
         else:  # M, T and anything else git reports: treat as an edit
             status = "modified"
             before, after = _blob(master, start, new), _blob(master, end, new)
-        lines, headings = (0, ()) if status in ("added", "deleted") \
-            else _edit_stats(before, after or "")
-        who = frozenset(authors.get(new, set()) | authors.get(old or new, set()))
+        if status in ("added", "deleted"):
+            lines, headings = 0, ()
+        else:
+            lines, headings = _edit_stats(
+                before, after or "",
+                lambda o=old, n=new: _numstat(master, start, end, *((o, n) if o else (n,))))
+        new_who = frozenset(authors.get(new, set()))
+        old_who = frozenset(authors.get(old, set())) if old else frozenset()
+        who = new_who | old_who
         started = _fact_changes("", after) if after is not None else ()
         changes.append(NoteChange(
             status, new, old, lines, headings, who,
             started if status == "added" else _fact_changes(before, after),
-            started if status in ("added", "renamed") else ()))
+            started if status in ("added", "renamed") else (),
+            old_who, new_who))
     return sorted(changes, key=lambda c: c.path)
 
 MAX_FACTS = 15
@@ -224,8 +275,10 @@ class PersonDigest:
 
 
 def _plain(text: str) -> str:
-    """Flatten wikilinks to their label or target, so the digest adds no edges."""
-    return WIKILINK_RE.sub(lambda m: (m.group(4) or m.group(1)).strip(), text)
+    """Flatten wikilinks to their label or target and drop fact fields, so the
+    digest adds no edges and nothing in it parses as a fact."""
+    flat = WIKILINK_RE.sub(lambda m: (m.group(4) or m.group(1)).strip(), _FIELD.sub("", text))
+    return re.sub(r"\s+", " ", flat).strip()
 
 
 def _visible(path: str, person: Person, rules: tuple[SpaceRule, ...], shared: str) -> bool:
@@ -256,13 +309,9 @@ def build_person_digest(person: Person, changes: list[NoteChange], org: Org,
     notes: list[tuple[int, str, str, str, str]] = []  # rank, space, path, section, line
 
     for c in changes:
-        if c.authors and all(email == me for email, _name in c.authors):
-            continue
-        by = sorted({names[e] for e, _n in c.authors if e in names and e != me})
-        suffix = f" (by {', '.join(by)})" if by else ""
         new_ok = c.status != "deleted" and _visible(c.path, person, rules, shared)
         old_ok = c.old_path is not None and _visible(c.old_path, person, rules, shared)
-        shown, facts, kind = c.path, c.facts, None
+        shown, facts, kind, who = c.path, c.facts, None, c.authors
         if c.status == "deleted":
             kind = "removed" if _visible(c.path, person, rules, shared) else None
             facts = ()
@@ -270,15 +319,24 @@ def build_person_digest(person: Person, changes: list[NoteChange], org: Org,
             if new_ok and old_ok:
                 kind = "renamed"
             elif new_ok:
-                kind, facts = "added", c.facts_as_new  # the old path is never revealed
+                # the old path is never revealed, nor who touched it
+                kind, facts, who = "added", c.facts_as_new, c.authors_new
             elif old_ok:
-                kind, shown, facts = "removed", c.old_path, ()
+                kind, shown, facts, who = "removed", c.old_path, (), c.authors_old
         elif c.status == "added":
             kind = "added" if new_ok else None
         else:
             kind = "modified" if new_ok else None
         if kind is None:
             continue
+        # Your own work is not news to you. System commits (a link rewrite, a
+        # server action) do not make it anyone else's, but a note that only the
+        # system touched is shown.
+        people = {email for email, _name in who if email in names}
+        if people == {me}:
+            continue
+        by = sorted({names[e] for e in people if e != me})
+        suffix = f" (by {', '.join(by)})" if by else ""
         space = space_of_path(shown, shared) or ""
         for fc in facts:
             order = {"started": 0, "ended": 1, "removed": 2}[fc.kind]
