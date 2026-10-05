@@ -7,7 +7,7 @@ icon: terminal
 The `brain` command drives the whole lifecycle: scaffold a master, compile slices, apply edits back, manage promotions, run the whole cycle on a schedule, and check integrity.
 
 ```
-brain {init,refresh-protocol,rename-entities,ingest,webhook,compile,writeback,held,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor,triage} …
+brain {init,refresh-protocol,rename-entities,relink,ingest,webhook,compile,writeback,held,promotions,shares,cycle,index,search,graph,facts,mcp,status,dashboard,doctor,triage} …
 ```
 
 Every subcommand exits `0` on success and `1` on a handled error, with a human-readable message on stderr. `main(argv)` is importable and returns the same code, so the CLI is testable without a subprocess.
@@ -108,6 +108,29 @@ cycle`, then run a cycle again: slices recompile under the new name. Edits
 still sitting in a stale slice under the old name are rejected fail-closed by
 that next cycle and reported. The shared space has no rename counterpart —
 its name is chosen at init.
+
+## `brain relink`
+
+```bash
+brain relink --master <master> OLD NEW [--write] [--verbose]
+```
+
+Keeps links working when a note is renamed or moved. `OLD` and `NEW` are paths
+inside the master. If `OLD` still exists, it is moved to `NEW`; if `OLD` is
+already gone and `NEW` exists (an agent renamed it), the links that now point
+nowhere are healed. Either way, every link that reached the note before still
+reaches it, and no other link is changed: bare names, full paths, headings,
+labels, embeds, relations and fact sources are all handled, and a link that
+reaches the note through an entity alias is left alone.
+
+It only reports what it would change until you add `--write`, which makes one
+commit of exactly the notes it touched. It refuses when the new name already
+belongs to another note, when the two paths are in different spaces (use a
+promotion), and when a pending promotion or a held edit names the note.
+
+Run it right after `brain cycle`, then run a cycle again. If an agent edited an
+affected note since the last cycle, its version can bring the old link back;
+run the command again to fix it.
 
 ## `brain ingest`
 

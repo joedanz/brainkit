@@ -303,6 +303,37 @@ def cmd_rename_entities(args) -> int:
     return 0
 
 
+def cmd_relink(args) -> int:
+    from brain.promotions import PromotionError
+    from brain.relink import RelinkError, relink_master
+
+    try:
+        rep = relink_master(Path(args.master), args.old, args.new, write=args.write)
+    except (RelinkError, PromotionError) as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    verb = "move" if rep.mode == "move" else "heal"
+    print(f"{verb}: {args.old} -> {args.new}")
+    if rep.notes_touched == 0:
+        print("no links need rewriting")
+    else:
+        print(f"{'rewrote' if rep.written else 'would rewrite'} {rep.links_rewritten} "
+              f"links in {rep.notes_touched} notes")
+    if args.verbose:
+        for rel in rep.paths:
+            print(f"  {rel}")
+    if rep.skipped_symlinks:
+        print(f"left {rep.skipped_symlinks} symlinked notes alone: edit them by hand")
+    if not rep.written:
+        if rep.notes_touched or rep.mode == "move":
+            print("re-run with --write to apply")
+        return 0
+    print("run `brain cycle` now so every slice recompiles. An agent that edited an "
+          "affected note since the last cycle can bring the old link back; re-run "
+          "this command to fix it")
+    return 0
+
+
 def cmd_ingest(args) -> int:
     master = Path(args.master)
     org, rules = _load(master)
@@ -792,6 +823,16 @@ def build_parser() -> argparse.ArgumentParser:
     rn.add_argument("--entity", default="",
                     help="singular form (default: derived from --entities)")
     rn.set_defaults(func=cmd_rename_entities)
+
+    rl = sub.add_parser("relink",
+                        help="keep links working after a note is renamed or moved")
+    rl.add_argument("old", help="the note's old path, relative to the master")
+    rl.add_argument("new", help="the note's new path, relative to the master")
+    rl.add_argument("--master", required=True)
+    rl.add_argument("--write", action="store_true",
+                    help="apply it (without it, only report what would change)")
+    rl.add_argument("--verbose", action="store_true", help="list the notes touched")
+    rl.set_defaults(func=cmd_relink)
 
     g = sub.add_parser("ingest", help="write one note into a person's Inbox in master")
     g.add_argument("--master", required=True)

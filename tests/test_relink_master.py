@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from brain.cli import main
 from brain.relink import RelinkError, relink_master
 
 
@@ -148,3 +149,34 @@ def test_a_held_edit_naming_the_note_blocks_it(tmp_path):
                                            "reason": "r"}]}))
     with pytest.raises(RelinkError, match="held"):
         relink_master(m, "Company/Old.md", "Company/New.md", write=True)
+
+
+def test_the_command_dry_runs_by_default_and_names_the_mode(tmp_path, capsys):
+    m = _master(tmp_path)
+    before = _snapshot(m)
+    assert main(["relink", "--master", str(m), "Company/Old.md", "Company/New.md"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("move:") and "3 links in 2 notes" in out
+    assert "--write" in out and _snapshot(m) == before
+
+
+def test_the_command_writes_and_warns_about_stale_slices(tmp_path, capsys):
+    m = _master(tmp_path)
+    assert main(["relink", "--master", str(m), "Company/Old.md", "Company/New.md",
+                 "--write", "--verbose"]) == 0
+    out = capsys.readouterr().out
+    assert "Company/Hub.md" in out and "cycle" in out
+    assert (m / "Company/New.md").exists()
+
+
+def test_the_command_reports_a_refusal_without_a_traceback(tmp_path, capsys):
+    m = _master(tmp_path)
+    assert main(["relink", "--master", str(m), "Company/Old.md", "Teams/ops/Old.md"]) == 1
+    err = capsys.readouterr().err
+    assert "different spaces" in err and "Traceback" not in err
+
+
+def test_the_default_output_has_counts_but_no_note_paths(tmp_path, capsys):
+    m = _master(tmp_path)
+    main(["relink", "--master", str(m), "Company/Old.md", "Company/New.md"])
+    assert "Hub.md" not in capsys.readouterr().out.split("\n", 1)[1]
