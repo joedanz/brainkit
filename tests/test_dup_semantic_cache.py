@@ -369,3 +369,41 @@ def test_an_unexpected_error_in_the_semantic_tier_is_not_swallowed(
     monkeypatch.setattr(brain.dedup, "semantic_pairs", boom)
     with pytest.raises(ValueError):
         run_doctor(master)
+
+
+def test_a_warm_run_chunks_only_new_and_changed_notes(master, tmp_path, monkeypatch):
+    import brain.chunker
+
+    calls = []
+    real = brain.chunker.chunk_markdown
+
+    def spy(rel, *a, **kw):
+        calls.append(rel)
+        return real(rel, *a, **kw)
+
+    monkeypatch.setattr(brain.chunker, "chunk_markdown", spy)  # before any run
+    _setup(master, tmp_path, monkeypatch)
+    calls.clear()  # warming the embeddings chunks every note too
+    assert _dups(_writable_run(master)) == BASELINE
+    assert calls  # a cold run chunks what it has no hashes for
+    calls.clear()
+    assert _dups(_writable_run(master)) == BASELINE
+    assert calls == []
+
+    _note(master, "Company/Alpha New.md", _variant(_bag("alpha"), 3, "n"), seed=90)
+    _rewarm(master, tmp_path, monkeypatch, "Company/Alpha New.md")
+    calls.clear()
+    warm = _writable_run(master)
+    assert calls == ["Company/Alpha New.md"]
+    assert _dups(warm) == _dups(_fresh(master, tmp_path))
+
+
+def test_a_moved_note_is_chunked_again(master, tmp_path, monkeypatch):
+    """The chunk hashes depend on the note's path (its title and space are
+    part of what is embedded), so the same text elsewhere is a new key."""
+    _setup(master, tmp_path, monkeypatch)
+    _writable_run(master)
+    (master / "Company/Moved.md").parent.mkdir(exist_ok=True)
+    shutil.move(master / "Company/Alpha 0.md", master / "Company/Moved.md")
+    _rewarm(master, tmp_path, monkeypatch, "Company/Moved.md")
+    assert _dups(_writable_run(master)) == _dups(_fresh(master, tmp_path))

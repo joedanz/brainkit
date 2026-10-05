@@ -422,3 +422,57 @@ def test_a_cache_without_the_semantic_tables_reads_as_empty(tmp_path):
     ro = SignatureCache.open_readonly(tmp_path)
     assert ro.get_near(["k"], 8) == {"k": []}
     ro.close()
+
+
+# ---- chunk hashes remembered between runs ------------------------------------
+
+def test_chunk_rows_round_trip_prune_and_ignore_bad_rows(tmp_path):
+    from brain.dedup import SignatureCache
+
+    (tmp_path / ".gitignore").write_text("_meta/cache/\n")
+    good = ["a" * 64, "b" * 64]
+    cache = SignatureCache.open_writable(tmp_path)
+    assert cache.get_chunk_shas(["k1", "k2", "k3"]) == {}
+    cache.put_chunk_shas("k1", good)
+    cache.put_chunk_shas("k2", [])  # a note with no chunks is remembered too
+    cache.put_chunk_shas("k3", ["short"])
+    cache.save()
+    cache.close()
+
+    ro = SignatureCache.open_readonly(tmp_path)
+    assert ro.get_chunk_shas(["k1", "k2", "k3"]) == {"k1": good, "k2": []}
+    ro.put_chunk_shas("k4", good)  # read-only: taken and kept nowhere
+    ro.close()
+
+    cache = SignatureCache.open_writable(tmp_path)
+    cache.get_chunk_shas(["k2"])
+    cache.save()  # k1 and k3 were not asked for: pruned
+    cache.close()
+    ro = SignatureCache.open_readonly(tmp_path)
+    assert ro.get_chunk_shas(["k1", "k2", "k4"]) == {"k2": []}
+    ro.close()
+
+
+def test_chunk_key_moves_with_path_shared_and_text():
+    from brain.dedup import chunk_key
+
+    base = chunk_key("Company/A.md", "Company", "t")
+    assert chunk_key("Company/A.md", "Company", "t") == base
+    assert len({base, chunk_key("Company/B.md", "Company", "t"),
+                chunk_key("Company/A.md", "Shared", "t"),
+                chunk_key("Company/A.md", "Company", "u")}) == 4
+
+
+def test_chunk_version_moves_with_the_chunker(monkeypatch):
+    import brain.chunker
+    import brain.dedup as dedup
+
+    before = dedup.chunk_shas_version()
+    assert dedup.chunk_shas_version() == before
+    real = brain.chunker.embedding_input
+    monkeypatch.setattr(brain.chunker, "embedding_input", lambda c: "x" + real(c))
+    assert dedup.chunk_shas_version() != before
+    monkeypatch.undo()
+    assert dedup.chunk_shas_version() == before
+    monkeypatch.setattr(dedup, "CHUNK_SCHEME", dedup.CHUNK_SCHEME + 1)
+    assert dedup.chunk_shas_version() != before
