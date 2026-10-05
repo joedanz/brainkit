@@ -153,3 +153,41 @@ def test_enumerate_spaces_custom_shared(tmp_path):
     assert "Family" in spaces
     assert "Teams/kids" in spaces
     assert not any(s.startswith("Family/") for s in spaces)
+
+
+def _scan_match_rule(space, rules):
+    """The plain scan _match_rule's lookup table must agree with."""
+    parts = space.split("/")
+    wildcard_hit = None
+    for rule in rules:
+        if rule.path == space:
+            return rule, None
+        rparts = rule.path.split("/")
+        if len(rparts) == len(parts) and rparts[-1] == "*" and rparts[:-1] == parts[:-1]:
+            wildcard_hit = (rule, parts[-1])
+    return wildcard_hit or (None, None)
+
+
+def test_rule_lookup_agrees_with_a_plain_scan():
+    import itertools
+    from brain.resolver import _match_rule
+    from brain.schemas import SpaceRule
+
+    names = ("a", "b", "*", "")
+    paths = ["/".join(p) for n in (1, 2, 3) for p in itertools.product(names, repeat=n)]
+    # Duplicated and shadowed paths, in an order that makes first-vs-last matter.
+    rules = tuple(SpaceRule(p, (f"person:{i}",), ()) for i, p in enumerate(paths + paths[::-1]))
+    for space in paths + ["a/zz", "zz", "a/b/c/d"]:
+        assert _match_rule(space, rules) == _scan_match_rule(space, rules), space
+
+
+def test_rule_lookup_rebuilds_for_a_different_rules_tuple():
+    from brain.resolver import _match_rule
+    from brain.schemas import SpaceRule
+
+    one = (SpaceRule("People/*", ("everyone",), ()),)
+    two = (SpaceRule("Clients/*", ("everyone",), ()),)
+    assert _match_rule("People/bob", one)[0] is one[0]
+    assert _match_rule("People/bob", two) == (None, None)
+    assert _match_rule("Clients/acme", two) == (two[0], "acme")
+    assert _match_rule("People/bob", one)[0] is one[0]
