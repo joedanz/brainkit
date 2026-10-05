@@ -11,6 +11,46 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-05
+
+### Added
+
+- **A weekly digest of what changed.** Once a week, each person's agent gets
+  `People/<id>/Inbox/weekly-digest.md`: a short summary of what changed in the
+  notes that person can read during the previous Monday to Sunday. Facts that
+  started or ended come first, then new, edited, removed and renamed notes,
+  grouped by space and capped so a busy week stays readable. It leaves out the
+  person's own edits and anything in a space they cannot read, including who
+  made a change there, and it is built from the master's git history, so no
+  model is involved. A week with nothing to report writes nothing and removes
+  last week's note. The digest is not indexed, and the doctor does not read
+  it. **When you upgrade:** the first cycle after the upgrade writes the
+  digest for the week just ended, so people's agents will mention it once.
+- **`brain relink OLD NEW`** keeps links working when a note is renamed or
+  moved. If the note still exists, it is moved and every link to it follows;
+  if an agent already renamed it, the links that now point nowhere are
+  repaired. Every link that reached the note before still reaches it, and no
+  other link changes. It only reports what it would change until you add
+  `--write`, which makes one commit. It leaves a link alone, and counts it,
+  when some reader of the note holding it cannot see the note it points at, so
+  a rewrite can never show anyone the name of a note they are not cleared to
+  see. It refuses cross-space moves, name collisions, and notes named by a
+  pending promotion or held edit. If anything fails part-way, everything is put
+  back.
+- **A retrieval check for developers.** `brain.evalcases` scores known
+  questions against a vault's index (hit rate and mean reciprocal rank), and a
+  new test runs a small synthetic vault and fails when a pinned question stops
+  finding its note. There is no command yet.
+
+### Changed
+
+- **`brain doctor` no longer reports `Memory.md` as a duplicate name.** Every
+  person's folder and the shared space each get a `Memory.md` when they are
+  created, so the stem-collision warning fired once per member and landed in
+  inbox digests. It is now exempt, like `Home.md`. (#116)
+- The per-person agent instructions gain one line about the weekly digest. The
+  master `AGENTS.md` is unchanged, so no `protocol-stale` warning appears.
+
 ## [0.7.16] - 2026-10-05
 
 ### Changed
