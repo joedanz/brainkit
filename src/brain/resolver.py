@@ -54,18 +54,39 @@ def space_of_path(rel_path: str, shared: str = DEFAULT_SHARED) -> str | None:
     return None
 
 
+# A lookup table over the last rules tuple asked about. Doctor and stats ask
+# about thousands of spaces against one tuple of hundreds of rules, so a scan
+# per ask dominated their time. Rules are immutable, so identity of the tuple
+# is identity of its contents; a different tuple simply rebuilds the table.
+_rule_table: tuple[tuple[SpaceRule, ...], dict[str, SpaceRule],
+                   dict[tuple[str, ...], SpaceRule]] | None = None
+
+
+def _table_for(rules: tuple[SpaceRule, ...]):
+    global _rule_table
+    table = _rule_table
+    if table is None or table[0] is not rules:
+        exact: dict[str, SpaceRule] = {}
+        wildcard: dict[tuple[str, ...], SpaceRule] = {}
+        for rule in rules:
+            exact.setdefault(rule.path, rule)  # the first exact rule wins
+            rparts = rule.path.split("/")
+            if rparts[-1] == "*":
+                wildcard[tuple(rparts[:-1])] = rule  # the last wildcard wins
+        table = _rule_table = (rules, exact, wildcard)
+    return table
+
+
 def _match_rule(space: str, rules: tuple[SpaceRule, ...]) -> tuple[SpaceRule | None, str | None]:
     """Return (rule, wildcard_binding). Exact match wins over wildcard."""
+    _, exact, wildcard = _table_for(rules)
+    rule = exact.get(space)
+    if rule is not None:
+        return rule, None
     parts = space.split("/")
-    wildcard_hit: tuple[SpaceRule, str] | None = None
-    for rule in rules:
-        if rule.path == space:
-            return rule, None
-        rparts = rule.path.split("/")
-        if len(rparts) == len(parts) and rparts[-1] == "*" and rparts[:-1] == parts[:-1]:
-            wildcard_hit = (rule, parts[-1])
-    if wildcard_hit:
-        return wildcard_hit
+    rule = wildcard.get(tuple(parts[:-1]))
+    if rule is not None:
+        return rule, parts[-1]
     return None, None
 
 
