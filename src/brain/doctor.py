@@ -436,7 +436,7 @@ def _check_duplicates(master: Path, org: Org, rules: tuple[SpaceRule, ...],
     # siblings under one parent still are.
     all_paths = set(rels)
     by_stem_all: dict[str, str] = {}
-    for r in rels:
+    for r in sorted(rels):  # string order, as the indexer resolves duplicate stems
         by_stem_all.setdefault(_stem(r), r)
     up_of: dict[str, set[str]] = {}
     for r in rels:
@@ -831,7 +831,7 @@ def _check_cross_space_refs(master: Path, org: Org, rules: tuple[SpaceRule, ...]
     rels = run.content_files()
     paths = set(rels)
     by_stem: dict[str, str] = {}
-    for rel in rels:
+    for rel in sorted(rels):  # string order, as the indexer resolves duplicate stems
         by_stem.setdefault(_stem(rel), rel)
 
     readers_of = run.readers_of(org, rules)

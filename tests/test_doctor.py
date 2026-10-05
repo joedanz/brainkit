@@ -123,6 +123,23 @@ def test_cross_space_reference_warns_and_same_space_is_silent(master):
     assert "bob" in home[0].message           # the reader who cannot see it
 
 
+def test_cross_refs_resolve_duplicate_stems_like_the_indexer(master):
+    seed_meta(master)
+    # "Clients/a-b/Dup.md" sorts before "Clients/a/Dup.md" as a string ('-' < '/'),
+    # which is the order the indexer resolves a bare [[Dup]] in. Doctor must pick
+    # the same note: the public one, so the link leaks nothing.
+    (master / "_meta/spaces.yaml").write_text(
+        SPACES_YAML
+        + '  - {path: "Clients/a", read: ["person:alice"], write: ["person:alice"]}\n'
+        + '  - {path: "Clients/a-b", read: [everyone], write: ["person:alice"]}\n')
+    for rel in ("Clients/a/Dup.md", "Clients/a-b/Dup.md"):
+        (master / rel).parent.mkdir(parents=True, exist_ok=True)
+        (master / rel).write_text("# Dup\nbody.\n")
+    (master / "Company/Pointer.md").write_text("# Pointer\nSee [[Dup]].\n")
+    findings = [f for f in run_doctor(master) if f.check == "cross-refs"]
+    assert not [f for f in findings if f.message.startswith("Company/Pointer.md")]
+
+
 def _restrict_vandenberg(master):
     """Add a Vandenberg client space readable only by alice."""
     (master / "_meta/spaces.yaml").write_text(
