@@ -11,14 +11,20 @@ drift between the two fails CI. See docs/superpowers/specs/2026-10-05-relink-des
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
-from brain.compiler import WIKILINK_RE, _stem
+from brain.compiler import WIKILINK_RE, _stem, is_generated_person_note
+from brain.doctor import _walk_content
 from brain.errors import BrainError
 from brain.facts import parse_entity
 from brain.frontmatter import split_frontmatter
+from brain.promotions import _commit, list_pending
+from brain.resolver import space_of_path
+from brain.schemas import load_config
 
 Maps = tuple[set[str], dict[str, str], dict[str, str]]
 
@@ -142,3 +148,106 @@ def plan_relink(texts: Mapping[str, str], old: str, new: str) -> RelinkPlan:
             edits[path] = "".join(pieces)
             per_note[path] = changed
     return RelinkPlan(mode, edits, sum(per_note.values()), per_note)
+
+
+@dataclass(frozen=True)
+class RelinkReport:
+    mode: str
+    notes_touched: int
+    links_rewritten: int
+    paths: tuple[str, ...]  # notes rewritten (post-rename paths), sorted
+    skipped_symlinks: int
+    committed: bool
+    written: bool
+
+
+def _check_request(master: Path, old: str, new: str, shared: str) -> None:
+    for rel in (old, new):
+        parts = PurePosixPath(rel).parts
+        if rel.startswith("/") or ".." in parts:
+            raise RelinkError(f"{rel!r}: path must be inside the master (no '..' or leading '/')")
+        if not rel.endswith(".md"):
+            raise RelinkError(f"{rel!r}: only .md notes can be relinked")
+        if parts and (parts[0] == "_meta" or parts[0].startswith(".")):
+            raise RelinkError(f"{rel!r}: _meta and hidden folders are not notes")
+        if space_of_path(rel, shared) is None or len(parts) <= (
+                len(space_of_path(rel, shared).split("/"))):
+            raise RelinkError(f"{rel!r} is not a note inside a space")
+        if is_generated_person_note(rel):
+            raise RelinkError(f"{rel!r} is a generated note that recompiles every cycle")
+    if space_of_path(old, shared) != space_of_path(new, shared):
+        raise RelinkError(
+            "OLD and NEW are in different spaces; moving a note between spaces "
+            "changes who can read it — use a promotion for that")
+
+
+def _blocking_records(master: Path, names: set[str]) -> list[str]:
+    found: list[str] = []
+    for promo in list_pending(master):
+        if promo.target_path in names or promo.source in names:
+            found.append(f"pending promotion {promo.id}")
+    for held in sorted(master.glob("People/*/.held.json")):
+        try:
+            record = json.loads(held.read_text())
+            paths = {h.get("path") for h in record.get("paths", [])}
+        except (OSError, ValueError, AttributeError):
+            continue
+        if paths & names:
+            found.append(f"held edit under {held.parent.name}")
+    return found
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""  # still a link target, but nothing to rewrite in it
+
+
+def relink_master(master: Path, old: str, new: str, *, write: bool = False) -> RelinkReport:
+    """Validate, plan and (with write=True) apply a relink on a master.
+
+    Without `write` nothing on disk or in git changes. With it: move the note
+    if it still exists, rewrite each affected note atomically, and commit
+    exactly the touched paths in one commit.
+    """
+    master = Path(master)
+    shared = load_config(master).shared
+    _check_request(master, old, new, shared)
+    blockers = _blocking_records(master, {old, new})
+    if blockers:
+        raise RelinkError(
+            "resolve these first, they name the note by path: " + ", ".join(blockers))
+
+    rels = _walk_content(master, shared)
+    texts = {rel: _read(master / rel) for rel in rels}
+    plan = plan_relink(texts, old, new)
+
+    # Never write through a symlink or into a generated note.
+    targets = {p: t for p, t in plan.edits.items()
+               if not is_generated_person_note(p)}
+    skipped = sorted(p for p in targets if (master / p).is_symlink())
+    targets = {p: t for p, t in targets.items() if p not in skipped}
+    touched = tuple(sorted(targets))
+    links = sum(plan.per_note[p] for p in targets)
+    report = RelinkReport(plan.mode, len(targets), links, touched, len(skipped),
+                          committed=False, written=False)
+    if not write:
+        return report
+
+    # The move itself is a plain rename, not `git mv`: a staged deletion would
+    # drop out of the scoped commit below, leaving the old path in history.
+    # Both paths are always committed, so a run that stopped after the move
+    # and is finished as a heal still records the move.
+    if plan.mode == "move":
+        (master / new).parent.mkdir(parents=True, exist_ok=True)
+        os.replace(master / old, master / new)
+    for rel, text in targets.items():
+        dest = master / rel
+        tmp = dest.with_name(dest.name + ".relink-tmp")
+        tmp.write_bytes(text.encode("utf-8"))
+        os.replace(tmp, dest)
+    committed = _commit(master, sorted({*touched, old, new}),
+                        f"relink: {old} -> {new}", "Brain Server", "server@brain.local")
+    return RelinkReport(plan.mode, len(targets), links, touched, len(skipped),
+                        committed=committed, written=True)
