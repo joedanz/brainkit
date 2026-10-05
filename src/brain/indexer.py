@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from brain.chunker import chunk_markdown, embedding_input
-from brain.compiler import _stem, extract_wikilinks
+from brain.compiler import _stem, extract_wikilinks, is_weekly_digest
 from brain.edges import rebuild_edges
 from brain.embeddings import EmbeddingCache, EmbeddingProvider, pack_vector
 from brain.facts import parse_entity, parse_facts
@@ -117,7 +117,8 @@ def build_index(
     candidates = {
         rel: sha
         for rel, sha in manifest["compiled"].items()
-        if rel.endswith(".md") and rel not in generated and not is_session(rel)
+        if rel.endswith(".md") and rel not in generated
+        and not is_session(rel) and not is_weekly_digest(rel)
     }
 
     report = IndexReport()

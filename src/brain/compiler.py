@@ -83,6 +83,17 @@ def is_generated_person_note(rel: str) -> bool:
     return (len(parts) == 3 and parts[0].casefold() == "people"
             and parts[2].casefold() in _GENERATED_PERSON_NOTE_NAMES)
 
+WEEKLY_DIGEST_NAME = "weekly-digest.md"
+
+
+def is_weekly_digest(rel: str) -> bool:
+    """True for People/<id>/Inbox/weekly-digest.md. The digest quotes other
+    notes, so the doctor and the index must not read it as content."""
+    parts = PurePosixPath(rel).parts
+    return (len(parts) == 4 and parts[0] == "People" and parts[2] == "Inbox"
+            and parts[3] == WEEKLY_DIGEST_NAME)
+
+
 WIKILINK_RE = re.compile(
     r"!?\[\[([^\][|#]+)(#[^\][|]*)?(\|([^\][]+))?\]\]"
 )
