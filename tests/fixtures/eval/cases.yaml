@@ -1,0 +1,61 @@
+- id: tree-nut-station
+  query: tree nut separate prep station
+  expect: [Company/Policies/Allergen Policy.md]
+  origin: human
+  must: true
+- id: deposit-window
+  query: deposits refundable fourteen days
+  expect: [Company/Policies/Refund Policy.md]
+  origin: human
+  must: true
+- id: linen-cancel
+  query: linen contract cancelled ninety days
+  expect: [Company/Vendors/Vendor Contracts.md]
+  origin: human
+  must: true
+- id: produce-cutoff
+  query: order cutoff Tuesday noon
+  expect: [Company/Vendors/Produce Supplier.md]
+  origin: human
+  must: true
+- id: load-the-van
+  query: load van two hours call time
+  expect: [Company/Operations/Event Runbook.md]
+  origin: human
+  must: true
+- id: van-contents
+  query: propane ice chests extension cord
+  expect: [Company/Operations/Van Checklist.md]
+  origin: human
+  must: true
+- id: trial-shift
+  query: paid trial shift offer
+  expect: [Company/People/Hiring Process.md]
+  origin: human
+  must: true
+- id: food-handler
+  query: food handler card thirty days
+  expect: [Company/People/Onboarding Checklist.md]
+  origin: human
+  must: true
+- id: buffet-price
+  query: buffets seventy two
+  expect: [Company/Finance/Pricing Guide.md]
+  origin: human
+  must: true
+- id: gelato
+  query: gelato freezer shelf
+  expect: [Company/Menus/Dessert Station.md]
+  origin: human
+- id: injury-log
+  query: injury incident log shift
+  expect: [Company/Safety/Incident Reports.md]
+  origin: human
+- id: christmas
+  query: closes Christmas Day
+  expect: [Company/People/Holiday Schedule.md]
+  origin: human
+- id: seeded-allergen
+  query: Allergen Policy
+  expect: [Company/Policies/Allergen Policy.md]
+  origin: synthetic
