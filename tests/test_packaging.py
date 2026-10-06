@@ -161,3 +161,9 @@ def test_mcp_does_not_leak_the_revision_into_serverinfo():
     A "(rev …)" suffix there would be a wire-format change, not a nicety.
     """
     assert "rev" not in SERVER_INFO["version"]
+
+
+def test_remote_extra_is_optional_and_carries_pyjwt(project):
+    extras = project["optional-dependencies"]
+    assert any(d.startswith("pyjwt[crypto]") for d in extras["remote"])
+    assert not any(d.startswith("pyjwt") for d in project["dependencies"])
