@@ -1,0 +1,171 @@
+---
+title: Remote Access
+description: Connect each person's brain to Claude on the web and on their phone.
+icon: plug
+---
+
+`brain mcp` over stdio only works for tools that can start a program on your own computer, like Claude Code. Claude on the web and in the phone app can only reach a server over HTTPS. Remote access gives each person a private address that Claude can reach, so they can search, read and save notes in their own brain from anywhere.
+
+One connector, one address per company. Everyone clicks **Connect** and signs in with their work email.
+
+## How it fits together
+
+```
+Claude (web, phone, Code)
+   │  HTTPS, signed in through your identity edge
+   ▼
+Cloudflare Access        runs the sign-in (OAuth) and signs each request with who it came from
+   │
+   ▼
+brain mcp-router         checks the signature, finds that person's port        (holds no vault)
+   │
+   ├─▶ brain mcp --http  (alice)   reads only compiled/alice, saves only to spool/alice
+   └─▶ brain mcp --http  (bob)     reads only compiled/bob,   saves only to spool/bob
+```
+
+brainkit does not run the sign-in. An identity edge in front of it does, and brainkit only checks the signed note the edge attaches to each request. Cloudflare Access is what this guide describes; the check is generic, so another edge that signs requests the same way works with a settings change.
+
+<Callout type="info">
+  **The tenant wall still holds.** Each `brain mcp --http` process is given exactly one
+  compiled vault and answers only to that person's email. The router never opens a vault.
+  Three separate checks stand between a request and a vault: the edge's list of allowed
+  emails, the router's route table, and the vault process's own pinned email. A wrong route
+  is refused, never served. See the [deployment rule](/guides/deployment).
+</Callout>
+
+## Connect in Claude
+
+<Steps>
+  <Step title="Add the connector once">
+    On a Claude Team or Enterprise plan, an owner goes to **Settings → Connectors → Add
+    custom connector** and pastes the company address your admin gave you
+    (for example `https://mcp-acme.example.com/mcp`). Everyone in the organization then
+    sees it. On other plans, each person adds the same address themselves.
+  </Step>
+
+  <Step title="Each person clicks Connect">
+    Claude opens a sign-in page. Sign in with your work email. The first time, you'll be
+    asked to allow Claude to use your brain.
+  </Step>
+
+  <Step title="Ask about your brain">
+    Try "what changed in my brain this week?" or "save a note: Ana prefers aisle seats."
+    Notes you save appear in your Inbox after the next sync, usually within a few
+    minutes.
+  </Step>
+</Steps>
+
+<Callout type="info">
+  If the sign-in page says **Invalid nonce**, it just waited too long. Click **Connect**
+  again.
+</Callout>
+
+## What Claude can do
+
+The same six read tools as `brain mcp` (`brain_search`, `brain_read`, `brain_links`,
+`brain_graph`, `brain_recent`, `brain_facts`), plus **`brain_capture`**, which saves a note
+into your Inbox. Claude cannot edit or delete existing notes this way.
+
+## Set it up by hand
+
+If you run brainkit without Fleet, here is every piece. You need a Cloudflare account with
+Zero Trust, and `brainkit[remote]` installed on the brain box:
+
+```bash
+uv tool install 'brainkit[remote] @ git+https://github.com/joedanz/brainkit@<release tag>'
+```
+
+<Steps>
+  <Step title="Create the Cloudflare pieces">
+    1. A tunnel that sends one hostname (say `mcp-acme.example.com`) to
+       `http://127.0.0.1:8900`.
+    2. A **self-hosted Access application** on that hostname with **Managed OAuth** turned
+       on: dynamic client registration enabled, allowed redirect addresses
+       `https://claude.ai/api/mcp/auth_callback` and
+       `https://claude.com/api/mcp/auth_callback`, and localhost and loopback allowed (for
+       Claude Code).
+    3. An **allow** policy listing your staff's work emails.
+    4. Note the application's **AUD tag** and your team's address
+       (`https://<team>.cloudflareaccess.com`).
+  </Step>
+
+  <Step title="Write the shared settings">
+    `/etc/brain/mcp.env` (no secrets in it):
+
+    ```bash
+    BRAIN_MCP_ISSUER=https://<team>.cloudflareaccess.com
+    BRAIN_MCP_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/certs
+    BRAIN_MCP_AUDIENCE=<the application's AUD tag>
+    ```
+  </Step>
+
+  <Step title="Add each person">
+    For each person (`alice` here), a settings file `/etc/brain/mcp.d/alice.env`:
+
+    ```bash
+    BRAIN_MCP_PORT=8901
+    BRAIN_MCP_EMAIL=alice@acme.com
+    ```
+
+    a spool folder for saved notes, owned by the user the service runs as:
+
+    ```bash
+    install -d -o brain -m 0700 /srv/brain/spool/alice
+    ```
+
+    and the service:
+
+    ```bash
+    install -m 644 deploy/brain-box/brain-mcp@.service /etc/systemd/system/
+    systemctl enable --now brain-mcp@alice
+    ```
+  </Step>
+
+  <Step title="Start the router">
+    `/etc/brain/mcp-routes.yaml` maps each email to that person's port:
+
+    ```yaml
+    version: 1
+    routes:
+      alice@acme.com: 8901
+      bob@acme.com: 8902
+    ```
+
+    ```bash
+    install -m 644 deploy/brain-box/brain-mcp-router.service /etc/systemd/system/
+    systemctl enable --now brain-mcp-router
+    ```
+
+    The router reloads this file when it changes. A broken edit is ignored and the last
+    good table stays in force.
+  </Step>
+
+  <Step title="Let the cycle file saved notes">
+    Add `--spool-root /srv/brain/spool` to the [`brain cycle`](/reference/cli#brain-cycle)
+    line in your cron. Saved notes are filed into each person's Inbox on the next cycle.
+  </Step>
+</Steps>
+
+Adjust `User=` in both unit files for your install, and add an `EnvironmentFile` for your
+[embedding settings](/reference/configuration#embeddings) to the per-person unit if you
+want semantic search.
+
+## Troubleshooting
+
+Each failed request returns a small JSON body: `{"error": "<code>", "message": "..."}`.
+
+| Code | Status | What it means |
+|---|---|---|
+| `unauthenticated` | 401 | No signed identity, or it is expired or from the wrong place. Check `BRAIN_MCP_ISSUER` and `BRAIN_MCP_AUDIENCE`. |
+| `no_identity` | 403 | The request was signed but names no person (for example a service token). |
+| `no_route` | 403 | The email is not in the route table. Add it to `mcp-routes.yaml`. |
+| `wrong_person` | 403 | The router sent a request to someone else's process. Check the ports in the route table. |
+| `rate_limited` | 429 | Too many requests; retry after the `Retry-After` seconds. |
+| `too_large` | 413 | The request was over 1 MB. |
+| `unsupported_encoding` | 415 | Compressed request bodies are not accepted. |
+| `method_not_allowed` | 405 | Use `POST`. |
+| `upstream_unavailable` | 503 | That person's process is down or restarting. |
+
+If a person's brain does not answer, check `journalctl -u brain-mcp@<id>` and
+`curl http://127.0.0.1:<port>/healthz`. If saved notes never appear, check that the cycle
+runs with `--spool-root` and look in `/srv/brain/spool/<id>/.rejected/`.

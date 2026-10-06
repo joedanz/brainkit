@@ -276,6 +276,18 @@ at all the glob matches nothing and zsh will say so — there is nothing to
 delete in that state.) It leaves `retrieval-stats.json` and `retrieval-log.on`
 alone; neither is query text.
 
+## Remote access
+
+Read by `brain mcp --http` and `brain mcp-router` (flags win over variables). Needs the optional extra: `pip install 'brainkit[remote]'`. See [Remote Access](/guides/remote-access).
+
+| Variable | Meaning |
+|---|---|
+| `BRAIN_MCP_ISSUER` | The edge's address, e.g. `https://<team>.cloudflareaccess.com`. Must be `https://`. Signed requests must name this issuer. |
+| `BRAIN_MCP_JWKS_URL` | Where the edge publishes its signing keys, e.g. `<issuer>/cdn-cgi/access/certs`. Must be `https://`. Fetched at startup (the process refuses to start without them) and refreshed every 12 hours or when an unknown key appears. |
+| `BRAIN_MCP_AUDIENCE` | The Access application's AUD tag. Signed requests must name it. |
+| `BRAIN_MCP_HEADER` | Header carrying the signed identity. Default `Cf-Access-Jwt-Assertion`. |
+| `BRAIN_MCP_PORT`, `BRAIN_MCP_EMAIL` | Used by the shipped `brain-mcp@.service` template: one person's port and sign-in email. |
+
 ## Embeddings
 
 Retrieval's semantic leg needs an embedding provider. Without one, `brain index` and `brain search` still work in **keyword-only** mode — configure a provider to add the vector leg. Any OpenAI-compatible `/embeddings` endpoint works (OpenAI, Together, a company proxy, a local `llama-server`).

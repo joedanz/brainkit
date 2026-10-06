@@ -11,6 +11,23 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **Connect your brain in Claude on the web and on your phone.** `brain mcp --http`
+  serves one person's brain over HTTPS, `brain mcp-router` gives a company one address
+  and sends each person to their own brain, and a new `brain_capture` tool saves a note
+  into the person's Inbox. Sign-in is handled by an identity edge in front (Cloudflare
+  Access is documented); brainkit only checks the signed identity it attaches. Saved
+  notes wait in a per-person spool, and `brain cycle --spool-root DIR` files them into
+  the Inbox. It needs the optional extra `brainkit[remote]`; nothing changes for a
+  deployment that doesn't use it. See [Remote Access](https://brainkit-docs.vercel.app/guides/remote-access).
+
+### Fixed
+
+- `brain-liveness.sh` no longer reports systemd template units (such as
+  `brain-mcp@.service`) as down, and now checks their running instances. Its
+  `HEALTHCHECK_URL` error message no longer breaks the script under macOS's `sh`.
+
 ## [0.8.0] - 2026-10-05
 
 ### Added

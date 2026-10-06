@@ -37,6 +37,12 @@ The tenant wall in this system is *physical*: it holds only where a personal age
 
 The compiler guarantees that a person's *vault* contains only what they may see. That guarantee is about what gets written to disk. It says nothing about what a process running as your OS user can `open()` elsewhere on that disk. Keeping agents to one-vault-per-host (device or container mount) is what preserves the boundary at runtime.
 
+<Callout type="info">
+  [Remote access](/guides/remote-access) does not change this rule. `brain mcp-router` is not
+  a personal agent and holds no vault; each `brain mcp --http` process serves exactly one
+  person's compiled vault and answers only to that person.
+</Callout>
+
 ## Server-side jobs are different
 
 The **server assistant** agent is *supposed* to have full master access — it ingests transcripts, routes knowledge, and maintains dashboards across all spaces. Run it with master access, on cron and on Inbox drops. The deployment rule above is about *personal* agents, which must never see more than their one slice.
