@@ -14,13 +14,15 @@ One connector, one address per company. Everyone clicks **Connect** and signs in
 Claude (web, phone, Code)
    │  HTTPS, signed in through your identity edge
    ▼
-Cloudflare Access        runs the sign-in (OAuth) and signs each request with who it came from
+Cloudflare Access     runs the sign-in (OAuth) and signs each request
    │
    ▼
-brain mcp-router         checks the signature, finds that person's port        (holds no vault)
-   │
-   ├─▶ brain mcp --http  (alice)   reads only compiled/alice, saves only to spool/alice
-   └─▶ brain mcp --http  (bob)     reads only compiled/bob,   saves only to spool/bob
+brain mcp-router      checks the signature, finds that person's port
+   │                  (holds no vault)
+   ├─▶ brain mcp --http  (alice)   reads compiled/alice only
+   │                               saves to spool/alice only
+   └─▶ brain mcp --http  (bob)     reads compiled/bob only
+                                   saves to spool/bob only
 ```
 
 brainkit does not run the sign-in. An identity edge in front of it does, and brainkit only checks the signed note the edge attaches to each request. Cloudflare Access is what this guide describes; the check is generic, so another edge that signs requests the same way works with a settings change.
@@ -58,6 +60,12 @@ brainkit does not run the sign-in. An identity edge in front of it does, and bra
 <Callout type="info">
   If the sign-in page says **Invalid nonce**, it just waited too long. Click **Connect**
   again.
+</Callout>
+
+<Callout type="info">
+  Claude remembers a connector's tool list from when it was first connected. If you
+  connected before saving notes was available, **Disconnect** and **Connect** the connector
+  once and `brain_capture` will appear.
 </Callout>
 
 ## What Claude can do
