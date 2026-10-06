@@ -627,11 +627,45 @@ def cmd_facts(args) -> int:
     return 0 if not any(w.startswith(stale) for w in warnings) else 1
 
 
-def cmd_mcp(args) -> int:
-    from brain.mcp import serve
+def _remote_auth(args):
+    from brain.remoteauth import auth_config
 
-    serve(Path(args.vault))
-    return 0
+    return auth_config(issuer=args.auth_issuer, jwks_url=args.auth_jwks_url,
+                       audience=args.auth_audience, header=args.auth_header)
+
+
+def cmd_mcp(args) -> int:
+    if not args.http:
+        from brain.mcp import serve
+
+        serve(Path(args.vault))
+        return 0
+    from brain import mcphttp
+    from brain.remoteauth import RemoteAuthError
+
+    if not (args.person and args.person_email and args.port):
+        print("brain mcp --http needs --person, --person-email and --port", file=sys.stderr)
+        return 2
+    try:
+        return mcphttp.run_vault_server(
+            Path(args.vault), person=args.person, email=args.person_email,
+            auth=_remote_auth(args), port=args.port, host=args.host,
+            spool=Path(args.spool) if args.spool else None)
+    except RemoteAuthError as e:
+        print(f"cannot start remote MCP: {e}", file=sys.stderr)
+        return 2
+
+
+def cmd_mcp_router(args) -> int:
+    from brain import mcprouter
+    from brain.remoteauth import RemoteAuthError
+
+    try:
+        return mcprouter.run_router(Path(args.routes), auth=_remote_auth(args),
+                                    port=args.port, host=args.host)
+    except (RemoteAuthError, mcprouter.RouteTableError) as e:
+        print(f"cannot start remote MCP: {e}", file=sys.stderr)
+        return 2
 
 
 def cmd_status(args) -> int:
@@ -745,6 +779,14 @@ def _dashboard_serve(args) -> int:
                       open_browser=not args.no_open,
                       corrections_master=(Path(args.corrections_master)
                                           if args.corrections_master else None))
+
+
+def _add_remote_auth_args(p) -> None:
+    g = p.add_argument_group("identity (or BRAIN_MCP_* environment variables)")
+    g.add_argument("--auth-issuer", help="assertion issuer, e.g. https://<team>.cloudflareaccess.com")
+    g.add_argument("--auth-jwks-url", help="signing keys URL, e.g. <issuer>/cdn-cgi/access/certs")
+    g.add_argument("--auth-audience", help="the Access application's AUD tag")
+    g.add_argument("--auth-header", help="assertion header (default: Cf-Access-Jwt-Assertion)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -930,10 +972,30 @@ def build_parser() -> argparse.ArgumentParser:
 
     mc = sub.add_parser(
         "mcp",
-        help="run a stdio MCP server over a vault "
-             "(register: claude mcp add brain -- brain mcp --vault ~/brain)")
+        help="run an MCP server over a vault: stdio by default "
+             "(claude mcp add brain -- brain mcp --vault ~/brain), or --http for remote clients")
     mc.add_argument("--vault", required=True)
+    mc.add_argument("--http", action="store_true",
+                    help="serve Streamable HTTP on loopback behind brain mcp-router and an "
+                         "identity-asserting edge (needs brainkit[remote])")
+    mc.add_argument("--person", help="--http: the vault's owner (person id)")
+    mc.add_argument("--person-email", help="--http: the only identity this process serves")
+    mc.add_argument("--host", default="127.0.0.1", help="--http: loopback address")
+    mc.add_argument("--port", type=int, help="--http: port")
+    mc.add_argument("--spool", help="--http: enable brain_capture, queueing notes in this "
+                                    "directory for brain cycle --spool-root")
+    _add_remote_auth_args(mc)
     mc.set_defaults(func=cmd_mcp)
+
+    mr = sub.add_parser("mcp-router",
+                        help="route remote-MCP requests to each person's brain mcp --http "
+                             "(needs brainkit[remote])")
+    mr.add_argument("--routes", required=True,
+                    help="route table: version: 1, routes: {email: port}")
+    mr.add_argument("--host", default="127.0.0.1")
+    mr.add_argument("--port", type=int, default=8900)
+    _add_remote_auth_args(mr)
+    mr.set_defaults(func=cmd_mcp_router)
 
     st = sub.add_parser("status",
                         help="counts, freshness and health for a vault or the whole company")
