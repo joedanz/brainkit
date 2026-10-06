@@ -199,3 +199,17 @@ def test_run_refuses_a_public_bind(vault):
     with pytest.raises(RemoteAuthError, match="loopback"):
         run_vault_server(vault, person="bob", email="bob@acme.com", auth=cfg, port=8901,
                          host="0.0.0.0")
+
+
+def test_run_names_the_missing_extra_before_vault_problems(monkeypatch, tmp_path):
+    """A box without brainkit[remote] should be told to install it, not sent
+    chasing a vault complaint it would hit next anyway."""
+    from brain import remoteauth
+
+    def no_jwt():
+        raise RemoteAuthError("remote MCP needs the optional extra — install 'brainkit[remote]'")
+
+    monkeypatch.setattr(remoteauth, "_require_jwt", no_jwt)
+    cfg = AuthConfig(ISSUER, JWKS_URL, AUD)
+    with pytest.raises(RemoteAuthError, match=r"brainkit\[remote\]"):
+        run_vault_server(tmp_path, person="bob", email="bob@acme.com", auth=cfg, port=8901)

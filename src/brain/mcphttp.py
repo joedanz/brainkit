@@ -231,10 +231,12 @@ def run_vault_server(vault: Path, *, person: str, email: str, auth: AuthConfig, 
         raise RemoteAuthError("brain mcp --http binds loopback only — the edge "
                               "(cloudflared) and brain mcp-router sit in front")
     vault = Path(vault)
+    # Verifier first: a box without the [remote] extra should be told to
+    # install it, not sent chasing vault problems it would hit next anyway.
+    verifier = Verifier(auth)
     check_vault_owner(vault, person)
     if spool is not None:
         check_spool(spool)
-    verifier = Verifier(auth)
     verifier.load()
     from brain.embeddings import provider_from_config
 
