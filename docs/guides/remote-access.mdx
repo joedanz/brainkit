@@ -113,6 +113,12 @@ uv tool install 'brainkit[remote] @ git+https://github.com/joedanz/brainkit@<rel
     install -d -o brain -m 0700 /srv/brain/spool/alice
     ```
 
+    <Callout type="warning">
+      `brain cycle` must run as the same user that owns the spool (the unit's `User=`).
+      A spool the cycle can't read can't be emptied; the cycle prints a warning naming the
+      folder, and saved notes pile up until Claude says the queue is full.
+    </Callout>
+
     and the service:
 
     ```bash

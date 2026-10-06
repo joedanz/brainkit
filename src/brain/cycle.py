@@ -287,7 +287,13 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False,
     if spool_root is not None:
         from brain.spool import drain_spools
 
-        spool_report = drain_spools(spool_root, master, org, rules, shared=config.shared)
+        try:
+            spool_report = drain_spools(spool_root, master, org, rules, shared=config.shared)
+        except Exception as e:  # a broken spool must never stop write-back and
+            # compile for everyone — same posture as triage and digest below
+            from brain.spool import DrainReport
+
+            spool_report = DrainReport(warnings=[f"spool: drain failed ({type(e).__name__}: {e})"])
         lap("spool")
 
     wb: dict[str, PersonWriteback] = {}

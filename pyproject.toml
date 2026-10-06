@@ -50,10 +50,10 @@ Issues = "https://github.com/joedanz/brainkit/issues"
 Source = "https://github.com/joedanz/brainkit"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-aiohttp>=1.0", "pyjwt[crypto]>=2.10"]
+dev = ["pytest>=8.0", "pytest-aiohttp>=1.0", "pyjwt[crypto]>=2.10.1"]
 # Remote MCP (`brain mcp --http`, `brain mcp-router`): verifies the signed
 # identity assertion an edge such as Cloudflare Access adds to each request.
-remote = ["pyjwt[crypto]>=2.10"]
+remote = ["pyjwt[crypto]>=2.10.1"]
 
 [project.scripts]
 brain = "brain.cli:main"

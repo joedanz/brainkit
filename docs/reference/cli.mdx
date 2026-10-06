@@ -297,7 +297,7 @@ brain cycle --master <master> --out <out> [--json] [--index] [--spool-root <dir>
 | `--out` | yes | Compiled-vault root — the same `--out` you pass to `compile`. |
 | `--json` | no | Emit a single JSON summary object on stdout instead of human lines. |
 | `--index` | no | After recompiling, refresh each vault's search index (see [`brain index`](#brain-index)). Index failures warn but never fail the cycle. |
-| `--spool-root` | no | File notes saved over [remote access](/guides/remote-access) (queued under `<dir>/<person>/` by `brain mcp --http --spool`) into each person's Inbox, before write-back and the compile. A saved note that cannot be filed moves to `<dir>/<person>/.rejected/` with a warning. Without this flag the stage is skipped. |
+| `--spool-root` | no | File notes saved over [remote access](/guides/remote-access) (queued under `<dir>/<person>/` by `brain mcp --http --spool`) into each person's Inbox, before write-back and the compile. A saved note that cannot be filed moves to `<dir>/<person>/.rejected/` with a warning. Run the cycle as the user that owns the spool, or the folder is skipped with a warning. A broken spool never stops the rest of the cycle. Without this flag the stage is skipped. |
 
 ### The `--json` summary
 

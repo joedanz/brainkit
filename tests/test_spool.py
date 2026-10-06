@@ -112,3 +112,61 @@ def test_drain_of_missing_root_warns(master, tmp_path):
     seed_meta(master)
     report = _drain(master, tmp_path / "nope")
     assert report.ingested == 0 and "not a directory" in report.warnings[0]
+
+
+def test_write_envelope_refuses_text_that_cannot_be_stored_as_utf8(tmp_path):
+    """JSON allows a lone surrogate ("\\ud800"); it cannot be written to a note."""
+    with pytest.raises(SpoolError, match="UTF-8"):
+        write_envelope(tmp_path, "bob", text="hi \ud800", title="", now=NOW)
+    with pytest.raises(SpoolError, match="UTF-8"):
+        write_envelope(tmp_path, "bob", text="ok", title="t\ud800", now=NOW)
+    assert pending_count(tmp_path) == 0
+
+
+def test_drain_rejects_an_unencodable_envelope_and_leaves_no_stray_note(master, tmp_path):
+    seed_meta(master)
+    root = tmp_path / "spool"
+    path = _queue(root, "bob")
+    # hand-written escape: json.loads yields a lone surrogate
+    path.write_text('{"version":1,"person":"bob","title":"Ana","body":"hi \\ud800",'
+                    '"source":"mcp","created":"2026-10-06"}')
+    report = _drain(master, root)
+    assert (report.ingested, report.rejected) == (0, 1)
+    assert (path.parent / ".rejected" / path.name).exists()
+    assert not list((master / "People/bob/Inbox").glob("*"))   # no empty leftover file
+
+
+def test_drain_survives_an_os_error_from_one_envelope(master, tmp_path, monkeypatch):
+    seed_meta(master)
+    root = tmp_path / "spool"
+    bad = _queue(root, "bob")
+    good = root / "bob" / "99999999T000000Z-zzzzzzzz.json"
+    good.write_text(bad.read_text())
+    import brain.ingest as ingest
+    real = ingest.ingest_note
+    calls = []
+
+    def flaky(*a, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("disk full")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(ingest, "ingest_note", flaky)
+    report = _drain(master, root)
+    assert (report.ingested, report.rejected) == (1, 1)
+    assert "OSError" in report.warnings[0]
+
+
+def test_drain_warns_when_a_person_folder_is_unreadable(master, tmp_path):
+    import os
+    seed_meta(master)
+    root = tmp_path / "spool"
+    _queue(root, "bob")
+    os.chmod(root / "bob", 0)
+    try:
+        report = _drain(master, root)
+    finally:
+        os.chmod(root / "bob", 0o700)
+    assert report.ingested == 0
+    assert "bob" in report.warnings[0] and "cannot read" in report.warnings[0]

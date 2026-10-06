@@ -156,8 +156,8 @@ remote = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
-    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'dev'", specifier = ">=2.10" },
-    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'remote'", specifier = ">=2.10" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'dev'", specifier = ">=2.10.1" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'remote'", specifier = ">=2.10.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-aiohttp", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "pyyaml", specifier = ">=6.0" },

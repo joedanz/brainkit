@@ -1603,3 +1603,23 @@ def test_cli_cycle_accepts_spool_root(master, tmp_path, capsys):
                  "--spool-root", str(tmp_path / "spool"), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert "spool" in payload["timings_ms"]
+
+
+def test_a_broken_spool_never_stops_the_company_cycle(master, tmp_path, monkeypatch):
+    import brain.spool
+
+    def boom(*a, **kw):
+        raise OSError("spool volume went away")
+
+    monkeypatch.setattr(brain.spool, "drain_spools", boom)
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (out / "bob/People/bob/Memory.md").write_text("Bob learned a thing.\n")
+
+    report = run_cycle(master, out, today="2026-10-06", spool_root=tmp_path / "spool")
+
+    assert report.compiled == 2   # write-back and compile still ran
+    assert (master / "People/bob/Memory.md").read_text() == "Bob learned a thing.\n"
+    assert report.spool_ingested == 0
+    assert "spool volume went away" in report.spool_warnings[0]
+    assert "spool" in report.timings_ms

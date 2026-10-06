@@ -48,6 +48,13 @@ def write_envelope(spool: Path, person: str, *, text: str, title: str,
         raise SpoolError("the title must be a single line")
     if len(title) > MAX_TITLE:
         raise SpoolError(f"the title is longer than {MAX_TITLE} characters")
+    # JSON allows a lone surrogate ("\\ud800"); no note can hold one, and the
+    # cycle must never meet it.
+    for value in (text, title):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            raise SpoolError("the text is not valid UTF-8 — remove unusual characters") from None
     if pending_count(spool) >= MAX_PENDING:
         raise SpoolError("capture queue full — try again after the next sync")
 
@@ -86,6 +93,11 @@ def _envelope_problem(env, pid: str) -> str | None:
         return "envelope names a different person"
     if not all(isinstance(env.get(k), str) for k in ("body", "title", "created")):
         return "malformed envelope"
+    for key in ("body", "title"):
+        try:
+            env[key].encode("utf-8")
+        except UnicodeEncodeError:
+            return "text is not valid UTF-8"
     try:
         # `created` becomes part of a file name in build_inbox_note — only a
         # real ISO date may pass.
@@ -111,6 +123,13 @@ def drain_spools(spool_root: Path, master: Path, org, rules, *, shared: str) -> 
                      if p.is_dir() and not p.is_symlink() and not p.name.startswith("."))
     for folder in folders:
         person = org.people.get(folder.name)
+        if not os.access(folder, os.R_OK | os.W_OK | os.X_OK):
+            # glob() on an unreadable directory returns [] without a word, so
+            # say it here: the cycle must run as the user that owns the spool.
+            report.warnings.append(
+                f"spool: cannot read {folder} — captures for {folder.name} are not "
+                "being filed (the cycle must run as the user that owns the spool)")
+            continue
         envelopes = sorted(p for p in folder.glob("*.json")
                            if p.is_file() and not p.is_symlink())
         for path in envelopes:
@@ -131,9 +150,14 @@ def drain_spools(spool_root: Path, master: Path, org, rules, *, shared: str) -> 
                             title=env["title"] or "Captured from Claude", source="mcp",
                             sender=person.email or person.id, created=env["created"],
                             shared=shared)
-            except IngestError as e:
-                _reject(path, report, str(e))
+            except (IngestError, OSError, ValueError) as e:
+                # Not only IngestError: a write failure must cost one capture,
+                # never the company's cycle. Nothing retries a half-done ingest
+                # (it could file the note twice).
+                _reject(path, report, f"{type(e).__name__}: {e}")
                 continue
+            # A crash between the ingest commit and this unlink files the note
+            # again next cycle; the window is a few microseconds.
             path.unlink()
             report.ingested += 1
     return report
