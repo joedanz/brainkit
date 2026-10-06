@@ -75,6 +75,8 @@ Zero Trust, and `brainkit[remote]` installed on the brain box:
 uv tool install 'brainkit[remote] @ git+https://github.com/joedanz/brainkit@<release tag>'
 ```
 
+The shipped units run `/usr/local/bin/brain`. `uv tool install` puts the program in the installing user's own folder, so link it once (`ln -s ~/.local/bin/brain /usr/local/bin/brain`), or change `ExecStart=` in both unit files to the real path (`which brain`).
+
 <Steps>
   <Step title="Create the Cloudflare pieces">
     1. A tunnel that sends one hostname (say `mcp-acme.example.com`) to

@@ -104,3 +104,28 @@ def test_route_table_reloads_and_keeps_last_good_on_a_bad_file(tmp_path):
     os.utime(path, ns=(2 * 10**18, 2 * 10**18))
     now[0] = 4.0
     assert table.get("bob@acme.com") == 8902   # last good kept
+
+
+def test_upstream_timeout_covers_a_cold_first_search():
+    """The first brain_search after a restart loads the index and embedding
+    provider lazily; Fleet allows that 60 s, so the router must not give up first."""
+    import inspect
+
+    assert inspect.signature(create_router_app).parameters["upstream_timeout"].default == 60.0
+
+
+async def test_slow_upstream_is_503_not_a_hang(aiohttp_client, aiohttp_server, tmp_path):
+    import asyncio
+
+    async def slow(request):
+        await asyncio.sleep(1)
+        return web.json_response({})
+
+    app = web.Application()
+    app.router.add_post("/mcp", slow)
+    up = await aiohttp_server(app)
+    routes = RouteTable(_routes(tmp_path, {"bob@acme.com": up.port}))
+    c = await aiohttp_client(create_router_app(routes, verifier=make_verifier(),
+                                               upstream_timeout=0.2))
+    r = await c.post("/mcp", data=b"{}", headers={H: SIGNER.token()})
+    assert r.status == 503 and r.headers["Retry-After"] == "5"

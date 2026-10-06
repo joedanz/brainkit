@@ -88,6 +88,8 @@ def test_drain_files_a_capture_into_master_inbox_and_commits(master, tmp_path):
     ("bob", {"version": 9}, "version"),
     ("bob", {"body": 5}, "malformed"),
     ("bob", {"created": "../../x"}, "created"),
+    ("bob", {"created": "20261006"}, "created"),
+    ("bob", {"created": "2026-W41-1"}, "created"),
 ])
 def test_drain_rejects_and_keeps_bad_envelopes(master, tmp_path, pid, env, why):
     seed_meta(master)

@@ -138,7 +138,7 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 def create_router_app(routes: RouteTable, *, verifier: Verifier,
-                      upstream_timeout: float = 30.0) -> web.Application:
+                      upstream_timeout: float = 60.0) -> web.Application:
     from brain.webhook import _security_headers
 
     app = web.Application(client_max_size=MAX_BODY, middlewares=[_security_headers])

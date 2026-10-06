@@ -142,3 +142,27 @@ def test_flags_override_env():
     cfg = auth_config(audience="flag-aud", environ={"BRAIN_MCP_ISSUER": ISSUER,
                       "BRAIN_MCP_JWKS_URL": JWKS_URL, "BRAIN_MCP_AUDIENCE": "env-aud"})
     assert cfg.audience == "flag-aud"
+
+
+def test_a_slow_key_fetch_never_blocks_other_requests():
+    """While one request is mid-fetch (lock held), others must carry on with
+    the cached keys instead of queueing behind a hung endpoint."""
+    import threading
+
+    now = [1000.0]
+    v = make_verifier(clock=lambda: now[0])
+    now[0] += 61                     # a refresh is allowed
+    result = {}
+
+    def call():
+        try:
+            v.verify(_h(Signer(kid="unknown").token()))
+        except AuthRejected as e:
+            result["status"] = e.status
+
+    with v._lock:                    # another request is "mid-fetch"
+        t = threading.Thread(target=call, daemon=True)
+        t.start()
+        t.join(2)
+        assert not t.is_alive(), "verify blocked behind an in-flight key fetch"
+    assert result["status"] == 401

@@ -127,6 +127,10 @@ def _dispatch(app: web.Application, msg) -> dict | None:
         return _error(None, -32600, "invalid request")
     method, mid = msg.get("method"), msg.get("id")
     params = msg.get("params") or {}
+    if method == "tools/call":
+        arguments = params.get("arguments") if isinstance(params, dict) else None
+        if not isinstance(params, dict) or not (arguments is None or isinstance(arguments, dict)):
+            return _error(mid, -32602, "invalid params: expected an object")
     if app["spool"] is not None:
         if method == "tools/list":
             return _result(mid, {"tools": [*_TOOLS, CAPTURE_TOOL]})
@@ -134,6 +138,8 @@ def _dispatch(app: web.Application, msg) -> dict | None:
             args = params.get("arguments") or {}
             if not isinstance(args.get("text"), str):
                 return _error(mid, -32602, "brain_capture: missing required argument(s): text")
+            if not isinstance(args.get("title") or "", str):
+                return _error(mid, -32602, "brain_capture: title must be a string")
             text, is_err = _capture(app, args)
             return _text_result(mid, text, is_err)
     from brain.writeback import vault_shared
@@ -148,7 +154,9 @@ def _describe(msgs: list) -> str:
         if not isinstance(m, dict):
             parts.append("?")
         elif m.get("method") == "tools/call":
-            parts.append(f"tools/call:{(m.get('params') or {}).get('name')}")
+            params = m.get("params")
+            name = params.get("name") if isinstance(params, dict) else None
+            parts.append(f"tools/call:{name}")
         else:
             parts.append(str(m.get("method")))
     return ",".join(parts)
@@ -178,7 +186,7 @@ async def handle_mcp(request: web.Request) -> web.StreamResponse:
         return http_error(413, "too_large", "request body too large")
     try:
         payload = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return web.json_response(_error(None, -32700, "parse error"), status=400)
     batch = isinstance(payload, list)
     msgs = payload if batch else [payload]

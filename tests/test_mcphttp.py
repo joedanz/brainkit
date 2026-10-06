@@ -213,3 +213,35 @@ def test_run_names_the_missing_extra_before_vault_problems(monkeypatch, tmp_path
     cfg = AuthConfig(ISSUER, JWKS_URL, AUD)
     with pytest.raises(RemoteAuthError, match=r"brainkit\[remote\]"):
         run_vault_server(tmp_path, person="bob", email="bob@acme.com", auth=cfg, port=8901)
+
+
+@pytest.mark.parametrize("params", [5, "x", ["a"]])
+async def test_non_object_params_is_invalid_params_not_500(make_client, params):
+    c = await make_client()
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}
+    r = await c.post("/mcp", data=json.dumps(msg), headers=_hdr())
+    assert r.status == 200 and (await r.json())["error"]["code"] == -32602
+
+
+@pytest.mark.parametrize("arguments", ["x", 5, ["a"]])
+async def test_non_object_arguments_is_invalid_params_not_500(make_client, arguments):
+    c = await make_client()
+    r = await c.post("/mcp", data=json.dumps(_rpc("tools/call", name="brain_search",
+                     arguments=arguments)), headers=_hdr())
+    assert r.status == 200 and (await r.json())["error"]["code"] == -32602
+
+
+async def test_non_string_capture_title_is_invalid_params_not_500(make_client, tmp_path):
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    c = await make_client(spool=spool)
+    r = await c.post("/mcp", data=json.dumps(_rpc("tools/call", name="brain_capture",
+                     arguments={"text": "ok", "title": 5})), headers=_hdr())
+    assert r.status == 200 and (await r.json())["error"]["code"] == -32602
+    assert list(spool.glob("*.json")) == []
+
+
+async def test_deeply_nested_json_is_a_parse_error_not_500(make_client):
+    c = await make_client()
+    r = await c.post("/mcp", data=b"[" * 200_000, headers=_hdr())
+    assert r.status == 400 and (await r.json())["error"]["code"] == -32700

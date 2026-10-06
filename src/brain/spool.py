@@ -101,7 +101,9 @@ def _envelope_problem(env, pid: str) -> str | None:
     try:
         # `created` becomes part of a file name in build_inbox_note — only a
         # real ISO date may pass.
-        date.fromisoformat(env["created"])
+        # Round-trip: fromisoformat also accepts "20261006" and "2026-W41-1".
+        if date.fromisoformat(env["created"]).isoformat() != env["created"]:
+            return "bad created date"
     except ValueError:
         return "bad created date"
     return None

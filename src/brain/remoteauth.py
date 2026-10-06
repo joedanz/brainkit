@@ -135,7 +135,12 @@ class Verifier:
     def _refresh(self) -> None:
         """Best effort, at most once per REFETCH_MIN_INTERVAL_S. A failed or
         empty fetch keeps the keys already held."""
-        with self._lock:
+        # Non-blocking: if another request is already fetching (possibly against
+        # a hung endpoint), carry on with the keys we hold instead of queueing
+        # behind it and starving the server's thread pool.
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
             now = self._clock()
             if now - self._attempted_at < REFETCH_MIN_INTERVAL_S:
                 return
@@ -146,6 +151,8 @@ class Verifier:
                 return
             if keys:
                 self._keys, self._loaded_at = keys, now
+        finally:
+            self._lock.release()
 
     def verify(self, headers: Mapping[str, str]) -> Identity:
         jwt = self._jwt

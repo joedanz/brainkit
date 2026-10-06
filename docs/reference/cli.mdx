@@ -474,7 +474,7 @@ brain mcp --http --vault <compiled/person> --person <id> --person-email <email> 
 | `--spool` | Turn on the `brain_capture` tool, which queues saved notes in this folder for `brain cycle --spool-root`. |
 | `--auth-issuer`, `--auth-jwks-url`, `--auth-audience`, `--auth-header` | The edge's identity settings. Each falls back to `BRAIN_MCP_ISSUER`, `BRAIN_MCP_JWKS_URL`, `BRAIN_MCP_AUDIENCE`, `BRAIN_MCP_HEADER` ([configuration](/reference/configuration#remote-access)). |
 
-It refuses to start, with exit code 2 and a one-line reason, when the identity settings are missing, the extra is not installed, or the bind address is not loopback.
+It refuses to start, with exit code 2 and a one-line reason, when the identity settings are missing, the extra is not installed, the signing keys can't be fetched from `--auth-jwks-url`, the bind address is not loopback, the vault is not a compiled vault or its manifest or folder name names someone other than `--person`, or the `--spool` folder is not a directory owned by the user running the process.
 
 ## `brain mcp-router`
 
