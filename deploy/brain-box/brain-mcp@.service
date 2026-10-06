@@ -1,0 +1,43 @@
+# systemd template: one person's remote MCP server (`brain mcp --http`).
+# Instance = person id: brain-mcp@alice serves /srv/brain/compiled/alice.
+#
+# Needs:
+#   - brainkit installed with the remote extra: uv tool install 'brainkit[remote] @ ...'
+#   - /etc/brain/mcp.env        BRAIN_MCP_ISSUER, BRAIN_MCP_JWKS_URL, BRAIN_MCP_AUDIENCE
+#   - /etc/brain/mcp.d/<id>.env BRAIN_MCP_PORT, BRAIN_MCP_EMAIL (the person's sign-in email)
+#   - /srv/brain/spool/<id>/    a directory owned by User= (captures queue here;
+#                               run the cycle with --spool-root /srv/brain/spool)
+#   - brain-mcp-router in front, and an identity-asserting edge (Cloudflare
+#     Access) in front of that. See docs/guides/remote-access.
+# Adjust User= (and add the embedding EnvironmentFile) for your install, e.g.
+# with a drop-in, then: systemctl enable --now brain-mcp@alice
+#
+# Why ReadWritePaths covers all of /srv/brain/compiled: each compile swaps the
+# vault directory (a bind on the old one goes stale) and SQLite writes the WAL
+# -shm file even for read-only opens. This is the same reach the per-person
+# dashboard units have; the process itself serves only its one --vault.
+
+[Unit]
+Description=brainkit remote MCP for %i
+Documentation=https://github.com/joedanz/brainkit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=brain
+EnvironmentFile=/etc/brain/mcp.env
+EnvironmentFile=/etc/brain/mcp.d/%i.env
+ExecStart=/usr/local/bin/brain mcp --http --vault /srv/brain/compiled/%i --person %i --person-email ${BRAIN_MCP_EMAIL} --port ${BRAIN_MCP_PORT} --spool /srv/brain/spool/%i
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/brain/compiled /srv/brain/spool/%i
+InaccessiblePaths=-/srv/brain/master
+PrivateTmp=true
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

@@ -288,7 +288,7 @@ This command manages the *queue and direct revokes*; it doesn't create requests.
 Run the whole server-side loop once: write back every person's edits, provision any self-service [client requests](/concepts/spaces-and-permissions#self-service-client-spaces), route pending/auto-applied [share requests](/concepts/spaces-and-permissions#sharing-a-space) and apply any delegated decisions on them, sweep agent drafts into the promotions pending queue, then recompile all vaults.
 
 ```bash
-brain cycle --master <master> --out <out> [--json] [--index]
+brain cycle --master <master> --out <out> [--json] [--index] [--spool-root <dir>]
 ```
 
 | Flag | Required | Meaning |
@@ -297,6 +297,7 @@ brain cycle --master <master> --out <out> [--json] [--index]
 | `--out` | yes | Compiled-vault root — the same `--out` you pass to `compile`. |
 | `--json` | no | Emit a single JSON summary object on stdout instead of human lines. |
 | `--index` | no | After recompiling, refresh each vault's search index (see [`brain index`](#brain-index)). Index failures warn but never fail the cycle. |
+| `--spool-root` | no | File notes saved over [remote access](/guides/remote-access) (queued under `<dir>/<person>/` by `brain mcp --http --spool`) into each person's Inbox, before write-back and the compile. A saved note that cannot be filed moves to `<dir>/<person>/.rejected/` with a warning. Run the cycle as the user that owns the spool, or the folder is skipped with a warning. A broken spool never stops the rest of the cycle. Without this flag the stage is skipped. |
 
 ### The `--json` summary
 
@@ -455,7 +456,35 @@ Register it once with a client — for Claude Code:
 claude mcp add brain -- brain mcp --vault ~/brain
 ```
 
-It exposes six read-only tools: `brain_search` (hybrid search, with an optional `center` note for graph-aware ranking), `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space), `brain_links` (a note's backlinks and outgoing wikilinks), `brain_graph` (a note's typed relations, each edge labeled with why it exists), `brain_recent` (recently changed notes, from the vault's git history), and `brain_facts` (time-stamped fact lines, current, as-of, or believed-on a date). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. No HTTP, no OAuth — stdio only.
+It exposes six read-only tools: `brain_search` (hybrid search, with an optional `center` note for graph-aware ranking), `brain_read` (read one file by relative path, refusing symlinks, `..` escapes, and anything outside a readable space), `brain_links` (a note's backlinks and outgoing wikilinks), `brain_graph` (a note's typed relations, each edge labeled with why it exists), `brain_recent` (recently changed notes, from the vault's git history), and `brain_facts` (time-stamped fact lines, current, as-of, or believed-on a date). It runs on the employee's device against their own vault clone, so it inherits the compiler's boundary. Plain `brain mcp` is stdio only — no HTTP, no OAuth.
+
+### Remote mode: `--http`
+
+For clients that can only reach a server over HTTPS (Claude on the web and on phones), `brain mcp --http` serves one person's compiled vault over HTTP on loopback. It needs the optional extra (`pip install 'brainkit[remote]'`) and sits behind [`brain mcp-router`](#brain-mcp-router) and an edge that signs each request with who it came from. See [Remote Access](/guides/remote-access).
+
+```bash
+brain mcp --http --vault <compiled/person> --person <id> --person-email <email> --port <n> [--spool <dir>]
+```
+
+| Flag | Meaning |
+|---|---|
+| `--http` | Serve Streamable HTTP instead of stdio. |
+| `--person`, `--person-email` | The vault's owner. The process answers only to a request signed for this email, and refuses to start if the vault's manifest or folder name names someone else. |
+| `--port` | Port to listen on (loopback only; `--host` accepts only loopback addresses). |
+| `--spool` | Turn on the `brain_capture` tool, which queues saved notes in this folder for `brain cycle --spool-root`. |
+| `--auth-issuer`, `--auth-jwks-url`, `--auth-audience`, `--auth-header` | The edge's identity settings. Each falls back to `BRAIN_MCP_ISSUER`, `BRAIN_MCP_JWKS_URL`, `BRAIN_MCP_AUDIENCE`, `BRAIN_MCP_HEADER` ([configuration](/reference/configuration#remote-access)). |
+
+It refuses to start, with exit code 2 and a one-line reason, when the identity settings are missing, the extra is not installed, the signing keys can't be fetched from `--auth-jwks-url`, the bind address is not loopback, the vault is not a compiled vault or its manifest or folder name names someone other than `--person`, or the `--spool` folder is not a directory owned by the user running the process.
+
+## `brain mcp-router`
+
+Route remote requests to each person's `brain mcp --http`. One per company. It checks the edge's signed identity, looks the email up in a route table, and forwards to that person's loopback port. It never opens a vault.
+
+```bash
+brain mcp-router --routes /etc/brain/mcp-routes.yaml [--port 8900]
+```
+
+The routes file is `version: 1` plus `routes:` mapping each email to a port (1024–65535). The router reloads it when it changes and keeps the last good table if a new one is broken. It takes the same `--auth-*` settings as `brain mcp --http`. Unknown emails get a 403 `no_route`; a person whose process is down gets a 503 with `Retry-After`.
 
 ## `brain doctor`
 

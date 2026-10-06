@@ -161,3 +161,18 @@ def test_mcp_does_not_leak_the_revision_into_serverinfo():
     A "(rev …)" suffix there would be a wire-format change, not a nicety.
     """
     assert "rev" not in SERVER_INFO["version"]
+
+
+def test_remote_extra_is_optional_and_carries_pyjwt(project):
+    extras = project["optional-dependencies"]
+    assert any(d.startswith("pyjwt[crypto]") for d in extras["remote"])
+    assert not any(d.startswith("pyjwt") for d in project["dependencies"])
+
+
+def test_pyjwt_floor_excludes_the_issuer_substring_bug(project):
+    """pyjwt 2.10.0 matched `iss` by substring (CVE-2024-53861) — the check this
+    feature relies on. uv tool install ignores the lock, so the floor must hold."""
+    for deps in (project["optional-dependencies"]["remote"],
+                 project["optional-dependencies"]["dev"]):
+        [dep] = [d for d in deps if d.startswith("pyjwt")]
+        assert ">=2.10.1" in dep

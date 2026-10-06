@@ -187,6 +187,11 @@ class Person:
         return "admin" in self.roles
 
 
+def normalize_email(value: str) -> str:
+    """The one way emails are compared: case- and whitespace-insensitive."""
+    return value.strip().lower()
+
+
 @dataclass(frozen=True)
 class Org:
     people: dict[str, Person]
@@ -196,7 +201,7 @@ class Org:
 
         An empty needle never matches (people without an email have "").
         """
-        needle = email.strip().lower()
+        needle = normalize_email(email)
         if not needle:
             return None
         for p in self.people.values():
