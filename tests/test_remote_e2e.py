@@ -2,7 +2,6 @@
 one person's vault server -> brain_capture -> spool -> cycle -> master Inbox."""
 
 import json
-from datetime import UTC, datetime
 
 import pytest
 
@@ -10,18 +9,13 @@ from brain.cli import main
 from brain.cycle import run_cycle
 from brain.mcphttp import create_vault_app
 from brain.mcprouter import RouteTable, create_router_app
-from tests.remote_helpers import SIGNER, make_verifier
+from tests.remote_helpers import HEADER as H
+from tests.remote_helpers import NOW, SIGNER, make_verifier, rpc
 from tests.test_cli import seed_meta
-
-H = "Cf-Access-Jwt-Assertion"
-NOW = datetime(2026, 10, 6, 14, 30, tzinfo=UTC)
 
 
 def _rpc(method, mid=1, **params):
-    msg = {"jsonrpc": "2.0", "id": mid, "method": method}
-    if params:
-        msg["params"] = params
-    return json.dumps(msg)
+    return json.dumps(rpc(method, mid, **params))
 
 
 @pytest.fixture

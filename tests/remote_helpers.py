@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import UTC, datetime
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -15,10 +16,28 @@ AUD = "aud-tag-1"
 JWKS_URL = ISSUER + "/cdn-cgi/access/certs"
 
 
+HEADER = "Cf-Access-Jwt-Assertion"
+NOW = datetime(2026, 10, 6, 14, 30, tzinfo=UTC)
+
+# 2048-bit key generation dominates these tests' runtime, so every Signer
+# shares one key; tests that need "a different signer" differ by kid.
+_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+def rpc(method: str, mid: int | None = 1, **params) -> dict:
+    """One JSON-RPC request; mid=None makes it a notification."""
+    msg = {"jsonrpc": "2.0", "method": method}
+    if mid is not None:
+        msg["id"] = mid
+    if params:
+        msg["params"] = params
+    return msg
+
+
 class Signer:
     def __init__(self, kid: str = "k1"):
         self.kid = kid
-        self.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.key = _KEY
 
     def jwk(self) -> dict:
         d = json.loads(RSAAlgorithm.to_jwk(self.key.public_key()))

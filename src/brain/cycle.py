@@ -283,16 +283,14 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False,
     # Before write-back and the compile, so a capture filed now is in the
     # person's vault this same cycle. Only when asked: the stage's timing key
     # is how an operator (Fleet) confirms the drain is wired.
-    spool_report = None
-    if spool_root is not None:
-        from brain.spool import drain_spools
+    from brain.spool import DrainReport, drain_spools
 
+    spool_report = DrainReport()
+    if spool_root is not None:
         try:
             spool_report = drain_spools(spool_root, master, org, rules, shared=config.shared)
         except Exception as e:  # a broken spool must never stop write-back and
             # compile for everyone — same posture as triage and digest below
-            from brain.spool import DrainReport
-
             spool_report = DrainReport(warnings=[f"spool: drain failed ({type(e).__name__}: {e})"])
         lap("spool")
 
@@ -468,9 +466,9 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False,
 
     return CycleReport(
         duration_ms=duration_ms, timings_ms=timings,
-        spool_ingested=spool_report.ingested if spool_report else 0,
-        spool_rejected=spool_report.rejected if spool_report else 0,
-        spool_warnings=spool_report.warnings if spool_report else [],
+        spool_ingested=spool_report.ingested,
+        spool_rejected=spool_report.rejected,
+        spool_warnings=spool_report.warnings,
         writebacks=writebacks, swept=swept, compiled=compiled,
         compile_failures=compile_failures, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),

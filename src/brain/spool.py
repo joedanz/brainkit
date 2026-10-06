@@ -99,9 +99,9 @@ def _envelope_problem(env, pid: str) -> str | None:
         except UnicodeEncodeError:
             return "text is not valid UTF-8"
     try:
-        # `created` becomes part of a file name in build_inbox_note — only a
-        # real ISO date may pass.
-        # Round-trip: fromisoformat also accepts "20261006" and "2026-W41-1".
+        # `created` becomes part of a file name in build_inbox_note, so only a
+        # canonical YYYY-MM-DD may pass (fromisoformat alone also accepts
+        # "20261006" and "2026-W41-1").
         if date.fromisoformat(env["created"]).isoformat() != env["created"]:
             return "bad created date"
     except ValueError:

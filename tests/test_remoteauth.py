@@ -54,7 +54,7 @@ def test_assertion_without_email_is_403_no_identity():
 
 def test_hs256_token_is_refused():
     forged = jwt.encode({"iss": ISSUER, "aud": [AUD], "email": "bob@acme.com",
-                         "exp": int(time.time()) + 600}, "secret", algorithm="HS256",
+                         "exp": int(time.time()) + 600}, "s" * 32, algorithm="HS256",
                         headers={"kid": "k1"})
     with pytest.raises(AuthRejected) as e:
         make_verifier().verify(_h(forged))

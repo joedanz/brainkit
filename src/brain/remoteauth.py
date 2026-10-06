@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from brain.errors import BrainError
+from brain.schemas import normalize_email
 from brain.version import __version__
 
 DEFAULT_HEADER = "Cf-Access-Jwt-Assertion"
@@ -55,11 +56,6 @@ class AuthConfig:
 @dataclass(frozen=True)
 class Identity:
     email: str
-
-
-def normalize_email(value: str) -> str:
-    """The comparison Org.person_by_email uses: case- and whitespace-insensitive."""
-    return value.strip().lower()
 
 
 def auth_config(*, issuer: str | None = None, jwks_url: str | None = None,

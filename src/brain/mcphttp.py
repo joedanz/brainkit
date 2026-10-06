@@ -31,6 +31,7 @@ from brain.mcp import _TOOLS, _error, _handle, _result, _text_result
 from brain.remoteauth import (
     AuthConfig,
     AuthRejected,
+    Identity,
     RemoteAuthError,
     Verifier,
     normalize_email,
@@ -117,9 +118,8 @@ def _capture(app: web.Application, args: dict) -> tuple[str, bool]:
         except SpoolError as e:
             return str(e), True
         recent.append(now)
-    saved = ("Saved. It will appear in your Inbox after the next sync "
-             "(usually within a few minutes).")
-    return saved, False
+    return ("Saved. It will appear in your Inbox after the next sync "
+            "(usually within a few minutes)."), False
 
 
 def _dispatch(app: web.Application, msg) -> dict | None:
@@ -127,15 +127,16 @@ def _dispatch(app: web.Application, msg) -> dict | None:
         return _error(None, -32600, "invalid request")
     method, mid = msg.get("method"), msg.get("id")
     params = msg.get("params") or {}
+    args: dict = {}
     if method == "tools/call":
         arguments = params.get("arguments") if isinstance(params, dict) else None
         if not isinstance(params, dict) or not (arguments is None or isinstance(arguments, dict)):
             return _error(mid, -32602, "invalid params: expected an object")
+        args = arguments or {}
     if app["spool"] is not None:
         if method == "tools/list":
             return _result(mid, {"tools": [*_TOOLS, CAPTURE_TOOL]})
         if method == "tools/call" and params.get("name") == "brain_capture":
-            args = params.get("arguments") or {}
             if not isinstance(args.get("text"), str):
                 return _error(mid, -32602, "brain_capture: missing required argument(s): text")
             if not isinstance(args.get("title") or "", str):
@@ -162,17 +163,30 @@ def _describe(msgs: list) -> str:
     return ",".join(parts)
 
 
-async def handle_mcp(request: web.Request) -> web.StreamResponse:
-    app = request.app
+async def authenticate_post(request: web.Request, verifier: Verifier
+                            ) -> tuple[Identity | None, web.Response | None]:
+    """What both servers check before anything else: POST only, no compressed
+    body, and a valid signed identity. Returns (identity, None) or (None, the
+    refusal to send). Verification runs in a thread because a key refresh can
+    do blocking network I/O."""
     if request.method != "POST":
-        return http_error(405, "method_not_allowed", "use POST", headers={"Allow": "POST"})
+        return None, http_error(405, "method_not_allowed", "use POST",
+                                headers={"Allow": "POST"})
     if request.headers.get("Content-Encoding"):
-        return http_error(415, "unsupported_encoding", "compressed bodies are not accepted")
+        return None, http_error(415, "unsupported_encoding",
+                                "compressed bodies are not accepted")
     try:
-        ident = await asyncio.to_thread(app["verifier"].verify, request.headers)
+        return await asyncio.to_thread(verifier.verify, request.headers), None
     except AuthRejected as e:
         log.info("refused %s: %s", e.code, e.message)
-        return http_error(e.status, e.code, e.message)
+        return None, http_error(e.status, e.code, e.message)
+
+
+async def handle_mcp(request: web.Request) -> web.StreamResponse:
+    app = request.app
+    ident, refusal = await authenticate_post(request, app["verifier"])
+    if refusal is not None:
+        return refusal
     if ident.email != app["email"]:
         log.warning("routing error: %s reached %s's brain", ident.email, app["person"])
         return http_error(403, "wrong_person", "this brain belongs to someone else")

@@ -9,7 +9,6 @@ a wrong route is refused there rather than served.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -20,8 +19,8 @@ import yaml
 from aiohttp import web
 
 from brain.errors import BrainError
-from brain.mcphttp import LOOPBACK, MAX_BODY, http_error
-from brain.remoteauth import AuthConfig, AuthRejected, RemoteAuthError, Verifier, normalize_email
+from brain.mcphttp import LOOPBACK, MAX_BODY, authenticate_post, http_error
+from brain.remoteauth import AuthConfig, RemoteAuthError, Verifier, normalize_email
 
 log = logging.getLogger("brain.mcprouter")
 
@@ -100,15 +99,10 @@ class RouteTable:
 
 async def handle_route(request: web.Request) -> web.StreamResponse:
     app = request.app
-    if request.method != "POST":
-        return http_error(405, "method_not_allowed", "use POST", headers={"Allow": "POST"})
-    if request.headers.get("Content-Encoding"):
-        return http_error(415, "unsupported_encoding", "compressed bodies are not accepted")
     verifier: Verifier = app["verifier"]
-    try:
-        ident = await asyncio.to_thread(verifier.verify, request.headers)
-    except AuthRejected as e:
-        return http_error(e.status, e.code, e.message)
+    ident, refusal = await authenticate_post(request, verifier)
+    if refusal is not None:
+        return refusal
     port = app["routes"].get(ident.email)
     if port is None:
         log.info("no route for %s", ident.email)

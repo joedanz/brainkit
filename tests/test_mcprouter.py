@@ -5,9 +5,8 @@ import pytest
 from aiohttp import web
 
 from brain.mcprouter import RouteTable, RouteTableError, create_router_app, load_routes
+from tests.remote_helpers import HEADER as H
 from tests.remote_helpers import SIGNER, make_verifier
-
-H = "Cf-Access-Jwt-Assertion"
 
 
 def _routes(tmp_path, routes, version=1):
