@@ -58,9 +58,12 @@ brainkit does not run the sign-in. An identity edge in front of it does, and bra
 </Steps>
 
 <Callout type="info">
-  If the sign-in page says **Invalid nonce**, it just waited too long. Click **Connect**
-  again.
+  If the sign-in page says **Invalid nonce**, the **Allow** page waited too long. Click
+  **Connect** again and click **Allow** straight away.
 </Callout>
+
+On the Claude phone app the connector appears by itself once it has been added on the web.
+Open it, tap **Connect**, and sign in the same way.
 
 <Callout type="info">
   Claude remembers a connector's tool list from when it was first connected. If you
@@ -68,11 +71,42 @@ brainkit does not run the sign-in. An identity edge in front of it does, and bra
   once and `brain_capture` will appear.
 </Callout>
 
+## Connect other apps
+
+Any app that supports remote MCP servers with sign-in can use the same address. Claude on the
+web and phone is the one we have tested end to end. The others follow each app's own
+documentation, and their menus change, so treat these as the shape of the steps.
+
+| App | How to add it |
+|---|---|
+| **Claude Code** | `claude mcp add --transport http brain <address>`, then `/mcp` → **brain** → **Authenticate**. |
+| **Cursor** | Add `{"mcpServers": {"brain": {"url": "<address>"}}}` to `~/.cursor/mcp.json`, then click **Needs login**. |
+| **VS Code** | In `.vscode/mcp.json`: `{"servers": {"brain": {"type": "http", "url": "<address>"}}}`, then **Start**. |
+| **ChatGPT** | Turn on developer mode under **Settings → Connectors → Advanced** (plan-dependent), add a connector with the address and choose OAuth. |
+
+Every app opens the same sign-in page. Apps that need a fixed client ID instead of
+registering themselves are not supported by the setup above.
+
+If the brain files are on the same computer as the app, `brain mcp` over stdio needs no
+address and no sign-in (see [`brain mcp`](/reference/cli#brain-mcp)). It has the six read
+tools only; saving notes needs the remote address.
+
 ## What Claude can do
 
 The same six read tools as `brain mcp` (`brain_search`, `brain_read`, `brain_links`,
 `brain_graph`, `brain_recent`, `brain_facts`), plus **`brain_capture`**, which saves a note
 into your Inbox. Claude cannot edit or delete existing notes this way.
+
+## With Fleet
+
+[Fleet](/guides/reference-deployment) does every step in "Set it up by hand" for you. On a
+company's page, **Remote MCP → Set up** creates the tunnel, the Cloudflare Access application
+and its policies, the per-person services, the route table and the cron change, then checks
+each service's health. Running it again changes nothing that is already right. When someone
+joins or leaves, Fleet updates the allowed emails, the route table and that person's service
+in the same pass. **Disable** removes it all again.
+
+The address is `https://mcp-<company>.<your domain>/mcp`.
 
 ## Set it up by hand
 
