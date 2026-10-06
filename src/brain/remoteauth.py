@@ -158,6 +158,8 @@ class Verifier:
             kid = jwt.get_unverified_header(token).get("kid")
         except jwt.PyJWTError:
             raise AuthRejected(401, "unauthenticated", "malformed identity assertion") from None
+        if not isinstance(kid, str):
+            raise AuthRejected(401, "unauthenticated", "malformed identity assertion")
         key = self._keys.get(kid)
         if key is None:
             self._refresh()

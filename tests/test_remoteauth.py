@@ -1,3 +1,5 @@
+import base64
+import json
 import time
 
 import jwt
@@ -83,10 +85,12 @@ def test_unknown_kid_triggers_one_refetch_then_rate_limits():
 
 def test_jwks_down_at_runtime_keeps_cached_keys():
     now = [1000.0]
-    state = {"down": False}
+    state = {"down": False, "attempts": 0, "raised": 0}
 
     def fetch(url):
+        state["attempts"] += 1
         if state["down"]:
+            state["raised"] += 1
             raise OSError("unreachable")
         return {"keys": [SIGNER.jwk()]}
 
@@ -94,9 +98,25 @@ def test_jwks_down_at_runtime_keeps_cached_keys():
     state["down"] = True
     now[0] += 13 * 3600   # past the 12 h forced refresh
     assert v.verify(_h(SIGNER.token())).email == "bob@acme.com"
+    assert state["raised"] == 1   # the forced refresh was attempted and failed
+    now[0] += 61          # clear the refetch rate limit so the next fetch really runs
+    before = state["attempts"]
     with pytest.raises(AuthRejected) as e:
         v.verify(_h(Signer(kid="kx").token()))
     assert e.value.status == 401
+    assert state["attempts"] == before + 1 and state["raised"] == 2
+
+
+@pytest.mark.parametrize("kid", [[], {}, ["k1"], 5])
+def test_non_string_kid_is_401_not_500(kid):
+    def b64(d):
+        return base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+
+    token = (b64({"alg": "RS256", "typ": "JWT", "kid": kid}) + "."
+             + b64({"iss": ISSUER, "aud": [AUD], "email": "bob@acme.com"}) + ".")
+    with pytest.raises(AuthRejected) as e:
+        make_verifier().verify(_h(token))
+    assert (e.value.status, e.value.code) == (401, "unauthenticated")
 
 
 def test_load_refuses_when_keys_unreachable_or_empty():
