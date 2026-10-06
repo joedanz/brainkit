@@ -83,6 +83,10 @@ class CycleReport:
     # Grandfathering could not record this box's existing corrections; they
     # stay pending until a later cycle records them. Never fails the cycle.
     corrections_warnings: list[str] = field(default_factory=list)
+    # Remote captures filed from the spool this cycle (brain cycle --spool-root).
+    spool_ingested: int = 0
+    spool_rejected: int = 0
+    spool_warnings: list[str] = field(default_factory=list)
     # Wall time for the whole cycle, in milliseconds.
     #
     # A cycle that outgrows its own cron interval is the failure mode this
@@ -247,7 +251,8 @@ def _writeback_one(master: Path, vault: Path, person, rules, *, now: str,
                            applied=applied, held=held, error=error)
 
 
-def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) -> CycleReport:
+def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False,
+              spool_root: Path | None = None) -> CycleReport:
     # First statement, so the measurement covers the whole run rather than
     # whatever part of it someone remembers to include.
     _started = time.monotonic()
@@ -275,6 +280,15 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
             f"existing corrections not recorded ({describe(e)}); they stay "
             "pending until the next cycle records them")
     lap("corrections")
+    # Before write-back and the compile, so a capture filed now is in the
+    # person's vault this same cycle. Only when asked: the stage's timing key
+    # is how an operator (Fleet) confirms the drain is wired.
+    spool_report = None
+    if spool_root is not None:
+        from brain.spool import drain_spools
+
+        spool_report = drain_spools(spool_root, master, org, rules, shared=config.shared)
+        lap("spool")
 
     wb: dict[str, PersonWriteback] = {}
     already: dict[str, dict[str, str | None]] = {}
@@ -448,6 +462,9 @@ def run_cycle(master: Path, out_root: Path, today: str, *, index: bool = False) 
 
     return CycleReport(
         duration_ms=duration_ms, timings_ms=timings,
+        spool_ingested=spool_report.ingested if spool_report else 0,
+        spool_rejected=spool_report.rejected if spool_report else 0,
+        spool_warnings=spool_report.warnings if spool_report else [],
         writebacks=writebacks, swept=swept, compiled=compiled,
         compile_failures=compile_failures, pending=pending,
         clients_created=sum(1 for p in provisioned if p.status == "created"),

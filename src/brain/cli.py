@@ -413,7 +413,8 @@ def cmd_webhook(args) -> int:
 
 def cmd_cycle(args) -> int:
     report = run_cycle(Path(args.master), Path(args.out),
-                       today=date.today().isoformat(), index=args.index)
+                       today=date.today().isoformat(), index=args.index,
+                       spool_root=Path(args.spool_root) if args.spool_root else None)
     if args.json:
         payload = asdict(report)
         payload["ok"] = report.ok
@@ -433,6 +434,10 @@ def cmd_cycle(args) -> int:
         print(f"swept {report.swept} draft(s); "
               f"compiled {report.compiled} vault(s); "
               f"{report.pending} promotion(s) pending")
+        if report.spool_ingested or report.spool_rejected:
+            print(f"spool: {report.spool_ingested} filed, {report.spool_rejected} rejected")
+        for w in report.spool_warnings:
+            print(f"  {w}", file=sys.stderr)
         for f in report.compile_failures:
             print(f"  compile failed: {f}", file=sys.stderr)
         if report.promotion_decisions_applied or report.promotion_decisions_refused:
@@ -878,6 +883,9 @@ def build_parser() -> argparse.ArgumentParser:
     y.add_argument("--json", action="store_true")
     y.add_argument("--index", action="store_true",
                    help="also refresh each vault's search index after compile")
+    y.add_argument("--spool-root", default=None, metavar="DIR",
+                   help="file remote-MCP captures queued under DIR/<person>/ "
+                        "(brain mcp --http --spool) into each person's Inbox")
     y.set_defaults(func=cmd_cycle)
 
     ix = sub.add_parser("index", help="build/refresh the search index for a compiled vault")

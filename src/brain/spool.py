@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 
 from brain.errors import BrainError
@@ -61,3 +62,78 @@ def write_envelope(spool: Path, person: str, *, text: str, title: str,
         json.dump(envelope, f)
     os.replace(tmp, spool / name)   # a reader never sees half a file
     return name
+
+
+@dataclass
+class DrainReport:
+    ingested: int = 0
+    rejected: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+def _reject(path: Path, report: DrainReport, why: str) -> None:
+    dest = path.parent / REJECTED_DIR
+    dest.mkdir(mode=0o700, exist_ok=True)
+    os.replace(path, dest / path.name)
+    report.rejected += 1
+    report.warnings.append(f"spool: rejected {path.parent.name}/{path.name}: {why}")
+
+
+def _envelope_problem(env, pid: str) -> str | None:
+    if not isinstance(env, dict) or env.get("version") != ENVELOPE_VERSION:
+        return "unknown envelope version"
+    if env.get("person") != pid:
+        return "envelope names a different person"
+    if not all(isinstance(env.get(k), str) for k in ("body", "title", "created")):
+        return "malformed envelope"
+    try:
+        # `created` becomes part of a file name in build_inbox_note — only a
+        # real ISO date may pass.
+        date.fromisoformat(env["created"])
+    except ValueError:
+        return "bad created date"
+    return None
+
+
+def drain_spools(spool_root: Path, master: Path, org, rules, *, shared: str) -> DrainReport:
+    """File every queued capture into master. Runs inside the cycle lock.
+
+    A failure is moved to .rejected/ and reported, never retried: ingest_note
+    uses one error class for bad metadata and a failed commit, and retrying a
+    half-done ingest could file the note twice."""
+    from brain.ingest import IngestError, ingest_note
+
+    report = DrainReport()
+    if not spool_root.is_dir():
+        report.warnings.append(f"spool: {spool_root} is not a directory — nothing drained")
+        return report
+    folders = sorted(p for p in spool_root.iterdir()
+                     if p.is_dir() and not p.is_symlink() and not p.name.startswith("."))
+    for folder in folders:
+        person = org.people.get(folder.name)
+        envelopes = sorted(p for p in folder.glob("*.json")
+                           if p.is_file() and not p.is_symlink())
+        for path in envelopes:
+            if person is None:
+                _reject(path, report, "not a person in org.yaml")
+                continue
+            try:
+                env = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+                _reject(path, report, f"unreadable ({type(e).__name__})")
+                continue
+            problem = _envelope_problem(env, folder.name)
+            if problem:
+                _reject(path, report, problem)
+                continue
+            try:
+                ingest_note(master, person, rules, env["body"],
+                            title=env["title"] or "Captured from Claude", source="mcp",
+                            sender=person.email or person.id, created=env["created"],
+                            shared=shared)
+            except IngestError as e:
+                _reject(path, report, str(e))
+                continue
+            path.unlink()
+            report.ingested += 1
+    return report

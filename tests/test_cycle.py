@@ -1571,3 +1571,35 @@ def test_cycle_gives_the_digest_the_utc_date(master, tmp_path, monkeypatch):
     out = _first_compile(master, tmp_path)
     run_cycle(master, out, today="2020-01-01")
     assert seen["today"] == datetime.now(UTC).date().isoformat()
+def test_cycle_drains_the_spool_and_times_it(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    root = tmp_path / "spool"
+    (root / "bob").mkdir(parents=True)
+    (root / "bob" / "20261006T143005Z-abcd1234.json").write_text(json.dumps(
+        {"version": 1, "person": "bob", "title": "Ana", "body": "aisle seats",
+         "source": "mcp", "created": "2026-10-06"}))
+
+    report = run_cycle(master, out, today="2026-10-06", spool_root=root)
+
+    assert report.spool_ingested == 1 and report.spool_rejected == 0
+    assert list(report.timings_ms)[:2] == ["corrections", "spool"]
+    # filed into master before the compile, so bob's fresh vault already has it
+    assert list((out / "bob/People/bob/Inbox").glob("2026-10-06-ana*.md"))
+
+
+def test_cycle_without_spool_root_has_no_spool_timing(master, tmp_path):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    report = run_cycle(master, out, today="2026-10-06")
+    assert "spool" not in report.timings_ms and report.spool_ingested == 0
+
+
+def test_cli_cycle_accepts_spool_root(master, tmp_path, capsys):
+    seed_meta(master)
+    out = _first_compile(master, tmp_path)
+    (tmp_path / "spool").mkdir()
+    assert main(["cycle", "--master", str(master), "--out", str(out),
+                 "--spool-root", str(tmp_path / "spool"), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert "spool" in payload["timings_ms"]

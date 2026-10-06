@@ -43,3 +43,72 @@ def test_rejected_envelopes_do_not_count_as_pending(tmp_path):
     (tmp_path / ".rejected").mkdir()
     (tmp_path / ".rejected" / "old.json").write_text("{}")
     assert pending_count(tmp_path) == 0
+import subprocess
+
+from brain.schemas import load_org, load_spaces
+from brain.spool import drain_spools
+from tests.test_cli import seed_meta
+
+
+def _drain(master, root):
+    org = load_org(master / "_meta/org.yaml")
+    rules = load_spaces(master / "_meta/spaces.yaml")
+    return drain_spools(root, master, org, rules, shared="Company")
+
+
+def _queue(root, pid, **env):
+    d = root / pid
+    d.mkdir(parents=True, exist_ok=True)
+    base = {"version": 1, "person": pid, "title": "Ana", "body": "aisle seats",
+            "source": "mcp", "created": "2026-10-06"}
+    base.update(env)
+    p = d / "20261006T143005Z-abcd1234.json"
+    p.write_text(json.dumps(base))
+    return p
+
+
+def test_drain_files_a_capture_into_master_inbox_and_commits(master, tmp_path):
+    seed_meta(master)
+    root = tmp_path / "spool"
+    env = _queue(root, "bob")
+    report = _drain(master, root)
+    assert (report.ingested, report.rejected) == (1, 0)
+    assert not env.exists()
+    [note] = (master / "People/bob/Inbox").glob("2026-10-06-ana*.md")
+    text = note.read_text()
+    assert "source: mcp" in text and "from: bob@acme.com" in text and text.endswith("aisle seats")
+    log = subprocess.run(["git", "-C", str(master), "log", "-1", "--format=%an"],
+                         capture_output=True, text=True).stdout.strip()
+    assert log == "Brain Ingest"
+
+
+@pytest.mark.parametrize("pid,env,why", [
+    ("mallory", {}, "not a person"),
+    ("bob", {"person": "alice"}, "different person"),
+    ("bob", {"version": 9}, "version"),
+    ("bob", {"body": 5}, "malformed"),
+    ("bob", {"created": "../../x"}, "created"),
+])
+def test_drain_rejects_and_keeps_bad_envelopes(master, tmp_path, pid, env, why):
+    seed_meta(master)
+    root = tmp_path / "spool"
+    path = _queue(root, pid, **env)
+    report = _drain(master, root)
+    assert (report.ingested, report.rejected) == (0, 1)
+    assert (path.parent / ".rejected" / path.name).exists()
+    assert why in report.warnings[0]
+    assert not list(master.rglob("x.md"))
+
+
+def test_drain_ignores_tmp_and_rejected_folders(master, tmp_path):
+    seed_meta(master)
+    root = tmp_path / "spool"
+    (root / "bob" / ".tmp").mkdir(parents=True)
+    (root / "bob" / ".tmp" / "half.json").write_text("{")
+    assert _drain(master, root).ingested == 0
+
+
+def test_drain_of_missing_root_warns(master, tmp_path):
+    seed_meta(master)
+    report = _drain(master, tmp_path / "nope")
+    assert report.ingested == 0 and "not a directory" in report.warnings[0]
