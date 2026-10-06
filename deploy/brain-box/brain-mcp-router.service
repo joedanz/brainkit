@@ -1,0 +1,34 @@
+# systemd unit: the company's remote-MCP router (`brain mcp-router`).
+# Verifies the edge's identity and forwards each person to their own
+# brain-mcp@<id>. It holds no vault and can see nothing under /srv/brain.
+#
+# Needs brainkit[remote], /etc/brain/mcp.env (as brain-mcp@.service) and
+# /etc/brain/mcp-routes.yaml:
+#   version: 1
+#   routes:
+#     alice@acme.com: 8901
+# The router reloads the routes file when it changes; no restart needed.
+# Point the edge tunnel (cloudflared) at http://127.0.0.1:8900.
+
+[Unit]
+Description=brainkit remote MCP router
+Documentation=https://github.com/joedanz/brainkit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=brain
+EnvironmentFile=/etc/brain/mcp.env
+ExecStart=/usr/local/bin/brain mcp-router --routes /etc/brain/mcp-routes.yaml --port 8900
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+InaccessiblePaths=/srv/brain
+PrivateTmp=true
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

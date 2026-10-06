@@ -16,9 +16,13 @@
 #       /usr/local/sbin/brain-liveness.sh >> /var/log/brain-liveness.log 2>&1
 set -eu
 
-: "${HEALTHCHECK_URL:?set HEALTHCHECK_URL (hc-ping.com check for this box's services)}"
+: "${HEALTHCHECK_URL:?set HEALTHCHECK_URL (hc-ping.com check for this box services)}"
 
-units="$(systemctl list-unit-files 'brain-*.service' --state=enabled --no-legend | awk '{print $1}')"
+# Unit files list templates (brain-mcp@.service), which are never "active";
+# check the running instances of a template instead.
+files="$(systemctl list-unit-files 'brain-*.service' --state=enabled --no-legend)"
+live="$(systemctl list-units 'brain-*@*.service' --all --no-legend --plain)"
+units="$(printf '%s\n%s\n' "$files" "$live" | awk '$1 != "" && $1 !~ /@[.]service$/ {print $1}')"
 
 down=""
 for u in $units ${EXTRA_UNITS:-}; do
