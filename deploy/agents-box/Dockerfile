@@ -113,9 +113,18 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/* \
     && pdftotext -v >/dev/null 2>&1 && tesseract --version >/dev/null 2>&1
+# PyMuPDF (render a PDF page to an image, read a PDF's layout), Pillow and numpy
+# (image handling). Baked in because the agents' network is an allowlist and PyPI
+# is NOT on it: before this, an agent that needed them ran `uv run --with pymupdf …`
+# ~60 times (2026-08-28..09-22) and fetched them at runtime. OCR stays tesseract
+# (above); RapidOCR was left out on purpose (+285 MB, unused since 2026-09-09).
+# Pins are what `uv` resolves under its 14-day exclude-newer cutoff, checked on
+# 2026-10-20 with a render + import test on Python 3.13.5.
 RUN uv venv /opt/doctools --python 3.13 \
     && uv pip install --python /opt/doctools/bin/python \
-       "openpyxl==3.1.5" "xlrd==2.0.2" "python-docx==1.2.0" "pypdf==6.1.1"
+       "openpyxl==3.1.5" "xlrd==2.0.2" "python-docx==1.2.0" "pypdf==6.1.1" \
+       "pymupdf==1.28.2" "pillow==13.0.0" "numpy==2.5.4" \
+    && /opt/doctools/bin/python -c "import fitz, PIL, numpy, pypdf, docx, openpyxl, xlrd"
 COPY deploy/agents-box/scripts/doc2text /usr/local/bin/doc2text
 
 # openpyxl AGAIN, into hermes' own venv this time. hermes ships a bundled

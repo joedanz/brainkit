@@ -11,6 +11,10 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Added
+
+- **The agent image's document tools can now render PDF pages and handle images.** `/opt/doctools` gains PyMuPDF, Pillow and numpy, pinned. Agents on a network allowlist cannot reach PyPI, so tools they used to install on demand (`uv run --with pymupdf`) have to be in the image. OCR is still tesseract through `doc2text`.
+
 ## [0.9.0] - 2026-10-06
 
 ### Added
