@@ -81,8 +81,13 @@ RUN uv venv /opt/brainkit --python 3.13 \
 #
 # NOT into /opt/data. That is the runtime volume, so anything written there at
 # build time is masked the moment the volume mounts — the same trap the TMPDIR
-# comment above describes. The default global prefix (/usr/local) is baked into
-# the image and survives.
+# comment above describes. /usr/local is baked into the image and survives.
+#
+# `--prefix /usr/local` is explicit because the default moved: from hermes
+# v0.22 the base image bundles its own Node under /opt/hermes/tools/node-*/ and
+# npm's global prefix points THERE, so a bare `-g` lands `m365` in a bin dir
+# that is not on PATH and `m365 --version` fails with 127 (the v0.22.5 upgrade
+# build, 2026-10-30). /usr/local/bin is on PATH in every base image.
 #
 # Note for whoever migrates an agent that had this hand-installed: the runtime
 # PATH puts /opt/data/.local/bin BEFORE /usr/local/bin, so a hand-installed
@@ -90,7 +95,7 @@ RUN uv venv /opt/brainkit --python 3.13 \
 # is a fiction.
 ARG M365_CLI_VERSION=11.10.0
 LABEL io.deploy.m365-cli-version="$M365_CLI_VERSION"
-RUN npm install -g --no-fund --no-audit "@pnp/cli-microsoft365@${M365_CLI_VERSION}" \
+RUN npm install -g --prefix /usr/local --no-fund --no-audit "@pnp/cli-microsoft365@${M365_CLI_VERSION}" \
     && m365 --version >/dev/null
 
 # Suppresses the CLI's update check. Not cosmetic: the nag prints on stdout,
