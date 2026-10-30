@@ -41,8 +41,19 @@ MANIFEST_NAME = ".brain-manifest.json"
 def write_manifest(path: Path, manifest: dict) -> None:
     """Serialize a vault manifest the one way every writer must agree on, so
     a rewrite (e.g. clearing the busy key) reproduces the committed bytes
-    exactly."""
-    path.write_text(json.dumps(manifest, indent=2))
+    exactly.
+
+    Written to a temp file and renamed into place: the cycle rewrites a live
+    manifest in place to set and clear the busy key, and a write cut short
+    (a full disk, 2026-10-30) must leave the old manifest whole, not a
+    truncated one every reader then rejects."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        tmp.write_text(json.dumps(manifest, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 # A person's hold record (People/<id>/.held.json): server-side bookkeeping
