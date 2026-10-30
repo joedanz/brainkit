@@ -30,8 +30,16 @@ fi
 
 # --- steady state -------------------------------------------------------------
 # Commit anything the agent left uncommitted so it can never block the pull.
-if [ -n "$(git -C "$V" status --porcelain)" ]; then
-    git -C "$V" add -A
+# Except .brain/, the live search index: never committed, whatever .gitignore
+# says, and untracked if a crash ever let it in (2026-10-29: an emptied
+# .gitignore got the 118 MB index tracked, and since `brain index` rewrites it
+# between this commit and the pull, every pull then failed).
+if [ -n "$(git -C "$V" ls-files .brain)" ]; then
+    git -C "$V" rm -r -q --cached .brain
+fi
+if [ -n "$(git -C "$V" status --porcelain -- . ':(exclude).brain')" ] \
+        || ! git -C "$V" diff --cached --quiet; then
+    git -C "$V" add -A -- . ':(exclude).brain'
     git -C "$V" commit -q -m "agent: sync $(date -u +%FT%TZ)" || true
 fi
 

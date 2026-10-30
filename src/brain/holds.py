@@ -52,15 +52,27 @@ def vault_head(vault: Path) -> str | None:
         return None
 
 
+# The vault's local search index. Ignored by the vault's .gitignore, but that
+# file is not enough: a hard reboot (2026-10-29) left it empty, the next
+# `add -A` tracked the 118 MB index, and every cycle then committed a fresh
+# copy until the disk filled. So it is excluded here by name, and untracked if
+# a crash ever let it in.
+BRAIN_DIR = ".brain"
+
+
 def commit_vault_strays(vault: Path) -> bool:
     """Commit uncommitted edits in the vault repo so every held path is
     reachable by SHA. The manifest is excluded: during a cycle it carries
-    the busy marker, which must stay uncommitted."""
+    the busy marker, which must stay uncommitted. `.brain/` never enters
+    history (see BRAIN_DIR)."""
     if not (vault / ".git").exists():
         return False
-    spec = ("--", ".", f":(exclude){MANIFEST_NAME}")
-    if not _git(vault, "status", "--porcelain", *spec).stdout.strip():
+    spec = ("--", ".", f":(exclude){MANIFEST_NAME}", f":(exclude){BRAIN_DIR}")
+    untrack = bool(_git(vault, "ls-files", BRAIN_DIR).stdout.strip())
+    if not untrack and not _git(vault, "status", "--porcelain", *spec).stdout.strip():
         return False
+    if untrack:
+        _git(vault, "rm", "-r", "-q", "--cached", BRAIN_DIR)
     _git(vault, "add", "-A", *spec)
     _git(vault, "-c", f"user.name={CYCLE_NAME}", "-c", f"user.email={CYCLE_EMAIL}",
          "commit", "-q", "-m", "cycle: keep uncommitted vault edits")

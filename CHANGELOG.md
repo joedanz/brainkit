@@ -11,6 +11,16 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- `.brain/` (a vault's local search index) can no longer enter a vault's git history.
+  The cycle and the agents' `vault-sync` now exclude it by name instead of trusting
+  `.gitignore`, and untrack it if it was ever committed. After a hard reboot left the
+  vaults' `.gitignore` files empty, both sides committed the 118 MB index every run:
+  the brain disk filled and every agent sync failed.
+- A manifest rewrite that is cut short (for example on a full disk) now leaves the old
+  manifest whole. It is written to a temp file and renamed into place.
+
 ## [0.9.1] - 2026-10-30
 
 ### Fixed
