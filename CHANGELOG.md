@@ -11,6 +11,13 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+### Fixed
+
+- The agents image builds on hermes v0.22 again. From v0.22 the hermes base image
+  bundles its own Node, and npm's global prefix moved there, off `PATH`, so the
+  `m365` CLI install failed the build with exit 127. The Dockerfile now installs it
+  with `--prefix /usr/local`, which works on every base image.
+
 ## [0.9.0] - 2026-10-06
 
 ### Added
