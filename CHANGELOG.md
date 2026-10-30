@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-30
+
 ### Fixed
 
 - `.brain/` (a vault's local search index) can no longer enter a vault's git history.
