@@ -11,6 +11,8 @@ explicitly under **Changed**, with what to do about it.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-30
+
 ### Fixed
 
 - The agents image builds on hermes v0.22 again. From v0.22 the hermes base image
